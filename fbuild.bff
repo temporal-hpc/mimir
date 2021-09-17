@@ -1,0 +1,41 @@
+.BuildType        = 'Release'
+.FlagsDebug       = ' -Od -g'
+.FlagsRelease     = ' -O3'
+
+Compiler('ShaderCompiler')
+{
+  .Executable = '/usr/bin/glslc'
+  .CompilerFamily = 'custom'
+}
+
+ObjectList('shaders')
+{
+  .Compiler                = 'ShaderCompiler'
+  .CompilerOptions         = '-o "%2" "%1"'
+  .CompilerOutputExtension = '.spv'
+  .CompilerInputPattern    = { '*.vert', '*.frag' }
+  .CompilerInputPath       = 'shaders/'
+  .CompilerOutputPath      = '_out/shaders'
+}
+
+ObjectList('cudaview')
+{
+  .Compiler         = '/usr/bin/g++'
+  .Librarian        = '/usr/bin/ar'
+  .CompilerOptions  = '-o "%2" "%1" -c -std=c++17'
+                    + .'Flags$BuildType$'
+  .LibrarianOptions = 'rcs "%2" "%1"'
+  .CompilerInputPath  = 'src/'
+  .CompilerOutputPath = '_out/'
+}
+
+Executable('app')
+{
+  .Libraries     = { 'cudaview' }
+  .Linker        = '/usr/bin/g++'
+  .LinkerOutput  = '_out/app'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl -lpthread'
+}
+
+Alias('all') { .Targets = { 'app', 'shaders' } }
