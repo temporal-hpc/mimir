@@ -234,13 +234,16 @@ private:
   std::vector<VkFence> inflight_fences;
   std::vector<VkFence> images_inflight;
   size_t current_frame = 0;
+  bool should_resize = false;
 
   void initWindow()
   {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan test", nullptr, nullptr);
+    glfwSetWindowUserPointer(window, this);
+    glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
   }
 
   void initVulkan()
@@ -260,6 +263,39 @@ private:
     createSyncObjects();
   }
 
+  void recreateSwapchain()
+  {
+    vkDeviceWaitIdle(device);
+
+    cleanupSwapchain();
+
+    createSwapChain();
+    createImageViews();
+    createRenderPass();
+    createGraphicsPipeline();
+    createFramebuffers();
+    createCommandBuffers();
+  }
+
+  void cleanupSwapchain()
+  {
+    vkFreeCommandBuffers(device, command_pool,
+      static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
+    );
+    vkDestroyPipeline(device, graphics_pipeline, nullptr);
+    vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
+    for (auto framebuffer : framebuffers)
+    {
+      vkDestroyFramebuffer(device, framebuffer, nullptr);
+    }
+    vkDestroyRenderPass(device, render_pass, nullptr);
+    for (auto image_view : swapchain_views)
+    {
+      vkDestroyImageView(device, image_view, nullptr);
+    }
+    vkDestroySwapchainKHR(device, swapchain, nullptr);
+  }
+
   void mainLoop()
   {
     while(!glfwWindowShouldClose(window))
@@ -273,6 +309,8 @@ private:
 
   void cleanup()
   {
+    cleanupSwapchain();
+
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
     {
       vkDestroySemaphore(device, render_finished[i], nullptr);
@@ -280,18 +318,6 @@ private:
       vkDestroyFence(device, inflight_fences[i], nullptr);
     }
     vkDestroyCommandPool(device, command_pool, nullptr);
-    vkDestroyPipeline(device, graphics_pipeline, nullptr);
-    vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
-    for (auto framebuffer : framebuffers)
-    {
-      vkDestroyFramebuffer(device, framebuffer, nullptr);
-    }
-    vkDestroyRenderPass(device, render_pass, nullptr);
-    for (auto image_view : swapchain_views)
-    {
-      vkDestroyImageView(device, image_view, nullptr);
-    }
-    vkDestroySwapchainKHR(device, swapchain, nullptr);
     vkDestroyDevice(device, nullptr);
     if (enable_validation_layers)
     {
@@ -1009,9 +1035,19 @@ private:
     // Acquire image from swap chain
     uint32_t image_idx;
     // Third parameter means timeout for acquiring image is disabled
-    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
+    auto result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
       image_available[current_frame], VK_NULL_HANDLE, &image_idx
     );
+    // Check if swapchain is no longer adequate for presentation (resize, etc.)
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+      recreateSwapchain();
+      return;
+    }
+    else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+      throw std::runtime_error("failed to acquire swapchain image!");
+    }
 
     // Check if a previous frame is using this image (have to wait for its fence)
     if (images_inflight[image_idx] != VK_NULL_HANDLE)
@@ -1060,11 +1096,28 @@ private:
     // Used to check each swapchain if presentation is successful
     present_info.pResults = nullptr;
 
-    vkQueuePresentKHR(present_queue, &present_info);
+    result = vkQueuePresentKHR(present_queue, &present_info);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
+    {
+      // Resize should be done after presenting to ensure that semaphores are
+      // in a consistent state
+      should_resize = false;
+      recreateSwapchain();
+    }
+    else if (result != VK_SUCCESS)
+    {
+      throw std::runtime_error("failed to present swapchain image!");
+    }
 
     // Wait for work to finish right after submitting it
     vkQueueWaitIdle(present_queue);
     current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+  }
+
+  static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
+  {
+    auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+    app->should_resize = true;
   }
 };
 
