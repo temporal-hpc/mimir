@@ -16,6 +16,7 @@
 #include <stdexcept> // std::throw
 #include <vector> // std::vector
 
+const int MAX_FRAMES_IN_FLIGHT = 2;
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
@@ -152,7 +153,8 @@ struct SwapChainSupportDetails
   std::vector<VkPresentModeKHR> present_modes;
 };
 
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& available_formats)
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(
+  const std::vector<VkSurfaceFormatKHR>& available_formats)
 {
   for (const auto& available_format : available_formats)
   {
@@ -227,8 +229,11 @@ private:
   std::vector<VkFramebuffer> framebuffers;
   VkCommandPool command_pool;
   std::vector<VkCommandBuffer> command_buffers;
-  VkSemaphore image_available;
-  VkSemaphore render_finished;
+  std::vector<VkSemaphore> image_available;
+  std::vector<VkSemaphore> render_finished;
+  std::vector<VkFence> inflight_fences;
+  std::vector<VkFence> images_inflight;
+  size_t current_frame = 0;
 
   void initWindow()
   {
@@ -252,7 +257,7 @@ private:
     createFramebuffers();
     createCommandPool(); // after framebuffers were created
     createCommandBuffers();
-    createSemaphores();
+    createSyncObjects();
   }
 
   void mainLoop()
@@ -268,8 +273,12 @@ private:
 
   void cleanup()
   {
-    vkDestroySemaphore(device, render_finished, nullptr);
-    vkDestroySemaphore(device, image_available, nullptr);
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+    {
+      vkDestroySemaphore(device, render_finished[i], nullptr);
+      vkDestroySemaphore(device, image_available[i], nullptr);
+      vkDestroyFence(device, inflight_fences[i], nullptr);
+    }
     vkDestroyCommandPool(device, command_pool, nullptr);
     vkDestroyPipeline(device, graphics_pipeline, nullptr);
     vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
@@ -458,7 +467,9 @@ private:
     uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
     std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count,
+      queue_families.data()
+    );
 
     // Find at least one queue family that supports VK_QUEUE_GRAPHICS_BIT
     int i = 0;
@@ -491,8 +502,12 @@ private:
     uint32_t ext_count;
     vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, nullptr);
     std::vector<VkExtensionProperties> available_extensions(ext_count);
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, available_extensions.data());
-    std::set<std::string> required_extensions(device_extensions.begin(), device_extensions.end());
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count,
+      available_extensions.data()
+    );
+    std::set<std::string> required_extensions(
+      device_extensions.begin(), device_extensions.end()
+    );
 
     for (const auto& extension : available_extensions)
     {
@@ -509,7 +524,8 @@ private:
     if (extensions_supported)
     {
       auto swapchain_support = querySwapChainSupport(device);
-      swapchain_adequate = !swapchain_support.formats.empty() && !swapchain_support.present_modes.empty();
+      swapchain_adequate = !swapchain_support.formats.empty() &&
+                           !swapchain_support.present_modes.empty();
     }
     return indices.isComplete() && extensions_supported && swapchain_adequate;
   }
@@ -545,7 +561,9 @@ private:
     if (format_count != 0)
     {
       details.formats.resize(format_count);
-      vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, details.formats.data());
+      vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count,
+        details.formats.data()
+      );
     }
 
     uint32_t mode_count;
@@ -553,7 +571,9 @@ private:
     if (mode_count != 0)
     {
       details.present_modes.resize(mode_count);
-      vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &mode_count, details.present_modes.data());
+      vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &mode_count,
+        details.present_modes.data()
+      );
     }
     return details;
   }
@@ -583,7 +603,9 @@ private:
     create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
     auto indices = findQueueFamilies(physical_device);
-    uint32_t queue_family_indices[] = {indices.graphics_family.value(), indices.present_family.value()};
+    uint32_t queue_family_indices[] = {
+      indices.graphics_family.value(), indices.present_family.value()
+    };
 
     if (indices.graphics_family != indices.present_family)
     {
@@ -775,7 +797,8 @@ private:
     pipeline_layout_info.pushConstantRangeCount = 0;
     pipeline_layout_info.pPushConstantRanges = nullptr;
 
-    if (vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &pipeline_layout) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr,
+      &pipeline_layout) != VK_SUCCESS)
     {
       throw std::runtime_error("failed to create pipeline layout!");
     }
@@ -868,7 +891,8 @@ private:
       framebuffer_info.height = swapchain_extent.height;
       framebuffer_info.layers = 1;
 
-      if (vkCreateFramebuffer(device, &framebuffer_info, nullptr, &framebuffers[i]) != VK_SUCCESS)
+      if (vkCreateFramebuffer(device, &framebuffer_info, nullptr,
+        &framebuffers[i]) != VK_SUCCESS)
       {
         throw std::runtime_error("failed to create framebuffer!");
       }
@@ -928,11 +952,15 @@ private:
       render_pass_info.clearValueCount = 1;
       render_pass_info.pClearValues = &clear_color;
 
-      vkCmdBeginRenderPass(command_buffers[i], &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+      vkCmdBeginRenderPass(command_buffers[i], &render_pass_info,
+        VK_SUBPASS_CONTENTS_INLINE
+      );
 
       // Bind the graphics pipeline
       // Note: Second parameter can be used to bind a compute pipeline
-      vkCmdBindPipeline(command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
+      vkCmdBindPipeline(command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
+        graphics_pipeline
+      );
 
       vkCmdDraw(command_buffers[i], 3, 1, 0, 0);
 
@@ -945,32 +973,59 @@ private:
     }
   }
 
-  void createSemaphores()
+  void createSyncObjects()
   {
-    VkSemaphoreCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    image_available.resize(MAX_FRAMES_IN_FLIGHT);
+    render_finished.resize(MAX_FRAMES_IN_FLIGHT);
+    inflight_fences.resize(MAX_FRAMES_IN_FLIGHT);
+    images_inflight.resize(swapchain_images.size(), VK_NULL_HANDLE);
 
-    if (vkCreateSemaphore(device, &create_info, nullptr, &image_available) != VK_SUCCESS
-    || vkCreateSemaphore(device, &create_info, nullptr, &render_finished) != VK_SUCCESS)
+    VkSemaphoreCreateInfo semaphore_info{};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fence_info{};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
     {
-      throw std::runtime_error("failed to create semaphores!");
+      if (vkCreateSemaphore(device, &semaphore_info, nullptr,
+        &image_available[i]) != VK_SUCCESS
+      || vkCreateSemaphore(device, &semaphore_info, nullptr,
+        &render_finished[i]) != VK_SUCCESS
+      || vkCreateFence(device, &fence_info, nullptr, &inflight_fences[i]) != VK_SUCCESS)
+      {
+        throw std::runtime_error("failed to create sync objects for a frame!");
+      }
     }
   }
 
   void drawFrame()
   {
+    // Wait for the frame to be finished
+    vkWaitForFences(device, 1, &inflight_fences[current_frame], VK_TRUE, UINT64_MAX);
+
+
     // Acquire image from swap chain
     uint32_t image_idx;
     // Third parameter means timeout for acquiring image is disabled
-    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, image_available,
-      VK_NULL_HANDLE, &image_idx
+    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
+      image_available[current_frame], VK_NULL_HANDLE, &image_idx
     );
+
+    // Check if a previous frame is using this image (have to wait for its fence)
+    if (images_inflight[image_idx] != VK_NULL_HANDLE)
+    {
+      vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, UINT64_MAX);
+    }
+    // Mark the image as now being in use by this frame
+    images_inflight[image_idx] = inflight_fences[current_frame];
 
     // Submit the command buffer
     VkSubmitInfo submit_info{};
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-    VkSemaphore wait_semaphores[] = { image_available };
+    VkSemaphore wait_semaphores[] = { image_available[current_frame] };
     VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = wait_semaphores;
@@ -978,12 +1033,16 @@ private:
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &command_buffers[image_idx];
 
-    VkSemaphore signal_semaphores[] = { render_finished };
+    VkSemaphore signal_semaphores[] = { render_finished[current_frame] };
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = signal_semaphores;
 
+    // Fences must be reset before being submitted again
+    vkResetFences(device, 1, &inflight_fences[current_frame]);
+
     // Execute command buffer using image as attachment in framebuffer
-    if (vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS)
+    if (vkQueueSubmit(graphics_queue, 1, &submit_info,
+      inflight_fences[current_frame]) != VK_SUCCESS)
     {
       throw std::runtime_error("failed to submit draw command buffer!");
     }
@@ -1005,6 +1064,7 @@ private:
 
     // Wait for work to finish right after submitting it
     vkQueueWaitIdle(present_queue);
+    current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
   }
 };
 
