@@ -12,10 +12,10 @@ ObjectList('shaders')
 {
   .Compiler                = 'ShaderCompiler'
   .CompilerOptions         = '-o "%2" "%1"'
-  .CompilerOutputExtension = '.spv'
-  .CompilerInputPattern    = { '*.vert', '*.frag' }
   .CompilerInputPath       = 'shaders/'
+  .CompilerInputPattern    = { '*.vert', '*.frag' }
   .CompilerOutputPath      = '_out/shaders'
+  .CompilerOutputExtension = '.spv'
 }
 
 ObjectList('cudaview')
@@ -23,6 +23,7 @@ ObjectList('cudaview')
   .Compiler         = '/usr/bin/g++'
   .Librarian        = '/usr/bin/ar'
   .CompilerOptions  = '-o "%2" "%1" -c -std=c++17'
+                    + ' -Iinclude'
                     + .'Flags$BuildType$'
   .LibrarianOptions = 'rcs "%2" "%1"'
   .CompilerInputPath  = 'src/'
@@ -35,7 +36,7 @@ Executable('app')
   .Linker        = '/usr/bin/g++'
   .LinkerOutput  = '_out/app'
   .LinkerOptions = '"%1" -o "%2"'
-                 + ' -lglfw -lvulkan -ldl -lpthread'
+                 + ' -lglfw -lvulkan -ldl'
 }
 
 Alias('all') { .Targets = { 'app', 'shaders' } }

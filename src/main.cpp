@@ -1,13 +1,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/mat4x4.hpp>
-
 #include <algorithm> // std::min/max
-#include <array> // std::array (vertex buffer)
 #include <cstring> // strcmp
 #include <cstdint> // UINT32_MAX
 #include <fstream> // std::ifstream (for readFile)
@@ -15,65 +9,13 @@
 #include <optional> // std::optional
 #include <set> // std::set
 #include <stdexcept> // std::throw
-#include <vector> // std::vector
+
+#include "cudaview/vk_engine.hpp"
+#include "cudaview/vk_types.hpp"
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t WIDTH = 800;
-const uint32_t HEIGHT = 600;
-
-struct Vertex
-{
-  glm::vec2 pos;
-  glm::vec3 color;
-
-  static VkVertexInputBindingDescription getBindingDescription()
-  {
-    VkVertexInputBindingDescription binding_desc{};
-    binding_desc.binding = 0;
-    binding_desc.stride = sizeof(Vertex);
-    binding_desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    return binding_desc;
-  }
-
-  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
-  {
-    std::array<VkVertexInputAttributeDescription, 2> attribute_desc{};
-    attribute_desc[0].binding = 0;
-    attribute_desc[0].location = 0;
-    attribute_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
-    attribute_desc[0].offset = offsetof(Vertex, pos);
-    attribute_desc[1].binding = 0;
-    attribute_desc[1].location = 1;
-    attribute_desc[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attribute_desc[1].offset = offsetof(Vertex, color);
-    return attribute_desc;
-  }
-};
-
-const std::vector<Vertex> vertices = {
-  { {-.5f, -.5f}, {1.f, 0.f, 0.f} },
-  { { .5f, -.5f}, {0.f, 1.f, 0.f} },
-  { { .5f,  .5f}, {0.f, 0.f, 1.f} },
-  { {-.5f,  .5f}, {1.f, 1.f, 1.f} }
-};
 
 const std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
-
-// Validation layers to enable
-const std::vector<const char*> validation_layers = {
-  "VK_LAYER_KHRONOS_validation"
-};
-// Required device extensions
-const std::vector<const char*> device_extensions = {
-  VK_KHR_SWAPCHAIN_EXTENSION_NAME
-};
-
-// Check if validation layers should be enabled
-#ifdef NDEBUG
-  const bool enable_validation_layers = false;
-#else
-  const bool enable_validation_layers = true;
-#endif
 
 bool checkValidationLayerSupport()
 {
@@ -236,12 +178,12 @@ static std::vector<char> readFile(const std::string& filename)
   return buffer;
 }
 
-class HelloTriangleApplication
+class GlfwApplication
 {
 public:
   void run()
   {
-    initWindow();
+    initWindow(800, 600);
     initVulkan();
     mainLoop();
     cleanup();
@@ -279,12 +221,12 @@ private:
   VkBuffer index_buffer;
   VkDeviceMemory index_buffer_memory;
 
-  void initWindow()
+  void initWindow(int width, int height)
   {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan test", nullptr, nullptr);
+    window = glfwCreateWindow(width, height, "Vulkan test", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
   }
@@ -1179,7 +1121,7 @@ private:
 
   static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
   {
-    auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+    auto app = reinterpret_cast<GlfwApplication*>(glfwGetWindowUserPointer(window));
     app->should_resize = true;
   }
 
@@ -1322,7 +1264,7 @@ private:
 
 int main()
 {
-  HelloTriangleApplication app;
+  GlfwApplication app;
 
   try
   {
