@@ -176,8 +176,13 @@ void VulkanEngine::initWindow(int width, int height)
   glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 }
 
-void VulkanEngine::run()
+void VulkanEngine::run(std::function<void(void)> func, size_t step_count)
 {
+  for (int i = 0; i < step_count; ++i)
+  {
+    func();
+    drawFrame();
+  }
   while(!glfwWindowShouldClose(window))
   {
     glfwPollEvents();

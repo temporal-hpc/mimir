@@ -5,6 +5,7 @@
 
 #include "cudaview/vk_types.hpp"
 
+#include <functional> // std::function
 #include <iostream> // std::cerr
 #include <optional> // std::optional
 
@@ -47,7 +48,8 @@ public:
   bool should_resize = false;
   void initWindow(int width, int height);
   void initEngine();
-  void run();
+  void registerDeviceMemory(float *d_memory);
+  void run(std::function<void(void)> func, size_t step_count);
   void cleanup();
   void drawFrame();
 

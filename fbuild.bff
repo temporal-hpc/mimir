@@ -1,6 +1,7 @@
-.BuildType        = 'Release'
-.FlagsDebug       = ' -Od -g'
-.FlagsRelease     = ' -O3'
+.BuildType     = 'Release'
+.FlagsDebug    = ' -Od -g'
+.FlagsRelease  = ' -O3'
+.FlagsStandard = ' -std=c++17'
 
 .Librarian          = '/usr/bin/ar'
 .LibrarianOptions   = 'rcs "%2" "%1"'
@@ -21,29 +22,32 @@ ObjectList('shaders')
   .CompilerOutputExtension = '.spv'
 }
 
-ObjectList('cudaview')
+Library('cudaview')
 {
   .Compiler           = '/usr/bin/g++'
+  .CompilerOptions    = '-o "%2" "%1" -c'
+                      + ' -Iinclude -Icuda'
+                      + .'Flags$BuildType$'
+                      + .'FlagsStandard'
   .CompilerInputPath  = 'src/'
   .CompilerOutputPath = '_out/'
-  .CompilerOptions    = '-o "%2" "%1" -c -std=c++17'
-                      + ' -Iinclude -Icuda -I/usr/local/cuda/include'
-                      + .'Flags$BuildType$'
+  .LibrarianOutput      = '_out/cudaview.lib'
 }
 
-Library('cudatest')
+ObjectList('cudaprogram')
 {
   .Compiler             = '/usr/local/cuda/bin/nvcc'
   .CompilerOptions      = '-o "%2" "%1" -c'
+                        + ' -Iinclude'
+                        + .'FlagsStandard'
   .CompilerInputPath    = 'cuda/'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
-  .LibrarianOutput      = '_out/cudatest.lib'
 }
 
 Executable('app')
 {
-  .Libraries     = { 'cudaview', 'cudatest' }
+  .Libraries     = { 'cudaview', 'cudaprogram' }
   .Linker        = '/usr/local/cuda/bin/nvcc'
   .LinkerOutput  = '_out/app'
   .LinkerOptions = '"%1" -o "%2"'
