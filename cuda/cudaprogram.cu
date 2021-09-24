@@ -2,7 +2,23 @@
 
 #include <cstdio>
 
-#define checkCuda(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+#include <experimental/source_location>
+
+using source_location = std::experimental::source_location;
+
+constexpr void checkCuda(cudaError_t code, bool panic = true,
+  source_location src = source_location::current())
+{
+  if (code != cudaSuccess)
+  {
+    fprintf(stderr, "CUDA assertion: %s on function %s at %s(%d)\n",
+      cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
+    );
+    if (panic) exit(code);
+  }
+}
+
+/*#define checkCuda(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
   if (code != cudaSuccess)
@@ -10,7 +26,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
     fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
     if (abort) exit(code);
   }
-}
+}*/
 
 __global__ void initSystem(float *coords, size_t particle_count,
   curandState *global_states, size_t state_count, int2 extent, unsigned seed)

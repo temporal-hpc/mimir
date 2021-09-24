@@ -11,8 +11,7 @@ int main()
   VulkanEngine engine;
   try
   {
-    engine.initWindow(800, 600);
-    engine.initEngine();
+    engine.init();
     engine.run(func, 100);
   }
   catch (const std::exception& e)

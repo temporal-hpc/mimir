@@ -9,17 +9,6 @@
 #include <iostream> // std::cerr
 #include <optional> // std::optional
 
-// Check if validation layers should be enabled
-#ifdef NDEBUG
-  const bool enable_validation_layers = false;
-#else
-  const bool enable_validation_layers = true;
-#endif
-
-// Validation layers to enable
-const std::vector<const char*> validation_layers = {
-  "VK_LAYER_KHRONOS_validation"
-};
 // Required device extensions
 const std::vector<const char*> device_extensions = {
   VK_KHR_SWAPCHAIN_EXTENSION_NAME
@@ -46,8 +35,7 @@ class VulkanEngine
 {
 public:
   bool should_resize = false;
-  void initWindow(int width, int height);
-  void initEngine();
+  void init(int width = 800, int height = 600);
   void registerDeviceMemory(float *d_memory);
   void run(std::function<void(void)> func, size_t step_count);
   void cleanup();
@@ -55,10 +43,10 @@ public:
 
 private:
   GLFWwindow *window = nullptr;
-  VkInstance instance;
-  VkDebugUtilsMessengerEXT debug_messenger;
-  VkSurfaceKHR surface;
-  VkPhysicalDevice physical_device = VK_NULL_HANDLE;
+  VkInstance instance; // Vulkan library handle
+  VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
+  VkPhysicalDevice physical_device = VK_NULL_HANDLE; // GPU used for operations
+  VkSurfaceKHR surface; // Vulkan window surface
   VkDevice device;
   VkQueue graphics_queue;
   VkQueue present_queue;
@@ -84,6 +72,7 @@ private:
   VkBuffer index_buffer;
   VkDeviceMemory index_buffer_memory;
 
+  void initVulkan();
   void recreateSwapchain();
   void cleanupSwapchain();
   void createInstance();

@@ -1,9 +1,10 @@
 #include "cudaview/vk_engine.hpp"
+#include "io.hpp"
+#include "validation.hpp"
 
 #include <algorithm> // std::min/max
-#include <cstring> // strcmp
+#include <cstring> // memcpy
 #include <cstdint> // UINT32_MAX
-#include <fstream> // std::ifstream (for readFile)
 #include <set> // std::set
 #include <stdexcept> // std::throw
 
@@ -22,104 +23,18 @@ static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
   app->should_resize = true;
 }
 
-bool checkValidationLayerSupport()
-{
-  // List all available layers
-  uint32_t layer_count;
-  vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
-  std::vector<VkLayerProperties> available_layers(layer_count);
-  vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
-
-  // Check if all of the validation layers are available
-  for (const char *layerName : validation_layers)
-  {
-    bool layer_found = false;
-    for (const auto& layer_properties : available_layers)
-    {
-      if (strcmp(layerName, layer_properties.layerName) == 0)
-      {
-        layer_found = true;
-        break;
-      }
-    }
-    if (!layer_found)
-    {
-      return false;
-    }
-  }
-  return true;
-}
-
 // Return list of required GLFW extensions and additional required validation layers
 std::vector<const char*> getRequiredExtensions()
 {
   uint32_t glfw_ext_count = 0;
   const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
   std::vector<const char*> extensions(glfw_exts, glfw_exts + glfw_ext_count);
-  if (enable_validation_layers)
+  if (validation::enable_validation_layers)
   {
     // Enable debugging message extension
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   }
   return extensions;
-}
-
-// Setup debug messenger callback
-static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-  VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
-  VkDebugUtilsMessageTypeFlagsEXT message_type,
-  const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data,
-  void *p_user_data
-)
-{
-  std::cerr << "validation layer: " << p_callback_data->pMessage << "\n";
-  return VK_FALSE;
-}
-
-VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
-  const VkDebugUtilsMessengerCreateInfoEXT *p_create_info,
-  const VkAllocationCallbacks *p_allocator,
-  VkDebugUtilsMessengerEXT *p_debug_messenger
-)
-{
-  // Lookup address of debug messenger extension function
-  auto func = (PFN_vkCreateDebugUtilsMessengerEXT)
-    vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-  if (func != nullptr)
-  {
-    return func(instance, p_create_info, p_allocator, p_debug_messenger);
-  }
-  else // Function could not be loaded
-  {
-    return VK_ERROR_EXTENSION_NOT_PRESENT;
-  }
-}
-
-void DestroyDebugUtilsMessengerEXT(VkInstance instance,
-  VkDebugUtilsMessengerEXT debug_messenger,
-  const VkAllocationCallbacks *p_allocator
-)
-{
-  auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)
-    vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
-  if (func != nullptr)
-  {
-    return func(instance, debug_messenger, p_allocator);
-  }
-}
-
-void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &create_info)
-{
-  create_info = {};
-  create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-  create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-  create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-    VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-    VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-  create_info.pfnUserCallback = debugCallback;
-  create_info.pUserData = nullptr; // optional
 }
 
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(
@@ -148,25 +63,7 @@ VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& avai
   return VK_PRESENT_MODE_FIFO_KHR;
 }
 
-static std::vector<char> readFile(const std::string& filename)
-{
-  std::ifstream file(filename, std::ios::ate | std::ios::binary);
-  if (!file.is_open())
-  {
-    throw std::runtime_error("failed to open file!");
-  }
-
-  // Use read position to determine filesize and allocate output buffer
-  auto filesize = static_cast<size_t>(file.tellg());
-  std::vector<char> buffer(filesize);
-
-  file.seekg(0);
-  file.read(buffer.data(), filesize);
-  file.close();
-  return buffer;
-}
-
-void VulkanEngine::initWindow(int width, int height)
+void VulkanEngine::init(int width, int height)
 {
   glfwInit();
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -174,6 +71,8 @@ void VulkanEngine::initWindow(int width, int height)
   window = glfwCreateWindow(width, height, "Vulkan test", nullptr, nullptr);
   glfwSetWindowUserPointer(window, this);
   glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+
+  initVulkan();
 }
 
 void VulkanEngine::run(std::function<void(void)> func, size_t step_count)
@@ -192,7 +91,7 @@ void VulkanEngine::run(std::function<void(void)> func, size_t step_count)
   vkDeviceWaitIdle(device);
 }
 
-void VulkanEngine::initEngine()
+void VulkanEngine::initVulkan()
 {
   createInstance();
   setupDebugMessenger();
@@ -220,7 +119,6 @@ void VulkanEngine::cleanup()
   vkDestroyBuffer(device, index_buffer, nullptr);
   vkFreeMemory(device, index_buffer_memory, nullptr);
 
-
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
   {
     vkDestroySemaphore(device, render_finished[i], nullptr);
@@ -229,29 +127,15 @@ void VulkanEngine::cleanup()
   }
   vkDestroyCommandPool(device, command_pool, nullptr);
   vkDestroyDevice(device, nullptr);
-  if (enable_validation_layers)
+  if (validation::enable_validation_layers)
   {
-    DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
+    validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
   }
   // Surface must be destroyed before instance
   vkDestroySurfaceKHR(instance, surface, nullptr);
   vkDestroyInstance(instance, nullptr);
   glfwDestroyWindow(window);
   glfwTerminate();
-}
-
-void VulkanEngine::recreateSwapchain()
-{
-  vkDeviceWaitIdle(device);
-
-  cleanupSwapchain();
-
-  createSwapChain();
-  createImageViews();
-  createRenderPass();
-  createGraphicsPipeline();
-  createFramebuffers();
-  createCommandBuffers();
 }
 
 void VulkanEngine::cleanupSwapchain()
@@ -271,6 +155,20 @@ void VulkanEngine::cleanupSwapchain()
     vkDestroyImageView(device, image_view, nullptr);
   }
   vkDestroySwapchainKHR(device, swapchain, nullptr);
+}
+
+void VulkanEngine::recreateSwapchain()
+{
+  vkDeviceWaitIdle(device);
+
+  cleanupSwapchain();
+
+  createSwapChain();
+  createImageViews();
+  createRenderPass();
+  createGraphicsPipeline();
+  createFramebuffers();
+  createCommandBuffers();
 }
 
 void VulkanEngine::drawFrame()
@@ -323,11 +221,9 @@ void VulkanEngine::drawFrame()
   vkResetFences(device, 1, &inflight_fences[current_frame]);
 
   // Execute command buffer using image as attachment in framebuffer
-  if (vkQueueSubmit(graphics_queue, 1, &submit_info,
-    inflight_fences[current_frame]) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to submit draw command buffer!");
-  }
+  validation::checkVulkan(vkQueueSubmit(graphics_queue, 1, &submit_info,
+    inflight_fences[current_frame])
+  );
 
   // Return image result back to swapchain for presentation on screen
   VkPresentInfoKHR present_info{};
@@ -362,7 +258,7 @@ void VulkanEngine::drawFrame()
 
 void VulkanEngine::createInstance()
 {
-  if (enable_validation_layers && !checkValidationLayerSupport())
+  if (validation::enable_validation_layers && !validation::checkValidationLayerSupport())
   {
     throw std::runtime_error("validation layers requested, but not available");
   }
@@ -385,12 +281,12 @@ void VulkanEngine::createInstance()
 
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
   // Include validation layer names if they are enabled
-  if (enable_validation_layers)
+  if (validation::enable_validation_layers)
   {
-    create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
-    create_info.ppEnabledLayerNames = validation_layers.data();
+    create_info.enabledLayerCount = static_cast<uint32_t>(validation::layers.size());
+    create_info.ppEnabledLayerNames = validation::layers.data();
 
-    populateDebugMessengerCreateInfo(debug_create_info);
+    validation::populateDebugMessengerCreateInfo(debug_create_info);
     create_info.pNext = static_cast<VkDebugUtilsMessengerCreateInfoEXT*>(
       &debug_create_info
     );
@@ -412,25 +308,20 @@ void VulkanEngine::createInstance()
     std::cout << '\t' << extension.extensionName << '\n';
   }
 
-  if (vkCreateInstance(&create_info, nullptr, &instance) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create instance!");
-  }
+  validation::checkVulkan(vkCreateInstance(&create_info, nullptr, &instance));
 }
 
 void VulkanEngine::setupDebugMessenger()
 {
-  if (!enable_validation_layers) return;
+  if (!validation::enable_validation_layers) return;
 
   // Details about the debug messenger and its callback
   VkDebugUtilsMessengerCreateInfoEXT create_info{};
-  populateDebugMessengerCreateInfo(create_info);
+  validation::populateDebugMessengerCreateInfo(create_info);
 
-  if (CreateDebugUtilsMessengerEXT(instance, &create_info, nullptr,
-    &debug_messenger) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to setup debug messenger!");
-  }
+  validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
+    instance, &create_info, nullptr, &debug_messenger)
+  );
 }
 
 void VulkanEngine::pickPhysicalDevice()
@@ -487,20 +378,17 @@ void VulkanEngine::createLogicalDevice()
   create_info.enabledExtensionCount = static_cast<uint32_t>(device_extensions.size());
   create_info.ppEnabledExtensionNames = device_extensions.data();
 
-  if (enable_validation_layers)
+  if (validation::enable_validation_layers)
   {
-    create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
-    create_info.ppEnabledLayerNames = validation_layers.data();
+    create_info.enabledLayerCount = static_cast<uint32_t>(validation::layers.size());
+    create_info.ppEnabledLayerNames = validation::layers.data();
   }
   else
   {
     create_info.enabledLayerCount = 0;
   }
 
-  if (vkCreateDevice(physical_device, &create_info, nullptr, &device) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create logical device!");
-  }
+  validation::checkVulkan(vkCreateDevice(physical_device, &create_info, nullptr, &device));
 
   // Must be called after logical device is created (obviously!)
   vkGetDeviceQueue(device, indices.graphics_family.value(), 0, &graphics_queue);
@@ -509,10 +397,7 @@ void VulkanEngine::createLogicalDevice()
 
 void VulkanEngine::createSurface()
 {
-  if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create window surface!");
-  }
+  validation::checkVulkan(glfwCreateWindowSurface(instance, window, nullptr, &surface));
 }
 
 // Logic to find queue family indices to populate struct with
@@ -681,10 +566,7 @@ void VulkanEngine::createSwapChain()
   create_info.clipped = VK_TRUE;
   create_info.oldSwapchain = VK_NULL_HANDLE;
 
-  if (vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create swapchain!");
-  }
+  validation::checkVulkan(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain));
 
   vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
   swapchain_images.resize(image_count);
@@ -720,10 +602,9 @@ void VulkanEngine::createImageViews()
     create_info.subresourceRange.layerCount = 1;
 
     // Create image view
-    if (vkCreateImageView(device, &create_info, nullptr, &swapchain_views[i]) != VK_SUCCESS)
-    {
-      throw std::runtime_error("failed to create image views!");
-    }
+    validation::checkVulkan(vkCreateImageView(
+      device, &create_info, nullptr, &swapchain_views[i])
+    );
   }
 }
 
@@ -735,21 +616,18 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
   create_info.codeSize = code.size();
   create_info.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
-  VkShaderModule shader_module;
-  if (vkCreateShaderModule(device, &create_info, nullptr, &shader_module) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create shader module!");
-  }
+  VkShaderModule module;
+  validation::checkVulkan(vkCreateShaderModule(device, &create_info, nullptr, &module));
 
-  return shader_module;
+  return module;
 }
 
 void VulkanEngine::createGraphicsPipeline()
 {
-  auto vert_code = readFile("_out/shaders/vertex.spv");
+  auto vert_code = io::readFile("_out/shaders/vertex.spv");
   auto vert_module = createShaderModule(vert_code);
 
-  auto frag_code = readFile("_out/shaders/fragment.spv");
+  auto frag_code = io::readFile("_out/shaders/fragment.spv");
   auto frag_module = createShaderModule(frag_code);
 
   VkPipelineShaderStageCreateInfo vert_info{};
@@ -856,11 +734,9 @@ void VulkanEngine::createGraphicsPipeline()
   pipeline_layout_info.pushConstantRangeCount = 0;
   pipeline_layout_info.pPushConstantRanges = nullptr;
 
-  if (vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr,
-    &pipeline_layout) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create pipeline layout!");
-  }
+  validation::checkVulkan(vkCreatePipelineLayout(device, &pipeline_layout_info,
+    nullptr, &pipeline_layout)
+  );
 
   VkGraphicsPipelineCreateInfo pipeline_info{};
   pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -880,11 +756,9 @@ void VulkanEngine::createGraphicsPipeline()
   pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
   pipeline_info.basePipelineIndex = -1;
 
-  if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info,
-    nullptr, &graphics_pipeline) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create graphics pipeline!");
-  }
+  validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1,
+    &pipeline_info, nullptr, &graphics_pipeline)
+  );
 
   vkDestroyShaderModule(device, vert_module, nullptr);
   vkDestroyShaderModule(device, frag_module, nullptr);
@@ -929,10 +803,9 @@ void VulkanEngine::createRenderPass()
   render_pass_info.dependencyCount = 1;
   render_pass_info.pDependencies = &dependency;
 
-  if (vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create render pass!");
-  }
+  validation::checkVulkan(vkCreateRenderPass(
+    device, &render_pass_info, nullptr, &render_pass)
+  );
 }
 
 void VulkanEngine::createFramebuffers()
@@ -941,20 +814,18 @@ void VulkanEngine::createFramebuffers()
   for (size_t i = 0; i < swapchain_views.size(); ++i)
   {
     VkImageView attachments[] = { swapchain_views[i] };
-    VkFramebufferCreateInfo framebuffer_info{};
-    framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    framebuffer_info.renderPass = render_pass;
-    framebuffer_info.attachmentCount = 1;
-    framebuffer_info.pAttachments = attachments;
-    framebuffer_info.width = swapchain_extent.width;
-    framebuffer_info.height = swapchain_extent.height;
-    framebuffer_info.layers = 1;
+    VkFramebufferCreateInfo fb_info{};
+    fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fb_info.renderPass = render_pass;
+    fb_info.attachmentCount = 1;
+    fb_info.pAttachments = attachments;
+    fb_info.width = swapchain_extent.width;
+    fb_info.height = swapchain_extent.height;
+    fb_info.layers = 1;
 
-    if (vkCreateFramebuffer(device, &framebuffer_info, nullptr,
-      &framebuffers[i]) != VK_SUCCESS)
-    {
-      throw std::runtime_error("failed to create framebuffer!");
-    }
+    validation::checkVulkan(vkCreateFramebuffer(
+      device, &fb_info, nullptr, &framebuffers[i])
+    );
   }
 }
 
@@ -966,10 +837,9 @@ void VulkanEngine::createCommandPool()
   pool_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
   pool_info.flags = 0;
 
-  if (vkCreateCommandPool(device, &pool_info, nullptr, &command_pool) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create command pool!");
-  }
+  validation::checkVulkan(vkCreateCommandPool(
+    device, &pool_info, nullptr, &command_pool)
+  );
 }
 
 void VulkanEngine::createCommandBuffers()
@@ -982,10 +852,9 @@ void VulkanEngine::createCommandBuffers()
   alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   alloc_info.commandBufferCount = static_cast<uint32_t>(command_buffers.size());
 
-  if (vkAllocateCommandBuffers(device, &alloc_info, command_buffers.data()) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to allocate command buffers!");
-  }
+  validation::checkVulkan(vkAllocateCommandBuffers(
+    device, &alloc_info, command_buffers.data())
+  );
 
   // Start command buffer recording
   for (size_t i = 0; i < command_buffers.size(); ++i)
@@ -995,10 +864,7 @@ void VulkanEngine::createCommandBuffers()
     begin_info.flags = 0;
     begin_info.pInheritanceInfo = nullptr;
 
-    if (vkBeginCommandBuffer(command_buffers[i], &begin_info) != VK_SUCCESS)
-    {
-      throw std::runtime_error("failed to begin recording command buffer!");
-    }
+    validation::checkVulkan(vkBeginCommandBuffer(command_buffers[i], &begin_info));
 
     VkRenderPassBeginInfo render_pass_info{};
     render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1034,10 +900,7 @@ void VulkanEngine::createCommandBuffers()
 
     // End render pass and finish recording the command buffer
     vkCmdEndRenderPass(command_buffers[i]);
-    if (vkEndCommandBuffer(command_buffers[i]) != VK_SUCCESS)
-    {
-      throw std::runtime_error("failed to record command buffer!");
-    }
+    validation::checkVulkan(vkEndCommandBuffer(command_buffers[i]));
   }
 }
 
@@ -1057,14 +920,15 @@ void VulkanEngine::createSyncObjects()
 
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
   {
-    if (vkCreateSemaphore(device, &semaphore_info, nullptr,
-      &image_available[i]) != VK_SUCCESS
-    || vkCreateSemaphore(device, &semaphore_info, nullptr,
-      &render_finished[i]) != VK_SUCCESS
-    || vkCreateFence(device, &fence_info, nullptr, &inflight_fences[i]) != VK_SUCCESS)
-    {
-      throw std::runtime_error("failed to create sync objects for a frame!");
-    }
+    validation::checkVulkan(
+      vkCreateSemaphore(device, &semaphore_info, nullptr, &image_available[i])
+    );
+    validation::checkVulkan(
+      vkCreateSemaphore(device, &semaphore_info, nullptr, &render_finished[i])
+    );
+    validation::checkVulkan(
+      vkCreateFence(device, &fence_info, nullptr, &inflight_fences[i])
+    );
   }
 }
 
@@ -1094,11 +958,7 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   buffer_info.size = size;
   buffer_info.usage = usage;
   buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-  if (vkCreateBuffer(device, &buffer_info, nullptr, &buffer) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to create buffer!");
-  }
+  validation::checkVulkan(vkCreateBuffer(device, &buffer_info, nullptr, &buffer));
 
   VkMemoryRequirements mem_req;
   vkGetBufferMemoryRequirements(device, buffer, &mem_req);
@@ -1107,11 +967,7 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.allocationSize = mem_req.size;
   alloc_info.memoryTypeIndex = findMemoryType(mem_req.memoryTypeBits, properties);
-
-  if (vkAllocateMemory(device, &alloc_info, nullptr, &memory) != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to allocate vertex buffer memory!");
-  }
+  validation::checkVulkan(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
 
   vkBindBufferMemory(device, buffer, memory, 0);
 }

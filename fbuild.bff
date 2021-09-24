@@ -1,7 +1,7 @@
 .BuildType     = 'Release'
 .FlagsDebug    = ' -Od -g'
 .FlagsRelease  = ' -O3'
-.FlagsStandard = ' -std=c++17'
+.FlagsStandard = ' -std=c++2a'
 
 .Librarian          = '/usr/bin/ar'
 .LibrarianOptions   = 'rcs "%2" "%1"'
@@ -26,9 +26,9 @@ Library('cudaview')
 {
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = '-o "%2" "%1" -c'
-                      + ' -Iinclude -Icuda'
+                      + ' -Iinclude -Icontrib/vulkan-hpp'
+                      + ' -std=c++17'
                       + .'Flags$BuildType$'
-                      + .'FlagsStandard'
   .CompilerInputPath  = 'src/'
   .CompilerOutputPath = '_out/'
   .LibrarianOutput      = '_out/cudaview.lib'
@@ -38,8 +38,8 @@ ObjectList('cudaprogram')
 {
   .Compiler             = '/usr/local/cuda/bin/nvcc'
   .CompilerOptions      = '-o "%2" "%1" -c'
+                        + ' -std=c++17'
                         + ' -Iinclude'
-                        + .'FlagsStandard'
   .CompilerInputPath    = 'cuda/'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
