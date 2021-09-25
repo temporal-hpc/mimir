@@ -10,11 +10,16 @@
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 const std::vector<Vertex> vertices = {
+  { { 0.f, -.5f}, {1.f, 0.f, 0.f} },
+  { { .5f,  .5f}, {0.f, 1.f, 0.f} },
+  { {-.5f,  .5f}, {0.f, 0.f, 1.f} }
+};
+/*const std::vector<Vertex> vertices = {
   { {-.5f, -.5f}, {1.f, 0.f, 0.f} },
   { { .5f, -.5f}, {0.f, 1.f, 0.f} },
   { { .5f,  .5f}, {0.f, 0.f, 1.f} },
   { {-.5f,  .5f}, {1.f, 1.f, 1.f} }
-};
+};*/
 const std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
 static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
@@ -668,7 +673,8 @@ void VulkanEngine::createGraphicsPipeline()
 
   VkPipelineInputAssemblyStateCreateInfo input_assembly{};
   input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  //input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   input_assembly.primitiveRestartEnable = VK_FALSE;
 
   VkViewport viewport{};
@@ -902,9 +908,8 @@ void VulkanEngine::createCommandBuffers()
     vkCmdBindIndexBuffer(command_buffers[i], index_buffer, 0, VK_INDEX_TYPE_UINT16);
 
     // vkCmdDraw(...) is a draw command without index buffers
-    vkCmdDrawIndexed(command_buffers[i], static_cast<uint32_t>(indices.size()),
-      1, 0, 0, 0
-    );
+    vkCmdDraw(command_buffers[i], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+    //vkCmdDrawIndexed(command_buffers[i], static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
     // End render pass and finish recording the command buffer
     vkCmdEndRenderPass(command_buffers[i]);
