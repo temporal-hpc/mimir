@@ -36,16 +36,15 @@ class VulkanEngine
 public:
   bool should_resize = false;
   void init(int width = 800, int height = 600);
-  void run(std::function<void(void)> func, size_t step_count);
-  void cleanup();
-  void drawFrame();
+  void mainLoop();
+  virtual ~VulkanEngine();
 
 protected:
   GLFWwindow *window = nullptr;
   VkInstance instance; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
-  VkPhysicalDevice physical_device = VK_NULL_HANDLE; // GPU used for operations
   VkSurfaceKHR surface; // Vulkan window surface
+  VkPhysicalDevice physical_device = VK_NULL_HANDLE; // GPU used for operations
   VkDevice device;
   VkQueue graphics_queue;
   VkQueue present_queue;
@@ -71,41 +70,49 @@ protected:
   VkBuffer index_buffer;
   VkDeviceMemory index_buffer_memory;
 
-  void initVulkan();
-  void recreateSwapchain();
-  void cleanupSwapchain();
-  void createInstance();
-  void setupDebugMessenger();
-  void pickPhysicalDevice();
-  void createLogicalDevice();
-  void createSurface();
   QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
   bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-  bool isDeviceSuitable(VkPhysicalDevice device);
   VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
   SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
-  void createSwapChain();
-  void createImageViews();
   VkShaderModule createShaderModule(const std::vector<char>& code);
-  void createGraphicsPipeline();
-  void createRenderPass();
-  void createFramebuffers();
-  void createCommandPool();
-  void createCommandBuffers();
-  void createSyncObjects();
-  void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
-  );
-  void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
   void createVertexBuffer();
   void createIndexBuffer();
-  void importExternalBuffer(void *handle, size_t size,
-    VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory
+
+  void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
   );
   void createExternalBuffer(VkDeviceSize size,
     VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
     VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
     VkDeviceMemory& buffer_memory
   );
+  void importExternalBuffer(void *handle, size_t size,
+    VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory
+  );
+  void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
+
+  virtual std::vector<const char*> getRequiredExtensions() const;
+  virtual void drawFrame();
+
+private:
+  void initVulkan();
+  void setupDebugMessenger();
+  void pickPhysicalDevice();
+  void createLogicalDevice();
+  void createInstance();
+  void createSurface();
+  void createSwapChain();
+  void createImageViews();
+  void createRenderPass();
+  void createGraphicsPipeline();
+  void createFramebuffers();
+  void createCommandPool();
+  void createCommandBuffers();
+  void createSyncObjects();
+
+  void cleanupSwapchain();
+  void recreateSwapchain();
+
+  bool isDeviceSuitable(VkPhysicalDevice device);
 };

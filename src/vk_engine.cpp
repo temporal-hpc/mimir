@@ -29,7 +29,7 @@ static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
 }
 
 // Return list of required GLFW extensions and additional required validation layers
-std::vector<const char*> getRequiredExtensions()
+std::vector<const char*> VulkanEngine::getRequiredExtensions() const
 {
   uint32_t glfw_ext_count = 0;
   const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
@@ -81,13 +81,8 @@ void VulkanEngine::init(int width, int height)
   initVulkan();
 }
 
-void VulkanEngine::run(std::function<void(void)> func, size_t step_count)
+void VulkanEngine::mainLoop()
 {
-  /*for (int i = 0; i < step_count; ++i)
-  {
-    func();
-    drawFrame();
-  }*/
   while(!glfwWindowShouldClose(window))
   {
     glfwPollEvents();
@@ -116,7 +111,7 @@ void VulkanEngine::initVulkan()
   createSyncObjects();
 }
 
-void VulkanEngine::cleanup()
+VulkanEngine::~VulkanEngine()
 {
   cleanupSwapchain();
 

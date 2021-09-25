@@ -1,5 +1,5 @@
-.BuildType     = 'Release'
-.FlagsDebug    = ' -Od -g'
+.BuildType     = 'Debug'
+.FlagsDebug    = ' -g'
 .FlagsRelease  = ' -O3'
 .FlagsStandard = ' -std=c++2a'
 
@@ -27,7 +27,7 @@ Library('cudaview')
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = '-o "%2" "%1" -c'
                       + ' -Iinclude -Icontrib/vulkan-hpp -I/usr/local/cuda/include'
-                      + ' -std=c++17'
+                      + ' -std=c++17 -fpic -fpie'
                       + .'Flags$BuildType$'
   .CompilerInputPath  = 'src/'
   .CompilerOutputPath = '_out/'

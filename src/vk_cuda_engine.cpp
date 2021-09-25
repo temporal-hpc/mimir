@@ -17,7 +17,7 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
   }
 }
 
-void VulkanCudaEngine::cleanup()
+VulkanCudaEngine::~VulkanCudaEngine()
 {
   // Make sure there is no pending work before cleanup starts
   checkCuda(cudaStreamSynchronize(stream));
@@ -36,11 +36,9 @@ void VulkanCudaEngine::cleanup()
   checkCuda(cudaDestroyExternalMemory(cuda_vert_memory));
 }
 
-void VulkanCudaEngine::init()
+void VulkanCudaEngine::initInterop(size_t vertex_count)
 {
   checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-
-  const size_t vertex_count = 0;
 
   createExternalBuffer(sizeof(float2) * vertex_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -195,4 +193,23 @@ void VulkanCudaEngine::importCudaExternalMemory(void **cuda_ptr,
   buffer_desc.flags = 0;
 
   checkCuda(cudaExternalMemoryGetMappedBuffer(cuda_ptr, cuda_mem, &buffer_desc));
+}
+
+std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
+{
+  std::vector<const char*> extensions;
+  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
+  return extensions;
+}
+
+std::vector<const char*> VulkanCudaEngine::getRequiredDeviceExtensions() const
+{
+  std::vector<const char*> extensions;
+  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
+  return extensions;
 }

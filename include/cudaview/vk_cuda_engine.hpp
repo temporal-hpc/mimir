@@ -6,6 +6,10 @@
 
 class VulkanCudaEngine : public VulkanEngine
 {
+public:
+  ~VulkanCudaEngine();
+
+private:
   // Vulkan interop data
   VkBuffer vk_data_buffer = VK_NULL_HANDLE;
   VkDeviceMemory vk_data_memory = VK_NULL_HANDLE;
@@ -21,10 +25,8 @@ class VulkanCudaEngine : public VulkanEngine
   cudaExternalMemory_t cuda_vert_memory;
   float *cuda_raw_data = nullptr;
 
-  void init();
-  void cleanup();
+  void initInterop(size_t vertex_count);
   void drawFrame();
-  void registerDeviceMemory(float *d_memory);
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
@@ -40,5 +42,9 @@ class VulkanCudaEngine : public VulkanEngine
     VkExternalMemoryHandleTypeFlagBits handle_type
   );
   void importCudaExternalMemory(void **cuda_ptr,
-    cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size);
+    cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size
+  );
+
+  std::vector<const char*> getRequiredExtensions() const;
+  std::vector<const char*> getRequiredDeviceExtensions() const;
 };
