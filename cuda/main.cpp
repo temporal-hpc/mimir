@@ -1,5 +1,5 @@
 #include "cudaprogram.hpp"
-#include "cudaview/vk_engine.hpp"
+#include "cudaview/vk_cuda_engine.hpp"
 
 int main()
 {

@@ -51,7 +51,8 @@ VkSurfaceFormatKHR chooseSwapSurfaceFormat(
   return available_formats[0];
 }
 
-VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& available_modes)
+VkPresentModeKHR chooseSwapPresentMode(
+  const std::vector<VkPresentModeKHR>& available_modes)
 {
   for (const auto& available_mode : available_modes)
   {
@@ -77,11 +78,11 @@ void VulkanEngine::init(int width, int height)
 
 void VulkanEngine::run(std::function<void(void)> func, size_t step_count)
 {
-  for (int i = 0; i < step_count; ++i)
+  /*for (int i = 0; i < step_count; ++i)
   {
     func();
     drawFrame();
-  }
+  }*/
   while(!glfwWindowShouldClose(window))
   {
     glfwPollEvents();
@@ -239,7 +240,8 @@ void VulkanEngine::drawFrame()
   present_info.pResults = nullptr;
 
   result = vkQueuePresentKHR(present_queue, &present_info);
-  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
+  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
+    should_resize)
   {
     // Resize should be done after presenting to ensure that semaphores are
     // in a consistent state
@@ -269,7 +271,7 @@ void VulkanEngine::createInstance()
   app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   app_info.pEngineName = "No engine";
   app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  app_info.apiVersion = VK_API_VERSION_1_0;
+  app_info.apiVersion = VK_API_VERSION_1_2;
 
   VkInstanceCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -388,7 +390,9 @@ void VulkanEngine::createLogicalDevice()
     create_info.enabledLayerCount = 0;
   }
 
-  validation::checkVulkan(vkCreateDevice(physical_device, &create_info, nullptr, &device));
+  validation::checkVulkan(vkCreateDevice(
+    physical_device, &create_info, nullptr, &device)
+  );
 
   // Must be called after logical device is created (obviously!)
   vkGetDeviceQueue(device, indices.graphics_family.value(), 0, &graphics_queue);
@@ -481,7 +485,9 @@ VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabi
   {
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
-    VkExtent2D actual_extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+    VkExtent2D actual_extent = {
+      static_cast<uint32_t>(width), static_cast<uint32_t>(height)
+    };
     actual_extent.width = std::clamp(actual_extent.width,
       capabilities.minImageExtent.width, capabilities.maxImageExtent.width
     );
@@ -566,7 +572,9 @@ void VulkanEngine::createSwapChain()
   create_info.clipped = VK_TRUE;
   create_info.oldSwapchain = VK_NULL_HANDLE;
 
-  validation::checkVulkan(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain));
+  validation::checkVulkan(vkCreateSwapchainKHR(
+    device, &create_info, nullptr, &swapchain)
+  );
 
   vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
   swapchain_images.resize(image_count);
@@ -655,7 +663,7 @@ void VulkanEngine::createGraphicsPipeline()
   vert_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
   vert_input_info.vertexBindingDescriptionCount = 1;
   vert_input_info.pVertexBindingDescriptions = &binding_desc;
-  vert_input_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_desc.size());
+  vert_input_info.vertexAttributeDescriptionCount = (uint32_t)attribute_desc.size();
   vert_input_info.pVertexAttributeDescriptions = attribute_desc.data();
 
   VkPipelineInputAssemblyStateCreateInfo input_assembly{};
@@ -932,11 +940,11 @@ void VulkanEngine::createSyncObjects()
   }
 }
 
-uint32_t VulkanEngine::findMemoryType(uint32_t type_filter,
+uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
   VkMemoryPropertyFlags properties)
 {
   VkPhysicalDeviceMemoryProperties mem_props;
-  vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
+  vkGetPhysicalDeviceMemoryProperties(ph_device, &mem_props);
 
   for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i)
   {
@@ -966,7 +974,8 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.allocationSize = mem_req.size;
-  alloc_info.memoryTypeIndex = findMemoryType(mem_req.memoryTypeBits, properties);
+  auto type = findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
+  alloc_info.memoryTypeIndex = type;
   validation::checkVulkan(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
 
   vkBindBufferMemory(device, buffer, memory, 0);
@@ -1059,4 +1068,74 @@ void VulkanEngine::createIndexBuffer()
 
   vkDestroyBuffer(device, staging_buffer, nullptr);
   vkFreeMemory(device, staging_buffer_memory, nullptr);
+}
+
+void VulkanEngine::importExternalBuffer(void *handle, size_t size,
+  VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
+  VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory)
+{
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size = size;
+  buffer_info.usage = usage;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  validation::checkVulkan(vkCreateBuffer(device, &buffer_info, nullptr, &buffer));
+
+  VkMemoryRequirements mem_req;
+  vkGetBufferMemoryRequirements(device, buffer, &mem_req);
+
+  VkImportMemoryFdInfoKHR handle_info{};
+  handle_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
+  handle_info.pNext = nullptr;
+  handle_info.fd = (int)(uintptr_t)handle;
+  handle_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  VkMemoryAllocateInfo mem_alloc{};
+  mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  mem_alloc.pNext = (void*)&handle_info;
+  mem_alloc.allocationSize = size;
+  auto type = findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
+  mem_alloc.memoryTypeIndex = type;
+
+  validation::checkVulkan(vkAllocateMemory(device, &mem_alloc, nullptr, &memory));
+  vkBindBufferMemory(device, buffer, memory, 0);
+}
+
+void VulkanEngine::createExternalBuffer(VkDeviceSize size,
+  VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+  VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
+  VkDeviceMemory& buffer_memory)
+{
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size = size;
+  buffer_info.usage = usage;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  VkExternalMemoryBufferCreateInfo extmem_info{};
+  extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
+  extmem_info.handleTypes = handle_type;
+  buffer_info.pNext = &extmem_info;
+
+  validation::checkVulkan(vkCreateBuffer(device, &buffer_info, nullptr, &buffer));
+
+  VkMemoryRequirements mem_reqs;
+  vkGetBufferMemoryRequirements(device, buffer, &mem_reqs);
+  VkExportMemoryAllocateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+  export_info.pNext = nullptr;
+  export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  VkMemoryAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  alloc_info.pNext = &export_info;
+  alloc_info.allocationSize = mem_reqs.size;
+  auto type = findMemoryType(physical_device, mem_reqs.memoryTypeBits, properties);
+  alloc_info.memoryTypeIndex = type;
+
+  validation::checkVulkan(vkAllocateMemory(
+    device, &alloc_info, nullptr, &buffer_memory)
+  );
+  vkBindBufferMemory(device, buffer, buffer_memory, 0);
 }

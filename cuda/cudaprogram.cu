@@ -79,6 +79,11 @@ void CudaProgram::init(size_t particle_count, int width, int height, unsigned se
   checkCuda(cudaDeviceSynchronize());
 }
 
+void CudaProgram::registerBuffer(float *d_buffer)
+{
+  _d_coords = d_buffer;
+}
+
 void CudaProgram::cleanup()
 {
   checkCuda(cudaFree(_d_coords));

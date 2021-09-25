@@ -26,7 +26,7 @@ Library('cudaview')
 {
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = '-o "%2" "%1" -c'
-                      + ' -Iinclude -Icontrib/vulkan-hpp'
+                      + ' -Iinclude -Icontrib/vulkan-hpp -I/usr/local/cuda/include'
                       + ' -std=c++17'
                       + .'Flags$BuildType$'
   .CompilerInputPath  = 'src/'

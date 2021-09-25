@@ -36,12 +36,11 @@ class VulkanEngine
 public:
   bool should_resize = false;
   void init(int width = 800, int height = 600);
-  void registerDeviceMemory(float *d_memory);
   void run(std::function<void(void)> func, size_t step_count);
   void cleanup();
   void drawFrame();
 
-private:
+protected:
   GLFWwindow *window = nullptr;
   VkInstance instance; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
@@ -94,11 +93,19 @@ private:
   void createCommandPool();
   void createCommandBuffers();
   void createSyncObjects();
-  uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties);
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
   );
   void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
   void createVertexBuffer();
   void createIndexBuffer();
+  void importExternalBuffer(void *handle, size_t size,
+    VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory
+  );
+  void createExternalBuffer(VkDeviceSize size,
+    VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+    VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
+    VkDeviceMemory& buffer_memory
+  );
 };
