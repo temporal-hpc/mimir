@@ -19,13 +19,16 @@ const std::vector<const char*> layers = {
   "VK_LAYER_KHRONOS_validation"
 };
 
+std::string getVulkanErrorString(VkResult code);
+
 constexpr void checkVulkan(VkResult code, bool panic = true,
   std::experimental::source_location src = std::experimental::source_location::current())
 {
   if (code != VK_SUCCESS)
   {
-    fprintf(stderr, "Vulkan assertion: %d on function %s at %s(%d)\n",
-      code, src.function_name(), src.file_name(), src.line()
+    fprintf(stderr, "Vulkan assertion: %s on function %s at %s(%d)\n",
+      getVulkanErrorString(code).c_str(), 
+      src.function_name(), src.file_name(), src.line()
     );
     if (panic)
     {
