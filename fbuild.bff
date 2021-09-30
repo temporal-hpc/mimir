@@ -1,10 +1,9 @@
-.BuildType     = 'Debug'
-.FlagsDebug    = ' -g'
-.FlagsRelease  = ' -O3'
-.FlagsStandard = ' -std=c++2a'
+.BuildType    = 'Debug'
+.FlagsDebug   = ' -g'
+.FlagsRelease = ' -O3'
 
-.Librarian          = '/usr/bin/ar'
-.LibrarianOptions   = 'rcs "%2" "%1"'
+.Librarian        = '/usr/bin/ar'
+.LibrarianOptions = 'rcs "%2" "%1"'
 
 Compiler('ShaderCompiler')
 {
@@ -27,11 +26,11 @@ Library('cudaview')
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = '-o "%2" "%1" -c'
                       + ' -Iinclude -Icontrib/vulkan-hpp -I/usr/local/cuda/include'
-                      + ' -std=c++17 -fpic -fpie'
+                      + ' -std=c++17'
                       + .'Flags$BuildType$'
   .CompilerInputPath  = 'src/'
   .CompilerOutputPath = '_out/'
-  .LibrarianOutput      = '_out/cudaview.lib'
+  .LibrarianOutput    = '_out/cudaview.lib'
 }
 
 ObjectList('cudaprogram')

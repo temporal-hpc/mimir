@@ -13,7 +13,10 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
     fprintf(stderr, "CUDA assertion: %s on function %s at %s(%d)\n",
       cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
     );
-    if (panic) exit(code);
+    if (panic)
+    {
+      throw std::runtime_error("CUDA failure!");
+    }
   }
 }
 
@@ -48,7 +51,7 @@ void VulkanCudaEngine::initInterop(size_t vertex_count)
   );
 
   importCudaExternalMemory((void**)&cuda_raw_data, cuda_vert_memory,
-    vk_data_memory, vertex_count * sizeof(*cuda_raw_data)
+    vk_data_memory, sizeof(*cuda_raw_data) * vertex_count
   );
 
   createExternalSemaphore(vk_timeline_semaphore);
@@ -163,7 +166,9 @@ void *VulkanCudaEngine::getMemHandle(VkDeviceMemory memory,
   fd_info.memory = memory;
   fd_info.handleType = handle_type;
 
-  auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device, "vkGetMemoryFdKHR");
+  auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(
+    device, "vkGetMemoryFdKHR"
+  );
   if (!fpGetMemoryFdKHR)
   {
     throw std::runtime_error("Failed to retrieve function!");

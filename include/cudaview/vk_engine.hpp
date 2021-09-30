@@ -5,7 +5,6 @@
 
 #include "cudaview/vk_types.hpp"
 
-#include <functional> // std::function
 #include <iostream> // std::cerr
 #include <optional> // std::optional
 
@@ -34,10 +33,10 @@ struct SwapChainSupportDetails
 class VulkanEngine
 {
 public:
-  bool should_resize = false;
+  virtual ~VulkanEngine();
   void init(int width = 800, int height = 600);
   void mainLoop();
-  virtual ~VulkanEngine();
+  bool should_resize = false;
 
 protected:
   GLFWwindow *window = nullptr;
@@ -69,14 +68,6 @@ protected:
   VkDeviceMemory vertex_buffer_memory;
   VkBuffer index_buffer;
   VkDeviceMemory index_buffer_memory;
-
-  QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
-  bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-  VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
-  SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
-  VkShaderModule createShaderModule(const std::vector<char>& code);
-  void createVertexBuffer();
-  void createIndexBuffer();
 
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
@@ -114,5 +105,13 @@ private:
   void cleanupSwapchain();
   void recreateSwapchain();
 
-  bool isDeviceSuitable(VkPhysicalDevice device);
+  bool checkDeviceExtensionSupport(VkPhysicalDevice device) const;
+  bool isDeviceSuitable(VkPhysicalDevice device) const;
+  QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
+  SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
+
+  VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
+  VkShaderModule createShaderModule(const std::vector<char>& code);
+  void createVertexBuffer();
+  void createIndexBuffer();
 };

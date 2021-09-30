@@ -9,9 +9,9 @@ namespace validation
 
 // Check if validation layers should be enabled
 #ifdef NDEBUG
-  const bool enable_validation_layers = false;
+  constexpr bool enable_validation_layers = false;
 #else
-  const bool enable_validation_layers = true;
+  constexpr bool enable_validation_layers = true;
 #endif
 
 // Validation layers to enable
@@ -27,7 +27,10 @@ constexpr void checkVulkan(VkResult code, bool panic = true,
     fprintf(stderr, "Vulkan assertion: %d on function %s at %s(%d)\n",
       code, src.function_name(), src.file_name(), src.line()
     );
-    if (panic) exit(code);
+    if (panic)
+    {
+      throw std::runtime_error("Vulkan failure!");
+    };
   }
 }
 

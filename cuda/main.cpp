@@ -1,6 +1,8 @@
 #include "cudaprogram.hpp"
 #include "cudaview/vk_cuda_engine.hpp"
 
+#include <functional> // TODO: Use bound function in engine.mainLoop()
+
 int main()
 {
   CudaProgram program;
