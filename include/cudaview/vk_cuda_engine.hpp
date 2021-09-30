@@ -20,9 +20,9 @@ private:
 
   // Cuda interop data
   cudaStream_t stream = 0;
-  cudaExternalSemaphore_t cuda_wait_semaphore;
-  cudaExternalSemaphore_t cuda_signal_semaphore;
-  cudaExternalSemaphore_t cuda_timeline_semaphore;
+  cudaExternalSemaphore_t cuda_wait_semaphore = nullptr;
+  cudaExternalSemaphore_t cuda_signal_semaphore = nullptr;
+  cudaExternalSemaphore_t cuda_timeline_semaphore = nullptr;
   cudaExternalMemory_t cuda_vert_memory;
   float *cuda_raw_data = nullptr;
   size_t element_count = 0;

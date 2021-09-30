@@ -42,34 +42,34 @@ public:
 
 protected:
   GLFWwindow *window = nullptr;
-  VkInstance instance; // Vulkan library handle
-  VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
-  VkSurfaceKHR surface; // Vulkan window surface
+  VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
+  VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE; // Vulkan debug output handle
+  VkSurfaceKHR surface = VK_NULL_HANDLE; // Vulkan window surface
   VkPhysicalDevice physical_device = VK_NULL_HANDLE; // GPU used for operations
-  VkDevice device;
-  VkQueue graphics_queue;
-  VkQueue present_queue;
-  VkSwapchainKHR swapchain;
+  VkDevice device = VK_NULL_HANDLE;
+  VkQueue graphics_queue = VK_NULL_HANDLE;
+  VkQueue present_queue = VK_NULL_HANDLE;
+  VkSwapchainKHR swapchain = VK_NULL_HANDLE;
   std::vector<VkImage> swapchain_images;
   // How to access the image(s) and which part of it (them) to access
   std::vector<VkImageView> swapchain_views;
   VkFormat swapchain_format;
   VkExtent2D swapchain_extent;
   VkRenderPass render_pass;
-  VkPipelineLayout pipeline_layout;
-  VkPipeline graphics_pipeline;
+  VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+  VkPipeline graphics_pipeline = VK_NULL_HANDLE;
   std::vector<VkFramebuffer> framebuffers;
-  VkCommandPool command_pool;
+  VkCommandPool command_pool = VK_NULL_HANDLE;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkSemaphore> image_available;
   std::vector<VkSemaphore> render_finished;
   std::vector<VkFence> inflight_fences;
   std::vector<VkFence> images_inflight;
   size_t current_frame = 0;
-  VkBuffer vertex_buffer;
-  VkDeviceMemory vertex_buffer_memory;
-  VkBuffer index_buffer;
-  VkDeviceMemory index_buffer_memory;
+  VkBuffer vertex_buffer = VK_NULL_HANDLE;
+  VkDeviceMemory vertex_buffer_memory = VK_NULL_HANDLE;
+  VkBuffer index_buffer = VK_NULL_HANDLE;
+  VkDeviceMemory index_buffer_memory = VK_NULL_HANDLE;
 
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory

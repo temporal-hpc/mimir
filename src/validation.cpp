@@ -54,8 +54,7 @@ std::string getVulkanErrorString(VkResult code)
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
   const VkDebugUtilsMessengerCreateInfoEXT *p_create_info,
   const VkAllocationCallbacks *p_allocator,
-  VkDebugUtilsMessengerEXT *p_debug_messenger
-)
+  VkDebugUtilsMessengerEXT *p_debug_messenger)
 {
   // Lookup address of debug messenger extension function
   auto func = (PFN_vkCreateDebugUtilsMessengerEXT)
@@ -108,7 +107,7 @@ bool checkValidationLayerSupport()
   vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
 
   // Check if all of the validation layers are available
-  for (const char *layerName : layers)
+  for (const auto layerName : layers)
   {
     bool layer_found = false;
     for (const auto& layer_properties : available_layers)

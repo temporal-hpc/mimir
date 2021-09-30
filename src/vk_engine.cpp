@@ -59,10 +59,22 @@ VulkanEngine::~VulkanEngine()
 {
   cleanupSwapchain();
 
-  vkDestroyBuffer(device, vertex_buffer, nullptr);
-  vkFreeMemory(device, vertex_buffer_memory, nullptr);
-  vkDestroyBuffer(device, index_buffer, nullptr);
-  vkFreeMemory(device, index_buffer_memory, nullptr);
+  if (vertex_buffer != VK_NULL_HANDLE)
+  {
+    vkDestroyBuffer(device, vertex_buffer, nullptr);
+  }
+  if (vertex_buffer_memory != VK_NULL_HANDLE)
+  {
+    vkFreeMemory(device, vertex_buffer_memory, nullptr);
+  }
+  if (index_buffer != VK_NULL_HANDLE)
+  {
+    vkDestroyBuffer(device, index_buffer, nullptr);
+  }
+  if (index_buffer_memory != VK_NULL_HANDLE)
+  {
+    vkFreeMemory(device, index_buffer_memory, nullptr);
+  }
 
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
   {
@@ -70,16 +82,31 @@ VulkanEngine::~VulkanEngine()
     vkDestroySemaphore(device, image_available[i], nullptr);
     vkDestroyFence(device, inflight_fences[i], nullptr);
   }
-  vkDestroyCommandPool(device, command_pool, nullptr);
-  vkDestroyDevice(device, nullptr);
+  if (command_pool != VK_NULL_HANDLE)
+  {
+    vkDestroyCommandPool(device, command_pool, nullptr);
+  }
+  if (device != VK_NULL_HANDLE)
+  {
+    vkDestroyDevice(device, nullptr);
+  }
   if (validation::enable_validation_layers)
   {
     validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
   }
   // Surface must be destroyed before instance
-  vkDestroySurfaceKHR(instance, surface, nullptr);
-  vkDestroyInstance(instance, nullptr);
-  glfwDestroyWindow(window);
+  if (surface != VK_NULL_HANDLE)
+  {
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+  }
+  if (instance != VK_NULL_HANDLE)
+  {
+    vkDestroyInstance(instance, nullptr);
+  }
+  if (window != nullptr)
+  {
+    glfwDestroyWindow(window);
+  }
   glfwTerminate();
 }
 
@@ -250,7 +277,7 @@ void VulkanEngine::createInstance()
 {
   if (validation::enable_validation_layers && !validation::checkValidationLayerSupport())
   {
-    throw std::runtime_error("validation layers requested, but not available");
+    throw std::runtime_error("validation layers requested, but not supported");
   }
 
   VkApplicationInfo app_info{};
@@ -265,9 +292,9 @@ void VulkanEngine::createInstance()
   create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
   create_info.pApplicationInfo = &app_info;
 
-  auto glfw_extensions = getRequiredExtensions();
-  create_info.enabledExtensionCount = static_cast<uint32_t>(glfw_extensions.size());
-  create_info.ppEnabledExtensionNames = glfw_extensions.data();
+  auto extensions = getRequiredExtensions();
+  create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+  create_info.ppEnabledExtensionNames = extensions.data();
 
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
   // Include validation layer names if they are enabled
@@ -277,9 +304,7 @@ void VulkanEngine::createInstance()
     create_info.ppEnabledLayerNames = validation::layers.data();
 
     validation::populateDebugMessengerCreateInfo(debug_create_info);
-    create_info.pNext = static_cast<VkDebugUtilsMessengerCreateInfoEXT*>(
-      &debug_create_info
-    );
+    create_info.pNext = &debug_create_info;
   }
   else
   {
@@ -289,11 +314,11 @@ void VulkanEngine::createInstance()
 
   uint32_t extension_count = 0;
   vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
-  std::vector<VkExtensionProperties> extensions(extension_count);
-  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, extensions.data());
+  std::vector<VkExtensionProperties> available_exts(extension_count);
+  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_exts.data());
 
   std::cout << "Available extensions:\n";
-  for (const auto& extension : extensions)
+  for (const auto& extension : available_exts)
   {
     std::cout << '\t' << extension.extensionName << '\n';
   }
@@ -822,8 +847,7 @@ uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
       return i;
     }
   }
-
-  throw std::runtime_error("failed to find suitable memory type!");
+  return ~0;
 }
 
 void VulkanEngine::createSyncObjects()

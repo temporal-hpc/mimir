@@ -25,18 +25,36 @@ VulkanCudaEngine::~VulkanCudaEngine()
   // Make sure there is no pending work before cleanup starts
   checkCuda(cudaStreamSynchronize(stream));
 
-  checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
-  vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
+  if (vk_timeline_semaphore != VK_NULL_HANDLE)
+  {
+    checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
+    vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
+  }
 
-  checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
-  vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
+  if (vk_signal_semaphore != VK_NULL_HANDLE)
+  {
+    checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
+    vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
+  }
 
-  checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
-  vkDestroySemaphore(device, vk_wait_semaphore, nullptr);
+  if (vk_wait_semaphore != VK_NULL_HANDLE)
+  {
+    checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
+    vkDestroySemaphore(device, vk_wait_semaphore, nullptr);
+  }
 
-  vkDestroyBuffer(device, vk_data_buffer, nullptr);
-  vkFreeMemory(device, vk_data_memory, nullptr);
-  checkCuda(cudaDestroyExternalMemory(cuda_vert_memory));
+  if (vk_data_buffer != VK_NULL_HANDLE)
+  {
+    vkDestroyBuffer(device, vk_data_buffer, nullptr);
+  }
+  if (vk_data_memory != VK_NULL_HANDLE)
+  {
+    vkFreeMemory(device, vk_data_memory, nullptr);
+  }
+  if (cuda_raw_data != nullptr)
+  {
+    checkCuda(cudaDestroyExternalMemory(cuda_vert_memory));
+  }
 }
 
 float *VulkanCudaEngine::allocateDeviceMemory(size_t p_elements)
