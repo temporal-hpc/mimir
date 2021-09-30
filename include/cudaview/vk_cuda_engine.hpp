@@ -8,6 +8,7 @@ class VulkanCudaEngine : public VulkanEngine
 {
 public:
   ~VulkanCudaEngine();
+  float *allocateDeviceMemory(size_t element_count);
 
 private:
   // Vulkan interop data
@@ -24,13 +25,16 @@ private:
   cudaExternalSemaphore_t cuda_timeline_semaphore;
   cudaExternalMemory_t cuda_vert_memory;
   float *cuda_raw_data = nullptr;
-  size_t data_size = 0;
+  size_t element_count = 0;
 
-  void initInterop(size_t vertex_count);
   void initApplication();
   void drawFrame();
+  void setUnstructuredRendering(VkCommandBuffer& cmd_buffer, uint32_t vertex_count);
 
-  void fillRenderingCommandBuffer(VkCommandBuffer& buffer);
+  void getVertexDescriptions(VkVertexInputBindingDescription& bind_desc,
+    VkVertexInputAttributeDescription& attr_desc
+  );
+  void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo &info);
 
   // Interop semaphore handling functions
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,

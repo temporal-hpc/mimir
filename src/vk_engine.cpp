@@ -779,27 +779,31 @@ void VulkanEngine::createCommandBuffers()
     vkCmdBeginRenderPass(command_buffers[i], &render_pass_info,
       VK_SUBPASS_CONTENTS_INLINE
     );
-
-    // Bind the graphics pipeline
-    // Note: Second parameter can be used to bind a compute pipeline
+    // Note: Second parameter can be also used to bind a compute pipeline
     vkCmdBindPipeline(command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
       graphics_pipeline
     );
 
-    VkBuffer vertex_buffers[] = { vertex_buffer };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(command_buffers[i], 0, 1, vertex_buffers, offsets);
-
-    vkCmdBindIndexBuffer(command_buffers[i], index_buffer, 0, VK_INDEX_TYPE_UINT16);
-
-    // vkCmdDraw(...) is a draw command without index buffers
-    vkCmdDraw(command_buffers[i], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-    //vkCmdDrawIndexed(command_buffers[i], static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+    setUnstructuredRendering(command_buffers[i], vertices.size());
 
     // End render pass and finish recording the command buffer
     vkCmdEndRenderPass(command_buffers[i]);
     validation::checkVulkan(vkEndCommandBuffer(command_buffers[i]));
   }
+}
+
+void VulkanEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
+  uint32_t vertex_count)
+{
+  VkBuffer vertex_buffers[] = { vertex_buffer };
+  VkDeviceSize offsets[] = { 0 };
+  auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+  vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
+  vkCmdDraw(cmd_buffer, vertex_count, 1, 0, 0);
+  // NOTE: For indexed drawing, use the following:
+  //vkCmdBindIndexBuffer(command_buffers[i], index_buffer, 0, VK_INDEX_TYPE_UINT16);
+  //auto index_count = static_cast<uint32_t>(indices.size());
+  //vkCmdDrawIndexed(command_buffers[i], index_count, 1, 0, 0, 0);*/
 }
 
 uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,

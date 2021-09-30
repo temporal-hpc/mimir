@@ -39,14 +39,51 @@ VulkanCudaEngine::~VulkanCudaEngine()
   checkCuda(cudaDestroyExternalMemory(cuda_vert_memory));
 }
 
-void VulkanCudaEngine::fillRenderingCommandBuffer(VkCommandBuffer& cmd_buffer)
+float *VulkanCudaEngine::allocateDeviceMemory(size_t p_elements)
+{
+  element_count = p_elements;
+  createExternalBuffer(sizeof(float2) * element_count,
+    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    vk_data_buffer, vk_data_memory
+  );
+  importCudaExternalMemory((void**)&cuda_raw_data, cuda_vert_memory,
+    vk_data_memory, sizeof(*cuda_raw_data) * element_count
+  );
+  return cuda_raw_data;
+}
+
+void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
+  uint32_t vertex_count)
 {
   VkBuffer vertex_buffers[] = { vk_data_buffer };
   VkDeviceSize offsets[] = { 0 };
-  auto binding_count = 1; //sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+  auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
   vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
-  vkCmdDraw(cmd_buffer, data_size, 1, 0, 0);
-  // alternatively, use vkCmdBindIndexBuffer(...)
+  vkCmdDraw(cmd_buffer, vertex_count, 1, 0, 0);
+}
+
+void VulkanCudaEngine::getVertexDescriptions(
+  VkVertexInputBindingDescription& bind_desc,
+  VkVertexInputAttributeDescription& attr_desc)
+{
+  bind_desc.binding = 0;
+  bind_desc.stride = sizeof(float2);
+  bind_desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  attr_desc.binding = 0;
+  attr_desc.location = 0;
+  attr_desc.format = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc.offset = 0;
+}
+
+void VulkanCudaEngine::getAssemblyStateInfo(
+  VkPipelineInputAssemblyStateCreateInfo &info)
+{
+  info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+  info.primitiveRestartEnable = VK_FALSE;
 }
 
 void VulkanCudaEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
@@ -65,23 +102,9 @@ void VulkanCudaEngine::getSignalFrameSemaphores(
   signal.push_back(vk_signal_semaphore);
 }
 
-void VulkanCudaEngine::initInterop(size_t vertex_count)
-{
-  checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-  data_size = vertex_count;
-}
-
 void VulkanCudaEngine::initApplication()
 {
-  createExternalBuffer(sizeof(float2) * data_size,
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-    vk_data_buffer, vk_data_memory
-  );
-  importCudaExternalMemory((void**)&cuda_raw_data, cuda_vert_memory,
-    vk_data_memory, sizeof(*cuda_raw_data) * data_size
-  );
+  checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
 
   createExternalSemaphore(vk_timeline_semaphore);
   importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
@@ -150,14 +173,16 @@ void VulkanCudaEngine::drawFrame()
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
 {
-  std::vector<const char*> extensions;
+  /*std::vector<const char*> extensions;
   extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
   extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
-  return extensions;
+  return extensions;*/
+  return VulkanEngine::getRequiredExtensions();
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredDeviceExtensions() const
 {
+  //return VulkanEngine::getRequiredDeviceExtensions();
   std::vector<const char*> extensions;
   extensions.push_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
   extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);

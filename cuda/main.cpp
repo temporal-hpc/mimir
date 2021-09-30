@@ -7,12 +7,17 @@ int main()
 {
   CudaProgram program;
   program.init(100, 200, 200, 123456);
-  auto func = std::bind(&CudaProgram::runTimestep, program);
+  auto timestep_function = std::bind(&CudaProgram::runTimestep, program);
 
+  //VulkanCudaEngine engine;
   VulkanEngine engine;
   try
   {
-    engine.init();
+    engine.init(800, 600);
+    // TODO: Must call initInterop() here!
+    //auto d_memory = engine.allocateDeviceMemory(program._particle_count);
+    //program.registerBuffer(d_memory);
+    //engine.registerFunction(timestep_function);
     engine.mainLoop();
   }
   catch (const std::exception& e)

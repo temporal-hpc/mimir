@@ -91,7 +91,9 @@ protected:
   void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
 
   virtual void initApplication() {}
-  virtual void fillRenderingCommandBuffer(VkCommandBuffer& buffer) {}
+  virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
+    uint32_t vertex_count
+  );
   virtual std::vector<const char*> getRequiredExtensions() const;
   virtual std::vector<const char*> getRequiredDeviceExtensions() const;
   virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
