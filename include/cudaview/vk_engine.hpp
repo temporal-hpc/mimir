@@ -8,11 +8,6 @@
 #include <iostream> // std::cerr
 #include <optional> // std::optional
 
-// Required device extensions
-const std::vector<const char*> device_extensions = {
-  VK_KHR_SWAPCHAIN_EXTENSION_NAME
-};
-
 struct QueueFamilyIndices
 {
   std::optional<uint32_t> graphics_family;

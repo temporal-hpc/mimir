@@ -365,6 +365,8 @@ void VulkanEngine::createLogicalDevice()
   create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
   create_info.pQueueCreateInfos = queue_create_infos.data();
   create_info.pEnabledFeatures = &device_features;
+
+  auto device_extensions = getRequiredDeviceExtensions();
   create_info.enabledExtensionCount = static_cast<uint32_t>(device_extensions.size());
   create_info.ppEnabledExtensionNames = device_extensions.data();
 
@@ -1127,7 +1129,9 @@ std::vector<const char*> VulkanEngine::getRequiredExtensions() const
 
 std::vector<const char*> VulkanEngine::getRequiredDeviceExtensions() const
 {
-  return std::vector<const char*>();
+  std::vector<const char*> extensions;
+  extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+  return extensions;
 }
 
 bool VulkanEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) const
@@ -1139,6 +1143,8 @@ bool VulkanEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) const
   vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count,
     available_extensions.data()
   );
+
+  auto device_extensions = getRequiredDeviceExtensions();
   std::set<std::string> required_extensions(
     device_extensions.begin(), device_extensions.end()
   );

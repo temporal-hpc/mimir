@@ -173,17 +173,19 @@ void VulkanCudaEngine::drawFrame()
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
 {
-  /*std::vector<const char*> extensions;
+  //return VulkanEngine::getRequiredExtensions();
+  //std::vector<const char*> extensions;
+  auto extensions = VulkanEngine::getRequiredExtensions();
   extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
   extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
-  return extensions;*/
-  return VulkanEngine::getRequiredExtensions();
+  return extensions;
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredDeviceExtensions() const
 {
   //return VulkanEngine::getRequiredDeviceExtensions();
-  std::vector<const char*> extensions;
+  //std::vector<const char*> extensions;
+  auto extensions = VulkanEngine::getRequiredDeviceExtensions();
   extensions.push_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
   extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
   extensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
