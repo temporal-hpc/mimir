@@ -6,17 +6,6 @@
 #include "cudaview/vk_types.hpp"
 
 #include <iostream> // std::cerr
-#include <optional> // std::optional
-
-struct QueueFamilyIndices
-{
-  std::optional<uint32_t> graphics_family;
-  std::optional<uint32_t> present_family;
-  bool isComplete()
-  {
-    return graphics_family.has_value() && present_family.has_value();
-  }
-};
 
 struct SwapChainSupportDetails
 {
@@ -66,6 +55,7 @@ protected:
   std::vector<VkFence> inflight_fences;
   std::vector<VkFence> images_inflight;
   size_t current_frame = 0;
+  VkSemaphore vk_timeline_semaphore = VK_NULL_HANDLE;
   VkBuffer vertex_buffer = VK_NULL_HANDLE;
   VkDeviceMemory vertex_buffer_memory = VK_NULL_HANDLE;
   VkBuffer index_buffer = VK_NULL_HANDLE;
@@ -115,10 +105,12 @@ private:
   void cleanupSwapchain();
   void recreateSwapchain();
 
-  bool checkDeviceExtensionSupport(VkPhysicalDevice device) const;
+  bool checkAllExtensionsSupported(VkPhysicalDevice device,
+    const std::vector<const char*>& device_extensions) const;
   bool isDeviceSuitable(VkPhysicalDevice device) const;
-  QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
-  SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
+  bool findQueueFamilies(VkPhysicalDevice device,
+    uint32_t& graphics_family, uint32_t& present_family) const;
+  SwapChainSupportDetails getSwapchainProperties(VkPhysicalDevice device) const;
 
   VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
   VkShaderModule createShaderModule(const std::vector<char>& code);

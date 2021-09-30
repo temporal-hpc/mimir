@@ -14,7 +14,6 @@ private:
   // Vulkan interop data
   VkBuffer vk_data_buffer = VK_NULL_HANDLE;
   VkDeviceMemory vk_data_memory = VK_NULL_HANDLE;
-  VkSemaphore vk_timeline_semaphore = VK_NULL_HANDLE;
   VkSemaphore vk_wait_semaphore = VK_NULL_HANDLE;
   VkSemaphore vk_signal_semaphore = VK_NULL_HANDLE;
 

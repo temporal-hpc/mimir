@@ -4,7 +4,7 @@
 
 #include <algorithm> // std::min/max
 #include <cstring> // memcpy
-#include <cstdint> // UINT32_MAX
+#include <limits> // std::numeric_limits
 #include <set> // std::set
 #include <stdexcept> // std::throw
 
@@ -45,14 +45,19 @@ VkSurfaceFormatKHR chooseSwapSurfaceFormat(
 VkPresentModeKHR chooseSwapPresentMode(
   const std::vector<VkPresentModeKHR>& available_modes)
 {
+  VkPresentModeKHR best_mode = VK_PRESENT_MODE_FIFO_KHR;
   for (const auto& available_mode : available_modes)
   {
     if (available_mode == VK_PRESENT_MODE_MAILBOX_KHR)
     {
       return available_mode;
     }
+    else if (available_mode == VK_PRESENT_MODE_IMMEDIATE_KHR)
+    {
+      best_mode = available_mode;
+    }
   }
-  return VK_PRESENT_MODE_FIFO_KHR;
+  return best_mode;
 }
 
 VulkanEngine::~VulkanEngine()
@@ -366,11 +371,12 @@ void VulkanEngine::pickPhysicalDevice()
 
 void VulkanEngine::createLogicalDevice()
 {
-  auto indices = findQueueFamilies(physical_device);
+  uint32_t graphics_queue_index, present_queue_index;
+  findQueueFamilies(physical_device, graphics_queue_index, present_queue_index);
 
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
   std::set<uint32_t> unique_queue_families =
-    {indices.graphics_family.value(), indices.present_family.value()};
+    { graphics_queue_index, present_queue_index};
   auto queue_priority = 1.f;
 
   for (auto queue_family : unique_queue_families)
@@ -410,8 +416,10 @@ void VulkanEngine::createLogicalDevice()
   );
 
   // Must be called after logical device is created (obviously!)
-  vkGetDeviceQueue(device, indices.graphics_family.value(), 0, &graphics_queue);
-  vkGetDeviceQueue(device, indices.present_family.value(), 0, &present_queue);
+  vkGetDeviceQueue(device, graphics_queue_index, 0, &graphics_queue);
+  vkGetDeviceQueue(device, present_queue_index, 0, &present_queue);
+
+  // TODO: Get device UUID
 }
 
 void VulkanEngine::createSurface()
@@ -421,7 +429,7 @@ void VulkanEngine::createSurface()
 
 VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities)
 {
-  if (capabilities.currentExtent.width != UINT32_MAX)
+  if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
   {
     return capabilities.currentExtent;
   }
@@ -444,7 +452,7 @@ VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabi
 
 void VulkanEngine::createSwapChain()
 {
-  auto swapchain_support = querySwapChainSupport(physical_device);
+  auto swapchain_support = getSwapchainProperties(physical_device);
   auto surface_format = chooseSwapSurfaceFormat(swapchain_support.formats);
   auto present_mode = chooseSwapPresentMode(swapchain_support.present_modes);
   auto extent = chooseSwapExtent(swapchain_support.capabilities);
@@ -466,16 +474,14 @@ void VulkanEngine::createSwapChain()
   create_info.imageArrayLayers = 1;
   create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-  auto indices = findQueueFamilies(physical_device);
-  uint32_t queue_family_indices[] = {
-    indices.graphics_family.value(), indices.present_family.value()
-  };
+  uint32_t queue_indices[2];
+  findQueueFamilies(physical_device, queue_indices[0], queue_indices[1]);
 
-  if (indices.graphics_family != indices.present_family)
+  if (queue_indices[0] != queue_indices[1])
   {
     create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
     create_info.queueFamilyIndexCount = 2;
-    create_info.pQueueFamilyIndices = queue_family_indices;
+    create_info.pQueueFamilyIndices = queue_indices;
   }
   else
   {
@@ -571,8 +577,7 @@ void VulkanEngine::createGraphicsPipeline()
   // Used to specify values for shader constants
   frag_info.pSpecializationInfo = nullptr;
 
-  VkPipelineShaderStageCreateInfo shader_stages[] = {vert_info, frag_info};
-
+  // TODO: Use the one defined on cudaengine
   auto binding_desc = Vertex::getBindingDescription();
   auto attribute_desc = Vertex::getAttributeDescriptions();
 
@@ -664,10 +669,11 @@ void VulkanEngine::createGraphicsPipeline()
     nullptr, &pipeline_layout)
   );
 
+  std::vector<VkPipelineShaderStageCreateInfo> stage_infos = {vert_info, frag_info};
   VkGraphicsPipelineCreateInfo pipeline_info{};
   pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-  pipeline_info.stageCount = 2;
-  pipeline_info.pStages = shader_stages;
+  pipeline_info.stageCount = static_cast<uint32_t>(stage_infos.size());
+  pipeline_info.pStages = stage_infos.data();
   pipeline_info.pVertexInputState = &vert_input_info;
   pipeline_info.pInputAssemblyState = &input_assembly;
   pipeline_info.pViewportState = &viewport_state;
@@ -718,19 +724,20 @@ void VulkanEngine::createRenderPass()
   dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   dependency.srcAccessMask = 0;
   dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-  VkRenderPassCreateInfo render_pass_info{};
-  render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-  render_pass_info.attachmentCount = 1;
-  render_pass_info.pAttachments = &color_attachment;
-  render_pass_info.subpassCount = 1;
-  render_pass_info.pSubpasses = &subpass;
-  render_pass_info.dependencyCount = 1;
-  render_pass_info.pDependencies = &dependency;
+  VkRenderPassCreateInfo renderpass_info{};
+  renderpass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  renderpass_info.attachmentCount = 1;
+  renderpass_info.pAttachments = &color_attachment;
+  renderpass_info.subpassCount = 1;
+  renderpass_info.pSubpasses = &subpass;
+  renderpass_info.dependencyCount = 1;
+  renderpass_info.pDependencies = &dependency;
 
   validation::checkVulkan(vkCreateRenderPass(
-    device, &render_pass_info, nullptr, &render_pass)
+    device, &renderpass_info, nullptr, &render_pass)
   );
 }
 
@@ -757,10 +764,11 @@ void VulkanEngine::createFramebuffers()
 
 void VulkanEngine::createCommandPool()
 {
-  auto queue_family_indices = findQueueFamilies(physical_device);
+  uint32_t graphics_index, present_index;
+  findQueueFamilies(physical_device, graphics_index, present_index);
   VkCommandPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  pool_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
+  pool_info.queueFamilyIndex = graphics_index;
   pool_info.flags = 0;
 
   validation::checkVulkan(vkCreateCommandPool(
@@ -787,7 +795,7 @@ void VulkanEngine::createCommandBuffers()
   {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = 0;
+    begin_info.flags = 0; //VK_COMMAND_BUFFER_USAGE_ONE_SIMULTANEOUS_USE_BIT;
     begin_info.pInheritanceInfo = nullptr;
 
     validation::checkVulkan(vkBeginCommandBuffer(command_buffers[i], &begin_info));
@@ -1158,7 +1166,8 @@ std::vector<const char*> VulkanEngine::getRequiredDeviceExtensions() const
   return extensions;
 }
 
-bool VulkanEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) const
+bool VulkanEngine::checkAllExtensionsSupported(VkPhysicalDevice device,
+  const std::vector<const char*>& device_extensions) const
 {
   // Enumerate extensions and check if all required extensions are included
   uint32_t ext_count;
@@ -1168,7 +1177,6 @@ bool VulkanEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) const
     available_extensions.data()
   );
 
-  auto device_extensions = getRequiredDeviceExtensions();
   std::set<std::string> required_extensions(
     device_extensions.begin(), device_extensions.end()
   );
@@ -1182,23 +1190,21 @@ bool VulkanEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) const
 
 bool VulkanEngine::isDeviceSuitable(VkPhysicalDevice device) const
 {
-  auto indices = findQueueFamilies(device);
-  auto extensions_supported = checkDeviceExtensionSupport(device);
-  bool swapchain_adequate = false;
-  if (extensions_supported)
-  {
-    auto swapchain_support = querySwapChainSupport(device);
-    swapchain_adequate = !swapchain_support.formats.empty() &&
-                         !swapchain_support.present_modes.empty();
-  }
-  return indices.isComplete() && extensions_supported && swapchain_adequate;
+  uint32_t graphics_index, present_index;
+  auto has_queues = findQueueFamilies(device, graphics_index, present_index);
+  auto device_extensions = getRequiredDeviceExtensions();
+  auto supports_extensions = checkAllExtensionsSupported(device, device_extensions);
+  auto swapchain_support = getSwapchainProperties(device);
+  auto swapchain_adequate = !swapchain_support.formats.empty() &&
+                            !swapchain_support.present_modes.empty();
+  return supports_extensions && swapchain_adequate && has_queues;
 }
 
 // Logic to find queue family indices to populate struct with
-QueueFamilyIndices VulkanEngine::findQueueFamilies(VkPhysicalDevice device) const
+bool VulkanEngine::findQueueFamilies(VkPhysicalDevice device,
+  uint32_t& graphics_family, uint32_t& present_family) const
 {
   // Assign index to queue families that could be found
-  QueueFamilyIndices indices;
   uint32_t queue_family_count = 0;
   vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
   std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
@@ -1206,30 +1212,34 @@ QueueFamilyIndices VulkanEngine::findQueueFamilies(VkPhysicalDevice device) cons
     queue_families.data()
   );
 
+  graphics_family = present_family = ~0;
+
   // Find at least one queue family that supports VK_QUEUE_GRAPHICS_BIT
-  int i = 0;
-  for (const auto& queue_family : queue_families)
+  for (uint32_t i = 0; i < queue_family_count; ++i)
   {
-    VkBool32 present_support = false;
-    vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
-    if (present_support)
+    if (queue_families[i].queueCount > 0)
     {
-      indices.present_family = i;
+      if (graphics_family == ~0 && queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+      {
+        graphics_family = i;
+      }
+      uint32_t present_support = 0;
+      vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
+      if (present_family == ~0 && present_support)
+      {
+        present_family = i;
+      }
+      if (present_family != ~0 && graphics_family != ~0)
+      {
+        break;
+      }
     }
-    if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT)
-    {
-      indices.graphics_family = i;
-    }
-    if (indices.isComplete())
-    {
-      break;
-    }
-    i++;
   }
-  return indices;
+  return graphics_family != ~0 && present_family != ~0;
 }
 
-SwapChainSupportDetails VulkanEngine::querySwapChainSupport(VkPhysicalDevice device) const
+SwapChainSupportDetails VulkanEngine::getSwapchainProperties(
+  VkPhysicalDevice device) const
 {
   SwapChainSupportDetails details;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
