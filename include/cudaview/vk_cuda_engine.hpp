@@ -24,28 +24,25 @@ private:
   cudaExternalSemaphore_t cuda_timeline_semaphore;
   cudaExternalMemory_t cuda_vert_memory;
   float *cuda_raw_data = nullptr;
+  size_t data_size = 0;
 
   void initInterop(size_t vertex_count);
+  void initApplication();
   void drawFrame();
+
+  void fillRenderingCommandBuffer(VkCommandBuffer& buffer);
 
   // Interop semaphore handling functions
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
-  void createExternalSemaphore(VkSemaphore& semaphore);
-  void importCudaExternalSemaphore(
-    cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
-  );
-  void *getSemaphoreHandle(VkSemaphore semaphore,
-    VkExternalSemaphoreHandleTypeFlagBits handle_type
-  );
 
-  // Interop memory handling functions
-  void *getMemHandle(VkDeviceMemory memory,
-    VkExternalMemoryHandleTypeFlagBits handle_type
-  );
+  // Interop import functions
   void importCudaExternalMemory(void **cuda_ptr,
     cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size
+  );
+  void importCudaExternalSemaphore(
+    cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
   );
 
   // Handle additional extensions required by CUDA interop

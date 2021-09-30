@@ -35,6 +35,13 @@ class VulkanEngine
 public:
   virtual ~VulkanEngine();
   void init(int width = 800, int height = 600);
+  void *getMemHandle(VkDeviceMemory memory,
+    VkExternalMemoryHandleTypeFlagBits handle_type
+  );
+  void *getSemaphoreHandle(VkSemaphore semaphore,
+    VkExternalSemaphoreHandleTypeFlagBits handle_type
+  );
+  void createExternalSemaphore(VkSemaphore& semaphore);
   void mainLoop();
   bool should_resize = false;
 
@@ -83,7 +90,13 @@ protected:
   );
   void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
 
+  virtual void initApplication() {}
+  virtual void fillRenderingCommandBuffer(VkCommandBuffer& buffer) {}
   virtual std::vector<const char*> getRequiredExtensions() const;
+  virtual std::vector<const char*> getRequiredDeviceExtensions() const;
+  virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
+    std::vector<VkVertexInputAttributeDescription>& attr_desc) const;
+  virtual void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
   virtual void drawFrame();
 
 private:

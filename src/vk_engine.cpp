@@ -236,6 +236,9 @@ void VulkanEngine::initVulkan()
   createRenderPass();
   createGraphicsPipeline();
   createFramebuffers();
+
+  initApplication();
+
   createCommandPool(); // after framebuffers were created
   createVertexBuffer();
   createIndexBuffer();
@@ -799,6 +802,24 @@ void VulkanEngine::createCommandBuffers()
   }
 }
 
+uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
+  VkMemoryPropertyFlags properties)
+{
+  VkPhysicalDeviceMemoryProperties mem_props;
+  vkGetPhysicalDeviceMemoryProperties(ph_device, &mem_props);
+
+  for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i)
+  {
+    if ((type_filter & (1 << i)) &&
+        (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
+    {
+      return i;
+    }
+  }
+
+  throw std::runtime_error("failed to find suitable memory type!");
+}
+
 void VulkanEngine::createSyncObjects()
 {
   image_available.resize(MAX_FRAMES_IN_FLIGHT);
@@ -808,7 +829,6 @@ void VulkanEngine::createSyncObjects()
 
   VkSemaphoreCreateInfo semaphore_info{};
   semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
   VkFenceCreateInfo fence_info{};
   fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
   fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -827,23 +847,12 @@ void VulkanEngine::createSyncObjects()
   }
 }
 
-uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
-  VkMemoryPropertyFlags properties)
-{
-  VkPhysicalDeviceMemoryProperties mem_props;
-  vkGetPhysicalDeviceMemoryProperties(ph_device, &mem_props);
+void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc) const
+{}
 
-  for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i)
-  {
-    if ((type_filter & (1 << i)) &&
-        (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
-    {
-      return i;
-    }
-  }
-
-  throw std::runtime_error("failed to find suitable memory type!");
-}
+void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
+{}
 
 void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory)
@@ -866,44 +875,6 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   validation::checkVulkan(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
 
   vkBindBufferMemory(device, buffer, memory, 0);
-}
-
-void VulkanEngine::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size)
-{
-  // Memory transfers are commands executed with buffers, just like drawing
-  VkCommandBufferAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  alloc_info.commandPool = command_pool;
-  alloc_info.commandBufferCount = 1;
-
-  VkCommandBuffer command_buffer;
-  vkAllocateCommandBuffers(device, &alloc_info, &command_buffer);
-
-  // Start recording the command buffer
-  VkCommandBufferBeginInfo begin_info{};
-  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-  vkBeginCommandBuffer(command_buffer, &begin_info);
-
-  VkBufferCopy copy_region{};
-  copy_region.srcOffset = 0;
-  copy_region.dstOffset = 0;
-  copy_region.size = size;
-  vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy_region);
-
-  // Finish recording the command buffer
-  vkEndCommandBuffer(command_buffer);
-
-  VkSubmitInfo submit_info{};
-  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers = &command_buffer;
-
-  vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-  vkQueueWaitIdle(graphics_queue);
-
-  vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
 }
 
 void VulkanEngine::createVertexBuffer()
@@ -957,38 +928,6 @@ void VulkanEngine::createIndexBuffer()
   vkFreeMemory(device, staging_buffer_memory, nullptr);
 }
 
-void VulkanEngine::importExternalBuffer(void *handle, size_t size,
-  VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
-  VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory)
-{
-  VkBufferCreateInfo buffer_info{};
-  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_info.size = size;
-  buffer_info.usage = usage;
-  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-  validation::checkVulkan(vkCreateBuffer(device, &buffer_info, nullptr, &buffer));
-
-  VkMemoryRequirements mem_req;
-  vkGetBufferMemoryRequirements(device, buffer, &mem_req);
-
-  VkImportMemoryFdInfoKHR handle_info{};
-  handle_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
-  handle_info.pNext = nullptr;
-  handle_info.fd = (int)(uintptr_t)handle;
-  handle_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
-  VkMemoryAllocateInfo mem_alloc{};
-  mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  mem_alloc.pNext = (void*)&handle_info;
-  mem_alloc.allocationSize = size;
-  auto type = findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
-  mem_alloc.memoryTypeIndex = type;
-
-  validation::checkVulkan(vkAllocateMemory(device, &mem_alloc, nullptr, &memory));
-  vkBindBufferMemory(device, buffer, memory, 0);
-}
-
 void VulkanEngine::createExternalBuffer(VkDeviceSize size,
   VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
   VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
@@ -1027,6 +966,147 @@ void VulkanEngine::createExternalBuffer(VkDeviceSize size,
   vkBindBufferMemory(device, buffer, buffer_memory, 0);
 }
 
+void *VulkanEngine::getMemHandle(VkDeviceMemory memory,
+  VkExternalMemoryHandleTypeFlagBits handle_type)
+{
+  int fd = -1;
+
+  VkMemoryGetFdInfoKHR fd_info{};
+  fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
+  fd_info.pNext = nullptr;
+  fd_info.memory = memory;
+  fd_info.handleType = handle_type;
+
+  auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(
+    device, "vkGetMemoryFdKHR"
+  );
+  if (!fpGetMemoryFdKHR)
+  {
+    throw std::runtime_error("Failed to retrieve function!");
+  }
+  if (fpGetMemoryFdKHR(device, &fd_info, &fd) != VK_SUCCESS)
+  {
+    throw std::runtime_error("Failed to retrieve handle for buffer!");
+  }
+  return (void*)(uintptr_t)fd;
+}
+
+void *VulkanEngine::getSemaphoreHandle(VkSemaphore semaphore,
+  VkExternalSemaphoreHandleTypeFlagBits handle_type)
+{
+  int fd;
+  VkSemaphoreGetFdInfoKHR fd_info{};
+  fd_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
+  fd_info.pNext = nullptr;
+  fd_info.semaphore = semaphore;
+  fd_info.handleType = handle_type;
+
+  PFN_vkGetSemaphoreFdKHR fpGetSemaphore;
+  fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
+    device, "PFN_vkGetSemaphoreFdKHR"
+  );
+  if (!fpGetSemaphore)
+  {
+    throw std::runtime_error("Failed to retrieve semaphore handle!");
+  }
+  validation::checkVulkan(fpGetSemaphore(device, &fd_info, &fd));
+
+  return (void*)(uintptr_t)fd;
+}
+
+void VulkanEngine::createExternalSemaphore(VkSemaphore& semaphore)
+{
+  VkSemaphoreCreateInfo semaphore_info{};
+  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+  VkExportSemaphoreCreateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
+  export_info.pNext = nullptr;
+
+  VkSemaphoreTypeCreateInfo timeline_info{};
+  timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+  timeline_info.pNext = nullptr;
+  timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+  timeline_info.initialValue = 0;
+  export_info.pNext = &timeline_info;
+  export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+  semaphore_info.pNext = &export_info;
+
+  validation::checkVulkan(
+    vkCreateSemaphore(device, &semaphore_info, nullptr, &semaphore)
+  );
+}
+
+void VulkanEngine::importExternalBuffer(void *handle, size_t size,
+  VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
+  VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory)
+{
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size = size;
+  buffer_info.usage = usage;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  validation::checkVulkan(vkCreateBuffer(device, &buffer_info, nullptr, &buffer));
+
+  VkMemoryRequirements mem_req;
+  vkGetBufferMemoryRequirements(device, buffer, &mem_req);
+
+  VkImportMemoryFdInfoKHR handle_info{};
+  handle_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
+  handle_info.pNext = nullptr;
+  handle_info.fd = (int)(uintptr_t)handle;
+  handle_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  VkMemoryAllocateInfo mem_alloc{};
+  mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  mem_alloc.pNext = (void*)&handle_info;
+  mem_alloc.allocationSize = size;
+  auto type = findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
+  mem_alloc.memoryTypeIndex = type;
+
+  validation::checkVulkan(vkAllocateMemory(device, &mem_alloc, nullptr, &memory));
+  vkBindBufferMemory(device, buffer, memory, 0);
+}
+
+void VulkanEngine::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size)
+{
+  // Memory transfers are commands executed with buffers, just like drawing
+  VkCommandBufferAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  alloc_info.commandPool = command_pool;
+  alloc_info.commandBufferCount = 1;
+
+  VkCommandBuffer command_buffer;
+  vkAllocateCommandBuffers(device, &alloc_info, &command_buffer);
+
+  // Start recording the command buffer
+  VkCommandBufferBeginInfo begin_info{};
+  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vkBeginCommandBuffer(command_buffer, &begin_info);
+
+  VkBufferCopy copy_region{};
+  copy_region.srcOffset = 0;
+  copy_region.dstOffset = 0;
+  copy_region.size = size;
+  vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy_region);
+
+  // Finish recording the command buffer
+  vkEndCommandBuffer(command_buffer);
+
+  VkSubmitInfo submit_info{};
+  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submit_info.commandBufferCount = 1;
+  submit_info.pCommandBuffers = &command_buffer;
+
+  vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+  vkQueueWaitIdle(graphics_queue);
+
+  vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+}
+
 // Return list of required GLFW extensions and additional required validation layers
 std::vector<const char*> VulkanEngine::getRequiredExtensions() const
 {
@@ -1039,6 +1119,11 @@ std::vector<const char*> VulkanEngine::getRequiredExtensions() const
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   }
   return extensions;
+}
+
+std::vector<const char*> VulkanEngine::getRequiredDeviceExtensions() const
+{
+  return std::vector<const char*>();
 }
 
 bool VulkanEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) const
