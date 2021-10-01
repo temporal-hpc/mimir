@@ -2,6 +2,10 @@
 #include "io.hpp"
 #include "validation.hpp"
 
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_vulkan.h"
+
 #include <algorithm> // std::min/max
 #include <cstring> // memcpy
 #include <iostream> // std::cerr
@@ -74,6 +78,7 @@ VulkanEngine::VulkanEngine(size_t data_size):
   vertex_buffer_memory(VK_NULL_HANDLE),
   index_buffer(VK_NULL_HANDLE),
   index_buffer_memory(VK_NULL_HANDLE),
+  imgui_pool(VK_NULL_HANDLE),
 
   window(nullptr),
   current_frame(0),
@@ -86,8 +91,14 @@ VulkanEngine::VulkanEngine(): VulkanEngine(0)
 
 VulkanEngine::~VulkanEngine()
 {
-  cleanupSwapchain();
 
+  /*cleanupSwapchain();
+
+  ImGui_ImplVulkan_Shutdown();
+  if (imgui_pool != VK_NULL_HANDLE)
+  {
+    vkDestroyDescriptorPool(device, imgui_pool, nullptr);
+  }
   if (vertex_buffer != VK_NULL_HANDLE)
   {
     vkDestroyBuffer(device, vertex_buffer, nullptr);
@@ -140,7 +151,7 @@ VulkanEngine::~VulkanEngine()
   {
     glfwDestroyWindow(window);
   }
-  glfwTerminate();
+  glfwTerminate();*/
 }
 
 void VulkanEngine::init(int width, int height)
@@ -160,6 +171,13 @@ void VulkanEngine::mainLoop()
   while(!glfwWindowShouldClose(window))
   {
     glfwPollEvents();
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    //ImGui::ShowDemoWindow();
+    ImGui::Render();
+
     drawFrame();
   }
   vkDeviceWaitIdle(device);
@@ -191,6 +209,47 @@ void VulkanEngine::drawFrame()
   {
     throw std::runtime_error("Failed to acquire swapchain image");
   }
+
+  vkResetCommandBuffer(command_buffers[image_idx], 0);
+
+  VkCommandBufferBeginInfo begin_info{};
+  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+  begin_info.pInheritanceInfo = nullptr;
+
+  validation::checkVulkan(vkBeginCommandBuffer(
+    command_buffers[image_idx], &begin_info)
+  );
+
+  VkRenderPassBeginInfo render_pass_info{};
+  render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  render_pass_info.renderPass = render_pass;
+  render_pass_info.framebuffer = framebuffers[image_idx];
+  render_pass_info.renderArea.offset = {0, 0};
+  render_pass_info.renderArea.extent = swapchain_extent;
+
+  VkClearValue clear_color = {{{.5f, .5f, .5f, 1.f}}};
+  render_pass_info.clearValueCount = 1;
+  render_pass_info.pClearValues = &clear_color;
+
+  vkCmdBeginRenderPass(command_buffers[image_idx], &render_pass_info,
+    VK_SUBPASS_CONTENTS_INLINE
+  );
+  // Note: Second parameter can be also used to bind a compute pipeline
+  vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
+    graphics_pipeline
+  );
+
+  setUnstructuredRendering(command_buffers[image_idx], element_count);
+
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffers[image_idx]);
+
+  // End render pass and finish recording the command buffer
+  vkCmdEndRenderPass(command_buffers[image_idx]);
+  validation::checkVulkan(vkEndCommandBuffer(command_buffers[image_idx]));
+
+
+
 
   VkSubmitInfo submit_info{};
   submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -236,8 +295,7 @@ void VulkanEngine::drawFrame()
   present_info.pSwapchains = swapchains;
   present_info.pImageIndices = &image_idx;
 
-  result = validation::checkVulkan(vkQueuePresentKHR(present_queue, &present_info));
-
+  result = vkQueuePresentKHR(present_queue, &present_info);
   // Resize should be done after presentation to ensure semaphore consistency
   if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
   {
@@ -298,10 +356,12 @@ void VulkanEngine::initVulkan()
   initApplication();
 
   createCommandPool(); // after framebuffers were created
+  initImgui(); // After command pool is created
   createVertexBuffer();
   createIndexBuffer();
   createCommandBuffers();
   createSyncObjects();
+
 }
 
 void VulkanEngine::createInstance()
@@ -800,7 +860,7 @@ void VulkanEngine::createCommandPool()
   VkCommandPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   pool_info.queueFamilyIndex = graphics_index;
-  pool_info.flags = 0;
+  pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
   validation::checkVulkan(vkCreateCommandPool(
     device, &pool_info, nullptr, &command_pool)
@@ -820,42 +880,6 @@ void VulkanEngine::createCommandBuffers()
   validation::checkVulkan(vkAllocateCommandBuffers(
     device, &alloc_info, command_buffers.data())
   );
-
-  // Start command buffer recording
-  for (size_t i = 0; i < command_buffers.size(); ++i)
-  {
-    VkCommandBufferBeginInfo begin_info{};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-    begin_info.pInheritanceInfo = nullptr;
-
-    validation::checkVulkan(vkBeginCommandBuffer(command_buffers[i], &begin_info));
-
-    VkRenderPassBeginInfo render_pass_info{};
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    render_pass_info.renderPass = render_pass;
-    render_pass_info.framebuffer = framebuffers[i];
-    render_pass_info.renderArea.offset = {0, 0};
-    render_pass_info.renderArea.extent = swapchain_extent;
-
-    VkClearValue clear_color = {{{.5f, .5f, .5f, 1.f}}};
-    render_pass_info.clearValueCount = 1;
-    render_pass_info.pClearValues = &clear_color;
-
-    vkCmdBeginRenderPass(command_buffers[i], &render_pass_info,
-      VK_SUBPASS_CONTENTS_INLINE
-    );
-    // Note: Second parameter can be also used to bind a compute pipeline
-    vkCmdBindPipeline(command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
-      graphics_pipeline
-    );
-
-    setUnstructuredRendering(command_buffers[i], element_count);
-
-    // End render pass and finish recording the command buffer
-    vkCmdEndRenderPass(command_buffers[i]);
-    validation::checkVulkan(vkEndCommandBuffer(command_buffers[i]));
-  }
 }
 
 void VulkanEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
@@ -1303,4 +1327,85 @@ void VulkanEngine::getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& 
 void VulkanEngine::initApplication()
 {
   createExternalSemaphore(vk_timeline_semaphore);
+}
+
+void VulkanEngine::initImgui()
+{
+  VkDescriptorPoolSize pool_sizes[] =
+  {
+    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+  };
+
+  VkDescriptorPoolCreateInfo pool_info{};
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets = 1000;
+  pool_info.poolSizeCount = std::size(pool_sizes);
+  pool_info.pPoolSizes = pool_sizes;
+
+  validation::checkVulkan(vkCreateDescriptorPool(
+    device, &pool_info, nullptr, &imgui_pool)
+  );
+
+  ImGui::CreateContext();
+  ImGui_ImplGlfw_InitForVulkan(window, true);
+
+  ImGui_ImplVulkan_InitInfo init_info{};
+  init_info.Instance = instance;
+  init_info.PhysicalDevice = physical_device;
+  init_info.Device = device;
+  init_info.Queue = graphics_queue;
+  init_info.DescriptorPool = imgui_pool;
+  init_info.MinImageCount = 3; // TODO: Check if this is true
+  init_info.ImageCount = 3;
+  init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+  ImGui_ImplVulkan_Init(&init_info, render_pass);
+
+  auto cmd = beginSingleTimeCommands();
+  ImGui_ImplVulkan_CreateFontsTexture(cmd);
+  endSingleTimeCommands(cmd);
+  ImGui_ImplVulkan_DestroyFontUploadObjects();
+}
+
+VkCommandBuffer VulkanEngine::beginSingleTimeCommands()
+{
+  VkCommandBufferAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  alloc_info.commandPool = command_pool;
+  alloc_info.commandBufferCount = 1;
+
+  VkCommandBuffer command_buffer;
+  vkAllocateCommandBuffers(device, &alloc_info, &command_buffer);
+
+  VkCommandBufferBeginInfo begin_info{};
+  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+  vkBeginCommandBuffer(command_buffer, &begin_info);
+  return command_buffer;
+}
+
+void VulkanEngine::endSingleTimeCommands(VkCommandBuffer command_buffer)
+{
+  vkEndCommandBuffer(command_buffer);
+
+  VkSubmitInfo submit_info{};
+  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submit_info.commandBufferCount = 1;
+  submit_info.pCommandBuffers = &command_buffer;
+
+  vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+  vkQueueWaitIdle(graphics_queue);
+  vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
 }

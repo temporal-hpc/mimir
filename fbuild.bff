@@ -21,11 +21,20 @@ ObjectList('shaders')
   .CompilerOutputExtension = '.spv'
 }
 
+ObjectList('imgui')
+{
+  .Compiler           = '/usr/bin/g++'
+  .CompilerOptions    = '-o "%2" "%1" -c'
+                      + ' -Icontrib/imgui-1.84.2 -Icontrib/imgui-1.84.2/backends'
+  .CompilerInputPath  = 'contrib/imgui-1.84.2'
+  .CompilerOutputPath = '_out/'
+}
+
 Library('cudaview')
 {
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = '-o "%2" "%1" -c'
-                      + ' -Iinclude -Icontrib/vulkan-hpp -I/usr/local/cuda/include'
+                      + ' -Iinclude -Icontrib/imgui-1.84.2 -I/usr/local/cuda/include'
                       + ' -std=c++17'
                       + .'Flags$BuildType$'
   .CompilerInputPath  = 'src/'
@@ -46,7 +55,7 @@ ObjectList('cudaprogram')
 
 Executable('app')
 {
-  .Libraries     = { 'cudaview', 'cudaprogram' }
+  .Libraries     = { 'imgui', 'cudaview', 'cudaprogram' }
   .Linker        = '/usr/local/cuda/bin/nvcc'
   .LinkerOutput  = '_out/app'
   .LinkerOptions = '"%1" -o "%2"'

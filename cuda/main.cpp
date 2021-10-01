@@ -19,14 +19,15 @@ int main(int argc, char *argv[])
   }
 
   CudaProgram program(particle_count, 200, 200, 123456);
-  //VulkanEngine engine(vertices.size());
   try
   {
-    VulkanCudaEngine engine(program._particle_count);
     // Initialize engine
+    VulkanCudaEngine engine(program._particle_count);
     engine.init(800, 600);
+
     auto d_memory = engine.getDeviceMemory();
     program.registerBuffer(d_memory);
+    // CUDA-side calls that need d_memory should be made only after this point
     program.setInitialState();
 
     // Set up the function that we want to display
@@ -46,3 +47,5 @@ int main(int argc, char *argv[])
 
   return EXIT_SUCCESS;
 }
+
+//VulkanEngine engine(vertices.size());

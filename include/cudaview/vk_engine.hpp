@@ -71,6 +71,8 @@ protected:
     VkDeviceMemory& buffer_memory
   );
   void createExternalSemaphore(VkSemaphore& semaphore);
+  VkCommandBuffer beginSingleTimeCommands();
+  void endSingleTimeCommands(VkCommandBuffer command_buffer);
 
   virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
     uint32_t vertex_count
@@ -87,6 +89,9 @@ protected:
 
 private:
   GLFWwindow *window;
+  VkDescriptorPool imgui_pool;
+
+  void initImgui();
   void initVulkan();
   void setupDebugMessenger();
   void pickPhysicalDevice();
