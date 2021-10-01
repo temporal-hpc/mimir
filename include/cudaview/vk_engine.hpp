@@ -25,7 +25,6 @@ public:
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
-  void createExternalSemaphore(VkSemaphore& semaphore);
   void mainLoop();
   bool should_resize = false;
   size_t element_count;
@@ -61,16 +60,17 @@ protected:
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
   );
+  void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
+  void importExternalBuffer(void *handle, size_t size,
+    VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory
+  );
   void createExternalBuffer(VkDeviceSize size,
     VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
     VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
     VkDeviceMemory& buffer_memory
   );
-  void importExternalBuffer(void *handle, size_t size,
-    VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory
-  );
-  void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
+  void createExternalSemaphore(VkSemaphore& semaphore);
 
   virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
     uint32_t vertex_count

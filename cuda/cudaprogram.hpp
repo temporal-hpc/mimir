@@ -18,5 +18,5 @@ struct CudaProgram
   void setInitialState();
   void cleanup();
   void registerBuffer(float *d_buffer);
-  void runTimestep();
+  void runTimestep(cudaStream_t stream);
 };

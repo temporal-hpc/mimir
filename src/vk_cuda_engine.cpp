@@ -58,7 +58,7 @@ float *VulkanCudaEngine::getDeviceMemory()
   return cuda_raw_data;
 }
 
-void VulkanCudaEngine::registerFunction(std::function<void(void)> func)
+void VulkanCudaEngine::registerFunction(std::function<void(cudaStream_t)> func)
 {
   step_function = func;
 }
@@ -103,7 +103,6 @@ void VulkanCudaEngine::initApplication()
 {
   VulkanEngine::initApplication();
   checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-  printf("create external buffer %lu\n", sizeof(float2) * element_count);
   createExternalBuffer(sizeof(float2) * element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -164,7 +163,7 @@ void VulkanCudaEngine::drawFrame()
   checkCuda(cudaWaitExternalSemaphoresAsync(
     &cuda_timeline_semaphore, &wait_params, 1, stream)
   );
-  step_function();
+  step_function(stream);
   // Signal Vulkan to continue with the updated buffers
   checkCuda(cudaSignalExternalSemaphoresAsync(
     &cuda_timeline_semaphore, &signal_params, 1, stream)

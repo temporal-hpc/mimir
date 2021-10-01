@@ -39,7 +39,7 @@ __global__ void initSystem(float *coords, size_t particle_count,
     curand_init(seed, tidx, 0, &local_state);
     auto rx = curand_uniform(&local_state);
     auto ry = curand_uniform(&local_state);
-    float2 p{rx * extent.x, ry * extent.y};
+    float2 p{rx, ry};
     particles[tidx] = p;
     global_states[tidx] = local_state;
   }
@@ -55,9 +55,9 @@ __global__ void integrate2d(float *coords, size_t particle_count,
     auto local_state = global_states[tidx];
     auto r = curand_normal2(&local_state);
     auto p = particles[tidx];
-    p.x += r.x;
+    p.x += r.x / extent.x;
     if (p.x > extent.x) p.x = extent.x;
-    p.y += r.y;
+    p.y += r.y / extent.y;
     if (p.y > extent.y) p.y = extent.y;
     particles[tidx] = p;
     global_states[tidx] = local_state;
@@ -77,7 +77,7 @@ void CudaProgram::setInitialState()
   initSystem<<<_grid_size, _block_size>>>(
     _d_coords, _particle_count, _d_states, _state_count, _bounding_box, _seed
   );
-  checkCuda(cudaDeviceSynchronize());
+  //checkCuda(cudaDeviceSynchronize());
 }
 
 void CudaProgram::registerBuffer(float *d_buffer)
@@ -87,13 +87,15 @@ void CudaProgram::registerBuffer(float *d_buffer)
 
 void CudaProgram::cleanup()
 {
+  printf("rng...\n");
   //checkCuda(cudaFree(_d_coords));
   checkCuda(cudaFree(_d_states));
+  printf("no rng...\n");
 }
 
-void CudaProgram::runTimestep()
+void CudaProgram::runTimestep(cudaStream_t stream)
 {
-  integrate2d<<<_grid_size, _block_size>>>(
+  integrate2d<<< _grid_size, _block_size, 0, stream >>>(
     _d_coords, _particle_count, _d_states, _state_count, _bounding_box
   );
   //checkCuda(cudaDeviceSynchronize());
