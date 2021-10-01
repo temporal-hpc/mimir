@@ -1,7 +1,7 @@
 #include "cudaprogram.hpp"
 #include "cudaview/vk_cuda_engine.hpp"
 
-#include <functional> // TODO: Use bound function in engine.mainLoop()
+#include <iostream> // std::cerr
 
 int main()
 {
@@ -14,7 +14,6 @@ int main()
   try
   {
     engine.init(800, 600);
-    // TODO: Must call initInterop() here!
     //auto d_memory = engine.allocateDeviceMemory(program._particle_count);
     //program.registerBuffer(d_memory);
     //engine.registerFunction(timestep_function);

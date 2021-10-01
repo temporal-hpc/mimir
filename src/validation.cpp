@@ -1,6 +1,7 @@
 #include "validation.hpp"
 
 #include <cstring> // strcmp
+#include <iostream> // std::cerr
 
 namespace validation
 {

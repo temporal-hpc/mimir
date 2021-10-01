@@ -5,8 +5,6 @@
 
 #include "cudaview/vk_types.hpp"
 
-#include <iostream> // std::cerr
-
 struct SwapChainSupportDetails
 {
   VkSurfaceCapabilitiesKHR capabilities;
@@ -78,6 +76,11 @@ protected:
   );
   virtual std::vector<const char*> getRequiredExtensions() const;
   virtual std::vector<const char*> getRequiredDeviceExtensions() const;
+  virtual void getVertexDescriptions(
+    std::vector<VkVertexInputBindingDescription>& bind_desc,
+    std::vector<VkVertexInputAttributeDescription>& attr_desc
+  );
+  virtual void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
   virtual void drawFrame();
 
 private:

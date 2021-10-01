@@ -4,12 +4,15 @@
 
 #include <cuda_runtime_api.h>
 
+#include <functional>
+
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
   VulkanCudaEngine();
   ~VulkanCudaEngine();
   float *allocateDeviceMemory(size_t element_count);
+  void registerFunction(std::function<void(void)> func);
 
 private:
   // Vulkan interop data
@@ -22,15 +25,17 @@ private:
   cudaExternalMemory_t cuda_vert_memory;
   float *cuda_raw_data;
   size_t element_count;
+  std::function<void(void)> step_function;
 
   void initApplication();
   void drawFrame();
   void setUnstructuredRendering(VkCommandBuffer& cmd_buffer, uint32_t vertex_count);
 
-  void getVertexDescriptions(VkVertexInputBindingDescription& bind_desc,
-    VkVertexInputAttributeDescription& attr_desc
+  void getVertexDescriptions(
+    std::vector<VkVertexInputBindingDescription>& bind_desc,
+    std::vector<VkVertexInputAttributeDescription>& attr_desc
   );
-  void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo &info);
+  void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
 
   // Interop import functions
   void importCudaExternalMemory(void **cuda_ptr,

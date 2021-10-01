@@ -24,7 +24,6 @@ VulkanCudaEngine::VulkanCudaEngine():
   vk_data_buffer(VK_NULL_HANDLE),
   vk_data_memory(VK_NULL_HANDLE),
   stream(0),
-  cuda_timeline_semaphore(nullptr),
   cuda_vert_memory(nullptr),
   cuda_raw_data(nullptr),
   element_count(0)
@@ -35,7 +34,7 @@ VulkanCudaEngine::~VulkanCudaEngine()
   // Make sure there is no pending work before cleanup starts
   checkCuda(cudaStreamSynchronize(stream));
 
-  if (vk_timeline_semaphore != VK_NULL_HANDLE)
+  if (cuda_timeline_semaphore != nullptr)
   {
     checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
   }
@@ -68,36 +67,46 @@ float *VulkanCudaEngine::allocateDeviceMemory(size_t p_elements)
   return cuda_raw_data;
 }
 
+void VulkanCudaEngine::registerFunction(std::function<void(void)> func)
+{
+  step_function = func;
+}
+
 void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
   uint32_t vertex_count)
 {
-  VkBuffer vertex_buffers[] = { vk_data_buffer };
+  return VulkanEngine::setUnstructuredRendering(cmd_buffer, vertex_count);
+  /*VkBuffer vertex_buffers[] = { vk_data_buffer };
   VkDeviceSize offsets[] = { 0 };
   auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
   vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
-  vkCmdDraw(cmd_buffer, vertex_count, 1, 0, 0);
+  vkCmdDraw(cmd_buffer, vertex_count, 1, 0, 0);*/
 }
 
 void VulkanCudaEngine::getVertexDescriptions(
-  VkVertexInputBindingDescription& bind_desc,
-  VkVertexInputAttributeDescription& attr_desc)
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
 {
-  bind_desc.binding = 0;
-  bind_desc.stride = sizeof(float2);
-  bind_desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  return VulkanEngine::getVertexDescriptions(bind_desc, attr_desc);
+  /*bind_desc.resize(1);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(float2);
+  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-  attr_desc.binding = 0;
-  attr_desc.location = 0;
-  attr_desc.format = VK_FORMAT_R32G32_SFLOAT;
-  attr_desc.offset = 0;
+  attr_desc[1].resize(1);
+  attr_desc[1].binding = 0;
+  attr_desc[1].location = 0;
+  attr_desc[1].format = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc[1].offset = 0;*/
 }
 
 void VulkanCudaEngine::getAssemblyStateInfo(
-  VkPipelineInputAssemblyStateCreateInfo &info)
+  VkPipelineInputAssemblyStateCreateInfo& info)
 {
-  info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  return VulkanEngine::getAssemblyStateInfo(info);
+  /*info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
   info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-  info.primitiveRestartEnable = VK_FALSE;
+  info.primitiveRestartEnable = VK_FALSE;*/
 }
 
 void VulkanCudaEngine::initApplication()

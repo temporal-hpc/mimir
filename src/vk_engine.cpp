@@ -4,6 +4,7 @@
 
 #include <algorithm> // std::min/max
 #include <cstring> // memcpy
+#include <iostream> // std::cerr
 #include <limits> // std::numeric_limits
 #include <set> // std::set
 #include <stdexcept> // std::throw
@@ -295,14 +296,12 @@ void VulkanEngine::initVulkan()
   createRenderPass();
   createGraphicsPipeline();
   createFramebuffers();
-
-  initApplication();
-
   createCommandPool(); // after framebuffers were created
   createVertexBuffer();
   createIndexBuffer();
   createCommandBuffers();
   createSyncObjects();
+  initApplication();
 }
 
 void VulkanEngine::createInstance()
@@ -611,21 +610,19 @@ void VulkanEngine::createGraphicsPipeline()
   frag_info.pSpecializationInfo = nullptr;
 
   // TODO: Use the one defined on cudaengine
-  auto binding_desc = Vertex::getBindingDescription();
-  auto attribute_desc = Vertex::getAttributeDescriptions();
+  std::vector<VkVertexInputBindingDescription> bind_desc;
+  std::vector<VkVertexInputAttributeDescription> attr_desc;
+  getVertexDescriptions(bind_desc, attr_desc);
 
   VkPipelineVertexInputStateCreateInfo vert_input_info{};
   vert_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vert_input_info.vertexBindingDescriptionCount = 1;
-  vert_input_info.pVertexBindingDescriptions = &binding_desc;
-  vert_input_info.vertexAttributeDescriptionCount = (uint32_t)attribute_desc.size();
-  vert_input_info.pVertexAttributeDescriptions = attribute_desc.data();
+  vert_input_info.vertexBindingDescriptionCount = (uint32_t)bind_desc.size();
+  vert_input_info.pVertexBindingDescriptions = bind_desc.data();
+  vert_input_info.vertexAttributeDescriptionCount = (uint32_t)attr_desc.size();
+  vert_input_info.pVertexAttributeDescriptions = attr_desc.data();
 
   VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-  input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-  //input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-  input_assembly.primitiveRestartEnable = VK_FALSE;
+  getAssemblyStateInfo(input_assembly);
 
   VkViewport viewport{};
   viewport.x = 0.f;
@@ -1051,11 +1048,11 @@ void *VulkanEngine::getSemaphoreHandle(VkSemaphore semaphore,
 
   PFN_vkGetSemaphoreFdKHR fpGetSemaphore;
   fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
-    device, "PFN_vkGetSemaphoreFdKHR"
+    device, "vkGetSemaphoreFdKHR"
   );
   if (!fpGetSemaphore)
   {
-    throw std::runtime_error("Failed to retrieve semaphore handle!");
+    throw std::runtime_error("Failed to retrieve semaphore function handle!");
   }
   validation::checkVulkan(fpGetSemaphore(device, &fd_info, &fd));
 
@@ -1274,4 +1271,32 @@ SwapChainSupportDetails VulkanEngine::getSwapchainProperties(
     );
   }
   return details;
+}
+
+void VulkanEngine::getVertexDescriptions(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(Vertex);
+  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  attr_desc.resize(2);
+  attr_desc[0].binding = 0;
+  attr_desc[0].location = 0;
+  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc[0].offset = offsetof(Vertex, pos);
+  attr_desc[1].binding = 0;
+  attr_desc[1].location = 1;
+  attr_desc[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attr_desc[1].offset = offsetof(Vertex, color);
+}
+
+void VulkanEngine::getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info)
+{
+  info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  //info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+  info.primitiveRestartEnable = VK_FALSE;
 }
