@@ -9,12 +9,6 @@
 #include <set> // std::set
 #include <stdexcept> // std::throw
 
-const int MAX_FRAMES_IN_FLIGHT = 2;
-const std::vector<Vertex> vertices = {
-  { { 0.f, -.5f}, {1.f, 0.f, 0.f} },
-  { { .5f,  .5f}, {0.f, 1.f, 0.f} },
-  { {-.5f,  .5f}, {0.f, 0.f, 1.f} }
-};
 /*const std::vector<Vertex> vertices = {
   { {-.5f, -.5f}, {1.f, 0.f, 0.f} },
   { { .5f, -.5f}, {0.f, 1.f, 0.f} },
@@ -296,12 +290,14 @@ void VulkanEngine::initVulkan()
   createRenderPass();
   createGraphicsPipeline();
   createFramebuffers();
+
+  initApplication();
+
   createCommandPool(); // after framebuffers were created
   createVertexBuffer();
   createIndexBuffer();
   createCommandBuffers();
   createSyncObjects();
-  initApplication();
 }
 
 void VulkanEngine::createInstance()
@@ -895,8 +891,6 @@ void VulkanEngine::createSyncObjects()
   validation::checkVulkan(vkCreateSemaphore(
     device, &semaphore_info, nullptr, &vk_presentation_semaphore)
   );
-
-  createExternalSemaphore(vk_timeline_semaphore);
 }
 
 void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -1299,4 +1293,9 @@ void VulkanEngine::getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& 
   //info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   info.primitiveRestartEnable = VK_FALSE;
+}
+
+void VulkanEngine::initApplication()
+{
+  createExternalSemaphore(vk_timeline_semaphore);
 }

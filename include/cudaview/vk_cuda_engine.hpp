@@ -9,9 +9,9 @@
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
-  VulkanCudaEngine();
+  VulkanCudaEngine(size_t data_size);
   ~VulkanCudaEngine();
-  float *allocateDeviceMemory(size_t element_count);
+  float *getDeviceMemory();
   void registerFunction(std::function<void(void)> func);
 
 private:

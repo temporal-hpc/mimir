@@ -70,7 +70,6 @@ protected:
   );
   void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
 
-  virtual void initApplication() {}
   virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
     uint32_t vertex_count
   );
@@ -82,6 +81,7 @@ protected:
   );
   virtual void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
   virtual void drawFrame();
+  virtual void initApplication();
 
 private:
   GLFWwindow *window;

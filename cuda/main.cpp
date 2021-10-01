@@ -9,12 +9,12 @@ int main()
   program.init(100, 200, 200, 123456);
   auto timestep_function = std::bind(&CudaProgram::runTimestep, program);
 
-  //VulkanCudaEngine engine;
+  //VulkanCudaEngine engine(program._particle_count);
   VulkanEngine engine;
   try
   {
     engine.init(800, 600);
-    //auto d_memory = engine.allocateDeviceMemory(program._particle_count);
+    //auto d_memory = engine.getDeviceMemory();
     //program.registerBuffer(d_memory);
     //engine.registerFunction(timestep_function);
     engine.mainLoop();
