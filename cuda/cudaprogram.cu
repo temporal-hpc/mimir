@@ -89,10 +89,7 @@ void CudaProgram::registerBuffer(float *d_buffer)
 
 void CudaProgram::cleanup()
 {
-  printf("rng...\n");
-  //checkCuda(cudaFree(_d_coords));
   checkCuda(cudaFree(_d_states));
-  printf("no rng...\n");
 }
 
 void CudaProgram::runTimestep(cudaStream_t stream)
@@ -100,5 +97,5 @@ void CudaProgram::runTimestep(cudaStream_t stream)
   integrate2d<<< _grid_size, _block_size, 0, stream >>>(
     _d_coords, _particle_count, _d_states, _state_count, _bounding_box
   );
-  //checkCuda(cudaDeviceSynchronize());
+  //checkCuda(cudaStreamSynchronize(stream));
 }

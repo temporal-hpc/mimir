@@ -32,6 +32,15 @@ VulkanCudaEngine::VulkanCudaEngine(size_t data_size):
 
 VulkanCudaEngine::~VulkanCudaEngine()
 {
+  // Raise explicit timeline semaphore signal to unlock the cuda stream
+  vkDeviceWaitIdle(device);
+  VkSemaphoreSignalInfo signal_info{};
+  signal_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
+  signal_info.pNext = nullptr;
+  signal_info.semaphore = vk_timeline_semaphore;
+  signal_info.value = 1;
+  vkSignalSemaphore(device, &signal_info);
+
   // Make sure there is no pending work before cleanup starts
   checkCuda(cudaStreamSynchronize(stream));
 
@@ -149,6 +158,7 @@ void VulkanCudaEngine::importCudaExternalSemaphore(
 
 void VulkanCudaEngine::drawFrame()
 {
+  static int i = 0;
   VulkanEngine::drawFrame();
 
   cudaExternalSemaphoreWaitParams wait_params{};
@@ -159,15 +169,19 @@ void VulkanCudaEngine::drawFrame()
   signal_params.flags = 0;
   signal_params.params.fence.value = 0;
 
-  // Wait for Vulkan to complete its work
-  checkCuda(cudaWaitExternalSemaphoresAsync(
-    &cuda_timeline_semaphore, &wait_params, 1, stream)
-  );
-  step_function(stream);
-  // Signal Vulkan to continue with the updated buffers
-  checkCuda(cudaSignalExternalSemaphoresAsync(
-    &cuda_timeline_semaphore, &signal_params, 1, stream)
-  );
+  //if (i <= 1000)
+  //{
+    // Wait for Vulkan to complete its work
+    checkCuda(cudaWaitExternalSemaphoresAsync(
+      &cuda_timeline_semaphore, &wait_params, 1, stream)
+    );
+    step_function(stream);
+    // Signal Vulkan to continue with the updated buffers
+    checkCuda(cudaSignalExternalSemaphoresAsync(
+      &cuda_timeline_semaphore, &signal_params, 1, stream)
+    );
+  //  i++;
+  //}
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const

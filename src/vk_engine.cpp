@@ -245,7 +245,7 @@ void VulkanEngine::drawFrame()
     should_resize = false;
   }
 
-  // vkQueueWaitIdle(present_queue);
+  vkQueueWaitIdle(present_queue);
   current_frame++;
 }
 
@@ -610,7 +610,6 @@ void VulkanEngine::createGraphicsPipeline()
   // Used to specify values for shader constants
   frag_info.pSpecializationInfo = nullptr;
 
-  // TODO: Use the one defined on cudaengine
   std::vector<VkVertexInputBindingDescription> bind_desc;
   std::vector<VkVertexInputAttributeDescription> attr_desc;
   getVertexDescriptions(bind_desc, attr_desc);
@@ -668,8 +667,9 @@ void VulkanEngine::createGraphicsPipeline()
   multisampling.alphaToOneEnable = VK_FALSE;
 
   VkPipelineColorBlendAttachmentState color_blend_attachment{};
-  color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-    VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  color_blend_attachment.colorWriteMask =
+    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+    VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
   color_blend_attachment.blendEnable = VK_FALSE;
   color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
   color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
