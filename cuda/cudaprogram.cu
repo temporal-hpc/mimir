@@ -64,17 +64,18 @@ __global__ void integrate2d(float *coords, size_t particle_count,
   }
 }
 
-void CudaProgram::init(size_t particle_count, int width, int height, unsigned seed)
-{
-  _particle_count = particle_count;
-  _state_count = _particle_count;
-  _bounding_box = {width, height};
-  _grid_size = (_particle_count + _block_size - 1) / _block_size;
+CudaProgram::CudaProgram(size_t particle_count, int width, int height, unsigned seed):
+  _particle_count(particle_count), _bounding_box{width, height},
+  _state_count(_particle_count), _seed(seed),
+  _grid_size((_particle_count + _block_size - 1) / _block_size)
+{}
 
-  checkCuda(cudaMalloc(&_d_coords, sizeof(float2) * _particle_count));
+void CudaProgram::setInitialState()
+{
+  //checkCuda(cudaMalloc(&_d_coords, sizeof(float2) * _particle_count));
   checkCuda(cudaMalloc(&_d_states, sizeof(curandState) * _state_count));
   initSystem<<<_grid_size, _block_size>>>(
-    _d_coords, _particle_count, _d_states, _state_count, _bounding_box, seed
+    _d_coords, _particle_count, _d_states, _state_count, _bounding_box, _seed
   );
   checkCuda(cudaDeviceSynchronize());
 }
@@ -86,7 +87,7 @@ void CudaProgram::registerBuffer(float *d_buffer)
 
 void CudaProgram::cleanup()
 {
-  checkCuda(cudaFree(_d_coords));
+  //checkCuda(cudaFree(_d_coords));
   checkCuda(cudaFree(_d_states));
 }
 
@@ -95,5 +96,5 @@ void CudaProgram::runTimestep()
   integrate2d<<<_grid_size, _block_size>>>(
     _d_coords, _particle_count, _d_states, _state_count, _bounding_box
   );
-  checkCuda(cudaDeviceSynchronize());
+  //checkCuda(cudaDeviceSynchronize());
 }

@@ -15,6 +15,7 @@ struct SwapChainSupportDetails
 class VulkanEngine
 {
 public:
+  VulkanEngine(size_t data_size);
   VulkanEngine();
   virtual ~VulkanEngine();
   void init(int width = 800, int height = 600);
@@ -27,6 +28,7 @@ public:
   void createExternalSemaphore(VkSemaphore& semaphore);
   void mainLoop();
   bool should_resize = false;
+  size_t element_count;
 
 protected:
   VkInstance instance; // Vulkan library handle

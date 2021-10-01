@@ -5,18 +5,22 @@
 
 int main()
 {
-  CudaProgram program;
-  program.init(100, 200, 200, 123456);
-  auto timestep_function = std::bind(&CudaProgram::runTimestep, program);
-
+  CudaProgram program(100, 200, 200, 123456);
   //VulkanCudaEngine engine(program._particle_count);
-  VulkanEngine engine;
+  VulkanEngine engine(vertices.size());
   try
   {
+    // Initialize engine
     engine.init(800, 600);
-    //auto d_memory = engine.getDeviceMemory();
-    //program.registerBuffer(d_memory);
-    //engine.registerFunction(timestep_function);
+    /*auto d_memory = engine.getDeviceMemory();
+    program.registerBuffer(d_memory);
+    program.setInitialState();
+
+    // Set up the function that we want to display
+    auto timestep_function = std::bind(&CudaProgram::runTimestep, program);
+    engine.registerFunction(timestep_function);
+*/
+    // Start rendering loop
     engine.mainLoop();
   }
   catch (const std::exception& e)

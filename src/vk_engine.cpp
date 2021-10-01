@@ -55,7 +55,7 @@ VkPresentModeKHR chooseSwapPresentMode(
   return best_mode;
 }
 
-VulkanEngine::VulkanEngine():
+VulkanEngine::VulkanEngine(size_t data_size):
   instance(VK_NULL_HANDLE),
   debug_messenger(VK_NULL_HANDLE),
   surface(VK_NULL_HANDLE),
@@ -77,7 +77,11 @@ VulkanEngine::VulkanEngine():
 
   window(nullptr),
   current_frame(0),
-  should_resize(false)
+  should_resize(false),
+  element_count(data_size)
+{}
+
+VulkanEngine::VulkanEngine(): VulkanEngine(0)
 {}
 
 VulkanEngine::~VulkanEngine()
@@ -845,7 +849,7 @@ void VulkanEngine::createCommandBuffers()
       graphics_pipeline
     );
 
-    setUnstructuredRendering(command_buffers[i], vertices.size());
+    setUnstructuredRendering(command_buffers[i], element_count);
 
     // End render pass and finish recording the command buffer
     vkCmdEndRenderPass(command_buffers[i]);

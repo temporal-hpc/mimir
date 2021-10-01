@@ -10,6 +10,7 @@ class VulkanCudaEngine : public VulkanEngine
 {
 public:
   VulkanCudaEngine(size_t data_size);
+  VulkanCudaEngine();
   ~VulkanCudaEngine();
   float *getDeviceMemory();
   void registerFunction(std::function<void(void)> func);
@@ -24,7 +25,6 @@ private:
   cudaExternalSemaphore_t cuda_timeline_semaphore;
   cudaExternalMemory_t cuda_vert_memory;
   float *cuda_raw_data;
-  size_t element_count;
   std::function<void(void)> step_function;
 
   void initApplication();

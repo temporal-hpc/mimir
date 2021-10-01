@@ -2,6 +2,7 @@
 #include "validation.hpp"
 
 #include <experimental/source_location>
+#include <iostream>
 
 using source_location = std::experimental::source_location;
 
@@ -21,12 +22,12 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
 }
 
 VulkanCudaEngine::VulkanCudaEngine(size_t data_size):
+  VulkanEngine(data_size),
   vk_data_buffer(VK_NULL_HANDLE),
   vk_data_memory(VK_NULL_HANDLE),
   stream(0),
   cuda_vert_memory(nullptr),
-  cuda_raw_data(nullptr),
-  element_count(data_size)
+  cuda_raw_data(nullptr)
 {}
 
 VulkanCudaEngine::~VulkanCudaEngine()
@@ -93,16 +94,16 @@ void VulkanCudaEngine::getVertexDescriptions(
 void VulkanCudaEngine::getAssemblyStateInfo(
   VkPipelineInputAssemblyStateCreateInfo& info)
 {
-  return VulkanEngine::getAssemblyStateInfo(info);
-  /*info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
   info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-  info.primitiveRestartEnable = VK_FALSE;*/
+  info.primitiveRestartEnable = VK_FALSE;
 }
 
 void VulkanCudaEngine::initApplication()
 {
   VulkanEngine::initApplication();
   checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+  printf("create external buffer %lu\n", sizeof(float2) * element_count);
   createExternalBuffer(sizeof(float2) * element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -160,14 +161,14 @@ void VulkanCudaEngine::drawFrame()
   signal_params.params.fence.value = 0;
 
   // Wait for Vulkan to complete its work
-  /*checkCuda(cudaWaitExternalSemaphoresAsync(
+  checkCuda(cudaWaitExternalSemaphoresAsync(
     &cuda_timeline_semaphore, &wait_params, 1, stream)
   );
-  // TODO: stepSimulation()
+  step_function();
   // Signal Vulkan to continue with the updated buffers
   checkCuda(cudaSignalExternalSemaphoresAsync(
     &cuda_timeline_semaphore, &signal_params, 1, stream)
-  );*/
+  );
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
