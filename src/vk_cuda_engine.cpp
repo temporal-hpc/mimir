@@ -27,7 +27,9 @@ VulkanCudaEngine::VulkanCudaEngine(size_t data_size):
   vk_data_memory(VK_NULL_HANDLE),
   stream(0),
   cuda_vert_memory(nullptr),
-  cuda_raw_data(nullptr)
+  cuda_raw_data(nullptr),
+  iteration_count(0),
+  iteration_idx(0)
 {}
 
 VulkanCudaEngine::~VulkanCudaEngine()
@@ -67,9 +69,11 @@ float *VulkanCudaEngine::getDeviceMemory()
   return cuda_raw_data;
 }
 
-void VulkanCudaEngine::registerFunction(std::function<void(cudaStream_t)> func)
+void VulkanCudaEngine::registerFunction(std::function<void(cudaStream_t)> func,
+  size_t iter_count)
 {
   step_function = func;
+  iteration_count = iter_count;
 }
 
 void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
@@ -158,7 +162,6 @@ void VulkanCudaEngine::importCudaExternalSemaphore(
 
 void VulkanCudaEngine::drawFrame()
 {
-  static int i = 0;
   VulkanEngine::drawFrame();
 
   cudaExternalSemaphoreWaitParams wait_params{};
@@ -169,8 +172,8 @@ void VulkanCudaEngine::drawFrame()
   signal_params.flags = 0;
   signal_params.params.fence.value = 0;
 
-  //if (i <= 1000)
-  //{
+  if (iteration_idx <= iteration_count)
+  {
     // Wait for Vulkan to complete its work
     checkCuda(cudaWaitExternalSemaphoresAsync(
       &cuda_timeline_semaphore, &wait_params, 1, stream)
@@ -180,8 +183,8 @@ void VulkanCudaEngine::drawFrame()
     checkCuda(cudaSignalExternalSemaphoresAsync(
       &cuda_timeline_semaphore, &signal_params, 1, stream)
     );
-  //  i++;
-  //}
+    iteration_idx++;
+  }
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const

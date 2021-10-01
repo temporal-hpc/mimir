@@ -13,7 +13,7 @@ public:
   VulkanCudaEngine();
   ~VulkanCudaEngine();
   float *getDeviceMemory();
-  void registerFunction(std::function<void(cudaStream_t)> func);
+  void registerFunction(std::function<void(cudaStream_t)> func, size_t iter_count);
 
 private:
   // Vulkan interop data
@@ -26,6 +26,7 @@ private:
   cudaExternalMemory_t cuda_vert_memory;
   float *cuda_raw_data;
   std::function<void(cudaStream_t)> step_function;
+  size_t iteration_count, iteration_idx;
 
   void initApplication();
   void drawFrame();

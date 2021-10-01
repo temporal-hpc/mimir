@@ -8,9 +8,14 @@ int main(int argc, char *argv[])
 {
   using namespace std::placeholders;
   size_t particle_count = 100;
-  if (argc == 2)
+  size_t iter_count = 10000;
+  if (argc >= 2)
   {
     particle_count = std::stoul(argv[1]);
+  }
+  if (argc >= 3)
+  {
+    iter_count = std::stoul(argv[2]);
   }
 
   CudaProgram program(particle_count, 200, 200, 123456);
@@ -26,7 +31,7 @@ int main(int argc, char *argv[])
 
     // Set up the function that we want to display
     auto timestep_function = std::bind(&CudaProgram::runTimestep, program, _1);
-    engine.registerFunction(timestep_function);
+    engine.registerFunction(timestep_function, iter_count);
 
     // Start rendering loop
     engine.mainLoop();
