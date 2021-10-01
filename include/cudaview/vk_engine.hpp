@@ -50,10 +50,6 @@ protected:
   VkCommandPool command_pool;
   std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
-  std::vector<VkSemaphore> image_available;
-  std::vector<VkSemaphore> render_finished;
-  std::vector<VkFence> inflight_fences;
-  std::vector<VkFence> images_inflight;
   VkSemaphore vk_presentation_semaphore;
   VkSemaphore vk_timeline_semaphore;
   VkBuffer vertex_buffer;

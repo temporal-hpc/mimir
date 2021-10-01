@@ -110,13 +110,12 @@ VulkanEngine::~VulkanEngine()
   {
     vkDestroySemaphore(device, vk_presentation_semaphore, nullptr);
   }
-
-  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+  // TODO: Move to cudaengine
+  if (vk_timeline_semaphore != VK_NULL_HANDLE)
   {
-    vkDestroySemaphore(device, render_finished[i], nullptr);
-    vkDestroySemaphore(device, image_available[i], nullptr);
-    vkDestroyFence(device, inflight_fences[i], nullptr);
+    vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
   }
+
   if (command_pool != VK_NULL_HANDLE)
   {
     vkDestroyCommandPool(device, command_pool, nullptr);
@@ -170,89 +169,85 @@ void VulkanEngine::mainLoop()
 void VulkanEngine::drawFrame()
 {
   constexpr auto timeout = std::numeric_limits<uint64_t>::max();
+  const uint64_t wait_value = 0;
+  const uint64_t signal_value = 1;
 
-  // Wait for the frame to be finished
-  vkWaitForFences(device, 1, &inflight_fences[current_frame], VK_TRUE, timeout);
+  VkSemaphoreWaitInfo wait_info{};
+  wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+  wait_info.pSemaphores = &vk_timeline_semaphore;
+  wait_info.semaphoreCount = 1;
+  wait_info.pValues = &wait_value;
+  vkWaitSemaphores(device, &wait_info, timeout);
 
   // Acquire image from swap chain
   uint32_t image_idx;
-  // Third parameter means timeout for acquiring image is disabled
   auto result = vkAcquireNextImageKHR(device, swapchain, timeout,
-    image_available[current_frame], VK_NULL_HANDLE, &image_idx
+    vk_presentation_semaphore, VK_NULL_HANDLE, &image_idx
   );
-  // Check if swapchain is no longer adequate for presentation (resize, etc.)
   if (result == VK_ERROR_OUT_OF_DATE_KHR)
   {
     recreateSwapchain();
-    return;
   }
   else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
   {
-    throw std::runtime_error("failed to acquire swapchain image!");
+    throw std::runtime_error("Failed to acquire swapchain image");
   }
 
-  // Check if a previous frame is using this image (have to wait for its fence)
-  if (images_inflight[image_idx] != VK_NULL_HANDLE)
-  {
-    vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
-  }
-  // Mark the image as now being in use by this frame
-  images_inflight[image_idx] = inflight_fences[current_frame];
-
-  // Submit the command buffer
   VkSubmitInfo submit_info{};
   submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-  VkSemaphore wait_semaphores[] = { image_available[current_frame] };
-  VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-  submit_info.waitSemaphoreCount = 1;
-  submit_info.pWaitSemaphores = wait_semaphores;
-  submit_info.pWaitDstStageMask = wait_stages;
+  std::vector<VkSemaphore> wait_semaphores;
+  std::vector<VkPipelineStageFlags> wait_stages;
+  wait_semaphores.push_back(vk_timeline_semaphore);
+  wait_stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+  submit_info.waitSemaphoreCount = (uint32_t)wait_semaphores.size();
+  submit_info.pWaitSemaphores = wait_semaphores.data();
+  submit_info.pWaitDstStageMask = wait_stages.data();
+
   submit_info.commandBufferCount = 1;
   submit_info.pCommandBuffers = &command_buffers[image_idx];
 
-  VkSemaphore signal_semaphores[] = { render_finished[current_frame] };
-  submit_info.signalSemaphoreCount = 1;
-  submit_info.pSignalSemaphores = signal_semaphores;
+  std::vector<VkSemaphore> signal_semaphores;
+  signal_semaphores.push_back(vk_timeline_semaphore);
+  submit_info.signalSemaphoreCount = (uint32_t)signal_semaphores.size();
+  submit_info.pSignalSemaphores = signal_semaphores.data();
 
-  // Fences must be reset before being submitted again
-  vkResetFences(device, 1, &inflight_fences[current_frame]);
+  VkTimelineSemaphoreSubmitInfo timeline_info{};
+  timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+  timeline_info.waitSemaphoreValueCount = 1;
+  timeline_info.pWaitSemaphoreValues = &wait_value;
+  timeline_info.signalSemaphoreValueCount = 1;
+  timeline_info.pSignalSemaphoreValues = &signal_value;
+
+  submit_info.pNext = &timeline_info;
 
   // Execute command buffer using image as attachment in framebuffer
-  validation::checkVulkan(vkQueueSubmit(graphics_queue, 1, &submit_info,
-    inflight_fences[current_frame])
+  validation::checkVulkan(vkQueueSubmit(
+    graphics_queue, 1, &submit_info, VK_NULL_HANDLE)
   );
 
   // Return image result back to swapchain for presentation on screen
+  VkSwapchainKHR swapchains[] = { swapchain };
   VkPresentInfoKHR present_info{};
   present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
   present_info.waitSemaphoreCount = 1;
-  present_info.pWaitSemaphores = signal_semaphores;
-
-  VkSwapchainKHR swapchains[] = { swapchain };
+  present_info.pWaitSemaphores = &vk_presentation_semaphore;
   present_info.swapchainCount = 1;
   present_info.pSwapchains = swapchains;
   present_info.pImageIndices = &image_idx;
-  // Used to check each swapchain if presentation is successful
-  present_info.pResults = nullptr;
 
-  result = vkQueuePresentKHR(present_queue, &present_info);
-  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
-    should_resize)
+  result = validation::checkVulkan(vkQueuePresentKHR(present_queue, &present_info));
+
+  // Resize should be done after presentation to ensure semaphore consistency
+  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
   {
-    // Resize should be done after presenting to ensure that semaphores are
-    // in a consistent state
-    should_resize = false;
     recreateSwapchain();
-  }
-  else if (result != VK_SUCCESS)
-  {
-    throw std::runtime_error("failed to present swapchain image!");
+    should_resize = false;
   }
 
-  // Wait for work to finish right after submitting it
-  vkQueueWaitIdle(present_queue);
-  current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+  // vkQueueWaitIdle(present_queue);
+  current_frame++;
 }
 
 void VulkanEngine::cleanupSwapchain()
@@ -423,11 +418,17 @@ void VulkanEngine::createLogicalDevice()
 
   VkPhysicalDeviceFeatures device_features{};
 
+  // Must explicitly enable timeline semaphores, or validation layer will complain
+  VkPhysicalDeviceVulkan12Features features{};
+  features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+  features.timelineSemaphore = true;
+
   VkDeviceCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
   create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
   create_info.pQueueCreateInfos = queue_create_infos.data();
   create_info.pEnabledFeatures = &device_features;
+  create_info.pNext = &features;
 
   auto device_extensions = getRequiredDeviceExtensions();
   create_info.enabledExtensionCount = static_cast<uint32_t>(device_extensions.size());
@@ -827,7 +828,7 @@ void VulkanEngine::createCommandBuffers()
   {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = 0; //VK_COMMAND_BUFFER_USAGE_ONE_SIMULTANEOUS_USE_BIT;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
     begin_info.pInheritanceInfo = nullptr;
 
     validation::checkVulkan(vkBeginCommandBuffer(command_buffers[i], &begin_info));
@@ -892,32 +893,26 @@ uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
 
 void VulkanEngine::createSyncObjects()
 {
-  image_available.resize(MAX_FRAMES_IN_FLIGHT);
-  render_finished.resize(MAX_FRAMES_IN_FLIGHT);
-  inflight_fences.resize(MAX_FRAMES_IN_FLIGHT);
-  images_inflight.resize(swapchain_images.size(), VK_NULL_HANDLE);
-
   VkSemaphoreCreateInfo semaphore_info{};
   semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-  VkFenceCreateInfo fence_info{};
-  fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-  {
-    validation::checkVulkan(
-      vkCreateSemaphore(device, &semaphore_info, nullptr, &image_available[i])
-    );
-    validation::checkVulkan(
-      vkCreateSemaphore(device, &semaphore_info, nullptr, &render_finished[i])
-    );
-    validation::checkVulkan(
-      vkCreateFence(device, &fence_info, nullptr, &inflight_fences[i])
-    );
-  }
-
   validation::checkVulkan(vkCreateSemaphore(
     device, &semaphore_info, nullptr, &vk_presentation_semaphore)
+  );
+
+  VkSemaphoreTypeCreateInfo timeline_info{};
+  timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+  timeline_info.pNext = nullptr;
+  timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+  timeline_info.initialValue = 0;
+
+  VkExportSemaphoreCreateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
+  export_info.pNext = &timeline_info;
+  export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  semaphore_info.pNext = &export_info;
+  validation::checkVulkan(
+    vkCreateSemaphore(device, &semaphore_info, nullptr, &vk_timeline_semaphore)
   );
 }
 

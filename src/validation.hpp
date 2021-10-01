@@ -21,13 +21,13 @@ const std::vector<const char*> layers = {
 
 std::string getVulkanErrorString(VkResult code);
 
-constexpr void checkVulkan(VkResult code, bool panic = true,
+constexpr VkResult checkVulkan(VkResult code, bool panic = true,
   std::experimental::source_location src = std::experimental::source_location::current())
 {
   if (code != VK_SUCCESS)
   {
     fprintf(stderr, "Vulkan assertion: %s on function %s at %s(%d)\n",
-      getVulkanErrorString(code).c_str(), 
+      getVulkanErrorString(code).c_str(),
       src.function_name(), src.file_name(), src.line()
     );
     if (panic)
@@ -35,6 +35,7 @@ constexpr void checkVulkan(VkResult code, bool panic = true,
       throw std::runtime_error("Vulkan failure!");
     };
   }
+  return code;
 }
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
