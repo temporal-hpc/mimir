@@ -343,7 +343,8 @@ void VulkanEngine::createInstance()
     create_info.pNext = nullptr;
   }
 
-  uint32_t extension_count = 0;
+  // TODO: Move this to some auxiliary function
+  /*uint32_t extension_count = 0;
   vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
   std::vector<VkExtensionProperties> available_exts(extension_count);
   vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_exts.data());
@@ -352,7 +353,7 @@ void VulkanEngine::createInstance()
   for (const auto& extension : available_exts)
   {
     std::cout << '\t' << extension.extensionName << '\n';
-  }
+  }*/
 
   validation::checkVulkan(vkCreateInstance(&create_info, nullptr, &instance));
 }

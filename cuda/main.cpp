@@ -2,12 +2,18 @@
 #include "cudaview/vk_cuda_engine.hpp"
 
 #include <iostream> // std::cerr
+#include <string> // std::stoul
 
-int main()
+int main(int argc, char *argv[])
 {
   using namespace std::placeholders;
+  size_t particle_count = 100;
+  if (argc == 2)
+  {
+    particle_count = std::stoul(argv[1]);
+  }
 
-  CudaProgram program(100, 200, 200, 123456);
+  CudaProgram program(particle_count, 200, 200, 123456);
   //VulkanEngine engine(vertices.size());
   try
   {
