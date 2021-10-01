@@ -60,6 +60,31 @@ VkPresentModeKHR chooseSwapPresentMode(
   return best_mode;
 }
 
+VulkanEngine::VulkanEngine():
+  instance(VK_NULL_HANDLE),
+  debug_messenger(VK_NULL_HANDLE),
+  surface(VK_NULL_HANDLE),
+  physical_device(VK_NULL_HANDLE),
+  device(VK_NULL_HANDLE),
+  graphics_queue(VK_NULL_HANDLE),
+  present_queue(VK_NULL_HANDLE),
+  swapchain(VK_NULL_HANDLE),
+  render_pass(VK_NULL_HANDLE),
+  pipeline_layout(VK_NULL_HANDLE),
+  graphics_pipeline(VK_NULL_HANDLE),
+  command_pool(VK_NULL_HANDLE),
+  vk_presentation_semaphore(VK_NULL_HANDLE),
+  vk_timeline_semaphore(VK_NULL_HANDLE),
+  vertex_buffer(VK_NULL_HANDLE),
+  vertex_buffer_memory(VK_NULL_HANDLE),
+  index_buffer(VK_NULL_HANDLE),
+  index_buffer_memory(VK_NULL_HANDLE),
+
+  window(nullptr),
+  current_frame(0),
+  should_resize(false)
+{}
+
 VulkanEngine::~VulkanEngine()
 {
   cleanupSwapchain();
@@ -79,6 +104,11 @@ VulkanEngine::~VulkanEngine()
   if (index_buffer_memory != VK_NULL_HANDLE)
   {
     vkFreeMemory(device, index_buffer_memory, nullptr);
+  }
+
+  if (vk_presentation_semaphore != VK_NULL_HANDLE)
+  {
+    vkDestroySemaphore(device, vk_presentation_semaphore, nullptr);
   }
 
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
@@ -139,13 +169,15 @@ void VulkanEngine::mainLoop()
 
 void VulkanEngine::drawFrame()
 {
+  constexpr auto timeout = std::numeric_limits<uint64_t>::max();
+
   // Wait for the frame to be finished
-  vkWaitForFences(device, 1, &inflight_fences[current_frame], VK_TRUE, UINT64_MAX);
+  vkWaitForFences(device, 1, &inflight_fences[current_frame], VK_TRUE, timeout);
 
   // Acquire image from swap chain
   uint32_t image_idx;
   // Third parameter means timeout for acquiring image is disabled
-  auto result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
+  auto result = vkAcquireNextImageKHR(device, swapchain, timeout,
     image_available[current_frame], VK_NULL_HANDLE, &image_idx
   );
   // Check if swapchain is no longer adequate for presentation (resize, etc.)
@@ -162,7 +194,7 @@ void VulkanEngine::drawFrame()
   // Check if a previous frame is using this image (have to wait for its fence)
   if (images_inflight[image_idx] != VK_NULL_HANDLE)
   {
-    vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, UINT64_MAX);
+    vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
   }
   // Mark the image as now being in use by this frame
   images_inflight[image_idx] = inflight_fences[current_frame];
@@ -883,6 +915,10 @@ void VulkanEngine::createSyncObjects()
       vkCreateFence(device, &fence_info, nullptr, &inflight_fences[i])
     );
   }
+
+  validation::checkVulkan(vkCreateSemaphore(
+    device, &semaphore_info, nullptr, &vk_presentation_semaphore)
+  );
 }
 
 void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
