@@ -899,29 +899,8 @@ void VulkanEngine::createSyncObjects()
     device, &semaphore_info, nullptr, &vk_presentation_semaphore)
   );
 
-  VkSemaphoreTypeCreateInfo timeline_info{};
-  timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-  timeline_info.pNext = nullptr;
-  timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-  timeline_info.initialValue = 0;
-
-  VkExportSemaphoreCreateInfoKHR export_info{};
-  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
-  export_info.pNext = &timeline_info;
-  export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-
-  semaphore_info.pNext = &export_info;
-  validation::checkVulkan(
-    vkCreateSemaphore(device, &semaphore_info, nullptr, &vk_timeline_semaphore)
-  );
+  createExternalSemaphore(vk_timeline_semaphore);
 }
-
-void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc) const
-{}
-
-void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
-{}
 
 void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory)

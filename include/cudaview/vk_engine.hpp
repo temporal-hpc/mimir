@@ -78,9 +78,6 @@ protected:
   );
   virtual std::vector<const char*> getRequiredExtensions() const;
   virtual std::vector<const char*> getRequiredDeviceExtensions() const;
-  virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
-    std::vector<VkVertexInputAttributeDescription>& attr_desc) const;
-  virtual void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
   virtual void drawFrame();
 
 private:

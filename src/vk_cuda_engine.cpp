@@ -20,6 +20,16 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
   }
 }
 
+VulkanCudaEngine::VulkanCudaEngine():
+  vk_data_buffer(VK_NULL_HANDLE),
+  vk_data_memory(VK_NULL_HANDLE),
+  stream(0),
+  cuda_timeline_semaphore(nullptr),
+  cuda_vert_memory(nullptr),
+  cuda_raw_data(nullptr),
+  element_count(0)
+{}
+
 VulkanCudaEngine::~VulkanCudaEngine()
 {
   // Make sure there is no pending work before cleanup starts
@@ -28,21 +38,7 @@ VulkanCudaEngine::~VulkanCudaEngine()
   if (vk_timeline_semaphore != VK_NULL_HANDLE)
   {
     checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
-    vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
   }
-
-  if (vk_signal_semaphore != VK_NULL_HANDLE)
-  {
-    checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
-    vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
-  }
-
-  if (vk_wait_semaphore != VK_NULL_HANDLE)
-  {
-    checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
-    vkDestroySemaphore(device, vk_wait_semaphore, nullptr);
-  }
-
   if (vk_data_buffer != VK_NULL_HANDLE)
   {
     vkDestroyBuffer(device, vk_data_buffer, nullptr);
@@ -104,34 +100,10 @@ void VulkanCudaEngine::getAssemblyStateInfo(
   info.primitiveRestartEnable = VK_FALSE;
 }
 
-void VulkanCudaEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
-  std::vector<VkPipelineStageFlags>& wait_stages) const
-{
-  if (current_frame != 0)
-  {
-    wait.push_back(vk_wait_semaphore);
-    wait_stages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
-  }
-}
-
-void VulkanCudaEngine::getSignalFrameSemaphores(
-  std::vector<VkSemaphore>& signal) const
-{
-  signal.push_back(vk_signal_semaphore);
-}
-
 void VulkanCudaEngine::initApplication()
 {
   checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-
-  createExternalSemaphore(vk_timeline_semaphore);
   importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
-
-  createExternalSemaphore(vk_signal_semaphore);
-  importCudaExternalSemaphore(cuda_signal_semaphore, vk_signal_semaphore);
-
-  createExternalSemaphore(vk_wait_semaphore);
-  importCudaExternalSemaphore(cuda_wait_semaphore, vk_wait_semaphore);
 }
 
 void VulkanCudaEngine::importCudaExternalMemory(void **cuda_ptr,

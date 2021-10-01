@@ -7,24 +7,21 @@
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
+  VulkanCudaEngine();
   ~VulkanCudaEngine();
   float *allocateDeviceMemory(size_t element_count);
 
 private:
   // Vulkan interop data
-  VkBuffer vk_data_buffer = VK_NULL_HANDLE;
-  VkDeviceMemory vk_data_memory = VK_NULL_HANDLE;
-  VkSemaphore vk_wait_semaphore = VK_NULL_HANDLE;
-  VkSemaphore vk_signal_semaphore = VK_NULL_HANDLE;
+  VkBuffer vk_data_buffer;
+  VkDeviceMemory vk_data_memory;
 
   // Cuda interop data
-  cudaStream_t stream = 0;
-  cudaExternalSemaphore_t cuda_wait_semaphore = nullptr;
-  cudaExternalSemaphore_t cuda_signal_semaphore = nullptr;
-  cudaExternalSemaphore_t cuda_timeline_semaphore = nullptr;
+  cudaStream_t stream;
+  cudaExternalSemaphore_t cuda_timeline_semaphore;
   cudaExternalMemory_t cuda_vert_memory;
-  float *cuda_raw_data = nullptr;
-  size_t element_count = 0;
+  float *cuda_raw_data;
+  size_t element_count;
 
   void initApplication();
   void drawFrame();
@@ -34,11 +31,6 @@ private:
     VkVertexInputAttributeDescription& attr_desc
   );
   void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo &info);
-
-  // Interop semaphore handling functions
-  void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
-    std::vector<VkPipelineStageFlags>& wait_stages) const;
-  void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
 
   // Interop import functions
   void importCudaExternalMemory(void **cuda_ptr,
