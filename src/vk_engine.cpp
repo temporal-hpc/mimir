@@ -91,8 +91,7 @@ VulkanEngine::VulkanEngine(): VulkanEngine(0)
 
 VulkanEngine::~VulkanEngine()
 {
-
-  /*cleanupSwapchain();
+  cleanupSwapchain();
 
   ImGui_ImplVulkan_Shutdown();
   if (imgui_pool != VK_NULL_HANDLE)
@@ -120,7 +119,6 @@ VulkanEngine::~VulkanEngine()
   {
     vkDestroySemaphore(device, vk_presentation_semaphore, nullptr);
   }
-  // TODO: Move to cudaengine
   if (vk_timeline_semaphore != VK_NULL_HANDLE)
   {
     vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
@@ -151,7 +149,7 @@ VulkanEngine::~VulkanEngine()
   {
     glfwDestroyWindow(window);
   }
-  glfwTerminate();*/
+  glfwTerminate();
 }
 
 void VulkanEngine::init(int width, int height)
@@ -303,7 +301,6 @@ void VulkanEngine::drawFrame()
     should_resize = false;
   }
 
-  vkQueueWaitIdle(present_queue);
   current_frame++;
 }
 

@@ -34,18 +34,13 @@ VulkanCudaEngine::VulkanCudaEngine(size_t data_size):
 
 VulkanCudaEngine::~VulkanCudaEngine()
 {
-  // Raise explicit timeline semaphore signal to unlock the cuda stream
   vkDeviceWaitIdle(device);
-  VkSemaphoreSignalInfo signal_info{};
-  signal_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
-  signal_info.pNext = nullptr;
-  signal_info.semaphore = vk_timeline_semaphore;
-  signal_info.value = 1;
-  vkSignalSemaphore(device, &signal_info);
 
-  // Make sure there is no pending work before cleanup starts
-  checkCuda(cudaStreamSynchronize(stream));
-
+  if (stream != nullptr)
+  {
+    checkCuda(cudaStreamSynchronize(stream));
+    checkCuda(cudaStreamDestroy(stream));
+  }
   if (cuda_timeline_semaphore != nullptr)
   {
     checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
@@ -166,7 +161,7 @@ void VulkanCudaEngine::drawFrame()
 
   cudaExternalSemaphoreWaitParams wait_params{};
   wait_params.flags = 0;
-  wait_params.params.fence.value = 1;
+  wait_params.params.fence.value = 0;
 
   cudaExternalSemaphoreSignalParams signal_params{};
   signal_params.flags = 0;
