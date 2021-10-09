@@ -6,7 +6,6 @@
 
 int main(int argc, char *argv[])
 {
-  using namespace std::placeholders;
   size_t particle_count = 100;
   size_t iter_count = 10000;
   if (argc >= 2)
@@ -22,16 +21,16 @@ int main(int argc, char *argv[])
   try
   {
     // Initialize engine
-    VulkanCudaEngine engine(program._particle_count);
+    VulkanCudaEngine engine(program._particle_count, program._stream);
     engine.init(800, 600);
+    engine.registerDeviceMemory(program._d_coords);
 
-    auto d_memory = engine.getDeviceMemory();
-    program.registerBuffer(d_memory);
-    // CUDA-side calls that need d_memory should be made only after this point
+    // Cannot make CUDA calls that use the target device memory before
+    // registering it on the engine
     program.setInitialState();
 
     // Set up the function that we want to display
-    auto timestep_function = std::bind(&CudaProgram::runTimestep, program, _1);
+    auto timestep_function = std::bind(&CudaProgram::runTimestep, program);
     engine.registerFunction(timestep_function, iter_count);
 
     // Start rendering loop

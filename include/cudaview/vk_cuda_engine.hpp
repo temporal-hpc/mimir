@@ -9,11 +9,11 @@
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
-  VulkanCudaEngine(size_t data_size);
+  VulkanCudaEngine(size_t data_size, cudaStream_t stream);
   VulkanCudaEngine();
   ~VulkanCudaEngine();
-  float *getDeviceMemory();
-  void registerFunction(std::function<void(cudaStream_t)> func, size_t iter_count);
+  void registerDeviceMemory(float *&d_cudamem);
+  void registerFunction(std::function<void(void)> func, size_t iter_count);
 
 private:
   // Vulkan interop data
@@ -22,11 +22,11 @@ private:
 
   // Cuda interop data
   cudaStream_t stream;
+  float *cuda_raw_data;
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
   cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
   cudaExternalMemory_t cuda_vert_memory;
-  float *cuda_raw_data;
-  std::function<void(cudaStream_t)> step_function;
+  std::function<void(void)> step_function;
   size_t iteration_count, iteration_idx;
 
   void initApplication();

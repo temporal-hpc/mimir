@@ -21,11 +21,11 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
   }
 }
 
-VulkanCudaEngine::VulkanCudaEngine(size_t data_size):
+VulkanCudaEngine::VulkanCudaEngine(size_t data_size, cudaStream_t stream):
   VulkanEngine(data_size),
+  stream(stream),
   vk_data_buffer(VK_NULL_HANDLE),
   vk_data_memory(VK_NULL_HANDLE),
-  stream(0),
   cuda_wait_semaphore(nullptr),
   cuda_signal_semaphore(nullptr),
   //cuda_timeline_semaphore(nullptr),
@@ -42,7 +42,6 @@ VulkanCudaEngine::~VulkanCudaEngine()
   if (stream != nullptr)
   {
     checkCuda(cudaStreamSynchronize(stream));
-    checkCuda(cudaStreamDestroy(stream));
   }
   /*if (cuda_timeline_semaphore != nullptr)
   {
@@ -70,12 +69,12 @@ VulkanCudaEngine::~VulkanCudaEngine()
   }
 }
 
-float *VulkanCudaEngine::getDeviceMemory()
+void VulkanCudaEngine::registerDeviceMemory(float *&d_cudamem)
 {
-  return cuda_raw_data;
+  d_cudamem = cuda_raw_data;
 }
 
-void VulkanCudaEngine::registerFunction(std::function<void(cudaStream_t)> func,
+void VulkanCudaEngine::registerFunction(std::function<void(void)> func,
   size_t iter_count)
 {
   step_function = func;
@@ -119,7 +118,6 @@ void VulkanCudaEngine::getAssemblyStateInfo(
 void VulkanCudaEngine::initApplication()
 {
   VulkanEngine::initApplication();
-  checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
   createExternalBuffer(sizeof(float2) * element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -186,7 +184,7 @@ void VulkanCudaEngine::drawFrame()
   if (iteration_idx <= iteration_count)
   {
     // Advance the simulation
-    step_function(stream);
+    step_function();
     iteration_idx++;
   }
   // Signal Vulkan to continue with the updated buffers

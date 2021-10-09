@@ -18,16 +18,6 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
   }
 }
 
-/*#define checkCuda(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
-{
-  if (code != cudaSuccess)
-  {
-    fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-    if (abort) exit(code);
-  }
-}*/
-
 __global__ void initSystem(float *coords, size_t particle_count,
   curandState *global_states, size_t state_count, int2 extent, unsigned seed)
 {
@@ -70,7 +60,9 @@ CudaProgram::CudaProgram(size_t particle_count, int width, int height, unsigned 
   _particle_count(particle_count), _bounding_box{width, height},
   _state_count(_particle_count), _seed(seed),
   _grid_size((_particle_count + _block_size - 1) / _block_size)
-{}
+{
+  checkCuda(cudaStreamCreateWithFlags(&_stream, cudaStreamNonBlocking));
+}
 
 void CudaProgram::setInitialState()
 {
@@ -89,12 +81,13 @@ void CudaProgram::registerBuffer(float *d_buffer)
 
 void CudaProgram::cleanup()
 {
+  checkCuda(cudaStreamDestroy(_stream));
   checkCuda(cudaFree(_d_states));
 }
 
-void CudaProgram::runTimestep(cudaStream_t stream)
+void CudaProgram::runTimestep()
 {
-  integrate2d<<< _grid_size, _block_size, 0, stream >>>(
+  integrate2d<<< _grid_size, _block_size, 0, _stream >>>(
     _d_coords, _particle_count, _d_states, _state_count, _bounding_box
   );
   //checkCuda(cudaStreamSynchronize(stream));

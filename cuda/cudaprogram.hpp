@@ -5,6 +5,7 @@
 
 struct CudaProgram
 {
+  cudaStream_t _stream = nullptr;
   float *_d_coords = nullptr;
   size_t _particle_count = 0;
   curandState *_d_states = nullptr;
@@ -18,5 +19,5 @@ struct CudaProgram
   void setInitialState();
   void cleanup();
   void registerBuffer(float *d_buffer);
-  void runTimestep(cudaStream_t stream);
+  void runTimestep();
 };
