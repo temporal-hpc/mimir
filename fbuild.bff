@@ -1,6 +1,6 @@
 .BuildType    = 'Debug'
 .FlagsDebug   = ' -g'
-.FlagsRelease = ' -O3'
+.FlagsRelease = ' -O3 -Wall -Wshadow -Wcast-align'
 
 .Librarian        = '/usr/bin/ar'
 .LibrarianOptions = 'rcs "%2" "%1"'

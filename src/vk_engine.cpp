@@ -61,6 +61,8 @@ VkPresentModeKHR chooseSwapPresentMode(
 }
 
 VulkanEngine::VulkanEngine(size_t data_size):
+  should_resize(false),
+  element_count(data_size),
   instance(VK_NULL_HANDLE),
   debug_messenger(VK_NULL_HANDLE),
   surface(VK_NULL_HANDLE),
@@ -84,12 +86,10 @@ VulkanEngine::VulkanEngine(size_t data_size):
   vertex_buffer_memory(VK_NULL_HANDLE),
   index_buffer(VK_NULL_HANDLE),
   index_buffer_memory(VK_NULL_HANDLE),
-  imgui_pool(VK_NULL_HANDLE),
+  current_frame(0),
 
   window(nullptr),
-  current_frame(0),
-  should_resize(false),
-  element_count(data_size)
+  imgui_pool(VK_NULL_HANDLE)
 {}
 
 VulkanEngine::VulkanEngine(): VulkanEngine(0)
@@ -477,11 +477,11 @@ void VulkanEngine::pickPhysicalDevice()
   std::vector<VkPhysicalDevice> devices(device_count);
   vkEnumeratePhysicalDevices(instance, &device_count, devices.data());
 
-  for (const auto& device : devices)
+  for (const auto& dev : devices)
   {
-    if (isDeviceSuitable(device))
+    if (isDeviceSuitable(dev))
     {
-      physical_device = device;
+      physical_device = dev;
       break;
     }
   }
@@ -1249,14 +1249,14 @@ std::vector<const char*> VulkanEngine::getRequiredDeviceExtensions() const
   return extensions;
 }
 
-bool VulkanEngine::checkAllExtensionsSupported(VkPhysicalDevice device,
+bool VulkanEngine::checkAllExtensionsSupported(VkPhysicalDevice dev,
   const std::vector<const char*>& device_extensions) const
 {
   // Enumerate extensions and check if all required extensions are included
   uint32_t ext_count;
-  vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, nullptr);
+  vkEnumerateDeviceExtensionProperties(dev, nullptr, &ext_count, nullptr);
   std::vector<VkExtensionProperties> available_extensions(ext_count);
-  vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count,
+  vkEnumerateDeviceExtensionProperties(dev, nullptr, &ext_count,
     available_extensions.data()
   );
 
@@ -1271,78 +1271,80 @@ bool VulkanEngine::checkAllExtensionsSupported(VkPhysicalDevice device,
   return required_extensions.empty();
 }
 
-bool VulkanEngine::isDeviceSuitable(VkPhysicalDevice device) const
+bool VulkanEngine::isDeviceSuitable(VkPhysicalDevice dev) const
 {
   uint32_t graphics_index, present_index;
-  auto has_queues = findQueueFamilies(device, graphics_index, present_index);
+  auto has_queues = findQueueFamilies(dev, graphics_index, present_index);
   auto device_extensions = getRequiredDeviceExtensions();
-  auto supports_extensions = checkAllExtensionsSupported(device, device_extensions);
-  auto swapchain_support = getSwapchainProperties(device);
+  auto supports_extensions = checkAllExtensionsSupported(dev, device_extensions);
+  auto swapchain_support = getSwapchainProperties(dev);
   auto swapchain_adequate = !swapchain_support.formats.empty() &&
                             !swapchain_support.present_modes.empty();
   return supports_extensions && swapchain_adequate && has_queues;
 }
 
 // Logic to find queue family indices to populate struct with
-bool VulkanEngine::findQueueFamilies(VkPhysicalDevice device,
+bool VulkanEngine::findQueueFamilies(VkPhysicalDevice dev,
   uint32_t& graphics_family, uint32_t& present_family) const
 {
+  constexpr auto family_empty = ~0u;
   // Assign index to queue families that could be found
   uint32_t queue_family_count = 0;
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
+  vkGetPhysicalDeviceQueueFamilyProperties(dev, &queue_family_count, nullptr);
   std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count,
+  vkGetPhysicalDeviceQueueFamilyProperties(dev, &queue_family_count,
     queue_families.data()
   );
 
-  graphics_family = present_family = ~0;
+  graphics_family = present_family = family_empty;
 
   // Find at least one queue family that supports VK_QUEUE_GRAPHICS_BIT
   for (uint32_t i = 0; i < queue_family_count; ++i)
   {
     if (queue_families[i].queueCount > 0)
     {
-      if (graphics_family == ~0 && queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+      if (graphics_family == family_empty && queue_families[i].queueFlags &
+          VK_QUEUE_GRAPHICS_BIT)
       {
         graphics_family = i;
       }
       uint32_t present_support = 0;
-      vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
-      if (present_family == ~0 && present_support)
+      vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface, &present_support);
+      if (present_family == family_empty && present_support)
       {
         present_family = i;
       }
-      if (present_family != ~0 && graphics_family != ~0)
+      if (present_family != family_empty && graphics_family != family_empty)
       {
         break;
       }
     }
   }
-  return graphics_family != ~0 && present_family != ~0;
+  return graphics_family != family_empty && present_family != family_empty;
 }
 
 SwapChainSupportDetails VulkanEngine::getSwapchainProperties(
-  VkPhysicalDevice device) const
+  VkPhysicalDevice dev) const
 {
   SwapChainSupportDetails details;
-  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev, surface, &details.capabilities);
 
   uint32_t format_count;
-  vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, nullptr);
+  vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &format_count, nullptr);
   if (format_count != 0)
   {
     details.formats.resize(format_count);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count,
+    vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &format_count,
       details.formats.data()
     );
   }
 
   uint32_t mode_count;
-  vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &mode_count, nullptr);
+  vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &mode_count, nullptr);
   if (mode_count != 0)
   {
     details.present_modes.resize(mode_count);
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &mode_count,
+    vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &mode_count,
       details.present_modes.data()
     );
   }

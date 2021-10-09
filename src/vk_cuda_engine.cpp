@@ -21,16 +21,16 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
   }
 }
 
-VulkanCudaEngine::VulkanCudaEngine(size_t data_size, cudaStream_t stream):
+VulkanCudaEngine::VulkanCudaEngine(size_t data_size, cudaStream_t cuda_stream):
   VulkanEngine(data_size),
-  stream(stream),
   vk_data_buffer(VK_NULL_HANDLE),
   vk_data_memory(VK_NULL_HANDLE),
+  stream(cuda_stream),
+  cuda_raw_data(nullptr),
+  //cuda_timeline_semaphore(nullptr),
   cuda_wait_semaphore(nullptr),
   cuda_signal_semaphore(nullptr),
-  //cuda_timeline_semaphore(nullptr),
   cuda_vert_memory(nullptr),
-  cuda_raw_data(nullptr),
   iteration_count(0),
   iteration_idx(0)
 {}
