@@ -22,7 +22,8 @@ private:
 
   // Cuda interop data
   cudaStream_t stream;
-  cudaExternalSemaphore_t cuda_timeline_semaphore;
+  //cudaExternalSemaphore_t cuda_timeline_semaphore;
+  cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
   cudaExternalMemory_t cuda_vert_memory;
   float *cuda_raw_data;
   std::function<void(cudaStream_t)> step_function;
@@ -49,4 +50,7 @@ private:
   // Handle additional extensions required by CUDA interop
   std::vector<const char*> getRequiredExtensions() const;
   std::vector<const char*> getRequiredDeviceExtensions() const;
+  virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
+    std::vector<VkPipelineStageFlags>& wait_stages) const;
+  virtual void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
 };

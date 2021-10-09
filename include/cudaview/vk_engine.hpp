@@ -49,13 +49,21 @@ protected:
   VkCommandPool command_pool;
   std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
-  VkSemaphore vk_presentation_semaphore;
-  VkSemaphore vk_timeline_semaphore;
+  //VkSemaphore vk_presentation_semaphore;
+  //VkSemaphore vk_timeline_semaphore;
+
+  std::vector<VkFence> images_inflight;
+  std::vector<VkFence> inflight_fences;
+  std::vector<VkSemaphore> image_available;
+  std::vector<VkSemaphore> render_finished;
+  VkSemaphore vk_wait_semaphore;
+  VkSemaphore vk_signal_semaphore;
+
   VkBuffer vertex_buffer;
   VkDeviceMemory vertex_buffer_memory;
   VkBuffer index_buffer;
   VkDeviceMemory index_buffer_memory;
-  size_t current_frame;
+  uint64_t current_frame;
 
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
@@ -86,6 +94,10 @@ protected:
   virtual void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
   virtual void drawFrame();
   virtual void initApplication();
+
+  virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
+    std::vector<VkPipelineStageFlags>& wait_stages) const;
+  virtual void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
 
 private:
   GLFWwindow *window;

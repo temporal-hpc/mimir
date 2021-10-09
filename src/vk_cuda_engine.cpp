@@ -26,6 +26,9 @@ VulkanCudaEngine::VulkanCudaEngine(size_t data_size):
   vk_data_buffer(VK_NULL_HANDLE),
   vk_data_memory(VK_NULL_HANDLE),
   stream(0),
+  cuda_wait_semaphore(nullptr),
+  cuda_signal_semaphore(nullptr),
+  //cuda_timeline_semaphore(nullptr),
   cuda_vert_memory(nullptr),
   cuda_raw_data(nullptr),
   iteration_count(0),
@@ -41,9 +44,17 @@ VulkanCudaEngine::~VulkanCudaEngine()
     checkCuda(cudaStreamSynchronize(stream));
     checkCuda(cudaStreamDestroy(stream));
   }
-  if (cuda_timeline_semaphore != nullptr)
+  /*if (cuda_timeline_semaphore != nullptr)
   {
     checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
+  }*/
+  if (cuda_wait_semaphore != nullptr)
+  {
+    checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
+  }
+  if (cuda_signal_semaphore != nullptr)
+  {
+    checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
   }
   if (vk_data_buffer != VK_NULL_HANDLE)
   {
@@ -74,7 +85,6 @@ void VulkanCudaEngine::registerFunction(std::function<void(cudaStream_t)> func,
 void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
   uint32_t vertex_count)
 {
-  //return VulkanEngine::setUnstructuredRendering(cmd_buffer, vertex_count);
   VkBuffer vertex_buffers[] = { vk_data_buffer };
   VkDeviceSize offsets[] = { 0 };
   auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
@@ -86,7 +96,6 @@ void VulkanCudaEngine::getVertexDescriptions(
   std::vector<VkVertexInputBindingDescription>& bind_desc,
   std::vector<VkVertexInputAttributeDescription>& attr_desc)
 {
-  //return VulkanEngine::getVertexDescriptions(bind_desc, attr_desc);
   bind_desc.resize(1);
   bind_desc[0].binding = 0;
   bind_desc[0].stride = sizeof(float2);
@@ -120,7 +129,9 @@ void VulkanCudaEngine::initApplication()
   importCudaExternalMemory((void**)&cuda_raw_data, cuda_vert_memory,
     vk_data_memory, sizeof(*cuda_raw_data) * element_count
   );
-  importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
+  //importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
+  importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
+  importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
 }
 
 void VulkanCudaEngine::importCudaExternalMemory(void **cuda_ptr,
@@ -147,7 +158,8 @@ void VulkanCudaEngine::importCudaExternalSemaphore(
   cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem)
 {
   cudaExternalSemaphoreHandleDesc sem_desc{};
-  sem_desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+  //sem_desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+  sem_desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
   sem_desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
     vk_sem, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
   );
@@ -167,25 +179,24 @@ void VulkanCudaEngine::drawFrame()
   signal_params.flags = 0;
   signal_params.params.fence.value = 0;
 
+  // Wait for Vulkan to complete its work
+  checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
+    &cuda_wait_semaphore, &wait_params, 1, stream)
+  );
   if (iteration_idx <= iteration_count)
   {
-    // Wait for Vulkan to complete its work
-    checkCuda(cudaWaitExternalSemaphoresAsync(
-      &cuda_timeline_semaphore, &wait_params, 1, stream)
-    );
+    // Advance the simulation
     step_function(stream);
-    // Signal Vulkan to continue with the updated buffers
-    checkCuda(cudaSignalExternalSemaphoresAsync(
-      &cuda_timeline_semaphore, &signal_params, 1, stream)
-    );
     iteration_idx++;
   }
+  // Signal Vulkan to continue with the updated buffers
+  checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
+    &cuda_signal_semaphore, &signal_params, 1, stream)
+  );
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
 {
-  //return VulkanEngine::getRequiredExtensions();
-  //std::vector<const char*> extensions;
   auto extensions = VulkanEngine::getRequiredExtensions();
   extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
   extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
@@ -194,8 +205,6 @@ std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
 
 std::vector<const char*> VulkanCudaEngine::getRequiredDeviceExtensions() const
 {
-  //return VulkanEngine::getRequiredDeviceExtensions();
-  //std::vector<const char*> extensions;
   auto extensions = VulkanEngine::getRequiredDeviceExtensions();
   extensions.push_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
   extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
@@ -203,4 +212,24 @@ std::vector<const char*> VulkanCudaEngine::getRequiredDeviceExtensions() const
   extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
   extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
   return extensions;
+}
+
+void VulkanCudaEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
+  std::vector<VkPipelineStageFlags>& wait_stages) const
+{
+  // Wait semaphore has not been initialized on the first frame
+  if (current_frame != 0)
+  {
+    // Vulkan waits until Cuda is done with the display buffer before rendering
+    wait.push_back(vk_wait_semaphore);
+    // Cuda will wait until all pipeline commands are complete
+    wait_stages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+  }
+}
+
+void VulkanCudaEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
+{
+  // Vulkan will signal to this semaphore once the vertex ready is ready
+  // for Cuda to process
+  signal.push_back(vk_signal_semaphore);
 }
