@@ -72,6 +72,7 @@ VulkanEngine::VulkanEngine(size_t data_size):
   present_queue(VK_NULL_HANDLE),
   swapchain(VK_NULL_HANDLE),
   render_pass(VK_NULL_HANDLE),
+  descriptor_layout(VK_NULL_HANDLE),
   pipeline_layout(VK_NULL_HANDLE),
   graphics_pipeline(VK_NULL_HANDLE),
   command_pool(VK_NULL_HANDLE),
@@ -89,7 +90,8 @@ VulkanEngine::VulkanEngine(size_t data_size):
   current_frame(0),
 
   window(nullptr),
-  imgui_pool(VK_NULL_HANDLE)
+  imgui_pool(VK_NULL_HANDLE),
+  descriptor_pool(VK_NULL_HANDLE)
 {}
 
 VulkanEngine::VulkanEngine(): VulkanEngine(0)
@@ -103,6 +105,10 @@ VulkanEngine::~VulkanEngine()
   if (imgui_pool != VK_NULL_HANDLE)
   {
     vkDestroyDescriptorPool(device, imgui_pool, nullptr);
+  }
+  if (descriptor_layout != VK_NULL_HANDLE)
+  {
+    vkDestroyDescriptorSetLayout(device, descriptor_layout, nullptr);
   }
   if (vertex_buffer != VK_NULL_HANDLE)
   {
@@ -275,6 +281,11 @@ void VulkanEngine::drawFrame()
     graphics_pipeline
   );
 
+  vkCmdBindDescriptorSets(command_buffers[image_idx],
+    VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
+    &descriptor_sets[image_idx], 0, nullptr
+  );
+
   setUnstructuredRendering(command_buffers[image_idx], element_count);
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffers[image_idx]);
@@ -282,6 +293,8 @@ void VulkanEngine::drawFrame()
   // End render pass and finish recording the command buffer
   vkCmdEndRenderPass(command_buffers[image_idx]);
   validation::checkVulkan(vkEndCommandBuffer(command_buffers[image_idx]));
+
+  updateUniformBuffer(image_idx);
 
   VkSubmitInfo submit_info{};
   submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -300,8 +313,8 @@ void VulkanEngine::drawFrame()
   submit_info.pCommandBuffers = &command_buffers[image_idx];
 
   std::vector<VkSemaphore> signal_semaphores;
-  getSignalFrameSemaphores(signal_semaphores); // vk_timeline_semaphore
-  signal_semaphores.push_back(render_finished[frame_idx]);
+  getSignalFrameSemaphores(signal_semaphores);
+  signal_semaphores.push_back(render_finished[frame_idx]); // vk_timeline_semaphore
   submit_info.signalSemaphoreCount = (uint32_t)signal_semaphores.size();
   submit_info.pSignalSemaphores = signal_semaphores.data();
 
@@ -344,6 +357,12 @@ void VulkanEngine::drawFrame()
 
 void VulkanEngine::cleanupSwapchain()
 {
+  for (size_t i = 0; i < swapchain_images.size(); ++i)
+  {
+    vkDestroyBuffer(device, uniform_buffers[i], nullptr);
+    vkFreeMemory(device, ubo_memory[i], nullptr);
+  }
+  vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
   vkFreeCommandBuffers(device, command_pool,
     static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
   );
@@ -372,6 +391,9 @@ void VulkanEngine::recreateSwapchain()
   createRenderPass();
   createGraphicsPipeline();
   createFramebuffers();
+  createUniformBuffers();
+  createDescriptorPool();
+  createDescriptorSets();
   createCommandBuffers();
 }
 
@@ -385,6 +407,7 @@ void VulkanEngine::initVulkan()
   createSwapChain();
   createImageViews();
   createRenderPass();
+  createDescriptorSetLayout();
   createGraphicsPipeline();
   createFramebuffers();
 
@@ -394,9 +417,13 @@ void VulkanEngine::initVulkan()
   initImgui(); // After command pool is created
   createVertexBuffer();
   createIndexBuffer();
+
+  createUniformBuffers();
+  createDescriptorPool();
+  createDescriptorSets();
+
   createCommandBuffers();
   createSyncObjects();
-
 }
 
 void VulkanEngine::createInstance()
@@ -786,8 +813,8 @@ void VulkanEngine::createGraphicsPipeline()
 
   VkPipelineLayoutCreateInfo pipeline_layout_info{};
   pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipeline_layout_info.setLayoutCount = 0;
-  pipeline_layout_info.pSetLayouts = nullptr;
+  pipeline_layout_info.setLayoutCount = 1;
+  pipeline_layout_info.pSetLayouts = &descriptor_layout;
   pipeline_layout_info.pushConstantRangeCount = 0;
   pipeline_layout_info.pPushConstantRanges = nullptr;
 
@@ -1473,3 +1500,111 @@ void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
 
 void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
 {}
+
+void VulkanEngine::createDescriptorSetLayout()
+{
+  VkDescriptorSetLayoutBinding ubo_layout{};
+  ubo_layout.binding = 0;
+  ubo_layout.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  ubo_layout.descriptorCount = 1; // number of values in the UBO array
+  ubo_layout.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  ubo_layout.pImmutableSamplers = nullptr;
+
+  VkDescriptorSetLayoutCreateInfo layout_info{};
+  layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  layout_info.bindingCount = 1;
+  layout_info.pBindings = &ubo_layout;
+
+  validation::checkVulkan(vkCreateDescriptorSetLayout(
+    device, &layout_info, nullptr, &descriptor_layout)
+  );
+}
+
+void VulkanEngine::createUniformBuffers()
+{
+  VkDeviceSize buffer_size = sizeof(UniformBufferObject);
+  auto img_count = swapchain_images.size();
+  uniform_buffers.resize(img_count);
+  ubo_memory.resize(img_count);
+
+  for (size_t i = 0; i < img_count; ++i)
+  {
+    createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      uniform_buffers[i], ubo_memory[i]
+    );
+  }
+}
+
+void VulkanEngine::updateUniformBuffer(uint32_t image_index)
+{
+  UniformBufferObject ubo{};
+  ubo.model = glm::mat4(1.f);
+  ubo.view = glm::mat4(1.f);
+  ubo.proj = glm::mat4(1.f);
+  /*ubo.model =
+  ubo.view =
+  auto aspect_ratio = swapchain_extent.width / (float)swapchain_extent.height;
+  ubo.proj = glm::perspective(glm::radians(45.f), aspect_ratio, .1f, 10.f);
+  ubo.proj[1][1] *= -1;*/
+
+  void *data = nullptr;
+  vkMapMemory(device, ubo_memory[image_index], 0, sizeof(ubo), 0, &data);
+  memcpy(data, &ubo, sizeof(ubo));
+  vkUnmapMemory(device, ubo_memory[image_index]);
+}
+
+void VulkanEngine::createDescriptorPool()
+{
+  VkDescriptorPoolSize pool_size{};
+  pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  pool_size.descriptorCount = static_cast<uint32_t>(swapchain_images.size());
+
+  VkDescriptorPoolCreateInfo pool_info{};
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.poolSizeCount = 1;
+  pool_info.pPoolSizes = &pool_size;
+  pool_info.maxSets = static_cast<uint32_t>(swapchain_images.size());
+  pool_info.flags = 0;
+
+  validation::checkVulkan(
+    vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool)
+  );
+}
+
+void VulkanEngine::createDescriptorSets()
+{
+  auto img_count = swapchain_images.size();
+  std::vector<VkDescriptorSetLayout> layouts(img_count, descriptor_layout);
+  VkDescriptorSetAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  alloc_info.descriptorPool = descriptor_pool;
+  alloc_info.descriptorSetCount = static_cast<uint32_t>(img_count);
+  alloc_info.pSetLayouts = layouts.data();
+
+  descriptor_sets.resize(swapchain_images.size());
+  validation::checkVulkan(
+    vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data())
+  );
+
+  for (size_t i = 0; i < img_count; ++i)
+  {
+    VkDescriptorBufferInfo buffer_info{};
+    buffer_info.buffer = uniform_buffers[i];
+    buffer_info.offset = 0;
+    buffer_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+
+    VkWriteDescriptorSet desc_write{};
+    desc_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_write.dstSet = descriptor_sets[i];
+    desc_write.dstBinding = 0;
+    desc_write.dstArrayElement = 0;
+    desc_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_write.descriptorCount = 1;
+    desc_write.pBufferInfo = &buffer_info;
+    desc_write.pImageInfo = nullptr;
+    desc_write.pTexelBufferView = nullptr;
+
+    vkUpdateDescriptorSets(device, 1, &desc_write, 0, nullptr);
+  }
+}

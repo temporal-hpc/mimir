@@ -44,6 +44,7 @@ protected:
   VkFormat swapchain_format;
   VkExtent2D swapchain_extent;
   VkRenderPass render_pass;
+  VkDescriptorSetLayout descriptor_layout;
   VkPipelineLayout pipeline_layout;
   VkPipeline graphics_pipeline;
   VkCommandPool command_pool;
@@ -58,6 +59,9 @@ protected:
   std::vector<VkSemaphore> render_finished;
   VkSemaphore vk_wait_semaphore;
   VkSemaphore vk_signal_semaphore;
+
+  std::vector<VkBuffer> uniform_buffers;
+  std::vector<VkDeviceMemory> ubo_memory;
 
   VkBuffer vertex_buffer;
   VkDeviceMemory vertex_buffer_memory;
@@ -101,7 +105,8 @@ protected:
 
 private:
   GLFWwindow *window;
-  VkDescriptorPool imgui_pool;
+  VkDescriptorPool imgui_pool, descriptor_pool;
+  std::vector<VkDescriptorSet> descriptor_sets;
 
   void initImgui();
   void initVulkan();
@@ -118,6 +123,10 @@ private:
   void createCommandPool();
   void createCommandBuffers();
   void createSyncObjects();
+  void createDescriptorSetLayout();
+  void createUniformBuffers();
+  void createDescriptorPool();
+  void createDescriptorSets();
 
   void cleanupSwapchain();
   void recreateSwapchain();
@@ -133,4 +142,5 @@ private:
   VkShaderModule createShaderModule(const std::vector<char>& code);
   void createVertexBuffer();
   void createIndexBuffer();
+  void updateUniformBuffer(uint32_t image_index);
 };
