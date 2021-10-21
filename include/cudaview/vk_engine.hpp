@@ -125,7 +125,7 @@ private:
   void createSwapChain();
   void createImageViews();
   void createRenderPass();
-  void createGraphicsPipeline();
+  void createGraphicsPipelines();
   void createFramebuffers();
   void createCommandPool();
   void createCommandBuffers();
@@ -138,6 +138,9 @@ private:
   void createTextureImageView();
   void createTextureSampler();
 
+  void createGraphicsPipeline(
+    const std::string& vertex_file, const std::string& fragment_file
+  );
   void createImage(uint32_t width, uint32_t height, VkFormat format,
     VkImageTiling tiling, VkImageUsageFlags usage,
     VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
