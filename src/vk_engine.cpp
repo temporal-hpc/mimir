@@ -70,7 +70,9 @@ VulkanEngine::VulkanEngine(size_t data_size):
   render_pass(VK_NULL_HANDLE),
   descriptor_layout(VK_NULL_HANDLE),
   pipeline_layout(VK_NULL_HANDLE),
+  screen_layout(VK_NULL_HANDLE),
   graphics_pipeline(VK_NULL_HANDLE),
+  screen_pipeline(VK_NULL_HANDLE),
   command_pool(VK_NULL_HANDLE),
   //vk_presentation_semaphore(VK_NULL_HANDLE),
   //vk_timeline_semaphore(VK_NULL_HANDLE),
@@ -248,7 +250,9 @@ void VulkanEngine::cleanupSwapchain()
     static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
   );
   vkDestroyPipeline(device, graphics_pipeline, nullptr);
+  vkDestroyPipeline(device, screen_pipeline, nullptr);
   vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
+  vkDestroyPipelineLayout(device, screen_layout, nullptr);
   for (auto framebuffer : framebuffers)
   {
     vkDestroyFramebuffer(device, framebuffer, nullptr);

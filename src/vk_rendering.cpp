@@ -65,8 +65,18 @@ void VulkanEngine::drawFrame()
   vkCmdBeginRenderPass(command_buffers[image_idx], &render_pass_info,
     VK_SUBPASS_CONTENTS_INLINE
   );
-  // Note: Second parameter can be also used to bind a compute pipeline
+
   vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
+    screen_pipeline
+  );
+  vkCmdBindDescriptorSets(command_buffers[image_idx],
+    VK_PIPELINE_BIND_POINT_GRAPHICS, screen_layout, 0, 1,
+    &descriptor_sets[image_idx], 0, nullptr
+  );
+  vkCmdDraw(command_buffers[image_idx], 3, 1, 0, 0);
+
+  // Note: Second parameter can be also used to bind a compute pipeline
+  /*vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
     graphics_pipeline
   );
 
@@ -75,7 +85,7 @@ void VulkanEngine::drawFrame()
     &descriptor_sets[image_idx], 0, nullptr
   );
 
-  setUnstructuredRendering(command_buffers[image_idx], element_count);
+  setUnstructuredRendering(command_buffers[image_idx], element_count);*/
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffers[image_idx]);
 

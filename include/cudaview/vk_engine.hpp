@@ -45,8 +45,8 @@ protected:
   VkExtent2D swapchain_extent;
   VkRenderPass render_pass;
   VkDescriptorSetLayout descriptor_layout;
-  VkPipelineLayout pipeline_layout;
-  VkPipeline graphics_pipeline;
+  VkPipelineLayout pipeline_layout, screen_layout;
+  VkPipeline graphics_pipeline, screen_pipeline;
   VkCommandPool command_pool;
   std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
@@ -140,6 +140,9 @@ private:
 
   void createGraphicsPipeline(
     const std::string& vertex_file, const std::string& fragment_file
+  );
+  void createTextureGraphicsPipeline(const std::string& vertex_file,
+    const std::string& fragment_file
   );
   void createImage(uint32_t width, uint32_t height, VkFormat format,
     VkImageTiling tiling, VkImageUsageFlags usage,
