@@ -34,7 +34,8 @@ Library('cudaview')
 {
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = '-o "%2" "%1" -c'
-                      + ' -Iinclude -Icontrib/imgui-1.84.2 -I/usr/local/cuda/include'
+                      + ' -Iinclude -I/usr/local/cuda/include'
+                      + ' -Icontrib/imgui-1.84.2 -Icontrib/stb'
                       + ' -std=c++17'
                       + .'Flags$BuildType$'
   .CompilerInputPath  = 'src/'

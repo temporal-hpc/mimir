@@ -108,6 +108,13 @@ private:
   VkDescriptorPool imgui_pool, descriptor_pool;
   std::vector<VkDescriptorSet> descriptor_sets;
 
+  VkBuffer staging_buffer;
+  VkDeviceMemory staging_memory;
+  VkImage texture_image;
+  VkDeviceMemory texture_memory;
+  VkImageView texture_view;
+  VkSampler texture_sampler;
+
   void initImgui();
   void initVulkan();
   void setupDebugMessenger();
@@ -127,6 +134,19 @@ private:
   void createUniformBuffers();
   void createDescriptorPool();
   void createDescriptorSets();
+  void createTextureImage();
+  void createTextureImageView();
+  void createTextureSampler();
+
+  void createImage(uint32_t width, uint32_t height, VkFormat format,
+    VkImageTiling tiling, VkImageUsageFlags usage,
+    VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
+  );
+  VkImageView createImageView(VkImage image, VkFormat format);
+  void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+  void transitionImageLayout(VkImage image, VkFormat format,
+    VkImageLayout old_layout, VkImageLayout new_layout
+  );
 
   void cleanupSwapchain();
   void recreateSwapchain();

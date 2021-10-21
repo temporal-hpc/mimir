@@ -1,3 +1,4 @@
+#define STB_IMAGE_IMPLEMENTATION
 #include "io.hpp"
 
 #include <fstream> // std::ifstream (for readFile)
@@ -21,6 +22,11 @@ std::vector<char> readFile(const std::string& filename)
   file.read(buffer.data(), filesize);
   file.close();
   return buffer;
+}
+
+stbi_uc *loadImage(const std::string& filename, int& width, int& height, int& channels)
+{
+  return stbi_load(filename.c_str(), &width, &height, &channels, STBI_rgb_alpha);
 }
 
 } // namespace io
