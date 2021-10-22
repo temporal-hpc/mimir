@@ -9,12 +9,6 @@
 #include <set> // std::set
 #include <stdexcept> // std::throw
 
-/*const std::vector<Vertex> vertices = {
-  { {-.5f, -.5f}, {1.f, 0.f, 0.f} },
-  { { .5f, -.5f}, {0.f, 1.f, 0.f} },
-  { { .5f,  .5f}, {0.f, 0.f, 1.f} },
-  { {-.5f,  .5f}, {1.f, 1.f, 1.f} }
-};*/
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
 static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
@@ -206,8 +200,6 @@ void VulkanEngine::initVulkan()
   createVertexBuffer();
   createIndexBuffer();
   createSyncObjects();
-
-  initApplication();
 }
 
 void VulkanEngine::createInstance()
@@ -357,13 +349,6 @@ void VulkanEngine::createSurface()
   validation::checkVulkan(
     glfwCreateWindowSurface(instance, window, nullptr, &surface)
   );
-}
-
-void VulkanEngine::initApplication()
-{
-  //createExternalSemaphore(vk_timeline_semaphore);
-  createExternalSemaphore(vk_wait_semaphore);
-  createExternalSemaphore(vk_signal_semaphore);
 }
 
 void VulkanEngine::initImgui()

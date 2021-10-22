@@ -89,22 +89,8 @@ VulkanCudaEngine::~VulkanCudaEngine()
   }
 }
 
-void VulkanCudaEngine::registerDeviceMemory(float *&d_cudamem)
+void VulkanCudaEngine::registerUnstructuredMemory(float *&d_cudamem)
 {
-  d_cudamem = cuda_unstructured_data;
-}
-
-void VulkanCudaEngine::registerFunction(std::function<void(void)> func,
-  size_t iter_count)
-{
-  step_function = func;
-  iteration_count = iter_count;
-}
-
-void VulkanCudaEngine::initApplication()
-{
-  VulkanEngine::initApplication();
-
   // Init unstructured memory
   createExternalBuffer(sizeof(float2) * element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -116,6 +102,11 @@ void VulkanCudaEngine::initApplication()
     vk_unstructured_memory, sizeof(*cuda_unstructured_data) * element_count
   );
 
+  d_cudamem = cuda_unstructured_data;
+}
+
+void VulkanCudaEngine::registerStructuredMemory(float *&d_cudamem)
+{
   // Init structured memory
   createExternalBuffer(sizeof(float) * element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -127,9 +118,28 @@ void VulkanCudaEngine::initApplication()
     vk_structured_memory, sizeof(*cuda_structured_data) * element_count
   );
 
+  d_cudamem = cuda_unstructured_data;
+}
+
+void VulkanCudaEngine::registerFunction(std::function<void(void)> func,
+  size_t iter_count)
+{
+  step_function = func;
+  iteration_count = iter_count;
+}
+
+void VulkanCudaEngine::initVulkan()
+{
+  VulkanEngine::initVulkan();
+
+  //createExternalSemaphore(vk_timeline_semaphore);
   //importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
-  importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
+
+  createExternalSemaphore(vk_wait_semaphore);
   importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
+  
+  createExternalSemaphore(vk_signal_semaphore);
+  importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
 }
 
 void VulkanCudaEngine::importCudaExternalMemory(void **cuda_ptr,

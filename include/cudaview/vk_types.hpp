@@ -25,6 +25,12 @@ struct Vertex
   glm::vec3 color;
 };
 
+/*const std::vector<Vertex> vertices = {
+  { {-.5f, -.5f}, {1.f, 0.f, 0.f} },
+  { { .5f, -.5f}, {0.f, 1.f, 0.f} },
+  { { .5f,  .5f}, {0.f, 0.f, 1.f} },
+  { {-.5f,  .5f}, {1.f, 1.f, 1.f} }
+};*/
 const std::vector<Vertex> vertices = {
   { { 0.f, -.5f}, {1.f, 0.f, 0.f} },
   { { .5f,  .5f}, {0.f, 1.f, 0.f} },

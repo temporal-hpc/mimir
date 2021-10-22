@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
   {
     VulkanCudaEngine engine(program._element_count, program._stream);
     engine.init(800, 600);
-    engine.registerDeviceMemory(program._d_distances);
+    engine.registerStructuredMemory(program._d_distances);
 
     program.setInitialState();
     auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);

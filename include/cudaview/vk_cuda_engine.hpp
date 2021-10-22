@@ -12,7 +12,8 @@ public:
   VulkanCudaEngine(size_t data_size, cudaStream_t stream);
   VulkanCudaEngine();
   ~VulkanCudaEngine();
-  void registerDeviceMemory(float *&d_cudamem);
+  void registerUnstructuredMemory(float *&d_cudamem);
+  void registerStructuredMemory(float *&d_cudamem);
   void registerFunction(std::function<void(void)> func, size_t iter_count);
 
 private:
@@ -33,7 +34,7 @@ private:
   VkBuffer vk_structured_buffer;
   VkDeviceMemory vk_structured_memory;
 
-  void initApplication();
+  void initVulkan();
   void drawFrame();
   void setUnstructuredRendering(VkCommandBuffer& cmd_buffer, uint32_t vertex_count);
 

@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
     // Initialize engine
     VulkanCudaEngine engine(program._particle_count, program._stream);
     engine.init(800, 600);
-    engine.registerDeviceMemory(program._d_coords);
+    engine.registerUnstructuredMemory(program._d_coords);
 
     // Cannot make CUDA calls that use the target device memory before
     // registering it on the engine

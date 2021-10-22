@@ -97,7 +97,7 @@ protected:
   );
   virtual void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
   virtual void drawFrame();
-  virtual void initApplication();
+  virtual void initVulkan();
 
   virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
@@ -116,7 +116,6 @@ private:
   VkSampler texture_sampler;
 
   void initImgui();
-  void initVulkan();
   void setupDebugMessenger();
   void pickPhysicalDevice();
   void createLogicalDevice();
