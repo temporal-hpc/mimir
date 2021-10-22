@@ -5,6 +5,23 @@
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
+void VulkanEngine::mainLoop()
+{
+  while(!glfwWindowShouldClose(window))
+  {
+    glfwPollEvents();
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    //ImGui::ShowDemoWindow();
+    ImGui::Render();
+
+    drawFrame();
+  }
+  vkDeviceWaitIdle(device);
+}
+
 void VulkanEngine::drawFrame()
 {
   constexpr auto timeout = std::numeric_limits<uint64_t>::max();

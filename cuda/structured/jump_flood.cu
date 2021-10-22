@@ -132,7 +132,7 @@ void JumpFloodProgram::setInitialState()
 			{
 				if (iCol == int(voronoiSeeds[iSeed].x) && iRow == int(voronoiSeeds[iSeed].y))
 				{
-					printf("New seed at %f %f\n", voronoiSeeds[iSeed].x, voronoiSeeds[iSeed].y);
+					//printf("New seed at %f %f\n", voronoiSeeds[iSeed].x, voronoiSeeds[iSeed].y);
 					voronoiCanvasFill->x = voronoiSeeds[iSeed].x;
 					voronoiCanvasFill->y = voronoiSeeds[iSeed].y;
 					goto canvasIterationDone;

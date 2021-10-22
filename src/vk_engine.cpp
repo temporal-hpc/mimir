@@ -187,23 +187,6 @@ void VulkanEngine::init(int width, int height)
   initVulkan();
 }
 
-void VulkanEngine::mainLoop()
-{
-  while(!glfwWindowShouldClose(window))
-  {
-    glfwPollEvents();
-
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    //ImGui::ShowDemoWindow();
-    ImGui::Render();
-
-    drawFrame();
-  }
-  vkDeviceWaitIdle(device);
-}
-
 void VulkanEngine::initVulkan()
 {
   createInstance();
