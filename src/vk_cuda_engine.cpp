@@ -81,40 +81,6 @@ void VulkanCudaEngine::registerFunction(std::function<void(void)> func,
   iteration_count = iter_count;
 }
 
-void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
-  uint32_t vertex_count)
-{
-  VkBuffer vertex_buffers[] = { vk_data_buffer };
-  VkDeviceSize offsets[] = { 0 };
-  auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-  vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
-  vkCmdDraw(cmd_buffer, vertex_count, 1, 0, 0);
-}
-
-void VulkanCudaEngine::getVertexDescriptions(
-  std::vector<VkVertexInputBindingDescription>& bind_desc,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc)
-{
-  bind_desc.resize(1);
-  bind_desc[0].binding = 0;
-  bind_desc[0].stride = sizeof(float2);
-  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-  attr_desc.resize(1);
-  attr_desc[0].binding = 0;
-  attr_desc[0].location = 0;
-  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
-  attr_desc[0].offset = 0;
-}
-
-void VulkanCudaEngine::getAssemblyStateInfo(
-  VkPipelineInputAssemblyStateCreateInfo& info)
-{
-  info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-  info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-  info.primitiveRestartEnable = VK_FALSE;
-}
-
 void VulkanCudaEngine::initApplication()
 {
   VulkanEngine::initApplication();
@@ -230,4 +196,38 @@ void VulkanCudaEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal
   // Vulkan will signal to this semaphore once the vertex ready is ready
   // for Cuda to process
   signal.push_back(vk_signal_semaphore);
+}
+
+void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
+  uint32_t vertex_count)
+{
+  VkBuffer vertex_buffers[] = { vk_data_buffer };
+  VkDeviceSize offsets[] = { 0 };
+  auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+  vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
+  vkCmdDraw(cmd_buffer, vertex_count, 1, 0, 0);
+}
+
+void VulkanCudaEngine::getVertexDescriptions(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(float2);
+  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  attr_desc.resize(1);
+  attr_desc[0].binding = 0;
+  attr_desc[0].location = 0;
+  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc[0].offset = 0;
+}
+
+void VulkanCudaEngine::getAssemblyStateInfo(
+  VkPipelineInputAssemblyStateCreateInfo& info)
+{
+  info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+  info.primitiveRestartEnable = VK_FALSE;
 }
