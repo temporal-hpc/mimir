@@ -43,24 +43,44 @@ Library('cudaview')
   .LibrarianOutput    = '_out/cudaview.lib'
 }
 
-ObjectList('cudaprogram')
+ObjectList('cuda-structured')
 {
   .Compiler             = '/usr/local/cuda/bin/nvcc'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17'
-                        + ' -Iinclude'
-  .CompilerInputPath    = 'cuda/'
+                        + ' -Icuda/include -Iinclude'
+  .CompilerInputPath    = 'cuda/structured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
 }
 
-Executable('app')
+ObjectList('cuda-unstructured')
 {
-  .Libraries     = { 'imgui', 'cudaview', 'cudaprogram' }
+  .Compiler             = '/usr/local/cuda/bin/nvcc'
+  .CompilerOptions      = '-o "%2" "%1" -c'
+                        + ' -std=c++17'
+                        + ' -Icuda/include -Iinclude'
+  .CompilerInputPath    = 'cuda/unstructured'
+  .CompilerInputPattern = { '*.cu', '*.cpp' }
+  .CompilerOutputPath   = '_out/'
+}
+
+Executable('run_structured')
+{
+  .Libraries     = { 'imgui', 'cudaview', 'cuda-structured' }
   .Linker        = '/usr/local/cuda/bin/nvcc'
-  .LinkerOutput  = '_out/app'
+  .LinkerOutput  = '_out/run_structured'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
 }
 
-Alias('all') { .Targets = { 'app', 'shaders' } }
+Executable('run_unstructured')
+{
+  .Libraries     = { 'imgui', 'cudaview', 'cuda-unstructured' }
+  .Linker        = '/usr/local/cuda/bin/nvcc'
+  .LinkerOutput  = '_out/run_unstructured'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
+}
+
+Alias('all') { .Targets = { 'run_structured', 'run_unstructured', 'shaders' } }
