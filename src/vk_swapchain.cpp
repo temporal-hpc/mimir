@@ -2,6 +2,257 @@
 #include "validation.hpp"
 #include "io.hpp"
 
+#include <algorithm> // std::clamp
+
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(
+  const std::vector<VkSurfaceFormatKHR>& available_formats)
+{
+  for (const auto& available_format : available_formats)
+  {
+    if (available_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+        available_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+    {
+      return available_format;
+    }
+  }
+  return available_formats[0];
+}
+
+VkPresentModeKHR chooseSwapPresentMode(
+  const std::vector<VkPresentModeKHR>& available_modes)
+{
+  VkPresentModeKHR best_mode = VK_PRESENT_MODE_FIFO_KHR;
+  for (const auto& available_mode : available_modes)
+  {
+    if (available_mode == VK_PRESENT_MODE_MAILBOX_KHR)
+    {
+      return available_mode;
+    }
+    else if (available_mode == VK_PRESENT_MODE_IMMEDIATE_KHR)
+    {
+      best_mode = available_mode;
+    }
+  }
+  return best_mode;
+}
+
+void VulkanEngine::cleanupSwapchain()
+{
+  for (size_t i = 0; i < swapchain_images.size(); ++i)
+  {
+    vkDestroyBuffer(device, uniform_buffers[i], nullptr);
+    vkFreeMemory(device, ubo_memory[i], nullptr);
+  }
+  vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
+  vkFreeCommandBuffers(device, command_pool,
+    static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
+  );
+  vkDestroyPipeline(device, graphics_pipeline, nullptr);
+  vkDestroyPipeline(device, screen_pipeline, nullptr);
+  vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
+  vkDestroyPipelineLayout(device, screen_layout, nullptr);
+  for (auto framebuffer : framebuffers)
+  {
+    vkDestroyFramebuffer(device, framebuffer, nullptr);
+  }
+  vkDestroyRenderPass(device, render_pass, nullptr);
+  for (auto image_view : swapchain_views)
+  {
+    vkDestroyImageView(device, image_view, nullptr);
+  }
+  vkDestroySwapchainKHR(device, swapchain, nullptr);
+}
+
+void VulkanEngine::recreateSwapchain()
+{
+  vkDeviceWaitIdle(device);
+
+  cleanupSwapchain();
+
+  createSwapChain();
+  createImageViews();
+  createRenderPass();
+  createGraphicsPipelines();
+  createFramebuffers();
+  createUniformBuffers();
+  createDescriptorPool();
+  createDescriptorSets();
+  createCommandBuffers();
+}
+
+VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities)
+{
+  if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+  {
+    return capabilities.currentExtent;
+  }
+  else
+  {
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+    VkExtent2D actual_extent = {
+      static_cast<uint32_t>(width), static_cast<uint32_t>(height)
+    };
+    actual_extent.width = std::clamp(actual_extent.width,
+      capabilities.minImageExtent.width, capabilities.maxImageExtent.width
+    );
+    actual_extent.height = std::clamp(actual_extent.height,
+      capabilities.minImageExtent.height, capabilities.maxImageExtent.height
+    );
+    return actual_extent;
+  }
+}
+
+void VulkanEngine::createSwapChain()
+{
+  auto swapchain_support = getSwapchainProperties(physical_device);
+  auto surface_format = chooseSwapSurfaceFormat(swapchain_support.formats);
+  auto present_mode = chooseSwapPresentMode(swapchain_support.present_modes);
+  auto extent = chooseSwapExtent(swapchain_support.capabilities);
+
+  auto image_count = swapchain_support.capabilities.minImageCount + 1;
+  const auto max_image_count = swapchain_support.capabilities.maxImageCount;
+  if (max_image_count > 0 && image_count > max_image_count)
+  {
+    image_count = max_image_count;
+  }
+
+  VkSwapchainCreateInfoKHR create_info{};
+  create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+  create_info.surface = surface;
+  create_info.minImageCount = image_count;
+  create_info.imageFormat = surface_format.format;
+  create_info.imageColorSpace = surface_format.colorSpace;
+  create_info.imageExtent = extent;
+  create_info.imageArrayLayers = 1;
+  create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+  uint32_t queue_indices[2];
+  findQueueFamilies(physical_device, queue_indices[0], queue_indices[1]);
+
+  if (queue_indices[0] != queue_indices[1])
+  {
+    create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+    create_info.queueFamilyIndexCount = 2;
+    create_info.pQueueFamilyIndices = queue_indices;
+  }
+  else
+  {
+    create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    create_info.queueFamilyIndexCount = 0;
+    create_info.pQueueFamilyIndices = nullptr;
+  }
+  create_info.preTransform = swapchain_support.capabilities.currentTransform;
+  create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+  create_info.presentMode = present_mode;
+  create_info.clipped = VK_TRUE;
+  create_info.oldSwapchain = VK_NULL_HANDLE;
+
+  validation::checkVulkan(vkCreateSwapchainKHR(
+    device, &create_info, nullptr, &swapchain)
+  );
+
+  vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
+  swapchain_images.resize(image_count);
+  vkGetSwapchainImagesKHR(device, swapchain, &image_count, swapchain_images.data());
+
+  swapchain_format = surface_format.format;
+  swapchain_extent = extent;
+}
+
+void VulkanEngine::createFramebuffers()
+{
+  framebuffers.resize(swapchain_views.size());
+  for (size_t i = 0; i < swapchain_views.size(); ++i)
+  {
+    VkImageView attachments[] = { swapchain_views[i] };
+    VkFramebufferCreateInfo fb_info{};
+    fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fb_info.renderPass = render_pass;
+    fb_info.attachmentCount = 1;
+    fb_info.pAttachments = attachments;
+    fb_info.width = swapchain_extent.width;
+    fb_info.height = swapchain_extent.height;
+    fb_info.layers = 1;
+
+    validation::checkVulkan(vkCreateFramebuffer(
+      device, &fb_info, nullptr, &framebuffers[i])
+    );
+  }
+}
+
+void VulkanEngine::createDescriptorPool()
+{
+  std::array<VkDescriptorPoolSize, 2> pool_sizes{};
+  pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  pool_sizes[0].descriptorCount = static_cast<uint32_t>(swapchain_images.size());
+  pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  pool_sizes[1].descriptorCount = static_cast<uint32_t>(swapchain_images.size());
+
+  VkDescriptorPoolCreateInfo pool_info{};
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
+  pool_info.pPoolSizes = pool_sizes.data();
+  pool_info.maxSets = static_cast<uint32_t>(swapchain_images.size());
+  pool_info.flags = 0;
+
+  validation::checkVulkan(
+    vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool)
+  );
+}
+
+void VulkanEngine::createDescriptorSets()
+{
+  auto img_count = swapchain_images.size();
+  std::vector<VkDescriptorSetLayout> layouts(img_count, descriptor_layout);
+  VkDescriptorSetAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  alloc_info.descriptorPool = descriptor_pool;
+  alloc_info.descriptorSetCount = static_cast<uint32_t>(img_count);
+  alloc_info.pSetLayouts = layouts.data();
+
+  descriptor_sets.resize(swapchain_images.size());
+  validation::checkVulkan(
+    vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data())
+  );
+
+  for (size_t i = 0; i < img_count; ++i)
+  {
+    VkDescriptorBufferInfo buffer_info{};
+    buffer_info.buffer = uniform_buffers[i];
+    buffer_info.offset = 0;
+    buffer_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.imageView = texture_view;
+    image_info.sampler = texture_sampler;
+
+    std::array<VkWriteDescriptorSet, 2> desc_writes{};
+    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[0].dstSet = descriptor_sets[i];
+    desc_writes[0].dstBinding = 0;
+    desc_writes[0].dstArrayElement = 0;
+    desc_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[0].descriptorCount = 1;
+    desc_writes[0].pBufferInfo = &buffer_info;
+    desc_writes[0].pImageInfo = nullptr;
+    desc_writes[0].pTexelBufferView = nullptr;
+
+    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[1].dstSet = descriptor_sets[i];
+    desc_writes[1].dstBinding = 1;
+    desc_writes[1].dstArrayElement = 0;
+    desc_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    desc_writes[1].descriptorCount = 1;
+    desc_writes[1].pImageInfo = &image_info;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
+      desc_writes.data(), 0, nullptr
+    );
+  }
+}
+
 // Take buffer with shader bytecode and create a shader module from it
 VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
 {
