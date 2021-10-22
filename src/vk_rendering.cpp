@@ -1,6 +1,7 @@
 #include "cudaview/vk_engine.hpp"
 #include "validation.hpp"
 
+#include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
