@@ -23,16 +23,22 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
 
 VulkanCudaEngine::VulkanCudaEngine(size_t data_size, cudaStream_t cuda_stream):
   VulkanEngine(data_size),
-  vk_data_buffer(VK_NULL_HANDLE),
-  vk_data_memory(VK_NULL_HANDLE),
+  iteration_count(0),
+  iteration_idx(0),
   stream(cuda_stream),
-  cuda_raw_data(nullptr),
   //cuda_timeline_semaphore(nullptr),
   cuda_wait_semaphore(nullptr),
   cuda_signal_semaphore(nullptr),
-  cuda_vert_memory(nullptr),
-  iteration_count(0),
-  iteration_idx(0)
+
+  cuda_unstructured_data(nullptr),
+  cuda_extmem_unstructured(nullptr),
+  vk_unstructured_buffer(VK_NULL_HANDLE),
+  vk_unstructured_memory(VK_NULL_HANDLE),
+
+  cuda_structured_data(nullptr),
+  cuda_extmem_structured(nullptr),
+  vk_structured_buffer(VK_NULL_HANDLE),
+  vk_structured_memory(VK_NULL_HANDLE)
 {}
 
 VulkanCudaEngine::~VulkanCudaEngine()
@@ -55,23 +61,37 @@ VulkanCudaEngine::~VulkanCudaEngine()
   {
     checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
   }
-  if (vk_data_buffer != VK_NULL_HANDLE)
+
+  if (cuda_unstructured_data != nullptr)
   {
-    vkDestroyBuffer(device, vk_data_buffer, nullptr);
+    checkCuda(cudaDestroyExternalMemory(cuda_extmem_unstructured));
   }
-  if (vk_data_memory != VK_NULL_HANDLE)
+  if (vk_unstructured_buffer != VK_NULL_HANDLE)
   {
-    vkFreeMemory(device, vk_data_memory, nullptr);
+    vkDestroyBuffer(device, vk_unstructured_buffer, nullptr);
   }
-  if (cuda_raw_data != nullptr)
+  if (vk_unstructured_memory != VK_NULL_HANDLE)
   {
-    checkCuda(cudaDestroyExternalMemory(cuda_vert_memory));
+    vkFreeMemory(device, vk_unstructured_memory, nullptr);
+  }
+
+  if (cuda_structured_data != nullptr)
+  {
+    checkCuda(cudaDestroyExternalMemory(cuda_extmem_structured));
+  }
+  if (vk_structured_buffer != VK_NULL_HANDLE)
+  {
+    vkDestroyBuffer(device, vk_structured_buffer, nullptr);
+  }
+  if (vk_structured_memory != VK_NULL_HANDLE)
+  {
+    vkFreeMemory(device, vk_structured_memory, nullptr);
   }
 }
 
 void VulkanCudaEngine::registerDeviceMemory(float *&d_cudamem)
 {
-  d_cudamem = cuda_raw_data;
+  d_cudamem = cuda_unstructured_data;
 }
 
 void VulkanCudaEngine::registerFunction(std::function<void(void)> func,
@@ -84,15 +104,29 @@ void VulkanCudaEngine::registerFunction(std::function<void(void)> func,
 void VulkanCudaEngine::initApplication()
 {
   VulkanEngine::initApplication();
+
+  // Init unstructured memory
   createExternalBuffer(sizeof(float2) * element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-    vk_data_buffer, vk_data_memory
+    vk_unstructured_buffer, vk_unstructured_memory
   );
-  importCudaExternalMemory((void**)&cuda_raw_data, cuda_vert_memory,
-    vk_data_memory, sizeof(*cuda_raw_data) * element_count
+  importCudaExternalMemory((void**)&cuda_unstructured_data, cuda_extmem_unstructured,
+    vk_unstructured_memory, sizeof(*cuda_unstructured_data) * element_count
   );
+
+  // Init structured memory
+  createExternalBuffer(sizeof(float) * element_count,
+    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    vk_structured_buffer, vk_structured_memory
+  );
+  importCudaExternalMemory((void**)&cuda_structured_data, cuda_extmem_structured,
+    vk_structured_memory, sizeof(*cuda_structured_data) * element_count
+  );
+
   //importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
   importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
   importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
@@ -201,7 +235,7 @@ void VulkanCudaEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal
 void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
   uint32_t vertex_count)
 {
-  VkBuffer vertex_buffers[] = { vk_data_buffer };
+  VkBuffer vertex_buffers[] = { vk_unstructured_buffer };
   VkDeviceSize offsets[] = { 0 };
   auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
   vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);

@@ -16,18 +16,22 @@ public:
   void registerFunction(std::function<void(void)> func, size_t iter_count);
 
 private:
-  // Vulkan interop data
-  VkBuffer vk_data_buffer;
-  VkDeviceMemory vk_data_memory;
-
   // Cuda interop data
-  cudaStream_t stream;
-  float *cuda_raw_data;
-  //cudaExternalSemaphore_t cuda_timeline_semaphore;
-  cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
-  cudaExternalMemory_t cuda_vert_memory;
-  std::function<void(void)> step_function;
   size_t iteration_count, iteration_idx;
+  std::function<void(void)> step_function;
+  cudaStream_t stream;
+  cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
+  //cudaExternalSemaphore_t cuda_timeline_semaphore;
+
+  float *cuda_unstructured_data;
+  cudaExternalMemory_t cuda_extmem_unstructured;
+  VkBuffer vk_unstructured_buffer;
+  VkDeviceMemory vk_unstructured_memory;
+
+  float *cuda_structured_data;
+  cudaExternalMemory_t cuda_extmem_structured;
+  VkBuffer vk_structured_buffer;
+  VkDeviceMemory vk_structured_memory;
 
   void initApplication();
   void drawFrame();
