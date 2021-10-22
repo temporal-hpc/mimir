@@ -1,16 +1,17 @@
+#include "jump_flood.hpp"
 #include "cuda_utils.hpp"
 
-__device__ uchar3 toColor(float2 texCoords, int imageW, int imageH)
+#include <chrono>
+#include <random>
+
+
+__device__ float distance2D(float2 a, float2 b, int width, int height)
 {
-	return uchar3{
-    static_cast<unsigned char>(int(255.99f * texCoords.x / float(imageW))),
-		static_cast<unsigned char>(int(255.99f * texCoords.y / float(imageH))),
-		static_cast<unsigned char>(int(255.99f * .3f))
-	};
+  return hypotf(b.x - a.x, b.y - a.y) / hypotf(width, height);
 }
 
 
-__global__ void jumpFloodKernel(uchar3* pixelCanvas, float2* numericCanvas, int diagramXDim, int diagramYDim)
+__global__ void jumpFloodKernel(float *distances, float2 *seeds, int diagramXDim, int diagramYDim)
 {
 	// calculate non-normalized texture coordinates
 	unsigned x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -28,7 +29,7 @@ __global__ void jumpFloodKernel(uchar3* pixelCanvas, float2* numericCanvas, int 
 
 		// At first, the best candidate is ourselves
 		unsigned selfIdx = y * diagramXDim + x;
-		float2 closestCandidate = numericCanvas[selfIdx];
+		float2 closestCandidate = seeds[selfIdx];
 		float closestDistance = float(INT_MAX);
 
 		// JFA pass computations
@@ -43,7 +44,7 @@ __global__ void jumpFloodKernel(uchar3* pixelCanvas, float2* numericCanvas, int 
 				if (xLookup < 1e-6f || xLookup > diagramXDim || yLookup < 1e-6f || yLookup > diagramYDim) continue;
 
 				int lookupIdx = yLookup * diagramXDim + xLookup;
-				float2 otherCandidate = numericCanvas[lookupIdx];
+				float2 otherCandidate = seeds[lookupIdx];
 
 				if (otherCandidate.x + otherCandidate.y > 1e-6f)
 				{
@@ -60,73 +61,133 @@ __global__ void jumpFloodKernel(uchar3* pixelCanvas, float2* numericCanvas, int 
 			}
 		}
 
-		pixelCanvas[selfIdx] = toColor(closestCandidate, diagramXDim, diagramYDim);
-		numericCanvas[selfIdx] = closestCandidate;
+		distances[selfIdx] = closestDistance;
+		seeds[selfIdx] = closestCandidate;
 
 		__syncthreads();
 	}
+  //if (x < 5 && y < 5) printf("%d %d %f\n", x, y, distances[y * diagramXDim + x]);
 }
 
-
-void jumpFloodWithCuda(unsigned char* hostPixelCanvas, float2* hostNumericCanvas, int diagramXDim, int diagramYDim)
+float2* randomUniformClamped2D(size_t nPoints)
 {
-	// For sanity
+	std::mt19937_64 goodRng;
+
+	// Time dependent seed, the "modern" way
+	uint64_t genSeed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	std::seed_seq sequence{ uint32_t(genSeed & 0xFFFFFFFF), uint32_t(genSeed >> 32) };
+	goodRng.seed(sequence);
+
+	// Initialize uniform distribution, clamped to [0,1)
+	std::uniform_real_distribution<float> unif(0, 1);
+
+	// Generate point "cloud"
+	float2* points = (float2*)malloc(nPoints * sizeof(float2));
+	for (int iSim = 0; iSim < nPoints; ++iSim)
+	{
+		points[iSim].x = unif(goodRng);
+		points[iSim].y = unif(goodRng);
+	}
+
+	return points;
+}
+
+JumpFloodProgram::JumpFloodProgram(size_t point_count, int width, int height):
+  _element_count{point_count}, _extent{width, height},
+  _grid_size((_element_count + _block_size - 1) / _block_size)
+{
+  checkCuda(cudaStreamCreateWithFlags(&_stream, cudaStreamNonBlocking));
+}
+
+void JumpFloodProgram::setInitialState()
+{
+  auto point_count = _element_count;
+  const int diagramXDim = _extent.x;
+	const int diagramYDim = _extent.y;
+
+	/**
+	 * 1. Generate some seed pixel locations.
+	 */
+	float2* voronoiSeedsUV = randomUniformClamped2D(point_count);
+	// Texture coordinates (sub-pixel measurement, similar to gl_TexCoord)
+	float2 voronoiSeeds[point_count];
+	for (int iSeed = 0; iSeed < point_count; ++iSeed)
+	{
+		voronoiSeeds[iSeed] = float2{
+			.49f + floor(voronoiSeedsUV[iSeed].x * float(diagramXDim)),
+			.49f + floor(voronoiSeedsUV[iSeed].y * float(diagramYDim))
+		};
+	}
+
+	/**
+	 * 2. Set the R,G values of the seed pixels to their own tex coordinates.
+	 */
+	float2 hostNumericCanvas[diagramXDim * diagramYDim];
+	float2* voronoiCanvasFill = hostNumericCanvas;
+	for (int iRow = 0; iRow < diagramYDim; iRow++)
+	{
+		for (int iCol = 0; iCol < diagramXDim; iCol++)
+		{
+			for (int iSeed = 0; iSeed < point_count; ++iSeed)
+			{
+				if (iCol == int(voronoiSeeds[iSeed].x) && iRow == int(voronoiSeeds[iSeed].y))
+				{
+					printf("New seed at %f %f\n", voronoiSeeds[iSeed].x, voronoiSeeds[iSeed].y);
+					voronoiCanvasFill->x = voronoiSeeds[iSeed].x;
+					voronoiCanvasFill->y = voronoiSeeds[iSeed].y;
+					goto canvasIterationDone;
+				}
+			}
+
+			voronoiCanvasFill->x = 0.f;
+			voronoiCanvasFill->y = 0.f;
+
+		canvasIterationDone:
+			voronoiCanvasFill++;
+		}
+	}
+
 	checkCuda(cudaSetDevice(0));
 
-	int pixelChannels = 3;
-	int numericChannels = 2;
-
 	// Allocate device numeric canvas
-	float2* deviceNumericCanvas;
-	size_t numericCanvasSize = diagramXDim * diagramYDim * numericChannels * sizeof(float);
-	checkCuda(cudaMalloc((void**)&deviceNumericCanvas, numericCanvasSize));
-	checkCuda(cudaMemset(deviceNumericCanvas, 0, numericCanvasSize));
+	size_t numericCanvasSize = sizeof(float2) * diagramXDim * diagramYDim;
+	checkCuda(cudaMalloc((void**)&_d_grid, numericCanvasSize));
+	checkCuda(cudaMemset(_d_grid, 0, numericCanvasSize));
 
-
-	// Allocate device pixel canvas
-	uchar3* devicePixelCanvas;
-	size_t pixelCanvasSize = diagramXDim * diagramYDim * pixelChannels * sizeof(unsigned char);
-	checkCuda(cudaMalloc((void**)&devicePixelCanvas, pixelCanvasSize));
-	checkCuda(cudaMemset(devicePixelCanvas, 0, pixelCanvasSize));
+  auto dist_size = sizeof(float) * diagramXDim * diagramYDim;
+  checkCuda(cudaMalloc(&_d_distances, dist_size));
+  checkCuda(cudaMemset(_d_distances, 0, dist_size));
 
 	// Copy into
 	checkCuda(cudaMemcpy2D(
-		deviceNumericCanvas,
-		diagramXDim * numericChannels * sizeof(float),
+		_d_grid,
+		_extent.x * sizeof(float2),
 		hostNumericCanvas,
-		diagramXDim * numericChannels * sizeof(float),
-		diagramXDim * numericChannels * sizeof(float),
-		diagramYDim,
+		_extent.x * sizeof(float2),
+		_extent.x * sizeof(float2),
+		_extent.y,
 		cudaMemcpyHostToDevice
 	));
 
+  free(voronoiSeedsUV);
+}
 
-	// Define dimensions & launch kernel
-	dim3 bDim(32, 32, 1);
-	dim3 gDim(diagramXDim / bDim.x, diagramYDim / bDim.y, 1);
-	jumpFloodKernel<<<gDim, bDim>>>(
-    devicePixelCanvas, deviceNumericCanvas, diagramXDim, diagramYDim
+void JumpFloodProgram::cleanup()
+{
+  checkCuda(cudaStreamSynchronize(_stream));
+  checkCuda(cudaStreamDestroy(_stream));
+  checkCuda(cudaFree(_d_grid));
+  checkCuda(cudaFree(_d_distances));
+  checkCuda(cudaDeviceReset());
+}
+
+void JumpFloodProgram::runTimestep()
+{
+  // Define dimensions & launch kernel
+	dim3 block_dims(_block_size, _block_size, 1);
+	dim3 grid_dims(_extent.x / block_dims.x, _extent.y / block_dims.y, 1);
+	jumpFloodKernel<<<grid_dims, block_dims>>>(
+    _d_distances, _d_grid, _extent.x, _extent.y
   );
-
-	// Sanity checks
 	checkCuda(cudaDeviceSynchronize());
-	//getLastCudaError("Kernel launch failed!");
-
-	// Copy back
-	checkCuda(cudaMemcpy2D(
-		hostPixelCanvas, // Dest data pointer
-		diagramXDim * pixelChannels * sizeof(unsigned char), // Dest mem alignment
-		devicePixelCanvas, // Source data pointer
-		diagramXDim * pixelChannels * sizeof(unsigned char), // Source mem alignment
-		diagramXDim * pixelChannels * sizeof(unsigned char), // Copy span width (bytes)
-		diagramYDim, // Copy span height (elements)
-		cudaMemcpyDeviceToHost
-	));
-
-	// Cleanup
-	checkCuda(cudaFree(devicePixelCanvas));
-	checkCuda(cudaFree(deviceNumericCanvas));
-	//checkCuda(cudaFreeArray(deviceInputCanvas));
-	//checkCuda(cudaDestroyTextureObject(texture));
-	checkCuda(cudaDeviceReset());
 }
