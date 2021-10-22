@@ -3,6 +3,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <map> // std::map
+
 #include "cudaview/vk_types.hpp"
 
 struct SwapChainSupportDetails
@@ -24,6 +26,7 @@ public:
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
+  bool toggleRenderingMode(const std::string& key);
   void mainLoop();
   bool should_resize = false;
   size_t element_count;
@@ -106,6 +109,7 @@ private:
   GLFWwindow *window;
   VkDescriptorPool imgui_pool, descriptor_pool;
   std::vector<VkDescriptorSet> descriptor_sets;
+  std::map<std::string, bool> rendering_modes;
 
   VkBuffer staging_buffer;
   VkDeviceMemory staging_memory;

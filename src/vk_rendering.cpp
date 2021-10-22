@@ -84,7 +84,7 @@ void VulkanEngine::drawFrame()
     VK_SUBPASS_CONTENTS_INLINE
   );
 
-  if (screen_pipeline != VK_NULL_HANDLE)
+  if (rendering_modes["structured"])
   {
     vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
       screen_pipeline
@@ -96,7 +96,7 @@ void VulkanEngine::drawFrame()
     vkCmdDraw(command_buffers[image_idx], 3, 1, 0, 0);
   }
 
-  if (graphics_pipeline != VK_NULL_HANDLE)
+  if (rendering_modes["unstructured"])
   {
     // Note: Second parameter can be also used to bind a compute pipeline
     vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,

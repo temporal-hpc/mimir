@@ -51,6 +51,7 @@ VulkanEngine::VulkanEngine():
   window(nullptr),
   imgui_pool(VK_NULL_HANDLE),
   descriptor_pool(VK_NULL_HANDLE),
+  rendering_modes{ {"structured", false}, {"unstructured", false} },
 
   staging_buffer(VK_NULL_HANDLE),
   staging_memory(VK_NULL_HANDLE),
@@ -422,4 +423,16 @@ void VulkanEngine::createDescriptorSetLayout()
   validation::checkVulkan(vkCreateDescriptorSetLayout(
     device, &layout_info, nullptr, &descriptor_layout)
   );
+}
+
+bool VulkanEngine::toggleRenderingMode(const std::string& key)
+{
+  // TODO: Use c++-20 map::contains(key)
+  auto search = rendering_modes.find(key);
+  if (search != rendering_modes.end())
+  {
+    rendering_modes[key] = !rendering_modes[key];
+    return true;
+  }
+  return false;
 }
