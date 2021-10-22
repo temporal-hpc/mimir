@@ -9,11 +9,11 @@
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
-  VulkanCudaEngine(size_t data_size, cudaStream_t stream);
+  VulkanCudaEngine(cudaStream_t stream);
   VulkanCudaEngine();
   ~VulkanCudaEngine();
-  void registerUnstructuredMemory(float *&d_cudamem);
-  void registerStructuredMemory(float *&d_cudamem);
+  void registerUnstructuredMemory(float *&d_cudamem, size_t element_count);
+  void registerStructuredMemory(float *&d_cudamem, size_t width, size_t height);
   void registerFunction(std::function<void(void)> func, size_t iter_count);
 
 private:

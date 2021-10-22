@@ -84,26 +84,30 @@ void VulkanEngine::drawFrame()
     VK_SUBPASS_CONTENTS_INLINE
   );
 
-  vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
-    screen_pipeline
-  );
-  vkCmdBindDescriptorSets(command_buffers[image_idx],
-    VK_PIPELINE_BIND_POINT_GRAPHICS, screen_layout, 0, 1,
-    &descriptor_sets[image_idx], 0, nullptr
-  );
-  vkCmdDraw(command_buffers[image_idx], 3, 1, 0, 0);
+  if (screen_pipeline != VK_NULL_HANDLE)
+  {
+    vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
+      screen_pipeline
+    );
+    vkCmdBindDescriptorSets(command_buffers[image_idx],
+      VK_PIPELINE_BIND_POINT_GRAPHICS, screen_layout, 0, 1,
+      &descriptor_sets[image_idx], 0, nullptr
+    );
+    vkCmdDraw(command_buffers[image_idx], 3, 1, 0, 0);
+  }
 
-  // Note: Second parameter can be also used to bind a compute pipeline
-  /*vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
-    graphics_pipeline
-  );
-
-  vkCmdBindDescriptorSets(command_buffers[image_idx],
-    VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
-    &descriptor_sets[image_idx], 0, nullptr
-  );
-
-  setUnstructuredRendering(command_buffers[image_idx], element_count);*/
+  if (graphics_pipeline != VK_NULL_HANDLE)
+  {
+    // Note: Second parameter can be also used to bind a compute pipeline
+    vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
+      graphics_pipeline
+    );
+    vkCmdBindDescriptorSets(command_buffers[image_idx],
+      VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
+      &descriptor_sets[image_idx], 0, nullptr
+    );
+    setUnstructuredRendering(command_buffers[image_idx], element_count);
+  }
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffers[image_idx]);
 

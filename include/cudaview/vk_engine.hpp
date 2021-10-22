@@ -15,7 +15,6 @@ struct SwapChainSupportDetails
 class VulkanEngine
 {
 public:
-  VulkanEngine(size_t data_size);
   VulkanEngine();
   virtual ~VulkanEngine();
   void init(int width = 800, int height = 600);

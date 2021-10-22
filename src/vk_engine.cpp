@@ -17,9 +17,9 @@ static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
   app->should_resize = true;
 }
 
-VulkanEngine::VulkanEngine(size_t data_size):
+VulkanEngine::VulkanEngine():
   should_resize(false),
-  element_count(data_size),
+  element_count(vertices.size()), // TODO: Handle this default value
   instance(VK_NULL_HANDLE),
   debug_messenger(VK_NULL_HANDLE),
   surface(VK_NULL_HANDLE),
@@ -58,9 +58,6 @@ VulkanEngine::VulkanEngine(size_t data_size):
   texture_memory(VK_NULL_HANDLE),
   texture_view(VK_NULL_HANDLE),
   texture_sampler(VK_NULL_HANDLE)
-{}
-
-VulkanEngine::VulkanEngine(): VulkanEngine(0)
 {}
 
 VulkanEngine::~VulkanEngine()
