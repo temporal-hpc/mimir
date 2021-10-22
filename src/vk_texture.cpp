@@ -11,25 +11,23 @@ void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format,
 {
   VkImageCreateInfo image_info{};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  image_info.imageType = VK_IMAGE_TYPE_2D;
-  image_info.extent.width = width;
+  image_info.imageType     = VK_IMAGE_TYPE_2D;
+  image_info.extent.width  = width;
   image_info.extent.height = height;
-  image_info.extent.depth = 1;
-  image_info.mipLevels = 1;
-  image_info.arrayLayers = 1;
-  image_info.format = format;
-  image_info.tiling = tiling;
+  image_info.extent.depth  = 1;
+  image_info.mipLevels     = 1;
+  image_info.arrayLayers   = 1;
+  image_info.format        = format;
+  image_info.tiling        = tiling;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  image_info.usage = usage;
-  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-  image_info.flags = 0;
+  image_info.usage         = usage;
+  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+  image_info.samples       = VK_SAMPLE_COUNT_1_BIT;
+  image_info.flags         = 0;
 
-  validation::checkVulkan(
-    vkCreateImage(device, &image_info, nullptr, &texture_image)
-  );
+  validation::checkVulkan(vkCreateImage(device, &image_info, nullptr, &image));
   VkMemoryRequirements mem_req;
-  vkGetImageMemoryRequirements(device, texture_image, &mem_req);
+  vkGetImageMemoryRequirements(device, image, &mem_req);
 
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -38,9 +36,9 @@ void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format,
     utils::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
 
   validation::checkVulkan(
-    vkAllocateMemory(device, &alloc_info, nullptr, &texture_memory)
+    vkAllocateMemory(device, &alloc_info, nullptr, &image_memory)
   );
-  vkBindImageMemory(device, texture_image, texture_memory, 0);
+  vkBindImageMemory(device, image, image_memory, 0);
 }
 
 void VulkanEngine::createTextureImage()
@@ -206,7 +204,7 @@ void VulkanEngine::createTextureSampler()
   vkGetPhysicalDeviceProperties(physical_device, &properties);
 
   VkSamplerCreateInfo sampler_info{};
-  sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  sampler_info.sType     = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
   sampler_info.magFilter = VK_FILTER_LINEAR;
   sampler_info.minFilter = VK_FILTER_LINEAR;
   sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -214,10 +212,10 @@ void VulkanEngine::createTextureSampler()
   sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.anisotropyEnable = VK_TRUE;
   sampler_info.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-  sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  sampler_info.borderColor   = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
   sampler_info.unnormalizedCoordinates = VK_FALSE;
   sampler_info.compareEnable = VK_FALSE;
-  sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+  sampler_info.compareOp  = VK_COMPARE_OP_ALWAYS;
   sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
   sampler_info.mipLodBias = 0.f;
   sampler_info.minLod = 0.f;
