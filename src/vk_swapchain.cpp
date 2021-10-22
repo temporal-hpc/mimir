@@ -63,12 +63,8 @@ void VulkanEngine::cleanupSwapchain()
   vkDestroySwapchainKHR(device, swapchain, nullptr);
 }
 
-void VulkanEngine::recreateSwapchain()
+void VulkanEngine::initSwapchain()
 {
-  vkDeviceWaitIdle(device);
-
-  cleanupSwapchain();
-
   createSwapChain();
   createImageViews();
   createRenderPass();
@@ -76,8 +72,16 @@ void VulkanEngine::recreateSwapchain()
   createFramebuffers();
   createUniformBuffers();
   createDescriptorPool();
-  createDescriptorSets();
   createCommandBuffers();
+  createDescriptorSets();
+}
+
+void VulkanEngine::recreateSwapchain()
+{
+  vkDeviceWaitIdle(device);
+
+  cleanupSwapchain();
+  initSwapchain();
 }
 
 VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities)

@@ -194,45 +194,37 @@ void VulkanEngine::initVulkan()
   createSurface();
   pickPhysicalDevice();
   createLogicalDevice();
-  createSwapChain();
-  createImageViews();
-  createRenderPass();
+  createCommandPool();
   createDescriptorSetLayout();
-  createGraphicsPipelines();
-  createFramebuffers();
-
-  initApplication();
-
-  createCommandPool(); // after framebuffers were created
-  initImgui(); // After command pool is created
   createTextureImage();
   createTextureImageView();
   createTextureSampler();
+
+  initSwapchain();
+
+  initImgui(); // After command pool and render pass are created
   createVertexBuffer();
   createIndexBuffer();
-
-  createUniformBuffers();
-  createDescriptorPool();
-  createDescriptorSets();
-
-  createCommandBuffers();
   createSyncObjects();
+
+  initApplication();
 }
 
 void VulkanEngine::createInstance()
 {
-  if (validation::enable_validation_layers && !validation::checkValidationLayerSupport())
+  if (validation::enable_validation_layers &&
+     !validation::checkValidationLayerSupport())
   {
     throw std::runtime_error("validation layers requested, but not supported");
   }
 
   VkApplicationInfo app_info{};
   app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-  app_info.pApplicationName = "Vulkan test";
+  app_info.pApplicationName   = "Vulkan test";
   app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-  app_info.pEngineName = "No engine";
-  app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  app_info.apiVersion = VK_API_VERSION_1_2;
+  app_info.pEngineName        = "No engine";
+  app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
+  app_info.apiVersion         = VK_API_VERSION_1_2;
 
   VkInstanceCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -315,7 +307,7 @@ void VulkanEngine::createLogicalDevice()
     VkDeviceQueueCreateInfo queue_create_info{};
     queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queue_create_info.queueFamilyIndex = queue_family;
-    queue_create_info.queueCount = 1;
+    queue_create_info.queueCount       = 1;
     queue_create_info.pQueuePriorities = &queue_priority;
     queue_create_infos.push_back(queue_create_info);
   }
@@ -331,8 +323,8 @@ void VulkanEngine::createLogicalDevice()
   VkDeviceCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
   create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
-  create_info.pQueueCreateInfos = queue_create_infos.data();
-  create_info.pEnabledFeatures = &device_features;
+  create_info.pQueueCreateInfos    = queue_create_infos.data();
+  create_info.pEnabledFeatures     = &device_features;
   create_info.pNext = &features;
 
   auto device_extensions = getRequiredDeviceExtensions();
@@ -362,7 +354,9 @@ void VulkanEngine::createLogicalDevice()
 
 void VulkanEngine::createSurface()
 {
-  validation::checkVulkan(glfwCreateWindowSurface(instance, window, nullptr, &surface));
+  validation::checkVulkan(
+    glfwCreateWindowSurface(instance, window, nullptr, &surface)
+  );
 }
 
 void VulkanEngine::initApplication()
@@ -392,9 +386,9 @@ void VulkanEngine::initImgui()
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets = 1000;
+  pool_info.maxSets       = 1000;
   pool_info.poolSizeCount = std::size(pool_sizes);
-  pool_info.pPoolSizes = pool_sizes;
+  pool_info.pPoolSizes    = pool_sizes;
 
   validation::checkVulkan(vkCreateDescriptorPool(
     device, &pool_info, nullptr, &imgui_pool)
@@ -404,14 +398,14 @@ void VulkanEngine::initImgui()
   ImGui_ImplGlfw_InitForVulkan(window, true);
 
   ImGui_ImplVulkan_InitInfo init_info{};
-  init_info.Instance = instance;
+  init_info.Instance       = instance;
   init_info.PhysicalDevice = physical_device;
-  init_info.Device = device;
-  init_info.Queue = graphics_queue;
+  init_info.Device         = device;
+  init_info.Queue          = graphics_queue;
   init_info.DescriptorPool = imgui_pool;
-  init_info.MinImageCount = 3; // TODO: Check if this is true
-  init_info.ImageCount = 3;
-  init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+  init_info.MinImageCount  = 3; // TODO: Check if this is true
+  init_info.ImageCount     = 3;
+  init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
   ImGui_ImplVulkan_Init(&init_info, render_pass);
 
   auto cmd = beginSingleTimeCommands();
@@ -423,25 +417,25 @@ void VulkanEngine::initImgui()
 void VulkanEngine::createDescriptorSetLayout()
 {
   VkDescriptorSetLayoutBinding ubo_layout{};
-  ubo_layout.binding = 0;
-  ubo_layout.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  ubo_layout.descriptorCount = 1; // number of values in the UBO array
-  ubo_layout.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  ubo_layout.binding            = 0;
+  ubo_layout.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  ubo_layout.descriptorCount    = 1; // number of values in the UBO array
+  ubo_layout.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
   ubo_layout.pImmutableSamplers = nullptr;
 
   VkDescriptorSetLayoutBinding sampler_layout{};
-  sampler_layout.binding = 1;
-  sampler_layout.descriptorCount = 1;
-  sampler_layout.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  sampler_layout.binding            = 1;
+  sampler_layout.descriptorCount    = 1;
+  sampler_layout.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   sampler_layout.pImmutableSamplers = nullptr;
-  sampler_layout.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  sampler_layout.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
 
   std::array bindings{ubo_layout, sampler_layout};
 
   VkDescriptorSetLayoutCreateInfo layout_info{};
   layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
   layout_info.bindingCount = static_cast<uint32_t>(bindings.size());
-  layout_info.pBindings = bindings.data();
+  layout_info.pBindings    = bindings.data();
 
   validation::checkVulkan(vkCreateDescriptorSetLayout(
     device, &layout_info, nullptr, &descriptor_layout)

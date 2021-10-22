@@ -137,6 +137,7 @@ private:
   void createTextureImage();
   void createTextureImageView();
   void createTextureSampler();
+  void initSwapchain();
 
   void createGraphicsPipeline(
     const std::string& vertex_file, const std::string& fragment_file
