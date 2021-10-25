@@ -73,7 +73,6 @@ void VulkanEngine::initSwapchain()
   createUniformBuffers();
   createDescriptorPool();
   createCommandBuffers();
-  createDescriptorSets();
 }
 
 void VulkanEngine::recreateSwapchain()
@@ -82,6 +81,7 @@ void VulkanEngine::recreateSwapchain()
 
   cleanupSwapchain();
   initSwapchain();
+  createDescriptorSets();
 }
 
 VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities)

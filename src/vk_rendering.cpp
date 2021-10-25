@@ -8,6 +8,7 @@ static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
 void VulkanEngine::mainLoop()
 {
+  createDescriptorSets();
   while(!glfwWindowShouldClose(window))
   {
     glfwPollEvents();

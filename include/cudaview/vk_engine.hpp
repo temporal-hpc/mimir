@@ -71,6 +71,9 @@ protected:
   VkDeviceMemory index_buffer_memory;
   uint64_t current_frame;
 
+  VkImage texture_image;
+  VkImageView texture_view;
+
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
   );
@@ -87,6 +90,21 @@ protected:
   void createExternalSemaphore(VkSemaphore& semaphore);
   VkCommandBuffer beginSingleTimeCommands();
   void endSingleTimeCommands(VkCommandBuffer command_buffer);
+  void createTextureImage();
+  void createTextureImageView();
+  void createTextureSampler();
+  void createImage(uint32_t width, uint32_t height, VkFormat format,
+    VkImageTiling tiling, VkImageUsageFlags usage,
+    VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
+  );
+  void createExternalImage(uint32_t width, uint32_t height, VkFormat format,
+    VkImageTiling tiling, VkImageUsageFlags usage,
+    VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
+  );
+  void transitionImageLayout(VkImage image, VkFormat format,
+    VkImageLayout old_layout, VkImageLayout new_layout
+  );
+  VkImageView createImageView(VkImage image, VkFormat format);
 
   virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
     uint32_t vertex_count
@@ -113,10 +131,8 @@ private:
 
   VkBuffer staging_buffer;
   VkDeviceMemory staging_memory;
-  VkImage texture_image;
-  VkDeviceMemory texture_memory;
-  VkImageView texture_view;
   VkSampler texture_sampler;
+  VkDeviceMemory texture_memory;
 
   void initImgui();
   void setupDebugMessenger();
@@ -136,9 +152,7 @@ private:
   void createUniformBuffers();
   void createDescriptorPool();
   void createDescriptorSets();
-  void createTextureImage();
-  void createTextureImageView();
-  void createTextureSampler();
+
   void initSwapchain();
 
   void createGraphicsPipeline(
@@ -147,15 +161,7 @@ private:
   void createTextureGraphicsPipeline(const std::string& vertex_file,
     const std::string& fragment_file
   );
-  void createImage(uint32_t width, uint32_t height, VkFormat format,
-    VkImageTiling tiling, VkImageUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
-  );
-  VkImageView createImageView(VkImage image, VkFormat format);
   void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-  void transitionImageLayout(VkImage image, VkFormat format,
-    VkImageLayout old_layout, VkImageLayout new_layout
-  );
 
   void cleanupSwapchain();
   void recreateSwapchain();

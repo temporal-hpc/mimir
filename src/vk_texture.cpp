@@ -5,6 +5,55 @@
 
 #include <cstring> // memcpy
 
+void VulkanEngine::createExternalImage(uint32_t width, uint32_t height,
+  VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+  VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory)
+{
+  VkExternalMemoryImageCreateInfo ext_info{};
+  ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+  ext_info.pNext = nullptr;
+  ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  VkImageCreateInfo image_info{};
+  image_info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.pNext         = &ext_info;
+  image_info.imageType     = VK_IMAGE_TYPE_2D;
+  image_info.extent.width  = width;
+  image_info.extent.height = height;
+  image_info.extent.depth  = 1;
+  image_info.mipLevels     = 1;
+  image_info.arrayLayers   = 1;
+  image_info.format        = format;
+  image_info.tiling        = tiling;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.usage         = usage;
+  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+  image_info.samples       = VK_SAMPLE_COUNT_1_BIT;
+  image_info.flags         = 0;
+
+  validation::checkVulkan(vkCreateImage(device, &image_info, nullptr, &image));
+
+  VkMemoryRequirements mem_req;
+  vkGetImageMemoryRequirements(device, image, &mem_req);
+
+  VkExportMemoryAllocateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+  export_info.pNext = nullptr;
+  export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  VkMemoryAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  alloc_info.pNext = &export_info;
+  alloc_info.allocationSize = mem_req.size;
+  alloc_info.memoryTypeIndex =
+    utils::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
+
+  validation::checkVulkan(
+    vkAllocateMemory(device, &alloc_info, nullptr, &image_memory)
+  );
+  vkBindImageMemory(device, image, image_memory, 0);
+}
+
 void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format,
   VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
   VkImage& image, VkDeviceMemory& image_memory)

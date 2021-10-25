@@ -22,7 +22,6 @@ int main(int argc, char *argv[])
     /*engine.registerStructuredMemory(
       program._d_distances, program._extent.x, program._extent.y
     );*/
-    std::cout << program._extent.x << " " << program._extent.y << "\n";
     engine.registerStructuredMemory(
       program._d_image, program._extent.x, program._extent.y
     );

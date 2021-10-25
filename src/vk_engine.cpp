@@ -188,9 +188,10 @@ void VulkanEngine::initVulkan()
   createLogicalDevice();
   createCommandPool();
   createDescriptorSetLayout();
-  createTextureImage();
+
+  /*createTextureImage();
   createTextureImageView();
-  createTextureSampler();
+  createTextureSampler();*/
 
   initSwapchain();
 
