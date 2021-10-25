@@ -108,22 +108,22 @@ void VulkanCudaEngine::registerUnstructuredMemory(float *&d_cudamem,
   d_cudamem = cuda_unstructured_data;
 }
 
-void VulkanCudaEngine::registerStructuredMemory(float *&d_cudamem,
+void VulkanCudaEngine::registerStructuredMemory(unsigned char *&d_cudamem,
   size_t width, size_t height)
 {
   // Init structured memory
-  createExternalBuffer(sizeof(float) * width * height,
+  createExternalBuffer(sizeof(uchar4) * width * height,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     vk_structured_buffer, vk_structured_memory
   );
   importCudaExternalMemory((void**)&cuda_structured_data, cuda_extmem_structured,
-    vk_structured_memory, sizeof(*cuda_structured_data) * width * height
+    vk_structured_memory, sizeof(*cuda_structured_data) * width * height * 4
   );
 
   toggleRenderingMode("structured");
-  d_cudamem = cuda_unstructured_data;
+  d_cudamem = cuda_structured_data;
 }
 
 void VulkanCudaEngine::registerFunction(std::function<void(void)> func,
