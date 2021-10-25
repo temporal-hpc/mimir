@@ -17,8 +17,7 @@ void ImageProgram::setInitialState()
     printf("failed to load texture image");
     return;
   }
-  printf("sizeof %lu\n", sizeof(uchar4));
-  size_t tex_size = _extent.x * _extent.y * sizeof(uchar4);
+  auto tex_size = sizeof(uchar4) * _extent.x * _extent.y;
   checkCuda(cudaMemcpy(_d_image, h_image, tex_size, cudaMemcpyHostToDevice));
   stbi_image_free(h_image);
 }
