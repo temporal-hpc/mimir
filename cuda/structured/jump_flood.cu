@@ -2,14 +2,83 @@
 #include "cuda_utils.hpp"
 
 #include <chrono>
+#include <limits> // std::numeric_limits
 #include <random>
 
+constexpr float max_distance = std::numeric_limits<float>::max();
+
+__device__ int clamp(int x, int a, int b)
+{
+    return max(a, min(b, x));
+}
 
 __device__ float distance2D(float2 a, float2 b, int width, int height)
 {
-  return hypotf(b.x - a.x, b.y - a.y) / hypotf(width, height);
+  return hypotf((b.x - a.x) / width, (b.y - a.y) / height);
 }
 
+__device__ float3 jumpFloodStep(const float2 coord, const float3 *seeds,
+  const int step_length, const int2 extent)
+{
+  float best_dist = max_distance;
+  float2 best_coord{0.f, 0.f};
+
+
+  return make_float3(best_coord.x, best_coord.y, best_dist);
+}
+
+__global__
+void kernelJumpFlood(float *distances, float2 *seeds, const int2 extent)
+{
+  const int tx = threadIdx.x + blockIdx.x * blockDim.x;
+  const int ty = threadIdx.y + blockIdx.y * blockDim.y;
+  // TODO: Handle boundaries
+  if (tx < extent.x && ty < extent.y)
+  {
+    auto self_idx = ty * extent.x + tx;
+
+    auto max_extent = max(extent.x, extent.y);
+    for (int step = max_extent / 2; step > 0; step = step >> 1)
+    {
+      auto own_seed = seeds[self_idx];
+      float2 best_coord{own_seed.x, own_seed.y};
+      auto best_dist = max_distance;
+      for (int y = -1; y <= 1; ++y)
+      {
+        for (int x = -1; x <= 1; ++x)
+        {
+          auto lookup_x = tx + x * step;
+          auto lookup_y = ty + y * step;
+          if (lookup_x < 0 || lookup_x > extent.x || lookup_y < 0 || lookup_y > extent.y)
+          {
+            continue;
+          }
+          auto seed = seeds[extent.y * lookup_y + lookup_x];
+          auto dist = hypotf(seed.x - tx, seed.y - ty);
+
+          if ((seed.x != 0.f || seed.y != 0.f) && dist < best_dist)
+          {
+            best_dist = dist;
+            best_coord = make_float2(seed.x, seed.y);
+          }
+        }
+      }
+      __syncthreads();
+      distances[self_idx] = best_dist;
+      seeds[self_idx] = best_coord;
+    }
+    auto extent_distance = hypotf(extent.x, extent.y);
+    distances[self_idx] /= extent_distance;
+  }
+}
+
+void jumpFlood(float* distances, float2 *seeds, int2 extent)
+{
+  dim3 block(32, 32);
+  dim3 grid( (extent.x + block.x - 1) / block.x, (extent.y + block.y - 1) / block.y );
+  kernelJumpFlood<<< grid, block >>>(distances, seeds, extent);
+  checkCuda(cudaDeviceSynchronize());
+}
 
 __global__ void jumpFloodKernel(float *distances, float2 *seeds, int diagramXDim, int diagramYDim)
 {
@@ -105,9 +174,6 @@ void JumpFloodProgram::setInitialState()
   const int diagramXDim = _extent.x;
 	const int diagramYDim = _extent.y;
 
-	/**
-	 * 1. Generate some seed pixel locations.
-	 */
 	float2* voronoiSeedsUV = randomUniformClamped2D(point_count);
 	// Texture coordinates (sub-pixel measurement, similar to gl_TexCoord)
 	float2 voronoiSeeds[point_count];
@@ -119,9 +185,6 @@ void JumpFloodProgram::setInitialState()
 		};
 	}
 
-	/**
-	 * 2. Set the R,G values of the seed pixels to their own tex coordinates.
-	 */
 	float2 hostNumericCanvas[diagramXDim * diagramYDim];
 	float2* voronoiCanvasFill = hostNumericCanvas;
 	for (int iRow = 0; iRow < diagramYDim; iRow++)
@@ -155,7 +218,7 @@ void JumpFloodProgram::setInitialState()
 	checkCuda(cudaMemset(_d_grid, 0, numericCanvasSize));
 
   auto dist_size = sizeof(float) * diagramXDim * diagramYDim;
-  checkCuda(cudaMalloc(&_d_distances, dist_size));
+  //checkCuda(cudaMalloc(&_d_distances, dist_size));
   checkCuda(cudaMemset(_d_distances, 0, dist_size));
 
 	// Copy into
@@ -177,17 +240,19 @@ void JumpFloodProgram::cleanup()
   checkCuda(cudaStreamSynchronize(_stream));
   checkCuda(cudaStreamDestroy(_stream));
   checkCuda(cudaFree(_d_grid));
-  checkCuda(cudaFree(_d_distances));
+  //checkCuda(cudaFree(_d_distances));
   checkCuda(cudaDeviceReset());
 }
 
 void JumpFloodProgram::runTimestep()
 {
-  // Define dimensions & launch kernel
+  jumpFlood(_d_distances, _d_grid, _extent);
+  checkCuda(cudaDeviceSynchronize());
+  /*// Define dimensions & launch kernel
 	dim3 block_dims(_block_size, _block_size, 1);
 	dim3 grid_dims(_extent.x / block_dims.x, _extent.y / block_dims.y, 1);
 	jumpFloodKernel<<<grid_dims, block_dims>>>(
     _d_distances, _d_grid, _extent.x, _extent.y
   );
-	checkCuda(cudaDeviceSynchronize());
+	checkCuda(cudaDeviceSynchronize());*/
 }
