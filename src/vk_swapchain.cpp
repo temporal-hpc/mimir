@@ -537,12 +537,7 @@ void VulkanEngine::updateDescriptorsUnstructured()
     buffer_info.buffer = uniform_buffers[i];
     buffer_info.offset = 0;
     buffer_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
-
-    VkDescriptorImageInfo image_info{};
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image_info.imageView = texture_view;
-    image_info.sampler = texture_sampler;
-
+    
     VkWriteDescriptorSet desc_writes{};
     desc_writes.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     desc_writes.dstSet = descriptor_sets[i];

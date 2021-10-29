@@ -1,10 +1,18 @@
+#pragma once
+
 #include <cuda_runtime.h>
+#include <curand_kernel.h>
 
 struct JumpFloodProgram
 {
   cudaStream_t _stream = nullptr;
-  float2 *_d_grid = nullptr;
+
   float *_d_distances = nullptr;
+  float *_d_coords = nullptr;
+
+  float2 *_d_grid = nullptr;
+  curandState *_d_states = nullptr;
+
   size_t _element_count = 0;
   int2 _extent{0, 0};
   unsigned _block_size = 32;

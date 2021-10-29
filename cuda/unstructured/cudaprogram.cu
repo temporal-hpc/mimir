@@ -57,11 +57,6 @@ void CudaProgram::setInitialState()
   //checkCuda(cudaDeviceSynchronize());
 }
 
-void CudaProgram::registerBuffer(float *d_buffer)
-{
-  _d_coords = d_buffer;
-}
-
 void CudaProgram::cleanup()
 {
   checkCuda(cudaStreamDestroy(_stream));

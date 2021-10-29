@@ -18,6 +18,5 @@ struct CudaProgram
   CudaProgram(size_t particle_count, int width, int height, unsigned seed = 0);
   void setInitialState();
   void cleanup();
-  void registerBuffer(float *d_buffer);
   void runTimestep();
 };

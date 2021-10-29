@@ -9,22 +9,7 @@ constexpr float max_distance = std::numeric_limits<float>::max();
 
 __device__ int clamp(int x, int a, int b)
 {
-    return max(a, min(b, x));
-}
-
-__device__ float distance2D(float2 a, float2 b, int width, int height)
-{
-  return hypotf((b.x - a.x) / width, (b.y - a.y) / height);
-}
-
-__device__ float3 jumpFloodStep(const float2 coord, const float3 *seeds,
-  const int step_length, const int2 extent)
-{
-  float best_dist = max_distance;
-  float2 best_coord{0.f, 0.f};
-
-
-  return make_float3(best_coord.x, best_coord.y, best_dist);
+  return max(a, min(b, x));
 }
 
 __global__
@@ -72,70 +57,59 @@ void kernelJumpFlood(float *distances, float2 *seeds, const int2 extent)
   }
 }
 
-void jumpFlood(float* distances, float2 *seeds, int2 extent)
+__global__
+void kernelCreateJfaInput(float2 *seeds, float *raw_coords,
+  int coord_count, int2 extent)
 {
-  dim3 block(32, 32);
-  dim3 grid( (extent.x + block.x - 1) / block.x, (extent.y + block.y - 1) / block.y );
-  kernelJumpFlood<<< grid, block >>>(distances, seeds, extent);
-  checkCuda(cudaDeviceSynchronize());
+  int tx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (tx < coord_count)
+  {
+    auto coord = reinterpret_cast<float2*>(raw_coords)[tx];
+    int2 point{ (int)coord.x, (int)coord.y };
+    if (point.x > 0 && point.x < extent.x && point.y > 0 && point.y < extent.y)
+    {
+      seeds[extent.x * point.y + point.x] = coord;
+    }
+  }
 }
 
-__global__ void jumpFloodKernel(float *distances, float2 *seeds, int diagramXDim, int diagramYDim)
+__global__ void initSystem(float *coords, size_t particle_count,
+  curandState *global_states, int2 extent, unsigned seed)
 {
-	// calculate non-normalized texture coordinates
-	unsigned x = blockIdx.x * blockDim.x + threadIdx.x;
-	unsigned y = blockIdx.y * blockDim.y + threadIdx.y;
+  auto particles = reinterpret_cast<float2*>(coords);
+  auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
+  if (tidx < particle_count)
+  {
+    auto local_state = global_states[tidx];
+    curand_init(seed, tidx, 0, &local_state);
+    auto rx = extent.x * curand_uniform(&local_state);
+    auto ry = extent.y * curand_uniform(&local_state);
+    float2 p{rx, ry};
+    particles[tidx] = p;
+    global_states[tidx] = local_state;
+  }
+}
 
-	// Ignore out-of-bounds index
-	if (x > diagramXDim || y > diagramYDim) return;
-
-	float maximalDim = fmaxf(diagramXDim, diagramYDim);
-
-	// JFA pass(es) loop
-	for (int passIndex = 0; passIndex < log2f(maximalDim); ++passIndex)
-	{
-		float step = powf(2.f, (log2f(maximalDim) - passIndex - 1.f));
-
-		// At first, the best candidate is ourselves
-		unsigned selfIdx = y * diagramXDim + x;
-		float2 closestCandidate = seeds[selfIdx];
-		float closestDistance = float(INT_MAX);
-
-		// JFA pass computations
-		for (int gridY = 0; gridY < 3; ++gridY)
-		{
-			for (int gridX = 0; gridX < 3; ++gridX)
-			{
-				float xLookup = x - step + gridX * step;
-				float yLookup = y - step + gridY * step;
-
-				// Ignore out-of-bounds
-				if (xLookup < 1e-6f || xLookup > diagramXDim || yLookup < 1e-6f || yLookup > diagramYDim) continue;
-
-				int lookupIdx = yLookup * diagramXDim + xLookup;
-				float2 otherCandidate = seeds[lookupIdx];
-
-				if (otherCandidate.x + otherCandidate.y > 1e-6f)
-				{
-					float otherDistance = sqrtf(
-						(otherCandidate.x - x) * (otherCandidate.x - x)
-						 + (otherCandidate.y - y) * (otherCandidate.y - y)
-					);
-					if (otherDistance < closestDistance)
-					{
-						closestCandidate = otherCandidate;
-						closestDistance = otherDistance;
-					}
-				}
-			}
-		}
-
-		distances[selfIdx] = closestDistance;
-		seeds[selfIdx] = closestCandidate;
-
-		__syncthreads();
-	}
-  //if (x < 5 && y < 5) printf("%d %d %f\n", x, y, distances[y * diagramXDim + x]);
+__global__ void integrate2d(float *coords, size_t particle_count,
+  curandState *global_states, int2 extent)
+{
+  auto particles = reinterpret_cast<float2*>(coords);
+  auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
+  if (tidx < particle_count)
+  {
+    auto local_state = global_states[tidx];
+    auto r = curand_normal2(&local_state);
+    auto p = particles[tidx];
+    p.x += r.x;
+    if (p.x > extent.x) p.x = extent.x;
+    if (p.x < -extent.y) p.x = -extent.y;
+    p.y += r.y;
+    if (p.y > extent.x) p.y = extent.x;
+    if (p.y < -extent.y) p.y = -extent.y;
+    particles[tidx] = p;
+    global_states[tidx] = local_state;
+  }
 }
 
 float2* randomUniformClamped2D(size_t nPoints)
@@ -170,69 +144,21 @@ JumpFloodProgram::JumpFloodProgram(size_t point_count, int width, int height):
 
 void JumpFloodProgram::setInitialState()
 {
-  auto point_count = _element_count;
-  const int diagramXDim = _extent.x;
-	const int diagramYDim = _extent.y;
-
-	float2* voronoiSeedsUV = randomUniformClamped2D(point_count);
-	// Texture coordinates (sub-pixel measurement, similar to gl_TexCoord)
-	float2 voronoiSeeds[point_count];
-	for (int iSeed = 0; iSeed < point_count; ++iSeed)
-	{
-		voronoiSeeds[iSeed] = float2{
-			.49f + floor(voronoiSeedsUV[iSeed].x * float(diagramXDim)),
-			.49f + floor(voronoiSeedsUV[iSeed].y * float(diagramYDim))
-		};
-	}
-
-	float2 hostNumericCanvas[diagramXDim * diagramYDim];
-	float2* voronoiCanvasFill = hostNumericCanvas;
-	for (int iRow = 0; iRow < diagramYDim; iRow++)
-	{
-		for (int iCol = 0; iCol < diagramXDim; iCol++)
-		{
-			for (int iSeed = 0; iSeed < point_count; ++iSeed)
-			{
-				if (iCol == int(voronoiSeeds[iSeed].x) && iRow == int(voronoiSeeds[iSeed].y))
-				{
-					//printf("New seed at %f %f\n", voronoiSeeds[iSeed].x, voronoiSeeds[iSeed].y);
-					voronoiCanvasFill->x = voronoiSeeds[iSeed].x;
-					voronoiCanvasFill->y = voronoiSeeds[iSeed].y;
-					goto canvasIterationDone;
-				}
-			}
-
-			voronoiCanvasFill->x = 0.f;
-			voronoiCanvasFill->y = 0.f;
-
-		canvasIterationDone:
-			voronoiCanvasFill++;
-		}
-	}
+  checkCuda(cudaMalloc(&_d_states, sizeof(curandState) * _element_count));
+  initSystem<<<_grid_size, _block_size>>>(
+    _d_coords, _element_count, _d_states, _extent, 1234
+  );
 
 	checkCuda(cudaSetDevice(0));
 
 	// Allocate device numeric canvas
-	size_t numericCanvasSize = sizeof(float2) * diagramXDim * diagramYDim;
+	size_t numericCanvasSize = sizeof(float2) * _extent.x * _extent.y;
 	checkCuda(cudaMalloc((void**)&_d_grid, numericCanvasSize));
 	checkCuda(cudaMemset(_d_grid, 0, numericCanvasSize));
 
-  auto dist_size = sizeof(float) * diagramXDim * diagramYDim;
+  auto dist_size = sizeof(float) * _extent.x * _extent.y;
   //checkCuda(cudaMalloc(&_d_distances, dist_size));
   checkCuda(cudaMemset(_d_distances, 0, dist_size));
-
-	// Copy into
-	checkCuda(cudaMemcpy2D(
-		_d_grid,
-		_extent.x * sizeof(float2),
-		hostNumericCanvas,
-		_extent.x * sizeof(float2),
-		_extent.x * sizeof(float2),
-		_extent.y,
-		cudaMemcpyHostToDevice
-	));
-
-  free(voronoiSeedsUV);
 }
 
 void JumpFloodProgram::cleanup()
@@ -240,19 +166,26 @@ void JumpFloodProgram::cleanup()
   checkCuda(cudaStreamSynchronize(_stream));
   checkCuda(cudaStreamDestroy(_stream));
   checkCuda(cudaFree(_d_grid));
+  checkCuda(cudaFree(_d_states));
   //checkCuda(cudaFree(_d_distances));
+  //checkCuda(cudaFree(_d_coords));
   checkCuda(cudaDeviceReset());
 }
 
 void JumpFloodProgram::runTimestep()
 {
-  jumpFlood(_d_distances, _d_grid, _extent);
-  checkCuda(cudaDeviceSynchronize());
-  /*// Define dimensions & launch kernel
-	dim3 block_dims(_block_size, _block_size, 1);
-	dim3 grid_dims(_extent.x / block_dims.x, _extent.y / block_dims.y, 1);
-	jumpFloodKernel<<<grid_dims, block_dims>>>(
-    _d_distances, _d_grid, _extent.x, _extent.y
+  integrate2d<<< _grid_size, _block_size, 0, _stream >>>(
+    _d_coords, _element_count, _d_states, _extent
   );
-	checkCuda(cudaDeviceSynchronize());*/
+  checkCuda(cudaDeviceSynchronize());
+
+  kernelCreateJfaInput<<< _grid_size, _block_size, 0, _stream >>>(
+    _d_grid, _d_coords, _element_count, _extent
+  );
+
+  dim3 block(32, 32);
+  dim3 grid{ (_extent.x + block.x - 1) / block.x,
+             (_extent.y + block.y - 1) / block.y };
+  kernelJumpFlood<<< grid, block, 0, _stream >>>(_d_distances, _d_grid, _extent);
+  checkCuda(cudaDeviceSynchronize());
 }

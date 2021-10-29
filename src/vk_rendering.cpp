@@ -84,23 +84,23 @@ void VulkanEngine::drawFrame()
     VK_SUBPASS_CONTENTS_INLINE
   );
 
-  if (rendering_modes["structured"])
+  /*if (rendering_modes["structured"])
   {
-    vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
-      screen_pipeline
+    vkCmdBindPipeline(command_buffers[image_idx],
+      VK_PIPELINE_BIND_POINT_GRAPHICS, screen_pipeline
     );
     vkCmdBindDescriptorSets(command_buffers[image_idx],
       VK_PIPELINE_BIND_POINT_GRAPHICS, screen_layout, 0, 1,
       &descriptor_sets[image_idx], 0, nullptr
     );
     vkCmdDraw(command_buffers[image_idx], 3, 1, 0, 0);
-  }
+  }*/
 
   if (rendering_modes["unstructured"])
   {
     // Note: Second parameter can be also used to bind a compute pipeline
-    vkCmdBindPipeline(command_buffers[image_idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
-      graphics_pipeline
+    vkCmdBindPipeline(command_buffers[image_idx],
+      VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline
     );
     vkCmdBindDescriptorSets(command_buffers[image_idx],
       VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,

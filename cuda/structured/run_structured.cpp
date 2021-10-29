@@ -7,7 +7,7 @@
 int main(int argc, char *argv[])
 {
   size_t point_count = 10;
-  size_t iter_count = 1;
+  size_t iter_count = 1000;
   if (argc >= 2)
   {
     point_count = std::stoul(argv[1]);
@@ -19,6 +19,7 @@ int main(int argc, char *argv[])
   {
     VulkanCudaEngine engine(program._stream);
     engine.init(800, 600);
+    engine.registerUnstructuredMemory(program._d_coords, program._element_count);
     engine.registerStructuredMemory(
       program._d_distances, program._extent.x, program._extent.y
     );
