@@ -191,11 +191,12 @@ void VulkanEngine::importExternalBuffer(void *handle, size_t size,
 
 void VulkanEngine::createUniformBuffers()
 {
-  VkDeviceSize buffer_size = sizeof(UniformBufferObject);
+  VkDeviceSize buffer_size = sizeof(UniformBufferObject) + sizeof(SceneParams);
   auto img_count = swapchain_images.size();
   uniform_buffers.resize(img_count);
   ubo_memory.resize(img_count);
 
+  // TODO: Use a single buffer of "img_count * buffer_size" bytes
   for (size_t i = 0; i < img_count; ++i)
   {
     createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,

@@ -19,6 +19,11 @@ struct UniformBufferObject
   glm::mat4 proj;
 };
 
+struct SceneParams
+{
+  glm::ivec2 extent;
+};
+
 struct Vertex
 {
   glm::vec2 pos;

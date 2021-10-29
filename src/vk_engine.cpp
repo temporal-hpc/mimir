@@ -407,14 +407,21 @@ void VulkanEngine::createDescriptorSetLayout()
   ubo_layout.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
   ubo_layout.pImmutableSamplers = nullptr;
 
+  VkDescriptorSetLayoutBinding extent_layout{};
+  extent_layout.binding            = 1;
+  extent_layout.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  extent_layout.descriptorCount    = 1;
+  extent_layout.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
+  extent_layout.pImmutableSamplers = nullptr;
+
   VkDescriptorSetLayoutBinding sampler_layout{};
-  sampler_layout.binding            = 1;
+  sampler_layout.binding            = 2;
   sampler_layout.descriptorCount    = 1;
   sampler_layout.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   sampler_layout.pImmutableSamplers = nullptr;
   sampler_layout.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-  std::array bindings{ubo_layout, sampler_layout};
+  std::array bindings{ubo_layout, extent_layout, sampler_layout};
 
   VkDescriptorSetLayoutCreateInfo layout_info{};
   layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;

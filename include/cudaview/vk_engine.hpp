@@ -118,6 +118,7 @@ protected:
     std::vector<VkVertexInputAttributeDescription>& attr_desc
   );
   virtual void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
+  virtual void updateUniformBuffer(uint32_t image_index);
   virtual void drawFrame();
   virtual void initVulkan();
 
@@ -179,5 +180,4 @@ private:
   VkShaderModule createShaderModule(const std::vector<char>& code);
   void createVertexBuffer();
   void createIndexBuffer();
-  void updateUniformBuffer(uint32_t image_index);
 };

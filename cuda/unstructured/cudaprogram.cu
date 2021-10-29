@@ -10,8 +10,8 @@ __global__ void initSystem(float *coords, size_t particle_count,
   {
     auto local_state = global_states[tidx];
     curand_init(seed, tidx, 0, &local_state);
-    auto rx = 2.f * curand_uniform(&local_state) - 1.f;
-    auto ry = 2.f * curand_uniform(&local_state) - 1.f;
+    auto rx = extent.x * curand_uniform(&local_state);
+    auto ry = extent.y * curand_uniform(&local_state);
     float2 p{rx, ry};
     particles[tidx] = p;
     global_states[tidx] = local_state;
@@ -28,12 +28,12 @@ __global__ void integrate2d(float *coords, size_t particle_count,
     auto local_state = global_states[tidx];
     auto r = curand_normal2(&local_state);
     auto p = particles[tidx];
-    p.x += r.x / (4*extent.x);
-    if (p.x > 1.f) p.x = 1.f;
-    if (p.x < -1.f) p.x = -1.f;
-    p.y += r.y / (4*extent.y);
-    if (p.y > 1.f) p.y = 1.f;
-    if (p.y < -1.f) p.y = -1.f;
+    p.x += r.x / 5.f;
+    if (p.x > extent.x) p.x = extent.x;
+    if (p.x < 0) p.x = 0;
+    p.y += r.y / 5.f;
+    if (p.y > extent.x) p.y = extent.x;
+    if (p.y < 0) p.y = 0;
     particles[tidx] = p;
     global_states[tidx] = local_state;
   }

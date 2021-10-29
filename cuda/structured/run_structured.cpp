@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
   //ImageProgram program;
   try
   {
-    VulkanCudaEngine engine(program._stream);
+    VulkanCudaEngine engine(program._extent, program._stream);
     engine.init(800, 600);
     engine.registerUnstructuredMemory(program._d_coords, program._element_count);
     engine.registerStructuredMemory(

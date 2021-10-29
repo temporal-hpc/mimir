@@ -533,23 +533,40 @@ void VulkanEngine::updateDescriptorsUnstructured()
 {
   for (size_t i = 0; i < descriptor_sets.size(); ++i)
   {
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = uniform_buffers[i];
-    buffer_info.offset = 0;
-    buffer_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
-    
-    VkWriteDescriptorSet desc_writes{};
-    desc_writes.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes.dstSet = descriptor_sets[i];
-    desc_writes.dstBinding = 0;
-    desc_writes.dstArrayElement = 0;
-    desc_writes.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes.descriptorCount = 1;
-    desc_writes.pBufferInfo = &buffer_info;
-    desc_writes.pImageInfo = nullptr;
-    desc_writes.pTexelBufferView = nullptr;
+    VkDescriptorBufferInfo mvp_info{};
+    mvp_info.buffer = uniform_buffers[i];
+    mvp_info.offset = 0;
+    mvp_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
 
-    vkUpdateDescriptorSets(device, 1, &desc_writes, 0, nullptr);
+    std::array<VkWriteDescriptorSet, 2> desc_writes{};
+    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[0].dstSet = descriptor_sets[i];
+    desc_writes[0].dstBinding = 0;
+    desc_writes[0].dstArrayElement = 0;
+    desc_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[0].descriptorCount = 1;
+    desc_writes[0].pBufferInfo = &mvp_info;
+    desc_writes[0].pImageInfo = nullptr;
+    desc_writes[0].pTexelBufferView = nullptr;
+
+    VkDescriptorBufferInfo extent_info{};
+    extent_info.buffer = uniform_buffers[i];
+    extent_info.offset = sizeof(UniformBufferObject);
+    extent_info.range = sizeof(SceneParams);
+
+    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[1].dstSet = descriptor_sets[i];
+    desc_writes[1].dstBinding = 1;
+    desc_writes[1].dstArrayElement = 0;
+    desc_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[1].descriptorCount = 1;
+    desc_writes[1].pBufferInfo = &extent_info;
+    desc_writes[1].pImageInfo = nullptr;
+    desc_writes[1].pTexelBufferView = nullptr;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
+      desc_writes.data(), 0, nullptr
+    );
   }
 }
 
@@ -580,7 +597,7 @@ void VulkanEngine::updateDescriptorsStructured()
 
     desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     desc_writes[1].dstSet = descriptor_sets[i];
-    desc_writes[1].dstBinding = 1;
+    desc_writes[1].dstBinding = 2;
     desc_writes[1].dstArrayElement = 0;
     desc_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     desc_writes[1].descriptorCount = 1;

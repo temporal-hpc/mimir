@@ -3,6 +3,7 @@
 
 #include <experimental/source_location>
 #include <iostream>
+#include <cstring>
 
 using source_location = std::experimental::source_location;
 
@@ -21,10 +22,11 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
   }
 }
 
-VulkanCudaEngine::VulkanCudaEngine(cudaStream_t cuda_stream):
+VulkanCudaEngine::VulkanCudaEngine(int2 extent, cudaStream_t cuda_stream):
   VulkanEngine(),
   iteration_count(0),
   iteration_idx(0),
+  data_extent(extent),
   stream(cuda_stream),
   //cuda_timeline_semaphore(nullptr),
   cuda_wait_semaphore(nullptr),
@@ -287,4 +289,31 @@ void VulkanCudaEngine::getAssemblyStateInfo(
   info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
   info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   info.primitiveRestartEnable = VK_FALSE;
+}
+
+void VulkanCudaEngine::updateUniformBuffer(uint32_t image_index)
+{
+  UniformBufferObject ubo{};
+  ubo.model = glm::mat4(1.f);
+  ubo.view = glm::mat4(1.f);
+  ubo.proj = glm::mat4(1.f);
+  /*ubo.model =
+  ubo.view =
+  auto aspect_ratio = swapchain_extent.width / (float)swapchain_extent.height;
+  ubo.proj = glm::perspective(glm::radians(45.f), aspect_ratio, .1f, 10.f);
+  ubo.proj[1][1] *= -1;*/
+
+  void *data = nullptr;
+  vkMapMemory(device, ubo_memory[image_index], 0, sizeof(ubo), 0, &data);
+  memcpy(data, &ubo, sizeof(ubo));
+  vkUnmapMemory(device, ubo_memory[image_index]);
+
+  SceneParams params{};
+  params.extent = glm::ivec2{data_extent.x, data_extent.y};
+
+  vkMapMemory(
+    device, ubo_memory[image_index], sizeof(ubo), sizeof(SceneParams), 0, &data
+  );
+  memcpy(data, &params, sizeof(params));
+  vkUnmapMemory(device, ubo_memory[image_index]);
 }

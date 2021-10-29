@@ -9,7 +9,7 @@
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
-  VulkanCudaEngine(cudaStream_t stream);
+  VulkanCudaEngine(int2 extent, cudaStream_t stream);
   VulkanCudaEngine();
   ~VulkanCudaEngine();
   void registerUnstructuredMemory(float *&d_cudamem, size_t element_count);
@@ -19,6 +19,7 @@ public:
 private:
   // Cuda interop data
   size_t iteration_count, iteration_idx;
+  int2 data_extent;
   std::function<void(void)> step_function;
   cudaStream_t stream;
   cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
@@ -37,6 +38,7 @@ private:
   void initVulkan();
   void drawFrame();
   void setUnstructuredRendering(VkCommandBuffer& cmd_buffer, uint32_t vertex_count);
+  void updateUniformBuffer(uint32_t image_index);
 
   void getVertexDescriptions(
     std::vector<VkVertexInputBindingDescription>& bind_desc,

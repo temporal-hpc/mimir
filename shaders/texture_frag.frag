@@ -1,6 +1,6 @@
 #version 450
 
-layout(binding = 1) uniform sampler2D tex_sampler;
+layout(binding = 2) uniform sampler2D tex_sampler;
 
 layout(location = 0) in vec2 tex_uv;
 layout(location = 0) out vec4 frag_color;

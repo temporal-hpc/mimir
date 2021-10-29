@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
   try
   {
     // Initialize engine
-    VulkanCudaEngine engine(program._stream);
+    VulkanCudaEngine engine({200, 200}, program._stream);
     engine.init(800, 600);
     engine.registerUnstructuredMemory(program._d_coords, program._particle_count);
 
