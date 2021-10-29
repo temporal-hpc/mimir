@@ -7,9 +7,9 @@
 
 constexpr float max_distance = std::numeric_limits<float>::max();
 
-__device__ int clamp(int x, int a, int b)
+__device__ float clamp(float x, float low, float high)
 {
-  return max(a, min(b, x));
+  return fmaxf(low, fminf(high, x));
 }
 
 __global__
@@ -101,12 +101,8 @@ __global__ void integrate2d(float *coords, size_t particle_count,
     auto local_state = global_states[tidx];
     auto r = curand_normal2(&local_state);
     auto p = particles[tidx];
-    p.x += r.x;
-    if (p.x > extent.x) p.x = extent.x;
-    if (p.x < -extent.y) p.x = -extent.y;
-    p.y += r.y;
-    if (p.y > extent.x) p.y = extent.x;
-    if (p.y < -extent.y) p.y = -extent.y;
+    p.x = clamp(p.x + r.x / 5.f, 0.f, extent.x);
+    p.y = clamp(p.y + r.y / 5.f, 0.f, extent.y);
     particles[tidx] = p;
     global_states[tidx] = local_state;
   }
