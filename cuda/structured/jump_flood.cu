@@ -108,29 +108,6 @@ __global__ void integrate2d(float *coords, size_t particle_count,
   }
 }
 
-float2* randomUniformClamped2D(size_t nPoints)
-{
-	std::mt19937_64 goodRng;
-
-	// Time dependent seed, the "modern" way
-	uint64_t genSeed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-	std::seed_seq sequence{ uint32_t(genSeed & 0xFFFFFFFF), uint32_t(genSeed >> 32) };
-	goodRng.seed(sequence);
-
-	// Initialize uniform distribution, clamped to [0,1)
-	std::uniform_real_distribution<float> unif(0, 1);
-
-	// Generate point "cloud"
-	float2* points = (float2*)malloc(nPoints * sizeof(float2));
-	for (int iSim = 0; iSim < nPoints; ++iSim)
-	{
-		points[iSim].x = unif(goodRng);
-		points[iSim].y = unif(goodRng);
-	}
-
-	return points;
-}
-
 JumpFloodProgram::JumpFloodProgram(size_t point_count, int width, int height):
   _element_count{point_count}, _extent{width, height},
   _grid_size((_element_count + _block_size - 1) / _block_size)
@@ -175,6 +152,7 @@ void JumpFloodProgram::runTimestep()
   );
   checkCuda(cudaStreamSynchronize(_stream));
 
+  checkCuda(cudaMemset(_d_grid, 0, sizeof(float2) * _extent.x * _extent.y));
   kernelCreateJfaInput<<< _grid_size, _block_size, 0, _stream >>>(
     _d_grid, _d_coords, _element_count, _extent
   );

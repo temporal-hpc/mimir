@@ -1,8 +1,7 @@
 #include "image.hpp"
 #include "cuda_utils.hpp"
 
-#include <chrono>
-#include <random>
+#include <string>
 
 #include "stb_image.h"
 

@@ -1,5 +1,4 @@
 #include "jump_flood.hpp"
-#include "image.hpp"
 #include "cudaview/vk_cuda_engine.hpp"
 
 #include <iostream>
@@ -12,9 +11,12 @@ int main(int argc, char *argv[])
   {
     point_count = std::stoul(argv[1]);
   }
+  if (argc >= 3)
+  {
+    iter_count = std::stoul(argv[2]);
+  }
 
-  JumpFloodProgram program(100, 256, 256);
-  //ImageProgram program;
+  JumpFloodProgram program(point_count, 256, 256);
   try
   {
     VulkanCudaEngine engine(program._extent, program._stream);
@@ -23,13 +25,9 @@ int main(int argc, char *argv[])
     engine.registerStructuredMemory(
       program._d_distances, program._extent.x, program._extent.y
     );
-    /*engine.registerStructuredMemory(
-      program._d_image, program._extent.x, program._extent.y
-    );*/
 
     program.setInitialState();
     auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);
-    //auto timestep_function = std::bind(&ImageProgram::runTimestep, program);
     engine.registerFunction(timestep_function, iter_count);
 
     // Start rendering loop
