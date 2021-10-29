@@ -173,7 +173,7 @@ void JumpFloodProgram::runTimestep()
   integrate2d<<< _grid_size, _block_size, 0, _stream >>>(
     _d_coords, _element_count, _d_states, _extent
   );
-  checkCuda(cudaDeviceSynchronize());
+  checkCuda(cudaStreamSynchronize(_stream));
 
   kernelCreateJfaInput<<< _grid_size, _block_size, 0, _stream >>>(
     _d_grid, _d_coords, _element_count, _extent
@@ -183,5 +183,5 @@ void JumpFloodProgram::runTimestep()
   dim3 grid{ (_extent.x + block.x - 1) / block.x,
              (_extent.y + block.y - 1) / block.y };
   kernelJumpFlood<<< grid, block, 0, _stream >>>(_d_distances, _d_grid, _extent);
-  checkCuda(cudaDeviceSynchronize());
+  checkCuda(cudaStreamSynchronize(_stream));
 }

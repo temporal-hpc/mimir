@@ -293,26 +293,14 @@ void VulkanCudaEngine::getAssemblyStateInfo(
 
 void VulkanCudaEngine::updateUniformBuffer(uint32_t image_index)
 {
-  UniformBufferObject ubo{};
-  ubo.model = glm::mat4(1.f);
-  ubo.view = glm::mat4(1.f);
-  ubo.proj = glm::mat4(1.f);
-  /*ubo.model =
-  ubo.view =
-  auto aspect_ratio = swapchain_extent.width / (float)swapchain_extent.height;
-  ubo.proj = glm::perspective(glm::radians(45.f), aspect_ratio, .1f, 10.f);
-  ubo.proj[1][1] *= -1;*/
-
-  void *data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], 0, sizeof(ubo), 0, &data);
-  memcpy(data, &ubo, sizeof(ubo));
-  vkUnmapMemory(device, ubo_memory[image_index]);
+  VulkanEngine::updateUniformBuffer(image_index);
 
   SceneParams params{};
   params.extent = glm::ivec2{data_extent.x, data_extent.y};
 
-  vkMapMemory(
-    device, ubo_memory[image_index], sizeof(ubo), sizeof(SceneParams), 0, &data
+  void *data = nullptr;
+  vkMapMemory(device, ubo_memory[image_index], sizeof(UniformBufferObject),
+    sizeof(SceneParams), 0, &data
   );
   memcpy(data, &params, sizeof(params));
   vkUnmapMemory(device, ubo_memory[image_index]);
