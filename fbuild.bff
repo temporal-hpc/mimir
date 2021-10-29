@@ -65,6 +65,17 @@ ObjectList('cuda-unstructured')
   .CompilerOutputPath   = '_out/'
 }
 
+ObjectList('cuda-image')
+{
+  .Compiler             = '/usr/local/cuda/bin/nvcc'
+  .CompilerOptions      = '-o "%2" "%1" -c'
+                        + ' -std=c++17'
+                        + ' -Icuda/include -Iinclude -Icontrib/stb'
+  .CompilerInputPath    = 'cuda/image'
+  .CompilerInputPattern = { '*.cu', '*.cpp' }
+  .CompilerOutputPath   = '_out/'
+}
+
 Executable('run_structured')
 {
   .Libraries     = { 'imgui', 'cudaview', 'cuda-structured' }
@@ -83,4 +94,15 @@ Executable('run_unstructured')
                  + ' -lglfw -lvulkan -ldl'
 }
 
-Alias('all') { .Targets = { 'run_structured', 'run_unstructured', 'shaders' } }
+Executable('run_image')
+{
+  .Libraries     = { 'imgui', 'cudaview', 'cuda-image' }
+  .Linker        = '/usr/local/cuda/bin/nvcc'
+  .LinkerOutput  = '_out/run_image'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
+}
+
+Alias('samples') { .Targets = { 'run_structured', 'run_unstructured', 'run_image' } }
+
+Alias('all') { .Targets = { 'samples', 'shaders' } }

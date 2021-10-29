@@ -14,6 +14,7 @@ public:
   ~VulkanCudaEngine();
   void registerUnstructuredMemory(float *&d_cudamem, size_t element_count);
   void registerStructuredMemory(float *&d_cudamem, size_t width, size_t height);
+  void registerStructuredMemory(uchar4 *&d_cudamem, size_t width, size_t height);
   void registerFunction(std::function<void(void)> func, size_t iter_count);
 
 private:
@@ -31,6 +32,7 @@ private:
   VkDeviceMemory vk_unstructured_memory;
 
   float *cuda_structured_data;
+  uchar4 *cuda_structured_image;
   cudaExternalMemory_t cuda_extmem_structured;
   VkBuffer vk_structured_buffer;
   VkDeviceMemory vk_structured_memory;
