@@ -93,6 +93,8 @@ protected:
   void createTextureImage();
   void createTextureImageView();
   void createTextureSampler();
+  void updateDescriptorsUnstructured();
+  void updateDescriptorsStructured();
   void createImage(uint32_t width, uint32_t height, VkFormat format,
     VkImageTiling tiling, VkImageUsageFlags usage,
     VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory

@@ -72,6 +72,7 @@ void VulkanEngine::initSwapchain()
   createFramebuffers();
   createUniformBuffers();
   createDescriptorPool();
+  createDescriptorSets();
   createCommandBuffers();
 }
 
@@ -81,7 +82,14 @@ void VulkanEngine::recreateSwapchain()
 
   cleanupSwapchain();
   initSwapchain();
-  createDescriptorSets();
+  if (texture_image != VK_NULL_HANDLE)
+  {
+    updateDescriptorsStructured();
+  }
+  else
+  {
+    updateDescriptorsUnstructured();
+  }
 }
 
 VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities)
@@ -203,58 +211,6 @@ void VulkanEngine::createDescriptorPool()
   validation::checkVulkan(
     vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool)
   );
-}
-
-void VulkanEngine::createDescriptorSets()
-{
-  auto img_count = swapchain_images.size();
-  std::vector<VkDescriptorSetLayout> layouts(img_count, descriptor_layout);
-  VkDescriptorSetAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  alloc_info.descriptorPool = descriptor_pool;
-  alloc_info.descriptorSetCount = static_cast<uint32_t>(img_count);
-  alloc_info.pSetLayouts = layouts.data();
-
-  descriptor_sets.resize(swapchain_images.size());
-  validation::checkVulkan(
-    vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data())
-  );
-
-  for (size_t i = 0; i < img_count; ++i)
-  {
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = uniform_buffers[i];
-    buffer_info.offset = 0;
-    buffer_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
-
-    VkDescriptorImageInfo image_info{};
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image_info.imageView = texture_view;
-    image_info.sampler = texture_sampler;
-
-    std::array<VkWriteDescriptorSet, 2> desc_writes{};
-    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[0].dstSet = descriptor_sets[i];
-    desc_writes[0].dstBinding = 0;
-    desc_writes[0].dstArrayElement = 0;
-    desc_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes[0].descriptorCount = 1;
-    desc_writes[0].pBufferInfo = &buffer_info;
-    desc_writes[0].pImageInfo = nullptr;
-    desc_writes[0].pTexelBufferView = nullptr;
-
-    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[1].dstSet = descriptor_sets[i];
-    desc_writes[1].dstBinding = 1;
-    desc_writes[1].dstArrayElement = 0;
-    desc_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    desc_writes[1].descriptorCount = 1;
-    desc_writes[1].pImageInfo = &image_info;
-
-    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
-      desc_writes.data(), 0, nullptr
-    );
-  }
 }
 
 // Take buffer with shader bytecode and create a shader module from it
@@ -555,4 +511,88 @@ void VulkanEngine::createGraphicsPipelines()
   createTextureGraphicsPipeline(
     "_out/shaders/texture_vert.spv", "_out/shaders/texture_frag.spv"
   );
+}
+
+void VulkanEngine::createDescriptorSets()
+{
+  auto img_count = swapchain_images.size();
+  std::vector<VkDescriptorSetLayout> layouts(img_count, descriptor_layout);
+  VkDescriptorSetAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  alloc_info.descriptorPool = descriptor_pool;
+  alloc_info.descriptorSetCount = static_cast<uint32_t>(img_count);
+  alloc_info.pSetLayouts = layouts.data();
+
+  descriptor_sets.resize(img_count);
+  validation::checkVulkan(
+    vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data())
+  );
+}
+
+void VulkanEngine::updateDescriptorsUnstructured()
+{
+  for (size_t i = 0; i < descriptor_sets.size(); ++i)
+  {
+    VkDescriptorBufferInfo buffer_info{};
+    buffer_info.buffer = uniform_buffers[i];
+    buffer_info.offset = 0;
+    buffer_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.imageView = texture_view;
+    image_info.sampler = texture_sampler;
+
+    VkWriteDescriptorSet desc_writes{};
+    desc_writes.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes.dstSet = descriptor_sets[i];
+    desc_writes.dstBinding = 0;
+    desc_writes.dstArrayElement = 0;
+    desc_writes.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes.descriptorCount = 1;
+    desc_writes.pBufferInfo = &buffer_info;
+    desc_writes.pImageInfo = nullptr;
+    desc_writes.pTexelBufferView = nullptr;
+
+    vkUpdateDescriptorSets(device, 1, &desc_writes, 0, nullptr);
+  }
+}
+
+void VulkanEngine::updateDescriptorsStructured()
+{
+  for (size_t i = 0; i < descriptor_sets.size(); ++i)
+  {
+    VkDescriptorBufferInfo buffer_info{};
+    buffer_info.buffer = uniform_buffers[i];
+    buffer_info.offset = 0;
+    buffer_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.imageView = texture_view;
+    image_info.sampler = texture_sampler;
+
+    std::array<VkWriteDescriptorSet, 2> desc_writes{};
+    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[0].dstSet = descriptor_sets[i];
+    desc_writes[0].dstBinding = 0;
+    desc_writes[0].dstArrayElement = 0;
+    desc_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[0].descriptorCount = 1;
+    desc_writes[0].pBufferInfo = &buffer_info;
+    desc_writes[0].pImageInfo = nullptr;
+    desc_writes[0].pTexelBufferView = nullptr;
+
+    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[1].dstSet = descriptor_sets[i];
+    desc_writes[1].dstBinding = 1;
+    desc_writes[1].dstArrayElement = 0;
+    desc_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    desc_writes[1].descriptorCount = 1;
+    desc_writes[1].pImageInfo = &image_info;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
+      desc_writes.data(), 0, nullptr
+    );
+  }
 }

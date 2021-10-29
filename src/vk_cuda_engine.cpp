@@ -104,6 +104,7 @@ void VulkanCudaEngine::registerUnstructuredMemory(float *&d_cudamem,
     vk_unstructured_memory, sizeof(*cuda_unstructured_data) * elem_count
   );
 
+  updateDescriptorsUnstructured();
   toggleRenderingMode("unstructured");
   d_cudamem = cuda_unstructured_data;
 }
@@ -128,6 +129,7 @@ void VulkanCudaEngine::registerStructuredMemory(float *&d_cudamem,
   texture_view = createImageView(texture_image, VK_FORMAT_R32_SFLOAT);
   createTextureSampler();
 
+  updateDescriptorsStructured();
   toggleRenderingMode("structured");
   d_cudamem = cuda_structured_data;
 }
