@@ -176,9 +176,11 @@ void VulkanCudaEngine::initVulkan()
   //importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
 
   createExternalSemaphore(vk_wait_semaphore);
+  // Vulkan signal will be CUDA wait
   importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
 
   createExternalSemaphore(vk_signal_semaphore);
+  // CUDA signal will be vulkan wait
   importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
 }
 
@@ -231,7 +233,7 @@ void VulkanCudaEngine::drawFrame()
   checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
     &cuda_wait_semaphore, &wait_params, 1, stream)
   );
-  if (iteration_idx <= iteration_count)
+  if (iteration_idx < iteration_count)
   {
     // Advance the simulation
     step_function();

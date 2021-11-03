@@ -47,7 +47,7 @@ ObjectList('cuda-structured')
 {
   .Compiler             = '/usr/local/cuda/bin/nvcc'
   .CompilerOptions      = '-o "%2" "%1" -c'
-                        + ' -std=c++17'
+                        + ' -std=c++17 -g -G'
                         + ' -Icuda/include -Iinclude -Icontrib/stb'
   .CompilerInputPath    = 'cuda/structured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }

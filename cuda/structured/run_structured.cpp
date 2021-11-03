@@ -16,7 +16,7 @@ int main(int argc, char *argv[])
     iter_count = std::stoul(argv[2]);
   }
 
-  JumpFloodProgram program(point_count, 256, 256);
+  JumpFloodProgram program(point_count, 512, 512);
   try
   {
     VulkanCudaEngine engine(program._extent, program._stream);
@@ -27,6 +27,8 @@ int main(int argc, char *argv[])
     );
 
     program.setInitialState();
+    program.runTimestep();//program.runTimestep();program.runTimestep();
+
     auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);
     engine.registerFunction(timestep_function, iter_count);
 

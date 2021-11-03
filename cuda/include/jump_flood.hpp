@@ -10,7 +10,7 @@ struct JumpFloodProgram
   float *_d_distances = nullptr;
   float *_d_coords = nullptr;
 
-  float2 *_d_grid = nullptr;
+  float4 *_d_grid[2] = {nullptr, nullptr};
   curandState *_d_states = nullptr;
 
   size_t _element_count = 0;

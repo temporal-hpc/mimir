@@ -47,10 +47,8 @@ void VulkanEngine::createExternalSemaphore(VkSemaphore& semaphore)
 
   VkExportSemaphoreCreateInfoKHR export_info{};
   export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
-  export_info.pNext = nullptr;
   export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-  export_info.pNext = nullptr;
-  //export_info.pNext = &timeline_info;
+  export_info.pNext = nullptr; // &timeline_info
 
   VkSemaphoreCreateInfo semaphore_info{};
   semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
