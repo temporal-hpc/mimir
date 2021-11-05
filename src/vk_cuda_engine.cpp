@@ -5,6 +5,8 @@
 #include <iostream>
 #include <cstring>
 
+#include "cudaview/vk_types.hpp"
+
 using source_location = std::experimental::source_location;
 
 constexpr void checkCuda(cudaError_t code, bool panic = true,

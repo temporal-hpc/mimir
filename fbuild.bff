@@ -76,6 +76,16 @@ ObjectList('cuda-image')
   .CompilerOutputPath   = '_out/'
 }
 
+ObjectList('cuda-sync')
+{
+  .Compiler             = '/usr/local/cuda/bin/nvcc'
+  .CompilerOptions      = '-o "%2" "%1" -c'
+                        + ' -std=c++17 -Iinclude'
+  .CompilerInputPath    = 'cuda/GPU-visual-tool-example'
+  .CompilerInputPattern = { 'main.cu' }
+  .CompilerOutputPath   = '_out/'
+}
+
 Executable('run_structured')
 {
   .Libraries     = { 'imgui', 'cudaview', 'cuda-structured' }
@@ -103,6 +113,15 @@ Executable('run_image')
                  + ' -lglfw -lvulkan -ldl'
 }
 
-Alias('samples') { .Targets = { 'run_structured', 'run_unstructured', 'run_image' } }
+Executable('run_sync')
+{
+  .Libraries     = { 'imgui', 'cudaview', 'cuda-sync' }
+  .Linker        = '/usr/local/cuda/bin/nvcc'
+  .LinkerOutput  = '_out/prog'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
+}
+
+Alias('samples') { .Targets = { 'run_structured', 'run_unstructured', 'run_image', 'run_sync' } }
 
 Alias('all') { .Targets = { 'samples', 'shaders' } }

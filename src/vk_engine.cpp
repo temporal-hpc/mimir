@@ -9,6 +9,8 @@
 #include <set> // std::set
 #include <stdexcept> // std::throw
 
+#include "cudaview/vk_types.hpp"
+
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
 static void framebufferResizeCallback(GLFWwindow *window, int width, int height)

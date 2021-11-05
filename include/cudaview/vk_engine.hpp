@@ -4,8 +4,7 @@
 #include <GLFW/glfw3.h>
 
 #include <map> // std::map
-
-#include "cudaview/vk_types.hpp"
+#include <vector> // std::vector
 
 struct SwapChainSupportDetails
 {

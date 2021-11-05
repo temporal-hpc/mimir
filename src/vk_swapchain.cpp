@@ -4,6 +4,8 @@
 
 #include <algorithm> // std::clamp
 
+#include "cudaview/vk_types.hpp"
+
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(
   const std::vector<VkSurfaceFormatKHR>& available_formats)
 {
