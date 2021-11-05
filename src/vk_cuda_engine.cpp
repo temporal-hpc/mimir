@@ -93,24 +93,24 @@ VulkanCudaEngine::~VulkanCudaEngine()
   }
 }
 
-void VulkanCudaEngine::registerUnstructuredMemory(float *&d_cudamem,
-  size_t elem_count)
+void *VulkanCudaEngine::registerUnstructuredMemory(
+  size_t elem_count, size_t elem_size)
 {
   element_count = elem_count;
   // Init unstructured memory
-  createExternalBuffer(sizeof(float2) * elem_count,
+  createExternalBuffer(elem_size * elem_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     vk_unstructured_buffer, vk_unstructured_memory
   );
   importCudaExternalMemory((void**)&cuda_unstructured_data, cuda_extmem_unstructured,
-    vk_unstructured_memory, sizeof(*cuda_unstructured_data) * elem_count
+    vk_unstructured_memory, elem_size * elem_count
   );
 
   updateDescriptorsUnstructured();
   toggleRenderingMode("unstructured");
-  d_cudamem = cuda_unstructured_data;
+  return cuda_unstructured_data;
 }
 
 void VulkanCudaEngine::registerStructuredMemory(float *&d_cudamem,

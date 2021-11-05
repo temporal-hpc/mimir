@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
     hPoints = (float2*)calloc(n, sizeof(float2));
 
     // habria que llamar un
-    CUDA_CALL(cudaMalloc((void **)&dPoints, n * sizeof(float2)));
+    //CUDA_CALL(cudaMalloc((void **)&dPoints, n * sizeof(float2)));
     CUDA_CALL(cudaMalloc((void **)&dStates, n * sizeof(curandState)));
 
     int width = 900, height = 900;
@@ -81,8 +81,8 @@ int main(int argc, char *argv[]) {
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    //auto point_memory = reinterpret_cast<float*>(dPoints);
-    //engine.registerUnstructuredMemory(point_memory, n);
+    auto point_memory = engine.registerUnstructuredMemory(n, sizeof(float2));
+    dPoints = reinterpret_cast<float2*>(point_memory);
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);

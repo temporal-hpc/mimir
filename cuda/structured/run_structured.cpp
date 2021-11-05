@@ -21,7 +21,9 @@ int main(int argc, char *argv[])
   {
     VulkanCudaEngine engine(program._extent, program._stream);
     engine.init(800, 600);
-    engine.registerUnstructuredMemory(program._d_coords, program._element_count);
+    auto coord_memory = engine.registerUnstructuredMemory(
+      program._element_count, sizeof(float2));
+    program._d_coords = reinterpret_cast<float*>(coord_memory);
     engine.registerStructuredMemory(
       program._d_distances, program._extent.x, program._extent.y
     );

@@ -12,7 +12,7 @@ public:
   VulkanCudaEngine(int2 extent, cudaStream_t stream);
   VulkanCudaEngine();
   ~VulkanCudaEngine();
-  void registerUnstructuredMemory(float *&d_cudamem, size_t element_count);
+  void *registerUnstructuredMemory(size_t elem_count, size_t elem_size);
   void registerStructuredMemory(float *&d_cudamem, size_t width, size_t height);
   void registerStructuredMemory(uchar4 *&d_cudamem, size_t width, size_t height);
   void registerFunction(std::function<void(void)> func, size_t iter_count);
