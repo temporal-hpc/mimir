@@ -131,34 +131,34 @@ void VulkanEngine::createSwapChain()
 
   VkSwapchainCreateInfoKHR create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-  create_info.surface = surface;
-  create_info.minImageCount = image_count;
-  create_info.imageFormat = surface_format.format;
-  create_info.imageColorSpace = surface_format.colorSpace;
-  create_info.imageExtent = extent;
+  create_info.surface          = surface;
+  create_info.minImageCount    = image_count;
+  create_info.imageFormat      = surface_format.format;
+  create_info.imageColorSpace  = surface_format.colorSpace;
+  create_info.imageExtent      = extent;
   create_info.imageArrayLayers = 1;
-  create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  create_info.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
   uint32_t queue_indices[2];
   findQueueFamilies(physical_device, queue_indices[0], queue_indices[1]);
 
   if (queue_indices[0] != queue_indices[1])
   {
-    create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+    create_info.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
     create_info.queueFamilyIndexCount = 2;
-    create_info.pQueueFamilyIndices = queue_indices;
+    create_info.pQueueFamilyIndices   = queue_indices;
   }
   else
   {
-    create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    create_info.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
     create_info.queueFamilyIndexCount = 0;
-    create_info.pQueueFamilyIndices = nullptr;
+    create_info.pQueueFamilyIndices   = nullptr;
   }
-  create_info.preTransform = swapchain_support.capabilities.currentTransform;
+  create_info.preTransform   = swapchain_support.capabilities.currentTransform;
   create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-  create_info.presentMode = present_mode;
-  create_info.clipped = VK_TRUE;
-  create_info.oldSwapchain = VK_NULL_HANDLE;
+  create_info.presentMode    = present_mode;
+  create_info.clipped        = VK_TRUE;
+  create_info.oldSwapchain   = VK_NULL_HANDLE;
 
   validation::checkVulkan(vkCreateSwapchainKHR(
     device, &create_info, nullptr, &swapchain)
@@ -180,12 +180,12 @@ void VulkanEngine::createFramebuffers()
     VkImageView attachments[] = { swapchain_views[i] };
     VkFramebufferCreateInfo fb_info{};
     fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fb_info.renderPass = render_pass;
+    fb_info.renderPass      = render_pass;
     fb_info.attachmentCount = 1;
-    fb_info.pAttachments = attachments;
-    fb_info.width = swapchain_extent.width;
-    fb_info.height = swapchain_extent.height;
-    fb_info.layers = 1;
+    fb_info.pAttachments    = attachments;
+    fb_info.width           = swapchain_extent.width;
+    fb_info.height          = swapchain_extent.height;
+    fb_info.layers          = 1;
 
     validation::checkVulkan(vkCreateFramebuffer(
       device, &fb_info, nullptr, &framebuffers[i])
@@ -204,9 +204,9 @@ void VulkanEngine::createDescriptorPool()
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
-  pool_info.pPoolSizes = pool_sizes.data();
-  pool_info.maxSets = static_cast<uint32_t>(swapchain_images.size());
-  pool_info.flags = 0;
+  pool_info.pPoolSizes    = pool_sizes.data();
+  pool_info.maxSets       = static_cast<uint32_t>(swapchain_images.size());
+  pool_info.flags         = 0;
 
   validation::checkVulkan(
     vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool)
@@ -219,7 +219,7 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
   VkShaderModuleCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   create_info.codeSize = code.size();
-  create_info.pCode = reinterpret_cast<const uint32_t*>(code.data());
+  create_info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
 
   VkShaderModule module;
   validation::checkVulkan(vkCreateShaderModule(device, &create_info, nullptr, &module));
@@ -230,25 +230,25 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
 void VulkanEngine::createGraphicsPipeline(const std::string& vertex_file,
   const std::string& fragment_file)
 {
-  auto vert_code = io::readFile(vertex_file);
+  auto vert_code   = io::readFile(vertex_file);
   auto vert_module = createShaderModule(vert_code);
 
-  auto frag_code = io::readFile(fragment_file);
+  auto frag_code   = io::readFile(fragment_file);
   auto frag_module = createShaderModule(frag_code);
 
   VkPipelineShaderStageCreateInfo vert_info{};
-  vert_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  vert_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+  vert_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  vert_info.stage  = VK_SHADER_STAGE_VERTEX_BIT;
   vert_info.module = vert_module;
-  vert_info.pName = "main"; // Entrypoint
+  vert_info.pName  = "main"; // Entrypoint
   // Used to specify values for shader constants
   vert_info.pSpecializationInfo = nullptr;
 
   VkPipelineShaderStageCreateInfo frag_info{};
-  frag_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  frag_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  frag_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  frag_info.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
   frag_info.module = frag_module;
-  frag_info.pName = "main"; // Entrypoint
+  frag_info.pName  = "main"; // Entrypoint
   // Used to specify values for shader constants
   frag_info.pSpecializationInfo = nullptr;
 
@@ -258,19 +258,19 @@ void VulkanEngine::createGraphicsPipeline(const std::string& vertex_file,
 
   VkPipelineVertexInputStateCreateInfo vert_input_info{};
   vert_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vert_input_info.vertexBindingDescriptionCount = (uint32_t)bind_desc.size();
-  vert_input_info.pVertexBindingDescriptions = bind_desc.data();
+  vert_input_info.vertexBindingDescriptionCount   = (uint32_t)bind_desc.size();
+  vert_input_info.pVertexBindingDescriptions      = bind_desc.data();
   vert_input_info.vertexAttributeDescriptionCount = (uint32_t)attr_desc.size();
-  vert_input_info.pVertexAttributeDescriptions = attr_desc.data();
+  vert_input_info.pVertexAttributeDescriptions    = attr_desc.data();
 
   VkPipelineInputAssemblyStateCreateInfo input_assembly{};
   getAssemblyStateInfo(input_assembly);
 
   VkViewport viewport{};
-  viewport.x = 0.f;
-  viewport.y = 0.f;
-  viewport.width = static_cast<float>(swapchain_extent.width);
-  viewport.height = static_cast<float>(swapchain_extent.height);
+  viewport.x        = 0.f;
+  viewport.y        = 0.f;
+  viewport.width    = static_cast<float>(swapchain_extent.width);
+  viewport.height   = static_cast<float>(swapchain_extent.height);
   viewport.minDepth = 0.f;
   viewport.maxDepth = 1.f;
 
@@ -282,50 +282,50 @@ void VulkanEngine::createGraphicsPipeline(const std::string& vertex_file,
   VkPipelineViewportStateCreateInfo viewport_state{};
   viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
   viewport_state.viewportCount = 1;
-  viewport_state.pViewports = &viewport;
-  viewport_state.scissorCount = 1;
-  viewport_state.pScissors = &scissor;
+  viewport_state.pViewports    = &viewport;
+  viewport_state.scissorCount  = 1;
+  viewport_state.pScissors     = &scissor;
 
   VkPipelineRasterizationStateCreateInfo rasterizer{};
   rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-  rasterizer.depthClampEnable = VK_FALSE;
+  rasterizer.depthClampEnable        = VK_FALSE;
   rasterizer.rasterizerDiscardEnable = VK_FALSE;
-  rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-  rasterizer.lineWidth = 1.f;
-  rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-  rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
-  rasterizer.depthBiasEnable = VK_FALSE;
+  rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
+  rasterizer.lineWidth               = 1.f;
+  rasterizer.cullMode                = VK_CULL_MODE_BACK_BIT;
+  rasterizer.frontFace               = VK_FRONT_FACE_CLOCKWISE;
+  rasterizer.depthBiasEnable         = VK_FALSE;
   rasterizer.depthBiasConstantFactor = 0.f;
-  rasterizer.depthBiasClamp = 0.f;
-  rasterizer.depthBiasSlopeFactor = 0.f;
+  rasterizer.depthBiasClamp          = 0.f;
+  rasterizer.depthBiasSlopeFactor    = 0.f;
 
   VkPipelineMultisampleStateCreateInfo multisampling{};
   multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-  multisampling.sampleShadingEnable = VK_FALSE;
-  multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-  multisampling.minSampleShading = 1.f;
-  multisampling.pSampleMask = nullptr;
+  multisampling.sampleShadingEnable   = VK_FALSE;
+  multisampling.rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT;
+  multisampling.minSampleShading      = 1.f;
+  multisampling.pSampleMask           = nullptr;
   multisampling.alphaToCoverageEnable = VK_FALSE;
-  multisampling.alphaToOneEnable = VK_FALSE;
+  multisampling.alphaToOneEnable      = VK_FALSE;
 
   VkPipelineColorBlendAttachmentState color_blend_attachment{};
   color_blend_attachment.colorWriteMask =
     VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  color_blend_attachment.blendEnable = VK_FALSE;
+  color_blend_attachment.blendEnable         = VK_FALSE;
   color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
   color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-  color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+  color_blend_attachment.colorBlendOp        = VK_BLEND_OP_ADD;
   color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
   color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-  color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+  color_blend_attachment.alphaBlendOp        = VK_BLEND_OP_ADD;
 
   VkPipelineColorBlendStateCreateInfo color_blending{};
   color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-  color_blending.logicOpEnable = VK_FALSE;
-  color_blending.logicOp = VK_LOGIC_OP_COPY;
-  color_blending.attachmentCount = 1;
-  color_blending.pAttachments = &color_blend_attachment;
+  color_blending.logicOpEnable     = VK_FALSE;
+  color_blending.logicOp           = VK_LOGIC_OP_COPY;
+  color_blending.attachmentCount   = 1;
+  color_blending.pAttachments      = &color_blend_attachment;
   color_blending.blendConstants[0] = 0.f;
   color_blending.blendConstants[1] = 0.f;
   color_blending.blendConstants[2] = 0.f;
@@ -333,10 +333,10 @@ void VulkanEngine::createGraphicsPipeline(const std::string& vertex_file,
 
   VkPipelineLayoutCreateInfo pipeline_layout_info{};
   pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipeline_layout_info.setLayoutCount = 1;
-  pipeline_layout_info.pSetLayouts = &descriptor_layout;
+  pipeline_layout_info.setLayoutCount         = 1;
+  pipeline_layout_info.pSetLayouts            = &descriptor_layout;
   pipeline_layout_info.pushConstantRangeCount = 0;
-  pipeline_layout_info.pPushConstantRanges = nullptr;
+  pipeline_layout_info.pPushConstantRanges    = nullptr;
 
   validation::checkVulkan(vkCreatePipelineLayout(
     device, &pipeline_layout_info, nullptr, &pipeline_layout)
@@ -345,21 +345,21 @@ void VulkanEngine::createGraphicsPipeline(const std::string& vertex_file,
   std::vector stage_infos = {vert_info, frag_info};
   VkGraphicsPipelineCreateInfo pipeline_info{};
   pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-  pipeline_info.stageCount = static_cast<uint32_t>(stage_infos.size());
-  pipeline_info.pStages = stage_infos.data();
-  pipeline_info.pVertexInputState = &vert_input_info;
+  pipeline_info.stageCount          = static_cast<uint32_t>(stage_infos.size());
+  pipeline_info.pStages             = stage_infos.data();
+  pipeline_info.pVertexInputState   = &vert_input_info;
   pipeline_info.pInputAssemblyState = &input_assembly;
-  pipeline_info.pViewportState = &viewport_state;
+  pipeline_info.pViewportState      = &viewport_state;
   pipeline_info.pRasterizationState = &rasterizer;
-  pipeline_info.pMultisampleState = &multisampling;
-  pipeline_info.pDepthStencilState = nullptr;
-  pipeline_info.pColorBlendState = &color_blending;
-  pipeline_info.pDynamicState = nullptr;
-  pipeline_info.layout = pipeline_layout;
-  pipeline_info.renderPass = render_pass;
-  pipeline_info.subpass = 0;
-  pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
-  pipeline_info.basePipelineIndex = -1;
+  pipeline_info.pMultisampleState   = &multisampling;
+  pipeline_info.pDepthStencilState  = nullptr;
+  pipeline_info.pColorBlendState    = &color_blending;
+  pipeline_info.pDynamicState       = nullptr;
+  pipeline_info.layout              = pipeline_layout;
+  pipeline_info.renderPass          = render_pass;
+  pipeline_info.subpass             = 0;
+  pipeline_info.basePipelineHandle  = VK_NULL_HANDLE;
+  pipeline_info.basePipelineIndex   = -1;
 
   validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1,
     &pipeline_info, nullptr, &graphics_pipeline)
@@ -375,19 +375,19 @@ void VulkanEngine::createTextureGraphicsPipeline(
   auto vert_code = io::readFile(vertex_file);
   auto vert_module = createShaderModule(vert_code);
   VkPipelineShaderStageCreateInfo vert_info{};
-  vert_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  vert_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+  vert_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  vert_info.stage  = VK_SHADER_STAGE_VERTEX_BIT;
   vert_info.module = vert_module;
-  vert_info.pName = "main"; // Entrypoint
+  vert_info.pName  = "main"; // Entrypoint
   vert_info.pSpecializationInfo = nullptr;
 
   auto frag_code = io::readFile(fragment_file);
   auto frag_module = createShaderModule(frag_code);
   VkPipelineShaderStageCreateInfo frag_info{};
-  frag_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  frag_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  frag_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  frag_info.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
   frag_info.module = frag_module;
-  frag_info.pName = "main"; // Entrypoint
+  frag_info.pName  = "main"; // Entrypoint
   frag_info.pSpecializationInfo = nullptr;
 
   VkPipelineVertexInputStateCreateInfo empty_input_state{};
@@ -405,8 +405,8 @@ void VulkanEngine::createTextureGraphicsPipeline(
   VkViewport viewport{};
   viewport.x = 0.f;
   viewport.y = 0.f;
-  viewport.width = static_cast<float>(swapchain_extent.width);
-  viewport.height = static_cast<float>(swapchain_extent.height);
+  viewport.width    = static_cast<float>(swapchain_extent.width);
+  viewport.height   = static_cast<float>(swapchain_extent.height);
   viewport.minDepth = 0.f;
   viewport.maxDepth = 1.f;
 
@@ -417,51 +417,51 @@ void VulkanEngine::createTextureGraphicsPipeline(
   // Combine viewport and scissor rectangle into a viewport state
   VkPipelineViewportStateCreateInfo viewport_state{};
   viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-  viewport_state.viewportCount = 1;
-  viewport_state.pViewports = &viewport;
-  viewport_state.scissorCount = 1;
-  viewport_state.pScissors = &scissor;
+  viewport_state.viewportCount       = 1;
+  viewport_state.pViewports          = &viewport;
+  viewport_state.scissorCount        = 1;
+  viewport_state.pScissors           = &scissor;
 
   VkPipelineRasterizationStateCreateInfo rasterizer{};
   rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-  rasterizer.depthClampEnable = VK_FALSE;
+  rasterizer.depthClampEnable        = VK_FALSE;
   rasterizer.rasterizerDiscardEnable = VK_FALSE;
-  rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-  rasterizer.lineWidth = 1.f;
-  rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
-  rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-  rasterizer.depthBiasEnable = VK_FALSE;
+  rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
+  rasterizer.lineWidth               = 1.f;
+  rasterizer.cullMode                = VK_CULL_MODE_FRONT_BIT;
+  rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+  rasterizer.depthBiasEnable         = VK_FALSE;
   rasterizer.depthBiasConstantFactor = 0.f;
-  rasterizer.depthBiasClamp = 0.f;
-  rasterizer.depthBiasSlopeFactor = 0.f;
+  rasterizer.depthBiasClamp          = 0.f;
+  rasterizer.depthBiasSlopeFactor    = 0.f;
 
   VkPipelineMultisampleStateCreateInfo multisampling{};
   multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-  multisampling.sampleShadingEnable = VK_FALSE;
-  multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-  multisampling.minSampleShading = 1.f;
-  multisampling.pSampleMask = nullptr;
+  multisampling.sampleShadingEnable   = VK_FALSE;
+  multisampling.rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT;
+  multisampling.minSampleShading      = 1.f;
+  multisampling.pSampleMask           = nullptr;
   multisampling.alphaToCoverageEnable = VK_FALSE;
-  multisampling.alphaToOneEnable = VK_FALSE;
+  multisampling.alphaToOneEnable      = VK_FALSE;
 
   VkPipelineColorBlendAttachmentState color_blend_attachment{};
   color_blend_attachment.colorWriteMask =
     VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  color_blend_attachment.blendEnable = VK_FALSE;
+  color_blend_attachment.blendEnable         = VK_FALSE;
   color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
   color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-  color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+  color_blend_attachment.colorBlendOp        = VK_BLEND_OP_ADD;
   color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
   color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-  color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+  color_blend_attachment.alphaBlendOp        = VK_BLEND_OP_ADD;
 
   VkPipelineColorBlendStateCreateInfo color_blending{};
   color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-  color_blending.logicOpEnable = VK_FALSE;
-  color_blending.logicOp = VK_LOGIC_OP_COPY;
-  color_blending.attachmentCount = 1;
-  color_blending.pAttachments = &color_blend_attachment;
+  color_blending.logicOpEnable     = VK_FALSE;
+  color_blending.logicOp           = VK_LOGIC_OP_COPY;
+  color_blending.attachmentCount   = 1;
+  color_blending.pAttachments      = &color_blend_attachment;
   color_blending.blendConstants[0] = 0.f;
   color_blending.blendConstants[1] = 0.f;
   color_blending.blendConstants[2] = 0.f;
@@ -469,10 +469,10 @@ void VulkanEngine::createTextureGraphicsPipeline(
 
   VkPipelineLayoutCreateInfo pipeline_layout_info{};
   pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipeline_layout_info.setLayoutCount = 1;
-  pipeline_layout_info.pSetLayouts = &descriptor_layout;
+  pipeline_layout_info.setLayoutCount         = 1;
+  pipeline_layout_info.pSetLayouts            = &descriptor_layout;
   pipeline_layout_info.pushConstantRangeCount = 0;
-  pipeline_layout_info.pPushConstantRanges = nullptr;
+  pipeline_layout_info.pPushConstantRanges    = nullptr;
 
   validation::checkVulkan(vkCreatePipelineLayout(
     device, &pipeline_layout_info, nullptr, &screen_layout)
@@ -481,21 +481,21 @@ void VulkanEngine::createTextureGraphicsPipeline(
   std::vector stage_infos = {vert_info, frag_info};
   VkGraphicsPipelineCreateInfo pipeline_info{};
   pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-  pipeline_info.stageCount = static_cast<uint32_t>(stage_infos.size());
-  pipeline_info.pStages = stage_infos.data();
-  pipeline_info.pVertexInputState = &empty_input_state;
+  pipeline_info.stageCount          = static_cast<uint32_t>(stage_infos.size());
+  pipeline_info.pStages             = stage_infos.data();
+  pipeline_info.pVertexInputState   = &empty_input_state;
   pipeline_info.pInputAssemblyState = &input_assembly;
-  pipeline_info.pViewportState = &viewport_state;
+  pipeline_info.pViewportState      = &viewport_state;
   pipeline_info.pRasterizationState = &rasterizer;
-  pipeline_info.pMultisampleState = &multisampling;
-  pipeline_info.pDepthStencilState = nullptr;
-  pipeline_info.pColorBlendState = &color_blending;
-  pipeline_info.pDynamicState = nullptr;
-  pipeline_info.layout = screen_layout;
-  pipeline_info.renderPass = render_pass;
-  pipeline_info.subpass = 0;
-  pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
-  pipeline_info.basePipelineIndex = -1;
+  pipeline_info.pMultisampleState   = &multisampling;
+  pipeline_info.pDepthStencilState  = nullptr;
+  pipeline_info.pColorBlendState    = &color_blending;
+  pipeline_info.pDynamicState       = nullptr;
+  pipeline_info.layout              = screen_layout;
+  pipeline_info.renderPass          = render_pass;
+  pipeline_info.subpass             = 0;
+  pipeline_info.basePipelineHandle  = VK_NULL_HANDLE;
+  pipeline_info.basePipelineIndex   = -1;
 
   validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1,
     &pipeline_info, nullptr, &screen_pipeline)
@@ -516,14 +516,15 @@ void VulkanEngine::createGraphicsPipelines()
 void VulkanEngine::createDescriptorSets()
 {
   auto img_count = swapchain_images.size();
+  descriptor_sets.resize(img_count);
+
   std::vector<VkDescriptorSetLayout> layouts(img_count, descriptor_layout);
   VkDescriptorSetAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  alloc_info.descriptorPool = descriptor_pool;
+  alloc_info.descriptorPool     = descriptor_pool;
   alloc_info.descriptorSetCount = static_cast<uint32_t>(img_count);
-  alloc_info.pSetLayouts = layouts.data();
+  alloc_info.pSetLayouts        = layouts.data();
 
-  descriptor_sets.resize(img_count);
   validation::checkVulkan(
     vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data())
   );
@@ -536,32 +537,32 @@ void VulkanEngine::updateDescriptorsUnstructured()
     VkDescriptorBufferInfo mvp_info{};
     mvp_info.buffer = uniform_buffers[i];
     mvp_info.offset = 0;
-    mvp_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+    mvp_info.range  = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
 
     std::array<VkWriteDescriptorSet, 2> desc_writes{};
     desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[0].dstSet = descriptor_sets[i];
-    desc_writes[0].dstBinding = 0;
-    desc_writes[0].dstArrayElement = 0;
-    desc_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes[0].descriptorCount = 1;
-    desc_writes[0].pBufferInfo = &mvp_info;
-    desc_writes[0].pImageInfo = nullptr;
+    desc_writes[0].dstSet           = descriptor_sets[i];
+    desc_writes[0].dstBinding       = 0;
+    desc_writes[0].dstArrayElement  = 0;
+    desc_writes[0].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[0].descriptorCount  = 1;
+    desc_writes[0].pBufferInfo      = &mvp_info;
+    desc_writes[0].pImageInfo       = nullptr;
     desc_writes[0].pTexelBufferView = nullptr;
 
     VkDescriptorBufferInfo extent_info{};
     extent_info.buffer = uniform_buffers[i];
     extent_info.offset = sizeof(UniformBufferObject);
-    extent_info.range = sizeof(SceneParams);
+    extent_info.range  = sizeof(SceneParams);
 
     desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[1].dstSet = descriptor_sets[i];
-    desc_writes[1].dstBinding = 1;
-    desc_writes[1].dstArrayElement = 0;
-    desc_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes[1].descriptorCount = 1;
-    desc_writes[1].pBufferInfo = &extent_info;
-    desc_writes[1].pImageInfo = nullptr;
+    desc_writes[1].dstSet           = descriptor_sets[i];
+    desc_writes[1].dstBinding       = 1;
+    desc_writes[1].dstArrayElement  = 0;
+    desc_writes[1].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[1].descriptorCount  = 1;
+    desc_writes[1].pBufferInfo      = &extent_info;
+    desc_writes[1].pImageInfo       = nullptr;
     desc_writes[1].pTexelBufferView = nullptr;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
@@ -574,34 +575,50 @@ void VulkanEngine::updateDescriptorsStructured()
 {
   for (size_t i = 0; i < descriptor_sets.size(); ++i)
   {
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = uniform_buffers[i];
-    buffer_info.offset = 0;
-    buffer_info.range = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+    std::array<VkWriteDescriptorSet, 3> desc_writes{};
+
+    VkDescriptorBufferInfo mvp_info{};
+    mvp_info.buffer = uniform_buffers[i];
+    mvp_info.offset = 0;
+    mvp_info.range  = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+
+    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[0].dstSet           = descriptor_sets[i];
+    desc_writes[0].dstBinding       = 0;
+    desc_writes[0].dstArrayElement  = 0;
+    desc_writes[0].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[0].descriptorCount  = 1;
+    desc_writes[0].pBufferInfo      = &mvp_info;
+    desc_writes[0].pImageInfo       = nullptr;
+    desc_writes[0].pTexelBufferView = nullptr;
+
+    VkDescriptorBufferInfo extent_info{};
+    extent_info.buffer = uniform_buffers[i];
+    extent_info.offset = sizeof(UniformBufferObject);
+    extent_info.range  = sizeof(SceneParams);
+
+    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[1].dstSet           = descriptor_sets[i];
+    desc_writes[1].dstBinding       = 1;
+    desc_writes[1].dstArrayElement  = 0;
+    desc_writes[1].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[1].descriptorCount  = 1;
+    desc_writes[1].pBufferInfo      = &extent_info;
+    desc_writes[1].pImageInfo       = nullptr;
+    desc_writes[1].pTexelBufferView = nullptr;
 
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image_info.imageView = texture_view;
-    image_info.sampler = texture_sampler;
+    image_info.imageView   = texture_view;
+    image_info.sampler     = texture_sampler;
 
-    std::array<VkWriteDescriptorSet, 2> desc_writes{};
-    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[0].dstSet = descriptor_sets[i];
-    desc_writes[0].dstBinding = 0;
-    desc_writes[0].dstArrayElement = 0;
-    desc_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes[0].descriptorCount = 1;
-    desc_writes[0].pBufferInfo = &buffer_info;
-    desc_writes[0].pImageInfo = nullptr;
-    desc_writes[0].pTexelBufferView = nullptr;
-
-    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[1].dstSet = descriptor_sets[i];
-    desc_writes[1].dstBinding = 2;
-    desc_writes[1].dstArrayElement = 0;
-    desc_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    desc_writes[1].descriptorCount = 1;
-    desc_writes[1].pImageInfo = &image_info;
+    desc_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[2].dstSet          = descriptor_sets[i];
+    desc_writes[2].dstBinding      = 2;
+    desc_writes[2].dstArrayElement = 0;
+    desc_writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    desc_writes[2].descriptorCount = 1;
+    desc_writes[2].pImageInfo      = &image_info;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
       desc_writes.data(), 0, nullptr
