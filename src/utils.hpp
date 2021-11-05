@@ -1,3 +1,5 @@
+#pragma once
+
 #include "cudaview/vk_types.hpp"
 
 namespace utils

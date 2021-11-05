@@ -2,9 +2,9 @@
 
 struct ImageProgram
 {
-  cudaStream_t _stream = nullptr;
-  uchar4 *_d_image = nullptr;
-  int2 _extent{512, 512};
+  cudaStream_t stream = nullptr;
+  uchar4 *d_pixels    = nullptr;
+  int2 extent         = {512, 512};
 
   ImageProgram();
   void setInitialState();

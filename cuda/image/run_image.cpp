@@ -15,10 +15,10 @@ int main(int argc, char *argv[])
   ImageProgram program;
   try
   {
-    VulkanCudaEngine engine(program._extent, program._stream);
+    VulkanCudaEngine engine(program.extent, program.stream);
     engine.init(800, 600);
     engine.registerStructuredMemory(
-      program._d_image, program._extent.x, program._extent.y
+      program.d_pixels, program.extent.x, program.extent.y
     );
 
     program.setInitialState();

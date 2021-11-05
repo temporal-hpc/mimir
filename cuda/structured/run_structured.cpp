@@ -5,7 +5,7 @@
 
 int main(int argc, char *argv[])
 {
-  size_t point_count = 10;
+  size_t point_count = 100;
   size_t iter_count = 10000;
   if (argc >= 2)
   {
@@ -19,17 +19,16 @@ int main(int argc, char *argv[])
   JumpFloodProgram program(point_count, 512, 512);
   try
   {
-    VulkanCudaEngine engine(program._extent, program._stream);
+    VulkanCudaEngine engine(program.extent, program.stream);
     engine.init(800, 600);
     auto coord_memory = engine.registerUnstructuredMemory(
-      program._element_count, sizeof(float2));
-    program._d_coords = reinterpret_cast<float*>(coord_memory);
+      program.element_count, sizeof(float2));
+    program.d_coords = reinterpret_cast<float*>(coord_memory);
     engine.registerStructuredMemory(
-      program._d_distances, program._extent.x, program._extent.y
+      program.d_distances, program.extent.x, program.extent.y
     );
 
     program.setInitialState();
-    program.runTimestep();//program.runTimestep();program.runTimestep();
 
     auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);
     engine.registerFunction(timestep_function, iter_count);

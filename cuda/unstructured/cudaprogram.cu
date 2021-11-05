@@ -40,33 +40,34 @@ __global__ void integrate2d(float *coords, size_t particle_count,
 }
 
 CudaProgram::CudaProgram(size_t particle_count, int width, int height, unsigned seed):
-  _particle_count(particle_count), _bounding_box{width, height},
-  _state_count(_particle_count), _seed(seed),
-  _grid_size((_particle_count + _block_size - 1) / _block_size)
+  particle_count(particle_count), bounding_box{width, height},
+  state_count(particle_count), seed(seed),
+  grid_size((particle_count + block_size - 1) / block_size)
 {
-  checkCuda(cudaStreamCreateWithFlags(&_stream, cudaStreamNonBlocking));
+  checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
 }
 
 void CudaProgram::setInitialState()
 {
-  //checkCuda(cudaMalloc(&_d_coords, sizeof(float2) * _particle_count));
-  checkCuda(cudaMalloc(&_d_states, sizeof(curandState) * _state_count));
-  initSystem<<<_grid_size, _block_size>>>(
-    _d_coords, _particle_count, _d_states, _state_count, _bounding_box, _seed
+  //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * particle_count));
+  checkCuda(cudaMalloc(&d_states, sizeof(curandState) * state_count));
+  initSystem<<<grid_size, block_size>>>(
+    d_coords, particle_count, d_states, state_count, bounding_box, seed
   );
   //checkCuda(cudaDeviceSynchronize());
 }
 
 void CudaProgram::cleanup()
 {
-  checkCuda(cudaStreamDestroy(_stream));
-  checkCuda(cudaFree(_d_states));
+  checkCuda(cudaStreamDestroy(stream));
+  checkCuda(cudaFree(d_states));
+  checkCuda(cudaFree(d_coords));
 }
 
 void CudaProgram::runTimestep()
 {
-  integrate2d<<< _grid_size, _block_size, 0, _stream >>>(
-    _d_coords, _particle_count, _d_states, _state_count, _bounding_box
+  integrate2d<<< grid_size, block_size, 0, stream >>>(
+    d_coords, particle_count, d_states, state_count, bounding_box
   );
   //checkCuda(cudaStreamSynchronize(stream));
 }
