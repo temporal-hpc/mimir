@@ -225,6 +225,7 @@ void VulkanCudaEngine::cudaSemaphoreWait()
   wait_params.flags = 0;
   wait_params.params.fence.value = 0;
   // Wait for Vulkan to complete its work
+  printf("Cuda is waiting for vulkan to finish\n");
   checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
     &cuda_wait_semaphore, &wait_params, 1, stream)
   );
@@ -237,6 +238,7 @@ void VulkanCudaEngine::cudaSemaphoreSignal()
   signal_params.params.fence.value = 0;
 
   // Signal Vulkan to continue with the updated buffers
+  printf("Cuda to vulkan signal\n");
   checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
     &cuda_signal_semaphore, &signal_params, 1, stream)
   );
@@ -246,14 +248,14 @@ void VulkanCudaEngine::drawFrame()
 {
   VulkanEngine::drawFrame();
 
-  cudaSemaphoreWait();
+  //cudaSemaphoreWait();
   /*if (iteration_idx < iteration_count)
   {
     // Advance the simulation
     step_function();
     iteration_idx++;
   }*/
-  cudaSemaphoreSignal();
+  //cudaSemaphoreSignal();
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
@@ -279,12 +281,13 @@ void VulkanCudaEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
   std::vector<VkPipelineStageFlags>& wait_stages) const
 {
   // Wait semaphore has not been initialized on the first frame
-  if (current_frame != 0)
+  if (current_frame != 0 && device_working == true)
   {
     // Vulkan waits until Cuda is done with the display buffer before rendering
     wait.push_back(vk_wait_semaphore);
     // Cuda will wait until all pipeline commands are complete
     wait_stages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+    printf("Vulkan is waiting for cuda to finish\n");
   }
 }
 

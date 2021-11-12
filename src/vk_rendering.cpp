@@ -8,13 +8,13 @@
 
 #include <iostream>
 
-static constexpr size_t MAX_FRAMES_IN_FLIGHT = 1;
+static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
 void VulkanEngine::mainLoopThreaded(std::mutex& mtx, std::condition_variable& cond)
 {
   while(!glfwWindowShouldClose(window))
   {
-    glfwPollEvents(); // TODO: Move to main thread 
+    glfwPollEvents(); // TODO: Move to main thread
 
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();

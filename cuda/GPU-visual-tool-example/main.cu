@@ -101,19 +101,22 @@ int main(int argc, char *argv[]) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en
         // 'dPoints' se ve refleada inmediatamente en la ventana async)
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        engine.device_working = true;
         std::unique_lock<std::mutex> ul(mutex);
-        //engine.cudaSemaphoreWait();
+        engine.device_working = true;
+        engine.cudaSemaphoreWait();
+        ul.unlock();
+        cond.notify_one();
 
         kernel_random_movement<<<g, b>>>(n, dPoints, dStates);
         cudaDeviceSynchronize();
         // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
         printf("[DEBUG] simulation step %i\n", i+1);
 
+        ul.lock();
         engine.device_working = false;
+        engine.cudaSemaphoreSignal();
         ul.unlock();
         cond.notify_one();
-        //engine.cudaSemaphoreSignal();
 
         #ifdef DEBUG
             printf("[DEBUG] simulation step %i:\n", i);
