@@ -5,7 +5,7 @@
 
 int main(int argc, char *argv[])
 {
-  size_t point_count = 100;
+  unsigned point_count = 100;
   size_t iter_count = 10000;
   if (argc >= 2)
   {

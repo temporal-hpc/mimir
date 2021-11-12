@@ -4,6 +4,10 @@
 #include <cuda.h>
 #include <curand_kernel.h>
 
+#include <chrono>
+#include <thread>
+#include <iostream>
+
 #include "cudaview/vk_cuda_engine.hpp"
 
 #define VEL 0.1
@@ -69,7 +73,7 @@ int main(int argc, char *argv[]) {
     CUDA_CALL(cudaMalloc((void **)&dStates, n * sizeof(curandState)));
 
     int width = 900, height = 900;
-    VulkanCudaEngine engine({width, height}, 0);
+    VulkanCudaEngine engine({1, 1}, 0);
 
     // [VULKAN] I) CREAR UNA VENTANA VULKAN
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)
@@ -86,13 +90,30 @@ int main(int argc, char *argv[]) {
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);
+    cudaDeviceSynchronize();
+
+    //engine.mainLoop();
+    std::mutex mutex;
+    std::condition_variable cond;
+    auto thread = std::thread(&VulkanCudaEngine::mainLoopThreaded, &engine, std::ref(mutex), std::ref(cond));
+
     for(int i = 0; i < steps; i++) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en
         // 'dPoints' se ve refleada inmediatamente en la ventana async)
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        engine.device_working = true;
+        std::unique_lock<std::mutex> ul(mutex);
+        //engine.cudaSemaphoreWait();
+
         kernel_random_movement<<<g, b>>>(n, dPoints, dStates);
         cudaDeviceSynchronize();
         // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
-        //engine.updateWindow();
+        printf("[DEBUG] simulation step %i\n", i+1);
+
+        engine.device_working = false;
+        ul.unlock();
+        cond.notify_one();
+        //engine.cudaSemaphoreSignal();
 
         #ifdef DEBUG
             printf("[DEBUG] simulation step %i:\n", i);
@@ -103,6 +124,7 @@ int main(int argc, char *argv[]) {
             getchar();
         #endif
     }
+    thread.join();
 
     /* Copy device memory to host and show result */
     CUDA_CALL(cudaMemcpy(hPoints, dPoints, n * sizeof(float2), cudaMemcpyDeviceToHost));

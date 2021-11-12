@@ -16,6 +16,8 @@ public:
   void registerStructuredMemory(float *&d_cudamem, size_t width, size_t height);
   void registerStructuredMemory(uchar4 *&d_cudamem, size_t width, size_t height);
   void registerFunction(std::function<void(void)> func, size_t iter_count);
+  void cudaSemaphoreSignal();
+  void cudaSemaphoreWait();
 
 private:
   // Cuda interop data

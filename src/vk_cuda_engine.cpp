@@ -219,32 +219,41 @@ void VulkanCudaEngine::importCudaExternalSemaphore(
   checkCuda(cudaImportExternalSemaphore(&cuda_sem, &sem_desc));
 }
 
-void VulkanCudaEngine::drawFrame()
+void VulkanCudaEngine::cudaSemaphoreWait()
 {
-  VulkanEngine::drawFrame();
-
   cudaExternalSemaphoreWaitParams wait_params{};
   wait_params.flags = 0;
   wait_params.params.fence.value = 0;
-
-  cudaExternalSemaphoreSignalParams signal_params{};
-  signal_params.flags = 0;
-  signal_params.params.fence.value = 0;
-
   // Wait for Vulkan to complete its work
   checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
     &cuda_wait_semaphore, &wait_params, 1, stream)
   );
-  if (iteration_idx < iteration_count)
-  {
-    // Advance the simulation
-    step_function();
-    iteration_idx++;
-  }
+}
+
+void VulkanCudaEngine::cudaSemaphoreSignal()
+{
+  cudaExternalSemaphoreSignalParams signal_params{};
+  signal_params.flags = 0;
+  signal_params.params.fence.value = 0;
+
   // Signal Vulkan to continue with the updated buffers
   checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
     &cuda_signal_semaphore, &signal_params, 1, stream)
   );
+}
+
+void VulkanCudaEngine::drawFrame()
+{
+  VulkanEngine::drawFrame();
+
+  cudaSemaphoreWait();
+  /*if (iteration_idx < iteration_count)
+  {
+    // Advance the simulation
+    step_function();
+    iteration_idx++;
+  }*/
+  cudaSemaphoreSignal();
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
@@ -281,7 +290,7 @@ void VulkanCudaEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
 
 void VulkanCudaEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
 {
-  // Vulkan will signal to this semaphore once the vertex ready is ready
+  // Vulkan will signal to this semaphore once the device array is ready
   // for Cuda to process
   signal.push_back(vk_signal_semaphore);
 }

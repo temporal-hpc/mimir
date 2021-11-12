@@ -3,7 +3,10 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <condition_variable>
 #include <map> // std::map
+#include <mutex>
+#include <thread>
 #include <vector> // std::vector
 
 struct SwapChainSupportDetails
@@ -27,8 +30,10 @@ public:
   );
   bool toggleRenderingMode(const std::string& key);
   void mainLoop();
+  void mainLoopThreaded(std::mutex& mtx, std::condition_variable& cond);
   bool should_resize = false;
   size_t element_count;
+  bool device_working = false;
 
 protected:
   VkInstance instance; // Vulkan library handle

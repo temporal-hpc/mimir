@@ -6,7 +6,31 @@
 
 #include "cudaview/vk_types.hpp"
 
-static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
+#include <iostream>
+
+static constexpr size_t MAX_FRAMES_IN_FLIGHT = 1;
+
+void VulkanEngine::mainLoopThreaded(std::mutex& mtx, std::condition_variable& cond)
+{
+  while(!glfwWindowShouldClose(window))
+  {
+    glfwPollEvents(); // TODO: Move to main thread 
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    //ImGui::ShowDemoWindow();
+    ImGui::Render();
+
+    std::unique_lock<std::mutex> lock(mtx);
+    cond.wait(lock, [&]{ return device_working == false; });
+
+    drawFrame();
+
+    lock.unlock();
+  }
+  vkDeviceWaitIdle(device);
+}
 
 void VulkanEngine::mainLoop()
 {
@@ -38,6 +62,7 @@ void VulkanEngine::drawFrame()
   wait_info.pValues = &wait_value;
   vkWaitSemaphores(device, &wait_info, timeout);*/
 
+  //printf("Frame %lu\n", current_frame);
   auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
   vkWaitForFences(device, 1, &inflight_fences[frame_idx], VK_TRUE, timeout);
 

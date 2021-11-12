@@ -162,7 +162,7 @@ __global__ void integrate2d(float *coords, size_t particle_count,
   }
 }
 
-JumpFloodProgram::JumpFloodProgram(size_t point_count, int width, int height):
+JumpFloodProgram::JumpFloodProgram(unsigned point_count, int width, int height):
   element_count{point_count}, extent{width, height}
 {
   checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));

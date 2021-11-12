@@ -16,7 +16,7 @@ struct JumpFloodProgram
   unsigned element_count = 0;
   int2 extent            = {0, 0};
 
-  JumpFloodProgram(size_t particle_count, int width, int height);
+  JumpFloodProgram(unsigned particle_count, int width, int height);
   void setInitialState();
   void cleanup();
   void runTimestep();
