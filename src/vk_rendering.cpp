@@ -10,7 +10,12 @@
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
-void VulkanEngine::mainLoopThreaded(std::mutex& mtx, std::condition_variable& cond)
+void VulkanEngine::renderAsync()
+{
+  rendering_thread = std::thread(&VulkanEngine::mainLoopThreaded, this);
+}
+
+void VulkanEngine::mainLoopThreaded()
 {
   while(!glfwWindowShouldClose(window))
   {
@@ -22,7 +27,7 @@ void VulkanEngine::mainLoopThreaded(std::mutex& mtx, std::condition_variable& co
     //ImGui::ShowDemoWindow();
     ImGui::Render();
 
-    std::unique_lock<std::mutex> lock(mtx);
+    std::unique_lock<std::mutex> lock(mutex);
     cond.wait(lock, [&]{ return device_working == false; });
 
     drawFrame();

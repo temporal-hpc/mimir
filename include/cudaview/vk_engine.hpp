@@ -30,10 +30,16 @@ public:
   );
   bool toggleRenderingMode(const std::string& key);
   void mainLoop();
-  void mainLoopThreaded(std::mutex& mtx, std::condition_variable& cond);
   bool should_resize = false;
   size_t element_count;
+
+  // CPU thread synchronization variables
+  void renderAsync();
+  void mainLoopThreaded();
   bool device_working = false;
+  std::thread rendering_thread;
+  std::mutex mutex;
+  std::condition_variable cond;
 
 protected:
   VkInstance instance; // Vulkan library handle

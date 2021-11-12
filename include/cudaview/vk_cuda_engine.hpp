@@ -16,8 +16,9 @@ public:
   void registerStructuredMemory(float *&d_cudamem, size_t width, size_t height);
   void registerStructuredMemory(uchar4 *&d_cudamem, size_t width, size_t height);
   void registerFunction(std::function<void(void)> func, size_t iter_count);
-  void cudaSemaphoreSignal();
-  void cudaSemaphoreWait();
+
+  void prepareWindow();
+  void updateWindow();
 
 private:
   // Cuda interop data
@@ -41,6 +42,8 @@ private:
 
   void initVulkan();
   void drawFrame();
+  void cudaSemaphoreSignal();
+  void cudaSemaphoreWait();
   void setUnstructuredRendering(VkCommandBuffer& cmd_buffer, uint32_t vertex_count);
   void updateUniformBuffer(uint32_t image_index);
 

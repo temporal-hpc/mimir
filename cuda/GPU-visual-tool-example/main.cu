@@ -4,9 +4,8 @@
 #include <cuda.h>
 #include <curand_kernel.h>
 
-#include <chrono>
-#include <thread>
-#include <iostream>
+#include <chrono> // std::chrono
+#include <thread> // std::thread
 
 #include "cudaview/vk_cuda_engine.hpp"
 
@@ -31,6 +30,7 @@ __global__ void kernel_init(int n, int seed, float2 *points, curandState *state)
 
 __global__ void kernel_random_movement(int n, float2 *points, curandState *state) {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tid == 0) printf("[DEBUG] simulation kernel\n");
     if(tid >= n){
         return;
     }
@@ -92,31 +92,18 @@ int main(int argc, char *argv[]) {
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);
     cudaDeviceSynchronize();
 
-    //engine.mainLoop();
-    std::mutex mutex;
-    std::condition_variable cond;
-    auto thread = std::thread(&VulkanCudaEngine::mainLoopThreaded, &engine, std::ref(mutex), std::ref(cond));
+    engine.renderAsync();
 
     for(int i = 0; i < steps; i++) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en
         // 'dPoints' se ve refleada inmediatamente en la ventana async)
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        std::unique_lock<std::mutex> ul(mutex);
-        engine.device_working = true;
-        engine.cudaSemaphoreWait();
-        ul.unlock();
-        cond.notify_one();
+        engine.prepareWindow();
 
         kernel_random_movement<<<g, b>>>(n, dPoints, dStates);
         cudaDeviceSynchronize();
         // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
-        printf("[DEBUG] simulation step %i\n", i+1);
-
-        ul.lock();
-        engine.device_working = false;
-        engine.cudaSemaphoreSignal();
-        ul.unlock();
-        cond.notify_one();
+        engine.updateWindow();
 
         #ifdef DEBUG
             printf("[DEBUG] simulation step %i:\n", i);
@@ -127,7 +114,6 @@ int main(int argc, char *argv[]) {
             getchar();
         #endif
     }
-    thread.join();
 
     /* Copy device memory to host and show result */
     CUDA_CALL(cudaMemcpy(hPoints, dPoints, n * sizeof(float2), cudaMemcpyDeviceToHost));
@@ -139,5 +125,6 @@ int main(int argc, char *argv[]) {
     CUDA_CALL(cudaFree(dStates));
     CUDA_CALL(cudaFree(dPoints));
     free(hPoints);
+
     return EXIT_SUCCESS;
 }

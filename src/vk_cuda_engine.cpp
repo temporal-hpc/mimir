@@ -47,6 +47,7 @@ VulkanCudaEngine::VulkanCudaEngine(int2 extent, cudaStream_t cuda_stream):
 
 VulkanCudaEngine::~VulkanCudaEngine()
 {
+  rendering_thread.join();
   vkDeviceWaitIdle(device);
 
   if (stream != nullptr)
@@ -345,4 +346,22 @@ void VulkanCudaEngine::updateUniformBuffer(uint32_t image_index)
   );
   memcpy(data, &params, sizeof(params));
   vkUnmapMemory(device, ubo_memory[image_index]);
+}
+
+void VulkanCudaEngine::prepareWindow()
+{
+  std::unique_lock<std::mutex> ul(mutex);
+  device_working = true;
+  cudaSemaphoreWait();
+  ul.unlock();
+  cond.notify_one();
+}
+
+void VulkanCudaEngine::updateWindow()
+{
+  std::unique_lock<std::mutex> ul(mutex);
+  device_working = false;
+  cudaSemaphoreSignal();
+  ul.unlock();
+  cond.notify_one();
 }
