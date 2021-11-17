@@ -30,18 +30,18 @@ public:
   );
   bool toggleRenderingMode(const std::string& key);
   void mainLoop();
+  void drawGui();
   bool should_resize = false;
   size_t element_count;
 
   // CPU thread synchronization variables
-  void renderAsync();
-  void mainLoopThreaded();
   bool device_working = false;
   std::thread rendering_thread;
   std::mutex mutex;
   std::condition_variable cond;
 
 protected:
+  GLFWwindow *window;
   VkInstance instance; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
   VkSurfaceKHR surface; // Vulkan window surface
@@ -117,6 +117,7 @@ protected:
     VkImageLayout old_layout, VkImageLayout new_layout
   );
   VkImageView createImageView(VkImage image, VkFormat format);
+  void drawFrame();
 
   virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
     uint32_t vertex_count
@@ -129,7 +130,6 @@ protected:
   );
   virtual void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
   virtual void updateUniformBuffer(uint32_t image_index);
-  virtual void drawFrame();
   virtual void initVulkan();
 
   virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
@@ -137,7 +137,6 @@ protected:
   virtual void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
 
 private:
-  GLFWwindow *window;
   VkDescriptorPool imgui_pool, descriptor_pool;
   std::vector<VkDescriptorSet> descriptor_sets;
   std::map<std::string, bool> rendering_modes;

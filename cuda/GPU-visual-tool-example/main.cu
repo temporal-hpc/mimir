@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);
     cudaDeviceSynchronize();
 
-    engine.renderAsync();
+    engine.displayAsync();
 
     for(int i = 0; i < steps; i++) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en

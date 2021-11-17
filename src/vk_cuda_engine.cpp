@@ -47,7 +47,10 @@ VulkanCudaEngine::VulkanCudaEngine(int2 extent, cudaStream_t cuda_stream):
 
 VulkanCudaEngine::~VulkanCudaEngine()
 {
-  rendering_thread.join();
+  if (rendering_thread.joinable())
+  {
+    rendering_thread.join();
+  }
   vkDeviceWaitIdle(device);
 
   if (stream != nullptr)
@@ -92,6 +95,53 @@ VulkanCudaEngine::~VulkanCudaEngine()
   {
     vkFreeMemory(device, vk_structured_memory, nullptr);
   }
+}
+
+void VulkanCudaEngine::displayAsync()
+{
+  rendering_thread = std::thread(&VulkanCudaEngine::mainLoopThreaded, this);
+}
+
+void VulkanCudaEngine::mainLoopThreaded()
+{
+  while(!glfwWindowShouldClose(window))
+  {
+    glfwPollEvents(); // TODO: Move to main thread
+
+    drawGui();
+
+    std::unique_lock<std::mutex> lock(mutex);
+    cond.wait(lock, [&]{ return device_working == false; });
+
+    drawFrame();
+
+    lock.unlock();
+  }
+  vkDeviceWaitIdle(device);
+}
+
+void VulkanCudaEngine::display()
+{
+  device_working = true;
+  while(!glfwWindowShouldClose(window))
+  {
+    glfwPollEvents();
+
+    drawGui();
+
+    drawFrame();
+
+    cudaSemaphoreWait();
+    if (iteration_idx < iteration_count)
+    {
+      // Advance the simulation
+      step_function();
+      iteration_idx++;
+    }
+    cudaSemaphoreSignal();
+  }
+  device_working = false;
+  vkDeviceWaitIdle(device);
 }
 
 void *VulkanCudaEngine::registerUnstructuredMemory(
@@ -226,7 +276,6 @@ void VulkanCudaEngine::cudaSemaphoreWait()
   wait_params.flags = 0;
   wait_params.params.fence.value = 0;
   // Wait for Vulkan to complete its work
-  printf("Cuda is waiting for vulkan to finish\n");
   checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
     &cuda_wait_semaphore, &wait_params, 1, stream)
   );
@@ -239,24 +288,9 @@ void VulkanCudaEngine::cudaSemaphoreSignal()
   signal_params.params.fence.value = 0;
 
   // Signal Vulkan to continue with the updated buffers
-  printf("Cuda to vulkan signal\n");
   checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
     &cuda_signal_semaphore, &signal_params, 1, stream)
   );
-}
-
-void VulkanCudaEngine::drawFrame()
-{
-  VulkanEngine::drawFrame();
-
-  //cudaSemaphoreWait();
-  /*if (iteration_idx < iteration_count)
-  {
-    // Advance the simulation
-    step_function();
-    iteration_idx++;
-  }*/
-  //cudaSemaphoreSignal();
 }
 
 std::vector<const char*> VulkanCudaEngine::getRequiredExtensions() const
@@ -288,7 +322,6 @@ void VulkanCudaEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     wait.push_back(vk_wait_semaphore);
     // Cuda will wait until all pipeline commands are complete
     wait_stages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
-    printf("Vulkan is waiting for cuda to finish\n");
   }
 }
 

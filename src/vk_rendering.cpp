@@ -10,48 +10,13 @@
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
-void VulkanEngine::renderAsync()
+void VulkanEngine::drawGui()
 {
-  rendering_thread = std::thread(&VulkanEngine::mainLoopThreaded, this);
-}
-
-void VulkanEngine::mainLoopThreaded()
-{
-  while(!glfwWindowShouldClose(window))
-  {
-    glfwPollEvents(); // TODO: Move to main thread
-
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    //ImGui::ShowDemoWindow();
-    ImGui::Render();
-
-    std::unique_lock<std::mutex> lock(mutex);
-    cond.wait(lock, [&]{ return device_working == false; });
-
-    drawFrame();
-
-    lock.unlock();
-  }
-  vkDeviceWaitIdle(device);
-}
-
-void VulkanEngine::mainLoop()
-{
-  while(!glfwWindowShouldClose(window))
-  {
-    glfwPollEvents();
-
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    //ImGui::ShowDemoWindow();
-    ImGui::Render();
-
-    drawFrame();
-  }
-  vkDeviceWaitIdle(device);
+  ImGui_ImplVulkan_NewFrame();
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
+  //ImGui::ShowDemoWindow();
+  ImGui::Render();
 }
 
 void VulkanEngine::drawFrame()

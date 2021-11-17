@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
     engine.registerFunction(timestep_function, iter_count);
 
     // Start rendering loop
-    engine.mainLoop();
+    engine.display();
   }
   catch (const std::exception& e)
   {
