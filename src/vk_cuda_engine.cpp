@@ -24,6 +24,16 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
   }
 }
 
+VkFormat getVulkanFormat(DataFormat format)
+{
+  switch (format)
+  {
+    case DataFormat::Float32: return VK_FORMAT_R32_SFLOAT;
+    case DataFormat::Rgba32:  return VK_FORMAT_R8G8B8A8_SRGB;
+    default:                  return VK_FORMAT_UNDEFINED;
+  }
+}
+
 VulkanCudaEngine::VulkanCudaEngine(int2 extent, cudaStream_t cuda_stream):
   VulkanEngine(),
   iteration_count(0),
@@ -144,7 +154,7 @@ void VulkanCudaEngine::display()
   vkDeviceWaitIdle(device);
 }
 
-void *VulkanCudaEngine::registerUnstructuredMemory(
+void VulkanCudaEngine::registerUnstructuredMemory(void **ptr_devmem,
   size_t elem_count, size_t elem_size)
 {
   element_count = elem_count;
@@ -155,63 +165,40 @@ void *VulkanCudaEngine::registerUnstructuredMemory(
     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     vk_unstructured_buffer, vk_unstructured_memory
   );
-  importCudaExternalMemory((void**)&cuda_unstructured_data, cuda_extmem_unstructured,
+  importCudaExternalMemory(&cuda_unstructured_data, cuda_extmem_unstructured,
     vk_unstructured_memory, elem_size * elem_count
   );
 
   updateDescriptorsUnstructured();
   toggleRenderingMode("unstructured");
-  return cuda_unstructured_data;
+  *ptr_devmem = cuda_unstructured_data;
 }
 
-void VulkanCudaEngine::registerStructuredMemory(float *&d_cudamem,
-  size_t width, size_t height)
+void VulkanCudaEngine::registerStructuredMemory(void **ptr_devmem,
+  size_t width, size_t height, size_t elem_size, DataFormat format)
 {
+  auto vk_format = getVulkanFormat(format);
+
   // Init structured memory
-  createExternalImage(width, height,
-    VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_LINEAR,
+  createExternalImage(width, height, vk_format,
+    VK_IMAGE_TILING_LINEAR,
     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     texture_image, vk_structured_memory
   );
-  importCudaExternalMemory((void**)&cuda_structured_data, cuda_extmem_structured,
-    vk_structured_memory, sizeof(*cuda_structured_data) * width * height
+  importCudaExternalMemory(&cuda_structured_data, cuda_extmem_structured,
+    vk_structured_memory, elem_size * width * height
   );
 
-  transitionImageLayout(texture_image, VK_FORMAT_R32_SFLOAT,
+  transitionImageLayout(texture_image, vk_format,
     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
-  texture_view = createImageView(texture_image, VK_FORMAT_R32_SFLOAT);
+  texture_view = createImageView(texture_image, vk_format);
   createTextureSampler();
 
   updateDescriptorsStructured();
   toggleRenderingMode("structured");
-  d_cudamem = cuda_structured_data;
-}
-
-void VulkanCudaEngine::registerStructuredMemory(uchar4 *&d_cudamem,
-  size_t width, size_t height)
-{
-  // Init structured memory
-  createExternalImage(width, height,
-    VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_LINEAR,
-    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    texture_image, vk_structured_memory
-  );
-  importCudaExternalMemory((void**)&cuda_structured_image, cuda_extmem_structured,
-    vk_structured_memory, sizeof(*cuda_structured_image) * width * height
-  );
-
-  transitionImageLayout(texture_image, VK_FORMAT_R8G8B8A8_SRGB,
-    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-  );
-  texture_view = createImageView(texture_image, VK_FORMAT_R8G8B8A8_SRGB);
-  createTextureSampler();
-
-  updateDescriptorsStructured();
-  toggleRenderingMode("structured");
-  d_cudamem = cuda_structured_image;
+  *ptr_devmem = cuda_structured_data;
 }
 
 void VulkanCudaEngine::registerFunction(std::function<void(void)> func,

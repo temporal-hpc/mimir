@@ -21,11 +21,11 @@ int main(int argc, char *argv[])
   {
     VulkanCudaEngine engine(program.extent, program.stream);
     engine.init(800, 600);
-    auto coord_memory = engine.registerUnstructuredMemory(
-      program.element_count, sizeof(float2));
-    program.d_coords = reinterpret_cast<float*>(coord_memory);
-    engine.registerStructuredMemory(
-      program.d_distances, program.extent.x, program.extent.y
+    engine.registerUnstructuredMemory(
+      (void**)&program.d_coords, program.element_count, sizeof(float2)
+    );
+    engine.registerStructuredMemory((void**)&program.d_distances,
+      program.extent.x, program.extent.y, sizeof(float), DataFormat::Float32
     );
 
     program.setInitialState();

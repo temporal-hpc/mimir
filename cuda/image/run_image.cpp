@@ -17,8 +17,8 @@ int main(int argc, char *argv[])
   {
     VulkanCudaEngine engine(program.extent, program.stream);
     engine.init(800, 600);
-    engine.registerStructuredMemory(
-      program.d_pixels, program.extent.x, program.extent.y
+    engine.registerStructuredMemory((void**)&program.d_pixels,
+      program.extent.x, program.extent.y, sizeof(uchar4), DataFormat::Rgba32
     );
 
     program.setInitialState();

@@ -23,9 +23,9 @@ int main(int argc, char *argv[])
     // Initialize engine
     VulkanCudaEngine engine({200, 200}, program.stream);
     engine.init(800, 600);
-    auto coord_memory = engine.registerUnstructuredMemory(
-      program.particle_count, sizeof(float2));
-    program.d_coords = reinterpret_cast<float*>(coord_memory);
+    engine.registerUnstructuredMemory(
+      (void**)&program.d_coords, program.particle_count, sizeof(float2)
+    );
 
     // Cannot make CUDA calls that use the target device memory before
     // registering it on the engine

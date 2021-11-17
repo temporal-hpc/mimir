@@ -6,15 +6,22 @@
 
 #include <functional>
 
+enum class DataFormat
+{
+  Float32,
+  Rgba32
+};
+
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
   VulkanCudaEngine(int2 extent, cudaStream_t stream);
   VulkanCudaEngine();
   ~VulkanCudaEngine();
-  void *registerUnstructuredMemory(size_t elem_count, size_t elem_size);
-  void registerStructuredMemory(float *&d_cudamem, size_t width, size_t height);
-  void registerStructuredMemory(uchar4 *&d_cudamem, size_t width, size_t height);
+  void registerUnstructuredMemory(void **ptr_devmem, size_t elem_count, size_t elem_size);
+  void registerStructuredMemory(void **ptr_devmem, size_t width, size_t height,
+    size_t elem_size, DataFormat format
+  );
   void registerFunction(std::function<void(void)> func, size_t iter_count);
 
   void display();
@@ -32,13 +39,12 @@ private:
   cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
-  float *cuda_unstructured_data;
+  void *cuda_unstructured_data;
   cudaExternalMemory_t cuda_extmem_unstructured;
   VkBuffer vk_unstructured_buffer;
   VkDeviceMemory vk_unstructured_memory;
 
-  float *cuda_structured_data;
-  uchar4 *cuda_structured_image;
+  void *cuda_structured_data;
   cudaExternalMemory_t cuda_extmem_structured;
   VkBuffer vk_structured_buffer;
   VkDeviceMemory vk_structured_memory;
