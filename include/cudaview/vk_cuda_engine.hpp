@@ -15,7 +15,7 @@ enum class DataFormat
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
-  VulkanCudaEngine(int2 extent, cudaStream_t stream);
+  VulkanCudaEngine(int2 extent, cudaStream_t stream = 0);
   VulkanCudaEngine();
   ~VulkanCudaEngine();
   void registerUnstructuredMemory(void **ptr_devmem, size_t elem_count, size_t elem_size);
