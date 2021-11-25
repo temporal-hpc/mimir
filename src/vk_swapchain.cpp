@@ -509,9 +509,13 @@ void VulkanEngine::createTextureGraphicsPipeline(
 
 void VulkanEngine::createGraphicsPipelines()
 {
-  createGraphicsPipeline("_out/shaders/vertex.spv", "_out/shaders/fragment.spv");
+  createGraphicsPipeline(
+    "_out/shaders/unstructured/particle_pos.spv",
+    "_out/shaders/unstructured/particle_draw.spv"
+  );
   createTextureGraphicsPipeline(
-    "_out/shaders/texture_vert.spv", "_out/shaders/texture_frag.spv"
+    "_out/shaders/structured/screen_triangle.spv",
+    "_out/shaders/structured/texture_greyscale.spv"
   );
 }
 
