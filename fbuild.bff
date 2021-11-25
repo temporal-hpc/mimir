@@ -1,3 +1,4 @@
+
 .BuildType    = 'Debug'
 .FlagsDebug   = ' -g'
 .FlagsRelease = ' -O3 -Wall -Wshadow -Wcast-align'
@@ -35,12 +36,13 @@ Library('cudaview')
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = '-o "%2" "%1" -c'
                       + ' -Iinclude -I/usr/local/cuda/include'
-                      + ' -Icontrib/imgui-1.84.2 -Icontrib/stb'
+                      + ' -Icontrib/imgui-1.84.2 -Icontrib/stb -Icontrib/color'
                       + ' -std=c++17'
                       + .'Flags$BuildType$'
   .CompilerInputPath  = 'src/'
   .CompilerOutputPath = '_out/'
   .LibrarianOutput    = '_out/cudaview.lib'
+  .LibrarianAdditionalInputs = { 'imgui' }
 }
 
 ObjectList('cuda-structured')
@@ -48,8 +50,8 @@ ObjectList('cuda-structured')
   .Compiler             = '/usr/local/cuda/bin/nvcc'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17 -g -G'
-                        + ' -Icuda/include -Iinclude -Icontrib/stb'
-  .CompilerInputPath    = 'cuda/structured'
+                        + ' -Isamples/include -Iinclude -Icontrib/stb'
+  .CompilerInputPath    = 'samples/structured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
 }
@@ -59,8 +61,8 @@ ObjectList('cuda-unstructured')
   .Compiler             = '/usr/local/cuda/bin/nvcc'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17'
-                        + ' -Icuda/include -Iinclude'
-  .CompilerInputPath    = 'cuda/unstructured'
+                        + ' -Isamples/include -Iinclude'
+  .CompilerInputPath    = 'samples/unstructured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
 }
@@ -70,8 +72,8 @@ ObjectList('cuda-image')
   .Compiler             = '/usr/local/cuda/bin/nvcc'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17'
-                        + ' -Icuda/include -Iinclude -Icontrib/stb'
-  .CompilerInputPath    = 'cuda/image'
+                        + ' -Isamples/include -Iinclude -Icontrib/stb'
+  .CompilerInputPath    = 'samples/image'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
 }
@@ -81,14 +83,14 @@ ObjectList('cuda-sync')
   .Compiler             = '/usr/local/cuda/bin/nvcc'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17 -Iinclude'
-  .CompilerInputPath    = 'cuda/GPU-visual-tool-example'
+  .CompilerInputPath    = 'samples/GPU-visual-tool-example'
   .CompilerInputPattern = { 'main.cu' }
   .CompilerOutputPath   = '_out/'
 }
 
 Executable('run_structured')
 {
-  .Libraries     = { 'imgui', 'cudaview', 'cuda-structured' }
+  .Libraries     = { 'cudaview', 'cuda-structured' }
   .Linker        = '/usr/local/cuda/bin/nvcc'
   .LinkerOutput  = '_out/run_structured'
   .LinkerOptions = '"%1" -o "%2"'
@@ -97,7 +99,7 @@ Executable('run_structured')
 
 Executable('run_unstructured')
 {
-  .Libraries     = { 'imgui', 'cudaview', 'cuda-unstructured' }
+  .Libraries     = { 'cudaview', 'cuda-unstructured' }
   .Linker        = '/usr/local/cuda/bin/nvcc'
   .LinkerOutput  = '_out/run_unstructured'
   .LinkerOptions = '"%1" -o "%2"'
@@ -106,7 +108,7 @@ Executable('run_unstructured')
 
 Executable('run_image')
 {
-  .Libraries     = { 'imgui', 'cudaview', 'cuda-image' }
+  .Libraries     = { 'cudaview', 'cuda-image' }
   .Linker        = '/usr/local/cuda/bin/nvcc'
   .LinkerOutput  = '_out/run_image'
   .LinkerOptions = '"%1" -o "%2"'
@@ -115,7 +117,7 @@ Executable('run_image')
 
 Executable('run_sync')
 {
-  .Libraries     = { 'imgui', 'cudaview', 'cuda-sync' }
+  .Libraries     = { 'cudaview', 'cuda-sync' }
   .Linker        = '/usr/local/cuda/bin/nvcc'
   .LinkerOutput  = '_out/prog'
   .LinkerOptions = '"%1" -o "%2"'
@@ -124,4 +126,4 @@ Executable('run_sync')
 
 Alias('samples') { .Targets = { 'run_structured', 'run_unstructured', 'run_image', 'run_sync' } }
 
-Alias('all') { .Targets = { 'samples', 'shaders' } }
+Alias('all') { .Targets = { 'cudaview', 'shaders', 'samples' } }
