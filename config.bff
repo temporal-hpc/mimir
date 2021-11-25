@@ -1,0 +1,24 @@
+#once
+
+.CudaPath = '/usr/local/cuda/'
+.CudaCompilerPath = .CudaPath + 'bin/nvcc'
+.CudaIncludePath  = .CudaPath + 'include'
+
+.BuildType    = 'Debug'
+.FlagsDebug   = ' -g'
+.FlagsRelease = ' -O3 -Wall -Wshadow -Wcast-align'
+
+.Librarian        = '/usr/bin/ar'
+.LibrarianOptions = 'rcs "%2" "%1"'
+
+Compiler('CudaCompiler')
+{
+  .Executable     = .CudaCompilerPath
+  .CompilerFamily = 'cuda-nvcc'
+}
+
+Compiler('ShaderCompiler')
+{
+  .Executable     = '/usr/bin/glslc'
+  .CompilerFamily = 'custom'
+}

@@ -1,16 +1,4 @@
-
-.BuildType    = 'Debug'
-.FlagsDebug   = ' -g'
-.FlagsRelease = ' -O3 -Wall -Wshadow -Wcast-align'
-
-.Librarian        = '/usr/bin/ar'
-.LibrarianOptions = 'rcs "%2" "%1"'
-
-Compiler('ShaderCompiler')
-{
-  .Executable = '/usr/bin/glslc'
-  .CompilerFamily = 'custom'
-}
+#include "config.bff"
 
 ObjectList('shaders')
 {
@@ -35,7 +23,7 @@ Library('cudaview')
 {
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = '-o "%2" "%1" -c'
-                      + ' -Iinclude -I/usr/local/cuda/include'
+                      + ' -Iinclude -I$CudaIncludePath$'
                       + ' -Icontrib/imgui-1.84.2 -Icontrib/stb -Icontrib/color'
                       + ' -std=c++17'
                       + .'Flags$BuildType$'
@@ -47,7 +35,7 @@ Library('cudaview')
 
 ObjectList('cuda-structured')
 {
-  .Compiler             = '/usr/local/cuda/bin/nvcc'
+  .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17 -g -G'
                         + ' -Isamples/include -Iinclude -Icontrib/stb'
@@ -58,7 +46,7 @@ ObjectList('cuda-structured')
 
 ObjectList('cuda-unstructured')
 {
-  .Compiler             = '/usr/local/cuda/bin/nvcc'
+  .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17'
                         + ' -Isamples/include -Iinclude'
@@ -69,7 +57,7 @@ ObjectList('cuda-unstructured')
 
 ObjectList('cuda-image')
 {
-  .Compiler             = '/usr/local/cuda/bin/nvcc'
+  .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17'
                         + ' -Isamples/include -Iinclude -Icontrib/stb'
@@ -80,7 +68,7 @@ ObjectList('cuda-image')
 
 ObjectList('cuda-sync')
 {
-  .Compiler             = '/usr/local/cuda/bin/nvcc'
+  .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17 -Iinclude'
   .CompilerInputPath    = 'samples/GPU-visual-tool-example'
@@ -91,7 +79,7 @@ ObjectList('cuda-sync')
 Executable('run_structured')
 {
   .Libraries     = { 'cudaview', 'cuda-structured' }
-  .Linker        = '/usr/local/cuda/bin/nvcc'
+  .Linker        = .CudaCompilerPath
   .LinkerOutput  = '_out/run_structured'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
@@ -100,7 +88,7 @@ Executable('run_structured')
 Executable('run_unstructured')
 {
   .Libraries     = { 'cudaview', 'cuda-unstructured' }
-  .Linker        = '/usr/local/cuda/bin/nvcc'
+  .Linker        = .CudaCompilerPath
   .LinkerOutput  = '_out/run_unstructured'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
@@ -109,7 +97,7 @@ Executable('run_unstructured')
 Executable('run_image')
 {
   .Libraries     = { 'cudaview', 'cuda-image' }
-  .Linker        = '/usr/local/cuda/bin/nvcc'
+  .Linker        = .CudaCompilerPath
   .LinkerOutput  = '_out/run_image'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
@@ -118,7 +106,7 @@ Executable('run_image')
 Executable('run_sync')
 {
   .Libraries     = { 'cudaview', 'cuda-sync' }
-  .Linker        = '/usr/local/cuda/bin/nvcc'
+  .Linker        = .CudaCompilerPath
   .LinkerOutput  = '_out/prog'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
