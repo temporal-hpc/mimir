@@ -3,6 +3,7 @@
 #include "io.hpp"
 
 #include <algorithm> // std::clamp
+#include <filesystem> // std::filesystem
 
 #include "cudaview/vk_types.hpp"
 
@@ -509,13 +510,16 @@ void VulkanEngine::createTextureGraphicsPipeline(
 
 void VulkanEngine::createGraphicsPipelines()
 {
+  auto exec_path = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
+  std::filesystem::current_path(exec_path);
+
   createGraphicsPipeline(
-    "_out/shaders/unstructured/particle_pos.spv",
-    "_out/shaders/unstructured/particle_draw.spv"
+    "shaders/unstructured/particle_pos.spv",
+    "shaders/unstructured/particle_draw.spv"
   );
   createTextureGraphicsPipeline(
-    "_out/shaders/structured/screen_triangle.spv",
-    "_out/shaders/structured/texture_greyscale.spv"
+    "shaders/structured/screen_triangle.spv",
+    "shaders/structured/texture_greyscale.spv"
   );
 }
 
