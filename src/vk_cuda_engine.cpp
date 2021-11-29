@@ -47,12 +47,7 @@ VulkanCudaEngine::VulkanCudaEngine(int2 extent, cudaStream_t cuda_stream):
   cuda_unstructured_data(nullptr),
   cuda_extmem_unstructured(nullptr),
   vk_unstructured_buffer(VK_NULL_HANDLE),
-  vk_unstructured_memory(VK_NULL_HANDLE),
-
-  cuda_structured_data(nullptr),
-  cuda_extmem_structured(nullptr),
-  vk_structured_buffer(VK_NULL_HANDLE),
-  vk_structured_memory(VK_NULL_HANDLE)
+  vk_unstructured_memory(VK_NULL_HANDLE)
 {}
 
 VulkanCudaEngine::~VulkanCudaEngine()
@@ -93,17 +88,33 @@ VulkanCudaEngine::~VulkanCudaEngine()
     vkFreeMemory(device, vk_unstructured_memory, nullptr);
   }
 
-  if (cuda_structured_data != nullptr)
+  if (texture_sampler != VK_NULL_HANDLE)
   {
-    checkCuda(cudaDestroyExternalMemory(cuda_extmem_structured));
+    vkDestroySampler(device, texture_sampler, nullptr);
   }
-  if (vk_structured_buffer != VK_NULL_HANDLE)
+
+  for (auto& buffer : structured_buffers)
   {
-    vkDestroyBuffer(device, vk_structured_buffer, nullptr);
-  }
-  if (vk_structured_memory != VK_NULL_HANDLE)
-  {
-    vkFreeMemory(device, vk_structured_memory, nullptr);
+    if (buffer.cuda_ptr != nullptr)
+    {
+      checkCuda(cudaDestroyExternalMemory(buffer.cuda_extmem));
+    }
+    if (buffer.vk_buffer != VK_NULL_HANDLE)
+    {
+      vkDestroyBuffer(device, buffer.vk_buffer, nullptr);
+    }
+    if (buffer.vk_memory != VK_NULL_HANDLE)
+    {
+      vkFreeMemory(device, buffer.vk_memory, nullptr);
+    }
+    if (buffer.vk_view != VK_NULL_HANDLE)
+    {
+      vkDestroyImageView(device, buffer.vk_view, nullptr);
+    }
+    if (buffer.vk_image != VK_NULL_HANDLE)
+    {
+      vkDestroyImage(device, buffer.vk_image, nullptr);
+    }
   }
 }
 
@@ -177,28 +188,38 @@ void VulkanCudaEngine::registerUnstructuredMemory(void **ptr_devmem,
 void VulkanCudaEngine::registerStructuredMemory(void **ptr_devmem,
   size_t width, size_t height, size_t elem_size, DataFormat format)
 {
-  auto vk_format = getVulkanFormat(format);
+  MappedStructuredMemory mapped{};
+  mapped.element_count = width * height;
+  mapped.element_size  = elem_size;
+  mapped.cuda_ptr      = nullptr;
+  mapped.cuda_extmem   = nullptr;
+  mapped.vk_format     = getVulkanFormat(format);
+  mapped.vk_buffer     = VK_NULL_HANDLE;
+  mapped.vk_memory     = VK_NULL_HANDLE;
+  mapped.vk_image      = VK_NULL_HANDLE;
+  mapped.vk_view       = VK_NULL_HANDLE;
+  mapped.extent        = { width, height };
 
   // Init structured memory
-  createExternalImage(width, height, vk_format,
+  createExternalImage(width, height, mapped.vk_format,
     VK_IMAGE_TILING_LINEAR,
     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    texture_image, vk_structured_memory
+    mapped.vk_image, mapped.vk_memory
   );
-  importCudaExternalMemory(&cuda_structured_data, cuda_extmem_structured,
-    vk_structured_memory, elem_size * width * height
+  importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
+    mapped.vk_memory, mapped.element_size * width * height
   );
 
-  transitionImageLayout(texture_image, vk_format,
+  transitionImageLayout(mapped.vk_image, mapped.vk_format,
     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
-  texture_view = createImageView(texture_image, vk_format);
-  createTextureSampler();
+  mapped.vk_view = createImageView(mapped.vk_image, mapped.vk_format);
 
+  structured_buffers.push_back(mapped);
   updateDescriptorsStructured();
   toggleRenderingMode("structured");
-  *ptr_devmem = cuda_structured_data;
+  *ptr_devmem = mapped.cuda_ptr;
 }
 
 void VulkanCudaEngine::registerFunction(std::function<void(void)> func,
@@ -384,4 +405,100 @@ void VulkanCudaEngine::updateWindow()
   cudaSemaphoreSignal();
   ul.unlock();
   cond.notify_one();
+}
+
+void VulkanCudaEngine::updateDescriptorsUnstructured()
+{
+  for (size_t i = 0; i < descriptor_sets.size(); ++i)
+  {
+    VkDescriptorBufferInfo mvp_info{};
+    mvp_info.buffer = uniform_buffers[i];
+    mvp_info.offset = 0;
+    mvp_info.range  = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+
+    std::array<VkWriteDescriptorSet, 2> desc_writes{};
+    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[0].dstSet           = descriptor_sets[i];
+    desc_writes[0].dstBinding       = 0;
+    desc_writes[0].dstArrayElement  = 0;
+    desc_writes[0].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[0].descriptorCount  = 1;
+    desc_writes[0].pBufferInfo      = &mvp_info;
+    desc_writes[0].pImageInfo       = nullptr;
+    desc_writes[0].pTexelBufferView = nullptr;
+
+    VkDescriptorBufferInfo extent_info{};
+    extent_info.buffer = uniform_buffers[i];
+    extent_info.offset = sizeof(UniformBufferObject);
+    extent_info.range  = sizeof(SceneParams);
+
+    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[1].dstSet           = descriptor_sets[i];
+    desc_writes[1].dstBinding       = 1;
+    desc_writes[1].dstArrayElement  = 0;
+    desc_writes[1].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[1].descriptorCount  = 1;
+    desc_writes[1].pBufferInfo      = &extent_info;
+    desc_writes[1].pImageInfo       = nullptr;
+    desc_writes[1].pTexelBufferView = nullptr;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
+      desc_writes.data(), 0, nullptr
+    );
+  }
+}
+
+void VulkanCudaEngine::updateDescriptorsStructured()
+{
+  for (size_t i = 0; i < descriptor_sets.size(); ++i)
+  {
+    std::array<VkWriteDescriptorSet, 3> desc_writes{};
+
+    VkDescriptorBufferInfo mvp_info{};
+    mvp_info.buffer = uniform_buffers[i];
+    mvp_info.offset = 0;
+    mvp_info.range  = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+
+    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[0].dstSet           = descriptor_sets[i];
+    desc_writes[0].dstBinding       = 0;
+    desc_writes[0].dstArrayElement  = 0;
+    desc_writes[0].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[0].descriptorCount  = 1;
+    desc_writes[0].pBufferInfo      = &mvp_info;
+    desc_writes[0].pImageInfo       = nullptr;
+    desc_writes[0].pTexelBufferView = nullptr;
+
+    VkDescriptorBufferInfo extent_info{};
+    extent_info.buffer = uniform_buffers[i];
+    extent_info.offset = sizeof(UniformBufferObject);
+    extent_info.range  = sizeof(SceneParams);
+
+    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[1].dstSet           = descriptor_sets[i];
+    desc_writes[1].dstBinding       = 1;
+    desc_writes[1].dstArrayElement  = 0;
+    desc_writes[1].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_writes[1].descriptorCount  = 1;
+    desc_writes[1].pBufferInfo      = &extent_info;
+    desc_writes[1].pImageInfo       = nullptr;
+    desc_writes[1].pTexelBufferView = nullptr;
+
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.imageView   = structured_buffers[0].vk_view;
+    image_info.sampler     = texture_sampler;
+
+    desc_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    desc_writes[2].dstSet          = descriptor_sets[i];
+    desc_writes[2].dstBinding      = 2;
+    desc_writes[2].dstArrayElement = 0;
+    desc_writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    desc_writes[2].descriptorCount = 1;
+    desc_writes[2].pImageInfo      = &image_info;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
+      desc_writes.data(), 0, nullptr
+    );
+  }
 }

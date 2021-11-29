@@ -81,9 +81,6 @@ protected:
   VkDeviceMemory index_buffer_memory;
   uint64_t current_frame;
 
-  VkImage texture_image;
-  VkImageView texture_view;
-
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
   );
@@ -100,11 +97,7 @@ protected:
   void createExternalSemaphore(VkSemaphore& semaphore);
   VkCommandBuffer beginSingleTimeCommands();
   void endSingleTimeCommands(VkCommandBuffer command_buffer);
-  void createTextureImage();
-  void createTextureImageView();
   void createTextureSampler();
-  void updateDescriptorsUnstructured();
-  void updateDescriptorsStructured();
   void createImage(uint32_t width, uint32_t height, VkFormat format,
     VkImageTiling tiling, VkImageUsageFlags usage,
     VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
@@ -136,14 +129,14 @@ protected:
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   virtual void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
 
+  std::vector<VkDescriptorSet> descriptor_sets;
+  VkSampler texture_sampler;
 private:
   VkDescriptorPool imgui_pool, descriptor_pool;
-  std::vector<VkDescriptorSet> descriptor_sets;
   std::map<std::string, bool> rendering_modes;
 
   VkBuffer staging_buffer;
   VkDeviceMemory staging_memory;
-  VkSampler texture_sampler;
   VkDeviceMemory texture_memory;
 
   void initImgui();

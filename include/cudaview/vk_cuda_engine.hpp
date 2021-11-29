@@ -12,6 +12,31 @@ enum class DataFormat
   Rgba32
 };
 
+struct MappedUnstructuredMemory
+{
+  void *cuda_ptr;
+  cudaExternalMemory_t cuda_extmem;
+  size_t element_count;
+  size_t element_size;
+  VkFormat vk_format;
+  VkBuffer vk_buffer;
+  VkDeviceMemory vk_memory;
+};
+
+struct MappedStructuredMemory
+{
+  void *cuda_ptr;
+  cudaExternalMemory_t cuda_extmem;
+  size_t element_count;
+  size_t element_size;
+  VkFormat vk_format;
+  VkBuffer vk_buffer;
+  VkDeviceMemory vk_memory;
+  VkImage vk_image;
+  VkImageView vk_view;
+  std::array<ulong, 3> extent;
+};
+
 class VulkanCudaEngine : public VulkanEngine
 {
 public:
@@ -39,15 +64,13 @@ private:
   cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
+  std::vector<MappedStructuredMemory> structured_buffers;
+  std::vector<MappedUnstructuredMemory> unstructured_buffers;
+
   void *cuda_unstructured_data;
   cudaExternalMemory_t cuda_extmem_unstructured;
   VkBuffer vk_unstructured_buffer;
   VkDeviceMemory vk_unstructured_memory;
-
-  void *cuda_structured_data;
-  cudaExternalMemory_t cuda_extmem_structured;
-  VkBuffer vk_structured_buffer;
-  VkDeviceMemory vk_structured_memory;
 
   void initVulkan();
   void cudaSemaphoreSignal();
@@ -68,6 +91,9 @@ private:
   void importCudaExternalSemaphore(
     cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
   );
+
+  void updateDescriptorsUnstructured();
+  void updateDescriptorsStructured();
 
   // Handle additional extensions required by CUDA interop
   std::vector<const char*> getRequiredExtensions() const;

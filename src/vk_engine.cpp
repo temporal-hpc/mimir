@@ -57,9 +57,8 @@ VulkanEngine::VulkanEngine():
 
   staging_buffer(VK_NULL_HANDLE),
   staging_memory(VK_NULL_HANDLE),
-  texture_image(VK_NULL_HANDLE),
+  //texture_image(VK_NULL_HANDLE),
   texture_memory(VK_NULL_HANDLE),
-  texture_view(VK_NULL_HANDLE),
   texture_sampler(VK_NULL_HANDLE)
 {}
 
@@ -71,18 +70,6 @@ VulkanEngine::~VulkanEngine()
   if (imgui_pool != VK_NULL_HANDLE)
   {
     vkDestroyDescriptorPool(device, imgui_pool, nullptr);
-  }
-  if (texture_sampler != VK_NULL_HANDLE)
-  {
-    vkDestroySampler(device, texture_sampler, nullptr);
-  }
-  if (texture_view != VK_NULL_HANDLE)
-  {
-    vkDestroyImageView(device, texture_view, nullptr);
-  }
-  if (texture_image != VK_NULL_HANDLE)
-  {
-    vkDestroyImage(device, texture_image, nullptr);
   }
   if (texture_memory != VK_NULL_HANDLE)
   {
@@ -191,9 +178,7 @@ void VulkanEngine::initVulkan()
   createCommandPool();
   createDescriptorSetLayout();
 
-  /*createTextureImage();
-  createTextureImageView();
-  createTextureSampler();*/
+  createTextureSampler();
 
   initSwapchain();
 
