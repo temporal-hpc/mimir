@@ -103,7 +103,7 @@ void VulkanEngine::drawFrame()
       VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
       &descriptor_sets[image_idx], 0, nullptr
     );
-    setUnstructuredRendering(command_buffers[image_idx], element_count);
+    setUnstructuredRendering(command_buffers[image_idx]);
   }
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffers[image_idx]);
@@ -219,14 +219,13 @@ void VulkanEngine::createRenderPass()
   );
 }
 
-void VulkanEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
-  uint32_t vertex_count)
+void VulkanEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer)
 {
   VkBuffer vertex_buffers[] = { vertex_buffer };
   VkDeviceSize offsets[] = { 0 };
   auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
   vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
-  vkCmdDraw(cmd_buffer, vertex_count, 1, 0, 0);
+  vkCmdDraw(cmd_buffer, 3, 1, 0, 0);
   // NOTE: For indexed drawing, use the following:
   //vkCmdBindIndexBuffer(command_buffers[i], index_buffer, 0, VK_INDEX_TYPE_UINT16);
   //auto index_count = static_cast<uint32_t>(indices.size());

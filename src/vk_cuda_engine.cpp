@@ -42,12 +42,7 @@ VulkanCudaEngine::VulkanCudaEngine(int2 extent, cudaStream_t cuda_stream):
   stream(cuda_stream),
   //cuda_timeline_semaphore(nullptr),
   cuda_wait_semaphore(nullptr),
-  cuda_signal_semaphore(nullptr),
-
-  cuda_unstructured_data(nullptr),
-  cuda_extmem_unstructured(nullptr),
-  vk_unstructured_buffer(VK_NULL_HANDLE),
-  vk_unstructured_memory(VK_NULL_HANDLE)
+  cuda_signal_semaphore(nullptr)
 {}
 
 VulkanCudaEngine::~VulkanCudaEngine()
@@ -75,22 +70,25 @@ VulkanCudaEngine::~VulkanCudaEngine()
     checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
   }
 
-  if (cuda_unstructured_data != nullptr)
-  {
-    checkCuda(cudaDestroyExternalMemory(cuda_extmem_unstructured));
-  }
-  if (vk_unstructured_buffer != VK_NULL_HANDLE)
-  {
-    vkDestroyBuffer(device, vk_unstructured_buffer, nullptr);
-  }
-  if (vk_unstructured_memory != VK_NULL_HANDLE)
-  {
-    vkFreeMemory(device, vk_unstructured_memory, nullptr);
-  }
-
   if (texture_sampler != VK_NULL_HANDLE)
   {
     vkDestroySampler(device, texture_sampler, nullptr);
+  }
+
+  for (auto& buffer : unstructured_buffers)
+  {
+    if (buffer.cuda_ptr != nullptr)
+    {
+      checkCuda(cudaDestroyExternalMemory(buffer.cuda_extmem));
+    }
+    if (buffer.vk_buffer != VK_NULL_HANDLE)
+    {
+      vkDestroyBuffer(device, buffer.vk_buffer, nullptr);
+    }
+    if (buffer.vk_memory != VK_NULL_HANDLE)
+    {
+      vkFreeMemory(device, buffer.vk_memory, nullptr);
+    }
   }
 
   for (auto& buffer : structured_buffers)
@@ -168,21 +166,30 @@ void VulkanCudaEngine::display()
 void VulkanCudaEngine::registerUnstructuredMemory(void **ptr_devmem,
   size_t elem_count, size_t elem_size)
 {
-  element_count = elem_count;
+  MappedUnstructuredMemory mapped{};
+  mapped.element_count = elem_count;
+  mapped.element_size  = elem_size;
+  mapped.cuda_ptr      = nullptr;
+  mapped.cuda_extmem   = nullptr;
+  mapped.vk_format     = VK_FORMAT_UNDEFINED; //getVulkanFormat(format);
+  mapped.vk_buffer     = VK_NULL_HANDLE;
+  mapped.vk_memory     = VK_NULL_HANDLE;
+
   // Init unstructured memory
-  createExternalBuffer(elem_size * elem_count,
+  createExternalBuffer(mapped.element_size * mapped.element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-    vk_unstructured_buffer, vk_unstructured_memory
+    mapped.vk_buffer, mapped.vk_memory
   );
-  importCudaExternalMemory(&cuda_unstructured_data, cuda_extmem_unstructured,
-    vk_unstructured_memory, elem_size * elem_count
+  importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
+    mapped.vk_memory, mapped.element_size * mapped.element_count
   );
 
+  unstructured_buffers.push_back(mapped);
   updateDescriptorsUnstructured();
   toggleRenderingMode("unstructured");
-  *ptr_devmem = cuda_unstructured_data;
+  *ptr_devmem = mapped.cuda_ptr;
 }
 
 void VulkanCudaEngine::registerStructuredMemory(void **ptr_devmem,
@@ -340,14 +347,13 @@ void VulkanCudaEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal
   signal.push_back(vk_signal_semaphore);
 }
 
-void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
-  uint32_t vertex_count)
+void VulkanCudaEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer)
 {
-  VkBuffer vertex_buffers[] = { vk_unstructured_buffer };
+  VkBuffer vertex_buffers[] = { unstructured_buffers[0].vk_buffer };
   VkDeviceSize offsets[] = { 0 };
   auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
   vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
-  vkCmdDraw(cmd_buffer, vertex_count, 1, 0, 0);
+  vkCmdDraw(cmd_buffer, unstructured_buffers[0].element_count, 1, 0, 0);
 }
 
 void VulkanCudaEngine::getVertexDescriptions(

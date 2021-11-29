@@ -7,7 +7,7 @@
 
 void ImageProgram::setInitialState()
 {
-  std::string filename = "textures/lena512.png";
+  std::string filename = "../textures/lena512.png";
   int channels;
   auto h_pixels = stbi_load(filename.c_str(), &extent.x, &extent.y, &channels,
     STBI_rgb_alpha);

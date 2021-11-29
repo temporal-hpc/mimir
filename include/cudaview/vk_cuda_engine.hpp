@@ -67,15 +67,10 @@ private:
   std::vector<MappedStructuredMemory> structured_buffers;
   std::vector<MappedUnstructuredMemory> unstructured_buffers;
 
-  void *cuda_unstructured_data;
-  cudaExternalMemory_t cuda_extmem_unstructured;
-  VkBuffer vk_unstructured_buffer;
-  VkDeviceMemory vk_unstructured_memory;
-
   void initVulkan();
   void cudaSemaphoreSignal();
   void cudaSemaphoreWait();
-  void setUnstructuredRendering(VkCommandBuffer& cmd_buffer, uint32_t vertex_count);
+  void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
   void updateUniformBuffer(uint32_t image_index);
 
   void getVertexDescriptions(

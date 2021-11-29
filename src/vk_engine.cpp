@@ -21,7 +21,6 @@ static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
 
 VulkanEngine::VulkanEngine():
   should_resize(false),
-  element_count(vertices.size()), // TODO: Handle this default value
   instance(VK_NULL_HANDLE),
   debug_messenger(VK_NULL_HANDLE),
   surface(VK_NULL_HANDLE),

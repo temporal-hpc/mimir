@@ -32,7 +32,6 @@ public:
   void mainLoop();
   void drawGui();
   bool should_resize = false;
-  size_t element_count;
 
   // CPU thread synchronization variables
   bool device_working = false;
@@ -112,9 +111,7 @@ protected:
   VkImageView createImageView(VkImage image, VkFormat format);
   void drawFrame();
 
-  virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer,
-    uint32_t vertex_count
-  );
+  virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
   virtual std::vector<const char*> getRequiredExtensions() const;
   virtual std::vector<const char*> getRequiredDeviceExtensions() const;
   virtual void getVertexDescriptions(
