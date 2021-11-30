@@ -134,7 +134,6 @@ private:
 
   VkBuffer staging_buffer;
   VkDeviceMemory staging_memory;
-  VkDeviceMemory texture_memory;
 
   void initImgui();
   void setupDebugMessenger();

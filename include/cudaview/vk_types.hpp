@@ -12,7 +12,7 @@
 #include <array> // std::array (vertex buffer)
 #include <vector> // std::vector
 
-struct UniformBufferObject
+struct ModelViewProjection
 {
   glm::mat4 model;
   glm::mat4 view;

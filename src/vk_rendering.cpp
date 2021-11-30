@@ -68,14 +68,14 @@ void VulkanEngine::drawFrame()
 
   VkRenderPassBeginInfo render_pass_info{};
   render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  render_pass_info.renderPass = render_pass;
+  render_pass_info.renderPass  = render_pass;
   render_pass_info.framebuffer = framebuffers[image_idx];
   render_pass_info.renderArea.offset = {0, 0};
   render_pass_info.renderArea.extent = swapchain_extent;
 
-  VkClearValue clear_color = {{{.5f, .5f, .5f, 1.f}}};
+  VkClearValue clear_color         = {{{.5f, .5f, .5f, 1.f}}};
   render_pass_info.clearValueCount = 1;
-  render_pass_info.pClearValues = &clear_color;
+  render_pass_info.pClearValues    = &clear_color;
 
   vkCmdBeginRenderPass(command_buffers[image_idx], &render_pass_info,
     VK_SUBPASS_CONTENTS_INLINE
@@ -124,17 +124,16 @@ void VulkanEngine::drawFrame()
   getWaitFrameSemaphores(wait_semaphores, wait_stages);
 
   submit_info.waitSemaphoreCount = (uint32_t)wait_semaphores.size();
-  submit_info.pWaitSemaphores = wait_semaphores.data();
-  submit_info.pWaitDstStageMask = wait_stages.data();
-
+  submit_info.pWaitSemaphores    = wait_semaphores.data();
+  submit_info.pWaitDstStageMask  = wait_stages.data();
   submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers = &command_buffers[image_idx];
+  submit_info.pCommandBuffers    = &command_buffers[image_idx];
 
   std::vector<VkSemaphore> signal_semaphores;
   getSignalFrameSemaphores(signal_semaphores);
   signal_semaphores.push_back(render_finished[frame_idx]); // vk_timeline_semaphore
   submit_info.signalSemaphoreCount = (uint32_t)signal_semaphores.size();
-  submit_info.pSignalSemaphores = signal_semaphores.data();
+  submit_info.pSignalSemaphores    = signal_semaphores.data();
 
   /*VkTimelineSemaphoreSubmitInfo timeline_info{};
   timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -158,9 +157,9 @@ void VulkanEngine::drawFrame()
   present_info.waitSemaphoreCount = 1;
   //present_info.pWaitSemaphores = &vk_presentation_semaphore;
   present_info.pWaitSemaphores = &render_finished[frame_idx];
-  present_info.swapchainCount = 1;
-  present_info.pSwapchains = swapchains;
-  present_info.pImageIndices = &image_idx;
+  present_info.swapchainCount  = 1;
+  present_info.pSwapchains     = swapchains;
+  present_info.pImageIndices   = &image_idx;
 
   result = vkQueuePresentKHR(present_queue, &present_info);
   // Resize should be done after presentation to ensure semaphore consistency
@@ -177,42 +176,42 @@ void VulkanEngine::drawFrame()
 void VulkanEngine::createRenderPass()
 {
   VkAttachmentDescription color_attachment{};
-  color_attachment.format = swapchain_format;
-  color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  color_attachment.format         = swapchain_format;
+  color_attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+  color_attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+  color_attachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  color_attachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+  color_attachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
   VkAttachmentReference color_attachment_ref{};
   color_attachment_ref.attachment = 0;
-  color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  color_attachment_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
   VkSubpassDescription subpass{};
-  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
   subpass.colorAttachmentCount = 1;
-  subpass.pColorAttachments = &color_attachment_ref;
+  subpass.pColorAttachments    = &color_attachment_ref;
 
   // Specify memory and execution dependencies between subpasses
   VkSubpassDependency dependency{};
-  dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-  dependency.dstSubpass = 0;
-  dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
+  dependency.dstSubpass    = 0;
+  dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   dependency.srcAccessMask = 0;
-  dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
                              VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
   VkRenderPassCreateInfo renderpass_info{};
   renderpass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
   renderpass_info.attachmentCount = 1;
-  renderpass_info.pAttachments = &color_attachment;
-  renderpass_info.subpassCount = 1;
-  renderpass_info.pSubpasses = &subpass;
+  renderpass_info.pAttachments    = &color_attachment;
+  renderpass_info.subpassCount    = 1;
+  renderpass_info.pSubpasses      = &subpass;
   renderpass_info.dependencyCount = 1;
-  renderpass_info.pDependencies = &dependency;
+  renderpass_info.pDependencies   = &dependency;
 
   validation::checkVulkan(vkCreateRenderPass(
     device, &renderpass_info, nullptr, &render_pass)
@@ -237,19 +236,19 @@ void VulkanEngine::getVertexDescriptions(
   std::vector<VkVertexInputAttributeDescription>& attr_desc)
 {
   bind_desc.resize(1);
-  bind_desc[0].binding = 0;
-  bind_desc[0].stride = sizeof(Vertex);
+  bind_desc[0].binding   = 0;
+  bind_desc[0].stride    = sizeof(Vertex);
   bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
   attr_desc.resize(2);
-  attr_desc[0].binding = 0;
+  attr_desc[0].binding  = 0;
   attr_desc[0].location = 0;
-  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
-  attr_desc[0].offset = offsetof(Vertex, pos);
-  attr_desc[1].binding = 0;
+  attr_desc[0].format   = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc[0].offset   = offsetof(Vertex, pos);
+  attr_desc[1].binding  = 0;
   attr_desc[1].location = 1;
-  attr_desc[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-  attr_desc[1].offset = offsetof(Vertex, color);
+  attr_desc[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+  attr_desc[1].offset   = offsetof(Vertex, color);
 }
 
 void VulkanEngine::getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info)

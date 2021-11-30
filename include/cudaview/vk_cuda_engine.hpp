@@ -87,8 +87,7 @@ private:
     cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
   );
 
-  void updateDescriptorsUnstructured();
-  void updateDescriptorsStructured();
+  void updateDescriptors();
 
   // Handle additional extensions required by CUDA interop
   std::vector<const char*> getRequiredExtensions() const;

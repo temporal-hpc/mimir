@@ -187,7 +187,7 @@ void VulkanCudaEngine::registerUnstructuredMemory(void **ptr_devmem,
   );
 
   unstructured_buffers.push_back(mapped);
-  updateDescriptorsUnstructured();
+  updateDescriptors();
   toggleRenderingMode("unstructured");
   *ptr_devmem = mapped.cuda_ptr;
 }
@@ -224,7 +224,7 @@ void VulkanCudaEngine::registerStructuredMemory(void **ptr_devmem,
   mapped.vk_view = createImageView(mapped.vk_image, mapped.vk_format);
 
   structured_buffers.push_back(mapped);
-  updateDescriptorsStructured();
+  updateDescriptors();
   toggleRenderingMode("structured");
   *ptr_devmem = mapped.cuda_ptr;
 }
@@ -388,7 +388,7 @@ void VulkanCudaEngine::updateUniformBuffer(uint32_t image_index)
   params.extent = glm::ivec2{data_extent.x, data_extent.y};
 
   void *data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], sizeof(UniformBufferObject),
+  vkMapMemory(device, ubo_memory[image_index], sizeof(ModelViewProjection),
     sizeof(SceneParams), 0, &data
   );
   memcpy(data, &params, sizeof(params));
@@ -413,95 +413,65 @@ void VulkanCudaEngine::updateWindow()
   cond.notify_one();
 }
 
-void VulkanCudaEngine::updateDescriptorsUnstructured()
+void VulkanCudaEngine::updateDescriptors()
 {
   for (size_t i = 0; i < descriptor_sets.size(); ++i)
   {
-    VkDescriptorBufferInfo mvp_info{};
-    mvp_info.buffer = uniform_buffers[i];
-    mvp_info.offset = 0;
-    mvp_info.range  = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
-
-    std::array<VkWriteDescriptorSet, 2> desc_writes{};
-    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[0].dstSet           = descriptor_sets[i];
-    desc_writes[0].dstBinding       = 0;
-    desc_writes[0].dstArrayElement  = 0;
-    desc_writes[0].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes[0].descriptorCount  = 1;
-    desc_writes[0].pBufferInfo      = &mvp_info;
-    desc_writes[0].pImageInfo       = nullptr;
-    desc_writes[0].pTexelBufferView = nullptr;
-
-    VkDescriptorBufferInfo extent_info{};
-    extent_info.buffer = uniform_buffers[i];
-    extent_info.offset = sizeof(UniformBufferObject);
-    extent_info.range  = sizeof(SceneParams);
-
-    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[1].dstSet           = descriptor_sets[i];
-    desc_writes[1].dstBinding       = 1;
-    desc_writes[1].dstArrayElement  = 0;
-    desc_writes[1].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes[1].descriptorCount  = 1;
-    desc_writes[1].pBufferInfo      = &extent_info;
-    desc_writes[1].pImageInfo       = nullptr;
-    desc_writes[1].pTexelBufferView = nullptr;
-
-    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
-      desc_writes.data(), 0, nullptr
-    );
-  }
-}
-
-void VulkanCudaEngine::updateDescriptorsStructured()
-{
-  for (size_t i = 0; i < descriptor_sets.size(); ++i)
-  {
-    std::array<VkWriteDescriptorSet, 3> desc_writes{};
+    // Write MVP matrix, scene info and texture samplers
+    std::vector<VkWriteDescriptorSet> desc_writes;
+    desc_writes.reserve(2 + structured_buffers.size());
 
     VkDescriptorBufferInfo mvp_info{};
     mvp_info.buffer = uniform_buffers[i];
     mvp_info.offset = 0;
-    mvp_info.range  = sizeof(UniformBufferObject); // or VK_WHOLE_SIZE
+    mvp_info.range  = sizeof(ModelViewProjection);
 
-    desc_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[0].dstSet           = descriptor_sets[i];
-    desc_writes[0].dstBinding       = 0;
-    desc_writes[0].dstArrayElement  = 0;
-    desc_writes[0].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes[0].descriptorCount  = 1;
-    desc_writes[0].pBufferInfo      = &mvp_info;
-    desc_writes[0].pImageInfo       = nullptr;
-    desc_writes[0].pTexelBufferView = nullptr;
+    VkWriteDescriptorSet write_mvp{};
+    write_mvp.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_mvp.dstSet           = descriptor_sets[i];
+    write_mvp.dstBinding       = 0;
+    write_mvp.dstArrayElement  = 0;
+    write_mvp.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write_mvp.descriptorCount  = 1;
+    write_mvp.pBufferInfo      = &mvp_info;
+    write_mvp.pImageInfo       = nullptr;
+    write_mvp.pTexelBufferView = nullptr;
+    desc_writes.push_back(write_mvp);
 
     VkDescriptorBufferInfo extent_info{};
     extent_info.buffer = uniform_buffers[i];
-    extent_info.offset = sizeof(UniformBufferObject);
+    extent_info.offset = sizeof(ModelViewProjection);
     extent_info.range  = sizeof(SceneParams);
 
-    desc_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[1].dstSet           = descriptor_sets[i];
-    desc_writes[1].dstBinding       = 1;
-    desc_writes[1].dstArrayElement  = 0;
-    desc_writes[1].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    desc_writes[1].descriptorCount  = 1;
-    desc_writes[1].pBufferInfo      = &extent_info;
-    desc_writes[1].pImageInfo       = nullptr;
-    desc_writes[1].pTexelBufferView = nullptr;
+    VkWriteDescriptorSet write_scene{};
+    write_scene.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_scene.dstSet           = descriptor_sets[i];
+    write_scene.dstBinding       = 1;
+    write_scene.dstArrayElement  = 0;
+    write_scene.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write_scene.descriptorCount  = 1;
+    write_scene.pBufferInfo      = &extent_info;
+    write_scene.pImageInfo       = nullptr;
+    write_scene.pTexelBufferView = nullptr;
+    desc_writes.push_back(write_scene);
 
-    VkDescriptorImageInfo image_info{};
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image_info.imageView   = structured_buffers[0].vk_view;
-    image_info.sampler     = texture_sampler;
+    for (const auto& buffer : structured_buffers)
+    {
+      VkDescriptorImageInfo image_info{};
+      image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      image_info.imageView   = buffer.vk_view;
+      image_info.sampler     = texture_sampler;
 
-    desc_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    desc_writes[2].dstSet          = descriptor_sets[i];
-    desc_writes[2].dstBinding      = 2;
-    desc_writes[2].dstArrayElement = 0;
-    desc_writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    desc_writes[2].descriptorCount = 1;
-    desc_writes[2].pImageInfo      = &image_info;
+      VkWriteDescriptorSet write_tex{};
+      write_tex.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      write_tex.dstSet          = descriptor_sets[i];
+      write_tex.dstBinding      = 2;
+      write_tex.dstArrayElement = 0;
+      write_tex.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      write_tex.descriptorCount = 1;
+      write_tex.pImageInfo      = &image_info;
+      desc_writes.push_back(write_tex);
+    }
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
       desc_writes.data(), 0, nullptr

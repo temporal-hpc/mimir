@@ -56,8 +56,6 @@ VulkanEngine::VulkanEngine():
 
   staging_buffer(VK_NULL_HANDLE),
   staging_memory(VK_NULL_HANDLE),
-  //texture_image(VK_NULL_HANDLE),
-  texture_memory(VK_NULL_HANDLE),
   texture_sampler(VK_NULL_HANDLE)
 {}
 
@@ -69,10 +67,6 @@ VulkanEngine::~VulkanEngine()
   if (imgui_pool != VK_NULL_HANDLE)
   {
     vkDestroyDescriptorPool(device, imgui_pool, nullptr);
-  }
-  if (texture_memory != VK_NULL_HANDLE)
-  {
-    vkFreeMemory(device, texture_memory, nullptr);
   }
   if (descriptor_layout != VK_NULL_HANDLE)
   {

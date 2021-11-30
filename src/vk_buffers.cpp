@@ -191,7 +191,7 @@ void VulkanEngine::importExternalBuffer(void *handle, size_t size,
 
 void VulkanEngine::createUniformBuffers()
 {
-  VkDeviceSize buffer_size = sizeof(UniformBufferObject) + sizeof(SceneParams);
+  VkDeviceSize buffer_size = sizeof(ModelViewProjection) + sizeof(SceneParams);
   auto img_count = swapchain_images.size();
   uniform_buffers.resize(img_count);
   ubo_memory.resize(img_count);
@@ -208,7 +208,7 @@ void VulkanEngine::createUniformBuffers()
 
 void VulkanEngine::updateUniformBuffer(uint32_t image_index)
 {
-  UniformBufferObject ubo{};
+  ModelViewProjection ubo{};
   ubo.model = glm::mat4(1.f);
   ubo.view = glm::mat4(1.f);
   ubo.proj = glm::mat4(1.f);
