@@ -32,7 +32,6 @@ VulkanEngine::VulkanEngine():
   render_pass(VK_NULL_HANDLE),
   descriptor_layout(VK_NULL_HANDLE),
   pipeline_layout(VK_NULL_HANDLE),
-  screen_layout(VK_NULL_HANDLE),
   graphics_pipeline(VK_NULL_HANDLE),
   screen_pipeline(VK_NULL_HANDLE),
   command_pool(VK_NULL_HANDLE),

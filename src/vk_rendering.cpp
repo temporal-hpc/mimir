@@ -84,7 +84,7 @@ void VulkanEngine::drawFrame()
       VK_PIPELINE_BIND_POINT_GRAPHICS, screen_pipeline
     );
     vkCmdBindDescriptorSets(command_buffers[image_idx],
-      VK_PIPELINE_BIND_POINT_GRAPHICS, screen_layout, 0, 1,
+      VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
       &descriptor_sets[image_idx], 0, nullptr
     );
     vkCmdDraw(command_buffers[image_idx], 3, 1, 0, 0);
