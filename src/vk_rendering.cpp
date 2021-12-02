@@ -217,15 +217,11 @@ void VulkanEngine::createRenderPass()
 
 void VulkanEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer)
 {
-  VkBuffer vertex_buffers[] = { vertex_buffer };
+  VkBuffer vertex_buffers[] = { unstructured_buffers[0].vk_buffer };
   VkDeviceSize offsets[] = { 0 };
   auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
   vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
-  vkCmdDraw(cmd_buffer, 3, 1, 0, 0);
-  // NOTE: For indexed drawing, use the following:
-  //vkCmdBindIndexBuffer(command_buffers[i], index_buffer, 0, VK_INDEX_TYPE_UINT16);
-  //auto index_count = static_cast<uint32_t>(indices.size());
-  //vkCmdDrawIndexed(command_buffers[i], index_count, 1, 0, 0, 0);*/
+  vkCmdDraw(cmd_buffer, unstructured_buffers[0].element_count, 1, 0, 0);
 }
 
 void VulkanEngine::getVertexDescriptions(
@@ -233,25 +229,20 @@ void VulkanEngine::getVertexDescriptions(
   std::vector<VkVertexInputAttributeDescription>& attr_desc)
 {
   bind_desc.resize(1);
-  bind_desc[0].binding   = 0;
-  bind_desc[0].stride    = sizeof(Vertex);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(float2);
   bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-  attr_desc.resize(2);
-  attr_desc[0].binding  = 0;
+  attr_desc.resize(1);
+  attr_desc[0].binding = 0;
   attr_desc[0].location = 0;
-  attr_desc[0].format   = VK_FORMAT_R32G32_SFLOAT;
-  attr_desc[0].offset   = offsetof(Vertex, pos);
-  attr_desc[1].binding  = 0;
-  attr_desc[1].location = 1;
-  attr_desc[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
-  attr_desc[1].offset   = offsetof(Vertex, color);
+  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc[0].offset = 0;
 }
 
 void VulkanEngine::getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info)
 {
   info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-  //info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   info.primitiveRestartEnable = VK_FALSE;
 }

@@ -7,7 +7,7 @@
 #include <chrono> // std::chrono
 #include <thread> // std::thread
 
-#include "cudaview/vk_cuda_engine.hpp"
+#include "cudaview/vk_engine.hpp"
 
 #define VEL 0.1
 #define BSIZE 256
@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
     CUDA_CALL(cudaMalloc((void **)&dStates, n * sizeof(curandState)));
 
     int width = 900, height = 900;
-    VulkanCudaEngine engine({1, 1});
+    VulkanEngine engine({1, 1});
 
     // [VULKAN] I) CREAR UNA VENTANA VULKAN
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)

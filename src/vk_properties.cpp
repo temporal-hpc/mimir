@@ -14,6 +14,8 @@ std::vector<const char*> VulkanEngine::getRequiredExtensions() const
     // Enable debugging message extension
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   }
+  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
   return extensions;
 }
 
@@ -21,6 +23,11 @@ std::vector<const char*> VulkanEngine::getRequiredDeviceExtensions() const
 {
   std::vector<const char*> extensions;
   extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
   return extensions;
 }
 

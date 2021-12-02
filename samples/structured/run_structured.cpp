@@ -1,5 +1,5 @@
 #include "jump_flood.hpp"
-#include "cudaview/vk_cuda_engine.hpp"
+#include "cudaview/vk_engine.hpp"
 
 #include <iostream>
 
@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
   JumpFloodProgram program(point_count, 512, 512);
   try
   {
-    VulkanCudaEngine engine(program.extent, program.stream);
+    VulkanEngine engine(program.extent, program.stream);
     engine.init(800, 600);
     engine.registerUnstructuredMemory(
       (void**)&program.d_coords, program.element_count, sizeof(float2)

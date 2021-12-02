@@ -1,5 +1,5 @@
 #include "image.hpp"
-#include "cudaview/vk_cuda_engine.hpp"
+#include "cudaview/vk_engine.hpp"
 
 #include <iostream>
 
@@ -15,7 +15,7 @@ int main(int argc, char *argv[])
   ImageProgram program;
   try
   {
-    VulkanCudaEngine engine(program.extent, program.stream);
+    VulkanEngine engine(program.extent, program.stream);
     engine.init(800, 600);
     engine.registerStructuredMemory((void**)&program.d_pixels,
       program.extent.x, program.extent.y, sizeof(uchar4), DataFormat::Rgba32

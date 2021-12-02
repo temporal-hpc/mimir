@@ -5,11 +5,23 @@ static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
 void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
   std::vector<VkPipelineStageFlags>& wait_stages) const
-{}
+{
+  // Wait semaphore has not been initialized on the first frame
+  if (current_frame != 0 && device_working == true)
+  {
+    // Vulkan waits until Cuda is done with the display buffer before rendering
+    wait.push_back(vk_wait_semaphore);
+    // Cuda will wait until all pipeline commands are complete
+    wait_stages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+  }
+}
 
 void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
-{}
-
+{
+  // Vulkan will signal to this semaphore once the device array is ready
+  // for Cuda to process
+  signal.push_back(vk_signal_semaphore);
+}
 
 void VulkanEngine::createSyncObjects() // TODO: add inflight_frame_count as parameter
 {

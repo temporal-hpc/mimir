@@ -222,4 +222,15 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_index)
   vkMapMemory(device, ubo_memory[image_index], 0, sizeof(ubo), 0, &data);
   memcpy(data, &ubo, sizeof(ubo));
   vkUnmapMemory(device, ubo_memory[image_index]);
+
+  SceneParams params{};
+  params.extent = glm::ivec2{data_extent.x, data_extent.y};
+
+  // TODO: Merge mappings
+  data = nullptr;
+  vkMapMemory(device, ubo_memory[image_index], sizeof(ModelViewProjection),
+    sizeof(SceneParams), 0, &data
+  );
+  memcpy(data, &params, sizeof(params));
+  vkUnmapMemory(device, ubo_memory[image_index]);
 }

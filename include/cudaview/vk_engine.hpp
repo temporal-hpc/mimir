@@ -3,11 +3,45 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <cuda_runtime_api.h>
+
 #include <condition_variable> // std::condition_variable
+#include <functional> // std::function
 #include <map> // std::map
 #include <mutex> // std::mutex
 #include <thread> // std::thread
 #include <vector> // std::vector
+
+enum class DataFormat
+{
+  Float32,
+  Rgba32
+};
+
+struct MappedUnstructuredMemory
+{
+  void *cuda_ptr;
+  cudaExternalMemory_t cuda_extmem;
+  size_t element_count;
+  size_t element_size;
+  VkFormat vk_format;
+  VkBuffer vk_buffer;
+  VkDeviceMemory vk_memory;
+};
+
+struct MappedStructuredMemory
+{
+  void *cuda_ptr;
+  cudaExternalMemory_t cuda_extmem;
+  size_t element_count;
+  size_t element_size;
+  VkFormat vk_format;
+  VkBuffer vk_buffer;
+  VkDeviceMemory vk_memory;
+  VkImage vk_image;
+  VkImageView vk_view;
+  std::array<ulong, 3> extent;
+};
 
 struct SwapchainSupportDetails
 {
@@ -19,14 +53,24 @@ struct SwapchainSupportDetails
 class VulkanEngine
 {
 public:
-  VulkanEngine();
-  virtual ~VulkanEngine();
+  VulkanEngine(int2 extent, cudaStream_t stream = 0);
+  ~VulkanEngine();
   void init(int width = 800, int height = 600);
   bool toggleRenderingMode(const std::string& key);
   void mainLoop();
+  void registerUnstructuredMemory(void **ptr_devmem, size_t elem_count, size_t elem_size);
+  void registerStructuredMemory(void **ptr_devmem, size_t width, size_t height,
+    size_t elem_size, DataFormat format
+  );
+  void registerFunction(std::function<void(void)> func, size_t iter_count);
+
+  void display();
+  void displayAsync();
+  void prepareWindow();
+  void updateWindow();
   bool should_resize = false;
 
-protected:
+private:
   GLFWwindow *window;
   VkInstance instance; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
@@ -107,21 +151,24 @@ protected:
   void initSwapchain();
   void cleanupSwapchain();
 
-  virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
-  virtual std::vector<const char*> getRequiredExtensions() const;
-  virtual std::vector<const char*> getRequiredDeviceExtensions() const;
-  virtual void getVertexDescriptions(
+  void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
+
+  // Handle additional extensions required by CUDA interop
+  std::vector<const char*> getRequiredExtensions() const;
+  std::vector<const char*> getRequiredDeviceExtensions() const;
+
+  void getVertexDescriptions(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
     std::vector<VkVertexInputAttributeDescription>& attr_desc
   );
-  virtual void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
-  virtual void updateUniformBuffer(uint32_t image_index);
-  virtual void initVulkan();
+  void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
+  void updateUniformBuffer(uint32_t image_index);
+  void initVulkan();
+  void recreateSwapchain();
 
-  virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
+  void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
-  virtual void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
-  virtual void recreateSwapchain();
+  void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
 
   std::vector<VkDescriptorSet> descriptor_sets;
   VkSampler texture_sampler;
@@ -131,7 +178,6 @@ protected:
   std::mutex mutex;
   std::condition_variable cond;
 
-private:
   VkDescriptorPool imgui_pool, descriptor_pool;
   std::map<std::string, bool> rendering_modes;
 
@@ -171,4 +217,30 @@ private:
   void createIndexBuffer();
   VkBuffer staging_buffer;
   VkDeviceMemory staging_memory;
+
+  // Cuda interop data
+  size_t iteration_count, iteration_idx;
+  int2 data_extent;
+  std::function<void(void)> step_function;
+  cudaStream_t stream;
+  cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
+  //cudaExternalSemaphore_t cuda_timeline_semaphore;
+
+  std::vector<MappedStructuredMemory> structured_buffers;
+  std::vector<MappedUnstructuredMemory> unstructured_buffers;
+
+  void mainLoopThreaded();
+  void cudaSemaphoreSignal();
+  void cudaSemaphoreWait();
+  void updateDescriptors();
+
+  // Interop import functions
+  void importCudaExternalMemory(void **cuda_ptr,
+    cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size
+  );
+  void importCudaExternalSemaphore(
+    cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
+  );
+
+
 };

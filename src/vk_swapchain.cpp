@@ -78,6 +78,7 @@ void VulkanEngine::initSwapchain()
   createDescriptorPool();
   createDescriptorSets();
   createCommandBuffers();
+  updateDescriptors();
 }
 
 void VulkanEngine::recreateSwapchain()
