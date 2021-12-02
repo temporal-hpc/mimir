@@ -3,13 +3,13 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#include <condition_variable>
+#include <condition_variable> // std::condition_variable
 #include <map> // std::map
-#include <mutex>
-#include <thread>
+#include <mutex> // std::mutex
+#include <thread> // std::thread
 #include <vector> // std::vector
 
-struct SwapChainSupportDetails
+struct SwapchainSupportDetails
 {
   VkSurfaceCapabilitiesKHR capabilities;
   std::vector<VkSurfaceFormatKHR> formats;
@@ -22,22 +22,9 @@ public:
   VulkanEngine();
   virtual ~VulkanEngine();
   void init(int width = 800, int height = 600);
-  void *getMemHandle(VkDeviceMemory memory,
-    VkExternalMemoryHandleTypeFlagBits handle_type
-  );
-  void *getSemaphoreHandle(VkSemaphore semaphore,
-    VkExternalSemaphoreHandleTypeFlagBits handle_type
-  );
   bool toggleRenderingMode(const std::string& key);
   void mainLoop();
-  void drawGui();
   bool should_resize = false;
-
-  // CPU thread synchronization variables
-  bool device_working = false;
-  std::thread rendering_thread;
-  std::mutex mutex;
-  std::condition_variable cond;
 
 protected:
   GLFWwindow *window;
@@ -109,7 +96,16 @@ protected:
     VkImageLayout old_layout, VkImageLayout new_layout
   );
   VkImageView createImageView(VkImage image, VkFormat format);
+  void *getMemHandle(VkDeviceMemory memory,
+    VkExternalMemoryHandleTypeFlagBits handle_type
+  );
+  void *getSemaphoreHandle(VkSemaphore semaphore,
+    VkExternalSemaphoreHandleTypeFlagBits handle_type
+  );
   void drawFrame();
+  void drawGui();
+  void initSwapchain();
+  void cleanupSwapchain();
 
   virtual void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
   virtual std::vector<const char*> getRequiredExtensions() const;
@@ -125,15 +121,19 @@ protected:
   virtual void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   virtual void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
+  virtual void recreateSwapchain();
 
   std::vector<VkDescriptorSet> descriptor_sets;
   VkSampler texture_sampler;
+  // CPU thread synchronization variables
+  bool device_working = false;
+  std::thread rendering_thread;
+  std::mutex mutex;
+  std::condition_variable cond;
+
 private:
   VkDescriptorPool imgui_pool, descriptor_pool;
   std::map<std::string, bool> rendering_modes;
-
-  VkBuffer staging_buffer;
-  VkDeviceMemory staging_memory;
 
   void initImgui();
   void setupDebugMessenger();
@@ -154,8 +154,6 @@ private:
   void createDescriptorPool();
   void createDescriptorSets();
 
-  void initSwapchain();
-
   void createGraphicsPipeline(
     const std::string& vertex_file, const std::string& fragment_file
   );
@@ -164,18 +162,19 @@ private:
   );
   void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
-  void cleanupSwapchain();
-  void recreateSwapchain();
-
   bool checkAllExtensionsSupported(VkPhysicalDevice device,
     const std::vector<const char*>& device_extensions) const;
   bool isDeviceSuitable(VkPhysicalDevice device) const;
   bool findQueueFamilies(VkPhysicalDevice device,
     uint32_t& graphics_family, uint32_t& present_family) const;
-  SwapChainSupportDetails getSwapchainProperties(VkPhysicalDevice device) const;
+  SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice device) const;
 
   VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
   VkShaderModule createShaderModule(const std::vector<char>& code);
+
+  // TODO: Remove
   void createVertexBuffer();
   void createIndexBuffer();
+  VkBuffer staging_buffer;
+  VkDeviceMemory staging_memory;
 };

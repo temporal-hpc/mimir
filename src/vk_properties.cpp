@@ -101,10 +101,10 @@ bool VulkanEngine::findQueueFamilies(VkPhysicalDevice dev,
   return graphics_family != family_empty && present_family != family_empty;
 }
 
-SwapChainSupportDetails VulkanEngine::getSwapchainProperties(
+SwapchainSupportDetails VulkanEngine::getSwapchainProperties(
   VkPhysicalDevice dev) const
 {
-  SwapChainSupportDetails details;
+  SwapchainSupportDetails details;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev, surface, &details.capabilities);
 
   uint32_t format_count;

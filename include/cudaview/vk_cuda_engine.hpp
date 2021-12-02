@@ -51,7 +51,6 @@ public:
 
   void display();
   void displayAsync();
-  void mainLoopThreaded();
   void prepareWindow();
   void updateWindow();
 
@@ -68,8 +67,11 @@ private:
   std::vector<MappedUnstructuredMemory> unstructured_buffers;
 
   void initVulkan();
+  void recreateSwapchain();
+  void mainLoopThreaded();
   void cudaSemaphoreSignal();
   void cudaSemaphoreWait();
+  void updateDescriptors();
   void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
   void updateUniformBuffer(uint32_t image_index);
 
@@ -86,8 +88,6 @@ private:
   void importCudaExternalSemaphore(
     cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
   );
-
-  void updateDescriptors();
 
   // Handle additional extensions required by CUDA interop
   std::vector<const char*> getRequiredExtensions() const;

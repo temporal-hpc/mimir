@@ -88,6 +88,10 @@ VulkanEngine::~VulkanEngine()
   {
     vkFreeMemory(device, index_buffer_memory, nullptr);
   }
+  if (texture_sampler != VK_NULL_HANDLE)
+  {
+    vkDestroySampler(device, texture_sampler, nullptr);
+  }
 
   /*if (vk_presentation_semaphore != VK_NULL_HANDLE)
   {

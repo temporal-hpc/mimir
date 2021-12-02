@@ -70,11 +70,6 @@ VulkanCudaEngine::~VulkanCudaEngine()
     checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
   }
 
-  if (texture_sampler != VK_NULL_HANDLE)
-  {
-    vkDestroySampler(device, texture_sampler, nullptr);
-  }
-
   for (auto& buffer : unstructured_buffers)
   {
     if (buffer.cuda_ptr != nullptr)
@@ -161,6 +156,12 @@ void VulkanCudaEngine::display()
   }
   device_working = false;
   vkDeviceWaitIdle(device);
+}
+
+void VulkanCudaEngine::recreateSwapchain()
+{
+  VulkanEngine::recreateSwapchain();
+  updateDescriptors();
 }
 
 void VulkanCudaEngine::registerUnstructuredMemory(void **ptr_devmem,

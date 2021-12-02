@@ -85,14 +85,6 @@ void VulkanEngine::recreateSwapchain()
 
   cleanupSwapchain();
   initSwapchain();
-  /*if (texture_image != VK_NULL_HANDLE)
-  {
-    updateDescriptorsStructured();
-  }
-  else
-  {
-    updateDescriptorsUnstructured();
-  }*/
 }
 
 VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities)

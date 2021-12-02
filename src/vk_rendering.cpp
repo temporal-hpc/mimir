@@ -6,8 +6,6 @@
 
 #include "cudaview/vk_types.hpp"
 
-#include <iostream>
-
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
 void VulkanEngine::drawGui()
@@ -32,7 +30,6 @@ void VulkanEngine::drawFrame()
   wait_info.pValues = &wait_value;
   vkWaitSemaphores(device, &wait_info, timeout);*/
 
-  //printf("Frame %lu\n", current_frame);
   auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
   vkWaitForFences(device, 1, &inflight_fences[frame_idx], VK_TRUE, timeout);
 
