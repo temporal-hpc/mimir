@@ -55,9 +55,8 @@ public:
   void registerStructuredMemory(void **ptr_devmem, size_t width, size_t height,
     size_t elem_size, DataFormat format
   );
-  void registerFunction(std::function<void(void)> func, size_t iter_count);
 
-  void display();
+  void display(std::function<void(void)> func, size_t iter_count);
   void displayAsync();
   void prepareWindow();
   void updateWindow();
@@ -116,7 +115,6 @@ private:
   std::map<std::string, bool> rendering_modes;
 
   // Cuda interop data
-  size_t iteration_count, iteration_idx;
   int2 data_extent;
   std::function<void(void)> step_function;
   cudaStream_t stream;
@@ -196,7 +194,6 @@ private:
 
   // Vulkan core-related functions
   void createCoreObjects();
-  void setupDebugMessenger();
   void pickPhysicalDevice();
   void createLogicalDevice();
   void createCommandPool();

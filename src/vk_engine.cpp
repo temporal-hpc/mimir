@@ -1,19 +1,13 @@
 #include "cudaview/vk_engine.hpp"
+
 #include "vk_properties.hpp"
 #include "validation.hpp"
-
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 
-//#include <iostream>
-#include <cstring>
-#include <experimental/source_location> // std::experimental::source_location
-#include <limits> // std::numeric_limits
 #include <set> // std::set
 #include <stdexcept> // std::throw
-
-#include "cudaview/vk_types.hpp"
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
@@ -70,8 +64,6 @@ VulkanEngine::VulkanEngine(int2 extent, cudaStream_t cuda_stream):
   staging_buffer(VK_NULL_HANDLE),
   staging_memory(VK_NULL_HANDLE),
   texture_sampler(VK_NULL_HANDLE),
-  iteration_count(0),
-  iteration_idx(0),
   data_extent(extent),
   stream(cuda_stream),
   //cuda_timeline_semaphore(nullptr),
@@ -269,8 +261,9 @@ void VulkanEngine::displayAsync()
   });
 }
 
-void VulkanEngine::display()
+void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 {
+  size_t iteration_idx = 0;
   device_working = true;
   while(!glfwWindowShouldClose(window))
   {
@@ -281,10 +274,10 @@ void VulkanEngine::display()
     drawFrame();
 
     cudaSemaphoreWait();
-    if (iteration_idx < iteration_count)
+    if (iteration_idx < iter_count)
     {
       // Advance the simulation
-      step_function();
+      func();
       iteration_idx++;
     }
     cudaSemaphoreSignal();
@@ -359,17 +352,9 @@ void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
   *ptr_devmem = mapped.cuda_ptr;
 }
 
-void VulkanEngine::registerFunction(std::function<void(void)> func,
-  size_t iter_count)
-{
-  step_function = func;
-  iteration_count = iter_count;
-}
-
 void VulkanEngine::initVulkan()
 {
   createCoreObjects();
-  setupDebugMessenger();
   pickPhysicalDevice();
   createLogicalDevice();
   createCommandPool();
@@ -426,7 +411,7 @@ void VulkanEngine::createCoreObjects()
   create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
   create_info.pApplicationInfo = &app_info;
 
-  auto extensions = props::getRequiredExtensions();
+  auto extensions = props::getRequiredExtensions(validation::enable_validation_layers);
   create_info.enabledExtensionCount   = extensions.size();
   create_info.ppEnabledExtensionNames = extensions.data();
 
@@ -449,21 +434,19 @@ void VulkanEngine::createCoreObjects()
   //utils::listAvailableExtensions();
   validation::checkVulkan(vkCreateInstance(&create_info, nullptr, &instance));
 
+  if (validation::enable_validation_layers)
+  {
+    // Details about the debug messenger and its callback
+    VkDebugUtilsMessengerCreateInfoEXT create_info{};
+    validation::populateDebugMessengerCreateInfo(create_info);
+
+    validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
+      instance, &create_info, nullptr, &debug_messenger)
+    );
+  }
+
   validation::checkVulkan(
     glfwCreateWindowSurface(instance, window, nullptr, &surface)
-  );
-}
-
-void VulkanEngine::setupDebugMessenger()
-{
-  if (!validation::enable_validation_layers) return;
-
-  // Details about the debug messenger and its callback
-  VkDebugUtilsMessengerCreateInfoEXT create_info{};
-  validation::populateDebugMessengerCreateInfo(create_info);
-
-  validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
-    instance, &create_info, nullptr, &debug_messenger)
   );
 }
 

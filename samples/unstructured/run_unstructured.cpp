@@ -33,10 +33,8 @@ int main(int argc, char *argv[])
 
     // Set up the function that we want to display
     auto timestep_function = std::bind(&CudaProgram::runTimestep, program);
-    engine.registerFunction(timestep_function, iter_count);
-
     // Start rendering loop
-    engine.display();
+    engine.display(timestep_function, iter_count);
   }
   catch (const std::exception& e)
   {

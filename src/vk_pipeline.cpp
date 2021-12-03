@@ -1,7 +1,5 @@
 #include "vk_pipeline.hpp"
 
-#include "vk_initializers.hpp"
-
 VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
 {
   // Combine viewport and scissor rectangle into a viewport state

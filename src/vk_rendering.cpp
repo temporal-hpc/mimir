@@ -5,8 +5,6 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 
-#include "cudaview/vk_types.hpp"
-
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
 void VulkanEngine::drawGui()

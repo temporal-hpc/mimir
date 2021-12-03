@@ -20,13 +20,11 @@ int main(int argc, char *argv[])
     engine.registerStructuredMemory((void**)&program.d_pixels,
       program.extent.x, program.extent.y, sizeof(uchar4), DataFormat::Rgba32
     );
-
     program.setInitialState();
-    auto timestep_function = std::bind(&ImageProgram::runTimestep, program);
-    engine.registerFunction(timestep_function, iter_count);
 
     // Start rendering loop
-    engine.display();
+    auto timestep_function = std::bind(&ImageProgram::runTimestep, program);
+    engine.display(timestep_function, iter_count);
   }
   catch (const std::exception& e)
   {

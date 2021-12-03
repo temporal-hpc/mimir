@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <iostream> // std::cout
 #include <vector> // std::vector
 
 namespace props
@@ -19,8 +20,13 @@ SwapchainSupportDetails getSwapchainProperties(
 );
 
 // Handle additional extensions required by CUDA interop
-std::vector<const char*> getRequiredExtensions();
+std::vector<const char*> getRequiredExtensions(bool enable_validation);
 std::vector<const char*> getRequiredDeviceExtensions();
+void listAvailableExtensions();
+
+bool checkAllExtensionsSupported(VkPhysicalDevice dev,
+  const std::vector<const char*>& device_extensions
+);
 
 bool isDeviceSuitable(VkPhysicalDevice dev, VkSurfaceKHR surface);
 
@@ -28,8 +34,8 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
   uint32_t& graphics_family, uint32_t& present_family
 );
 
-bool checkAllExtensionsSupported(VkPhysicalDevice dev,
-  const std::vector<const char*>& device_extensions
+uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
+  VkMemoryPropertyFlags properties
 );
 
 } // namespace props

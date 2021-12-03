@@ -1,7 +1,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "io.hpp"
 
-#include <fstream> // std::ifstream (for readFile)
+#include <fstream> // std::ifstream
 
 namespace io
 {

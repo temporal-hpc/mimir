@@ -1,10 +1,7 @@
 #include "cudaview/vk_engine.hpp"
 #include "vk_initializers.hpp"
 #include "validation.hpp"
-#include "io.hpp"
-#include "utils.hpp"
-
-#include <cstring> // memcpy
+#include "vk_properties.hpp"
 
 void VulkanEngine::createExternalImage(uint32_t width, uint32_t height,
   VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
@@ -39,7 +36,7 @@ void VulkanEngine::createExternalImage(uint32_t width, uint32_t height,
   alloc_info.pNext = &export_info;
   alloc_info.allocationSize = mem_req.size;
   alloc_info.memoryTypeIndex =
-    utils::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
+    props::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
 
   validation::checkVulkan(
     vkAllocateMemory(device, &alloc_info, nullptr, &image_memory)

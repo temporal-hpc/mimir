@@ -30,11 +30,9 @@ int main(int argc, char *argv[])
 
     program.setInitialState();
 
-    auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);
-    engine.registerFunction(timestep_function, iter_count);
-
     // Start rendering loop
-    engine.display();
+    auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);
+    engine.display(timestep_function, iter_count);
   }
   catch (const std::exception& e)
   {

@@ -1,6 +1,8 @@
 #include "cudaview/vk_engine.hpp"
 #include "validation.hpp"
-#include "utils.hpp"
+#include "vk_properties.hpp"
+
+#include "cudaview/vk_types.hpp"
 
 #include <cstring> // memcpy
 
@@ -22,7 +24,7 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.allocationSize = mem_req.size;
-  auto type = utils::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
+  auto type = props::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
   alloc_info.memoryTypeIndex = type;
   validation::checkVulkan(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
 
@@ -123,7 +125,7 @@ void VulkanEngine::createExternalBuffer(VkDeviceSize size,
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.pNext = &export_info;
   alloc_info.allocationSize = mem_reqs.size;
-  auto type = utils::findMemoryType(physical_device, mem_reqs.memoryTypeBits, properties);
+  auto type = props::findMemoryType(physical_device, mem_reqs.memoryTypeBits, properties);
   alloc_info.memoryTypeIndex = type;
 
   validation::checkVulkan(vkAllocateMemory(
@@ -182,7 +184,7 @@ void VulkanEngine::importExternalBuffer(void *handle, size_t size,
   mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   mem_alloc.pNext = (void*)&handle_info;
   mem_alloc.allocationSize = size;
-  auto type = utils::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
+  auto type = props::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
   mem_alloc.memoryTypeIndex = type;
 
   validation::checkVulkan(vkAllocateMemory(device, &mem_alloc, nullptr, &memory));

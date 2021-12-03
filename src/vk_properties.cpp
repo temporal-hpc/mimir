@@ -1,7 +1,6 @@
 #include "vk_properties.hpp"
 
-#include "cudaview/vk_engine.hpp"
-#include "validation.hpp"
+#include <GLFW/glfw3.h> // glfwGetRequiredInstanceExtensions
 
 #include <set> // std::set
 
@@ -9,12 +8,12 @@ namespace props
 {
 
 // List required GLFW extensions and additional required validation layers
-std::vector<const char*> getRequiredExtensions()
+std::vector<const char*> getRequiredExtensions(bool enable_validation)
 {
   uint32_t glfw_ext_count = 0;
   const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
   std::vector<const char*> extensions(glfw_exts, glfw_exts + glfw_ext_count);
-  if (validation::enable_validation_layers)
+  if (enable_validation)
   {
     // Enable debugging message extension
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -36,6 +35,20 @@ std::vector<const char*> getRequiredDeviceExtensions()
   return extensions;
 }
 
+void listAvailableExtensions()
+{
+  uint32_t extension_count = 0;
+  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
+  std::vector<VkExtensionProperties> available_exts(extension_count);
+  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_exts.data());
+
+  std::cout << "Available extensions:\n";
+  for (const auto& extension : available_exts)
+  {
+    std::cout << '\t' << extension.extensionName << '\n';
+  }
+}
+
 bool checkAllExtensionsSupported(VkPhysicalDevice dev,
   const std::vector<const char*>& device_extensions)
 {
@@ -50,7 +63,6 @@ bool checkAllExtensionsSupported(VkPhysicalDevice dev,
   std::set<std::string> required_extensions(
     device_extensions.begin(), device_extensions.end()
   );
-
   for (const auto& extension : available_extensions)
   {
     required_extensions.erase(extension.extensionName);
@@ -111,6 +123,23 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
     }
   }
   return graphics_family != family_empty && present_family != family_empty;
+}
+
+uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
+  VkMemoryPropertyFlags properties)
+{
+  VkPhysicalDeviceMemoryProperties mem_props;
+  vkGetPhysicalDeviceMemoryProperties(ph_device, &mem_props);
+
+  for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i)
+  {
+    if ((type_filter & (1 << i)) &&
+        (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
+    {
+      return i;
+    }
+  }
+  return ~0;
 }
 
 SwapchainSupportDetails getSwapchainProperties(
