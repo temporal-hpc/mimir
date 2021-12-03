@@ -1,7 +1,6 @@
 #include "validation.hpp"
 
 #include <cstring> // strcmp
-#include <iostream> // std::cerr
 
 namespace validation
 {
@@ -11,10 +10,9 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
   VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
   VkDebugUtilsMessageTypeFlagsEXT message_type,
   const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data,
-  void *p_user_data
-)
+  void *p_user_data)
 {
-  std::cerr << "validation layer: " << p_callback_data->pMessage << "\n";
+  fprintf(stderr, "Validation layer: %s\n", p_callback_data->pMessage);
   return VK_FALSE;
 }
 
@@ -83,20 +81,22 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance,
   }
 }
 
-void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &create_info)
+// TODO: Should it be in vk_initializers?
+VkDebugUtilsMessengerCreateInfoEXT debugMessengerCreateInfo()
 {
-  create_info = {};
-  create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-  create_info.messageSeverity =
+  VkDebugUtilsMessengerCreateInfoEXT info{};
+  info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+  info.messageSeverity =
     //VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
     VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
     VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-  create_info.messageType =
+  info.messageType =
     VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
     VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
     VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-  create_info.pfnUserCallback = debugCallback;
-  create_info.pUserData = nullptr; // optional
+  info.pfnUserCallback = debugCallback;
+  info.pUserData = nullptr; // optional
+  return info;
 }
 
 bool checkValidationLayerSupport()

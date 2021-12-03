@@ -9,9 +9,9 @@ namespace validation
 
 // Check if validation layers should be enabled
 #ifdef NDEBUG
-  constexpr bool enable_validation_layers = false;
+  constexpr bool enable_layers = false;
 #else
-  constexpr bool enable_validation_layers = true;
+  constexpr bool enable_layers = true;
 #endif
 
 using source_location = std::experimental::source_location;
@@ -66,7 +66,7 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance,
   const VkAllocationCallbacks *p_allocator
 );
 
-void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &create_info);
+VkDebugUtilsMessengerCreateInfoEXT debugMessengerCreateInfo();
 
 bool checkValidationLayerSupport();
 

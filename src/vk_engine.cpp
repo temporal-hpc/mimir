@@ -208,7 +208,7 @@ VulkanEngine::~VulkanEngine()
   {
     vkDestroyDevice(device, nullptr);
   }
-  if (validation::enable_validation_layers)
+  if (validation::enable_layers)
   {
     validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
   }
@@ -393,7 +393,7 @@ void VulkanEngine::importCudaExternalMemory(void **cuda_ptr,
 
 void VulkanEngine::createCoreObjects()
 {
-  if (validation::enable_validation_layers &&
+  if (validation::enable_layers &&
      !validation::checkValidationLayerSupport())
   {
     throw std::runtime_error("validation layers requested, but not supported");
@@ -407,41 +407,39 @@ void VulkanEngine::createCoreObjects()
   app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
   app_info.apiVersion         = VK_API_VERSION_1_2;
 
-  VkInstanceCreateInfo create_info{};
-  create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-  create_info.pApplicationInfo = &app_info;
+  auto extensions = props::getRequiredExtensions(validation::enable_layers);
 
-  auto extensions = props::getRequiredExtensions(validation::enable_validation_layers);
-  create_info.enabledExtensionCount   = extensions.size();
-  create_info.ppEnabledExtensionNames = extensions.data();
+  VkInstanceCreateInfo instance_info{};
+  instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+  instance_info.pApplicationInfo = &app_info;
+  instance_info.enabledExtensionCount   = extensions.size();
+  instance_info.ppEnabledExtensionNames = extensions.data();
 
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
   // Include validation layer names if they are enabled
-  if (validation::enable_validation_layers)
+  if (validation::enable_layers)
   {
-    create_info.enabledLayerCount   = validation::layers.size();
-    create_info.ppEnabledLayerNames = validation::layers.data();
-
-    validation::populateDebugMessengerCreateInfo(debug_create_info);
-    create_info.pNext = &debug_create_info;
+    auto debug_create_info = validation::debugMessengerCreateInfo();
+    instance_info.pNext = &debug_create_info;
+    instance_info.enabledLayerCount   = validation::layers.size();
+    instance_info.ppEnabledLayerNames = validation::layers.data();
   }
   else
   {
-    create_info.enabledLayerCount = 0;
-    create_info.pNext = nullptr;
+    instance_info.pNext = nullptr;
+    instance_info.enabledLayerCount   = 0;
+    instance_info.ppEnabledLayerNames = nullptr;
   }
 
   //utils::listAvailableExtensions();
-  validation::checkVulkan(vkCreateInstance(&create_info, nullptr, &instance));
+  validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
 
-  if (validation::enable_validation_layers)
+  if (validation::enable_layers)
   {
     // Details about the debug messenger and its callback
-    VkDebugUtilsMessengerCreateInfoEXT create_info{};
-    validation::populateDebugMessengerCreateInfo(create_info);
-
+    auto debug_info = validation::debugMessengerCreateInfo();
     validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
-      instance, &create_info, nullptr, &debug_messenger)
+      instance, &debug_info, nullptr, &debug_messenger)
     );
   }
 
@@ -497,7 +495,7 @@ void VulkanEngine::createLogicalDevice()
   VkPhysicalDeviceFeatures device_features{};
   device_features.samplerAnisotropy = VK_TRUE;
 
-  // Must explicitly enable timeline semaphores, or validation layer will complain
+  // Explicitly enable timeline semaphores, or validation layer will complain
   VkPhysicalDeviceVulkan12Features features{};
   features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
   features.timelineSemaphore = true;
@@ -513,7 +511,7 @@ void VulkanEngine::createLogicalDevice()
   create_info.enabledExtensionCount   = device_extensions.size();
   create_info.ppEnabledExtensionNames = device_extensions.data();
 
-  if (validation::enable_validation_layers)
+  if (validation::enable_layers)
   {
     create_info.enabledLayerCount   = validation::layers.size();
     create_info.ppEnabledLayerNames = validation::layers.data();
