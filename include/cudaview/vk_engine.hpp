@@ -43,13 +43,6 @@ struct MappedStructuredMemory
   std::array<ulong, 3> extent;
 };
 
-struct SwapchainSupportDetails
-{
-  VkSurfaceCapabilitiesKHR capabilities;
-  std::vector<VkSurfaceFormatKHR> formats;
-  std::vector<VkPresentModeKHR> present_modes;
-};
-
 class VulkanEngine
 {
 public:
@@ -166,10 +159,6 @@ private:
 
   void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
 
-  // Handle additional extensions required by CUDA interop
-  std::vector<const char*> getRequiredExtensions() const;
-  std::vector<const char*> getRequiredDeviceExtensions() const;
-
   void getVertexDescriptions(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
     std::vector<VkVertexInputAttributeDescription>& attr_desc
@@ -180,13 +169,6 @@ private:
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
-
-  bool checkAllExtensionsSupported(VkPhysicalDevice device,
-    const std::vector<const char*>& device_extensions) const;
-  bool isDeviceSuitable(VkPhysicalDevice device) const;
-  bool findQueueFamilies(VkPhysicalDevice device,
-    uint32_t& graphics_family, uint32_t& present_family) const;
-  SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice device) const;
 
   VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
   VkShaderModule createShaderModule(const std::vector<char>& code);

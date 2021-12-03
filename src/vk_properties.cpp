@@ -1,10 +1,15 @@
+#include "vk_properties.hpp"
+
 #include "cudaview/vk_engine.hpp"
 #include "validation.hpp"
 
 #include <set> // std::set
 
-// Return list of required GLFW extensions and additional required validation layers
-std::vector<const char*> VulkanEngine::getRequiredExtensions() const
+namespace props
+{
+
+// List required GLFW extensions and additional required validation layers
+std::vector<const char*> getRequiredExtensions()
 {
   uint32_t glfw_ext_count = 0;
   const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
@@ -19,7 +24,7 @@ std::vector<const char*> VulkanEngine::getRequiredExtensions() const
   return extensions;
 }
 
-std::vector<const char*> VulkanEngine::getRequiredDeviceExtensions() const
+std::vector<const char*> getRequiredDeviceExtensions()
 {
   std::vector<const char*> extensions;
   extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
@@ -31,8 +36,8 @@ std::vector<const char*> VulkanEngine::getRequiredDeviceExtensions() const
   return extensions;
 }
 
-bool VulkanEngine::checkAllExtensionsSupported(VkPhysicalDevice dev,
-  const std::vector<const char*>& device_extensions) const
+bool checkAllExtensionsSupported(VkPhysicalDevice dev,
+  const std::vector<const char*>& device_extensions)
 {
   // Enumerate extensions and check if all required extensions are included
   uint32_t ext_count;
@@ -53,24 +58,24 @@ bool VulkanEngine::checkAllExtensionsSupported(VkPhysicalDevice dev,
   return required_extensions.empty();
 }
 
-bool VulkanEngine::isDeviceSuitable(VkPhysicalDevice dev) const
+bool isDeviceSuitable(VkPhysicalDevice dev, VkSurfaceKHR surface)
 {
-  uint32_t graphics_index, present_index;
-  auto has_queues = findQueueFamilies(dev, graphics_index, present_index);
-  auto device_extensions = getRequiredDeviceExtensions();
+  uint32_t graphics_idx, present_idx;
+  auto has_queues = findQueueFamilies(dev, surface, graphics_idx, present_idx);
+  auto device_extensions   = getRequiredDeviceExtensions();
   auto supports_extensions = checkAllExtensionsSupported(dev, device_extensions);
-  auto swapchain_support = getSwapchainProperties(dev);
-  auto swapchain_adequate = !swapchain_support.formats.empty() &&
-                            !swapchain_support.present_modes.empty();
+  auto swapchain_support   = getSwapchainProperties(dev, surface);
+  auto swapchain_adequate  = !swapchain_support.formats.empty() &&
+                             !swapchain_support.present_modes.empty();
   VkPhysicalDeviceFeatures supported_features;
   vkGetPhysicalDeviceFeatures(dev, &supported_features);
   return supports_extensions && swapchain_adequate && has_queues
-    && supported_features.samplerAnisotropy;
+      && supported_features.samplerAnisotropy;
 }
 
 // Logic to find queue family indices to populate struct with
-bool VulkanEngine::findQueueFamilies(VkPhysicalDevice dev,
-  uint32_t& graphics_family, uint32_t& present_family) const
+bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
+  uint32_t& graphics_family, uint32_t& present_family)
 {
   constexpr auto family_empty = ~0u;
   // Assign index to queue families that could be found
@@ -108,8 +113,8 @@ bool VulkanEngine::findQueueFamilies(VkPhysicalDevice dev,
   return graphics_family != family_empty && present_family != family_empty;
 }
 
-SwapchainSupportDetails VulkanEngine::getSwapchainProperties(
-  VkPhysicalDevice dev) const
+SwapchainSupportDetails getSwapchainProperties(
+  VkPhysicalDevice dev, VkSurfaceKHR surface)
 {
   SwapchainSupportDetails details;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev, surface, &details.capabilities);
@@ -135,3 +140,5 @@ SwapchainSupportDetails VulkanEngine::getSwapchainProperties(
   }
   return details;
 }
+
+} // namespace props

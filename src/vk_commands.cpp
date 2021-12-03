@@ -1,14 +1,15 @@
 #include "cudaview/vk_engine.hpp"
 #include "vk_initializers.hpp"
+#include "vk_properties.hpp"
 #include "validation.hpp"
 
 void VulkanEngine::createCommandPool()
 {
-  uint32_t graphics_index, present_index;
-  findQueueFamilies(physical_device, graphics_index, present_index);
+  uint32_t graphics_idx, present_idx;
+  props::findQueueFamilies(physical_device, surface, graphics_idx, present_idx);
   auto pool_info = vkinit::commandPoolCreateInfo(
-    graphics_index, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
-
+    graphics_idx, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+  );
   validation::checkVulkan(vkCreateCommandPool(
     device, &pool_info, nullptr, &command_pool)
   );

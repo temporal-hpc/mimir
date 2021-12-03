@@ -1,6 +1,7 @@
 #include "cudaview/vk_engine.hpp"
 #include "vk_initializers.hpp"
 #include "vk_pipeline.hpp"
+#include "vk_properties.hpp"
 #include "validation.hpp"
 #include "io.hpp"
 
@@ -114,7 +115,7 @@ VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabi
 
 void VulkanEngine::createSwapChain()
 {
-  auto swapchain_support = getSwapchainProperties(physical_device);
+  auto swapchain_support = props::getSwapchainProperties(physical_device, surface);
   auto surface_format = chooseSwapSurfaceFormat(swapchain_support.formats);
   auto present_mode = chooseSwapPresentMode(swapchain_support.present_modes);
   auto extent = chooseSwapExtent(swapchain_support.capabilities);
@@ -136,14 +137,14 @@ void VulkanEngine::createSwapChain()
   create_info.imageArrayLayers = 1;
   create_info.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-  uint32_t queue_indices[2];
-  findQueueFamilies(physical_device, queue_indices[0], queue_indices[1]);
+  uint32_t queue_ids[2];
+  props::findQueueFamilies(physical_device, surface, queue_ids[0], queue_ids[1]);
 
-  if (queue_indices[0] != queue_indices[1])
+  if (queue_ids[0] != queue_ids[1])
   {
     create_info.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
     create_info.queueFamilyIndexCount = 2;
-    create_info.pQueueFamilyIndices   = queue_indices;
+    create_info.pQueueFamilyIndices   = queue_ids;
   }
   else
   {

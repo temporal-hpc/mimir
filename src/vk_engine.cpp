@@ -1,5 +1,6 @@
 #include "cudaview/vk_engine.hpp"
 #include "vk_initializers.hpp"
+#include "vk_properties.hpp"
 #include "validation.hpp"
 
 #include "imgui.h"
@@ -481,7 +482,7 @@ void VulkanEngine::createInstance()
   create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
   create_info.pApplicationInfo = &app_info;
 
-  auto extensions = getRequiredExtensions();
+  auto extensions = props::getRequiredExtensions();
   create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
   create_info.ppEnabledExtensionNames = extensions.data();
 
@@ -531,7 +532,7 @@ void VulkanEngine::pickPhysicalDevice()
 
   for (const auto& dev : devices)
   {
-    if (isDeviceSuitable(dev))
+    if (props::isDeviceSuitable(dev, surface))
     {
       physical_device = dev;
       break;
@@ -545,11 +546,11 @@ void VulkanEngine::pickPhysicalDevice()
 
 void VulkanEngine::createLogicalDevice()
 {
-  uint32_t graphics_queue_idx, present_queue_idx;
-  findQueueFamilies(physical_device, graphics_queue_idx, present_queue_idx);
+  uint32_t graphics_idx, present_idx;
+  props::findQueueFamilies(physical_device, surface, graphics_idx, present_idx);
 
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-  std::set unique_queue_families{ graphics_queue_idx, present_queue_idx};
+  std::set unique_queue_families{ graphics_idx, present_idx};
   auto queue_priority = 1.f;
 
   for (auto queue_family : unique_queue_families)
@@ -577,7 +578,7 @@ void VulkanEngine::createLogicalDevice()
   create_info.pQueueCreateInfos    = queue_create_infos.data();
   create_info.pEnabledFeatures     = &device_features;
 
-  auto device_extensions = getRequiredDeviceExtensions();
+  auto device_extensions = props::getRequiredDeviceExtensions();
   create_info.enabledExtensionCount   = device_extensions.size();
   create_info.ppEnabledExtensionNames = device_extensions.data();
 
@@ -596,8 +597,8 @@ void VulkanEngine::createLogicalDevice()
   );
 
   // Must be called after logical device is created (obviously!)
-  vkGetDeviceQueue(device, graphics_queue_idx, 0, &graphics_queue);
-  vkGetDeviceQueue(device, present_queue_idx, 0, &present_queue);
+  vkGetDeviceQueue(device, graphics_idx, 0, &graphics_queue);
+  vkGetDeviceQueue(device, present_idx, 0, &present_queue);
 
   // TODO: Get device UUID
 }
