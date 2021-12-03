@@ -189,34 +189,35 @@ private:
 
   void initVulkan();
   void initImgui();
-  void initSwapchain();
-  void setupDebugMessenger();
-  void pickPhysicalDevice();
-
   void drawFrame();
   void drawGui();
-  void mainLoopThreaded();
   void cudaSemaphoreSignal();
   void cudaSemaphoreWait();
 
+  // Vulkan core-related functions
+  void createCoreObjects();
+  void setupDebugMessenger();
+  void pickPhysicalDevice();
+  void createLogicalDevice();
+  void createCommandPool();
+  void createDescriptorSetLayout();
+  void createTextureSampler();
+  void createSyncObjects();
+
+  // Swapchain-related functions
+  void initSwapchain();
   void cleanupSwapchain();
   void recreateSwapchain();
-  void updateDescriptors();
 
-  void createLogicalDevice();
-  void createInstance();
-  void createSurface();
-  void createSwapChain();
+  // Swapchain subroutines
+  void createSwapchain();
   void createImageViews();
   void createRenderPass();
   void createGraphicsPipelines();
   void createFramebuffers();
-  void createCommandPool();
-  void createCommandBuffers();
-  void createSyncObjects();
-  void createDescriptorSetLayout();
   void createUniformBuffers();
   void createDescriptorPool();
   void createDescriptorSets();
-  void createTextureSampler();
+  void createCommandBuffers();
+  void updateDescriptorSets();
 };

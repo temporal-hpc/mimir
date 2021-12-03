@@ -101,3 +101,57 @@ void *VulkanEngine::getSemaphoreHandle(VkSemaphore semaphore,
 
   return (void*)(uintptr_t)fd;
 }
+
+void VulkanEngine::importCudaExternalSemaphore(
+  cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem)
+{
+  cudaExternalSemaphoreHandleDesc sem_desc{};
+  //sem_desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+  sem_desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
+  sem_desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
+    vk_sem, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
+  );
+  sem_desc.flags = 0;
+  validation::checkCuda(cudaImportExternalSemaphore(&cuda_sem, &sem_desc));
+}
+
+void VulkanEngine::cudaSemaphoreWait()
+{
+  cudaExternalSemaphoreWaitParams wait_params{};
+  wait_params.flags = 0;
+  wait_params.params.fence.value = 0;
+  // Wait for Vulkan to complete its work
+  validation::checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
+    &cuda_wait_semaphore, &wait_params, 1, stream)
+  );
+}
+
+void VulkanEngine::cudaSemaphoreSignal()
+{
+  cudaExternalSemaphoreSignalParams signal_params{};
+  signal_params.flags = 0;
+  signal_params.params.fence.value = 0;
+
+  // Signal Vulkan to continue with the updated buffers
+  validation::checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
+    &cuda_signal_semaphore, &signal_params, 1, stream)
+  );
+}
+
+void VulkanEngine::prepareWindow()
+{
+  std::unique_lock<std::mutex> ul(mutex);
+  device_working = true;
+  cudaSemaphoreWait();
+  ul.unlock();
+  cond.notify_one();
+}
+
+void VulkanEngine::updateWindow()
+{
+  std::unique_lock<std::mutex> ul(mutex);
+  device_working = false;
+  cudaSemaphoreSignal();
+  ul.unlock();
+  cond.notify_one();
+}

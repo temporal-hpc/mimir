@@ -1,5 +1,4 @@
 #include "cudaview/vk_engine.hpp"
-#include "vk_initializers.hpp"
 #include "vk_properties.hpp"
 #include "validation.hpp"
 
@@ -17,23 +16,6 @@
 #include "cudaview/vk_types.hpp"
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
-
-using source_location = std::experimental::source_location;
-
-constexpr void checkCuda(cudaError_t code, bool panic = true,
-  source_location src = source_location::current())
-{
-  if (code != cudaSuccess)
-  {
-    fprintf(stderr, "CUDA assertion: %s on function %s at %s(%d)\n",
-      cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
-    );
-    if (panic)
-    {
-      throw std::runtime_error("CUDA failure!");
-    }
-  }
-}
 
 VkFormat getVulkanFormat(DataFormat format)
 {
@@ -107,26 +89,26 @@ VulkanEngine::~VulkanEngine()
 
   if (stream != nullptr)
   {
-    checkCuda(cudaStreamSynchronize(stream));
+    validation::checkCuda(cudaStreamSynchronize(stream));
   }
   /*if (cuda_timeline_semaphore != nullptr)
   {
-    checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
+    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
   }*/
   if (cuda_wait_semaphore != nullptr)
   {
-    checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
+    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
   }
   if (cuda_signal_semaphore != nullptr)
   {
-    checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
+    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
   }
 
   for (auto& buffer : unstructured_buffers)
   {
     if (buffer.cuda_ptr != nullptr)
     {
-      checkCuda(cudaDestroyExternalMemory(buffer.cuda_extmem));
+      validation::checkCuda(cudaDestroyExternalMemory(buffer.cuda_extmem));
     }
     if (buffer.vk_buffer != VK_NULL_HANDLE)
     {
@@ -142,7 +124,7 @@ VulkanEngine::~VulkanEngine()
   {
     if (buffer.cuda_ptr != nullptr)
     {
-      checkCuda(cudaDestroyExternalMemory(buffer.cuda_extmem));
+      validation::checkCuda(cudaDestroyExternalMemory(buffer.cuda_extmem));
     }
     if (buffer.vk_buffer != VK_NULL_HANDLE)
     {
@@ -268,25 +250,23 @@ void VulkanEngine::init(int width, int height)
 
 void VulkanEngine::displayAsync()
 {
-  rendering_thread = std::thread(&VulkanEngine::mainLoopThreaded, this);
-}
-
-void VulkanEngine::mainLoopThreaded()
-{
-  while(!glfwWindowShouldClose(window))
+  rendering_thread = std::thread([this]()
   {
-    glfwPollEvents(); // TODO: Move to main thread
+    while(!glfwWindowShouldClose(window))
+    {
+      glfwPollEvents(); // TODO: Move to main thread
 
-    drawGui();
+      drawGui();
 
-    std::unique_lock<std::mutex> lock(mutex);
-    cond.wait(lock, [&]{ return device_working == false; });
+      std::unique_lock<std::mutex> lock(mutex);
+      cond.wait(lock, [&]{ return device_working == false; });
 
-    drawFrame();
+      drawFrame();
 
-    lock.unlock();
-  }
-  vkDeviceWaitIdle(device);
+      lock.unlock();
+    }
+    vkDeviceWaitIdle(device);
+  });
 }
 
 void VulkanEngine::display()
@@ -337,7 +317,7 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
   );
 
   unstructured_buffers.push_back(mapped);
-  updateDescriptors();
+  updateDescriptorSets();
   toggleRenderingMode("unstructured");
   *ptr_devmem = mapped.cuda_ptr;
 }
@@ -374,7 +354,7 @@ void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
   mapped.vk_view = createImageView(mapped.vk_image, mapped.vk_format);
 
   structured_buffers.push_back(mapped);
-  updateDescriptors();
+  updateDescriptorSets();
   toggleRenderingMode("structured");
   *ptr_devmem = mapped.cuda_ptr;
 }
@@ -388,14 +368,12 @@ void VulkanEngine::registerFunction(std::function<void(void)> func,
 
 void VulkanEngine::initVulkan()
 {
-  createInstance();
+  createCoreObjects();
   setupDebugMessenger();
-  createSurface();
   pickPhysicalDevice();
   createLogicalDevice();
   createCommandPool();
   createDescriptorSetLayout();
-
   createTextureSampler();
 
   initSwapchain();
@@ -416,53 +394,19 @@ void VulkanEngine::importCudaExternalMemory(void **cuda_ptr,
     vk_mem, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
   );
 
-  checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
+  validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
 
   cudaExternalMemoryBufferDesc buffer_desc{};
   buffer_desc.offset = 0;
   buffer_desc.size = size;
   buffer_desc.flags = 0;
 
-  checkCuda(cudaExternalMemoryGetMappedBuffer(cuda_ptr, cuda_mem, &buffer_desc));
-}
-
-void VulkanEngine::importCudaExternalSemaphore(
-  cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem)
-{
-  cudaExternalSemaphoreHandleDesc sem_desc{};
-  //sem_desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-  sem_desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
-  sem_desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
-    vk_sem, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
-  );
-  sem_desc.flags = 0;
-  checkCuda(cudaImportExternalSemaphore(&cuda_sem, &sem_desc));
-}
-
-void VulkanEngine::cudaSemaphoreWait()
-{
-  cudaExternalSemaphoreWaitParams wait_params{};
-  wait_params.flags = 0;
-  wait_params.params.fence.value = 0;
-  // Wait for Vulkan to complete its work
-  checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
-    &cuda_wait_semaphore, &wait_params, 1, stream)
+  validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+    cuda_ptr, cuda_mem, &buffer_desc)
   );
 }
 
-void VulkanEngine::cudaSemaphoreSignal()
-{
-  cudaExternalSemaphoreSignalParams signal_params{};
-  signal_params.flags = 0;
-  signal_params.params.fence.value = 0;
-
-  // Signal Vulkan to continue with the updated buffers
-  checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
-    &cuda_signal_semaphore, &signal_params, 1, stream)
-  );
-}
-
-void VulkanEngine::createInstance()
+void VulkanEngine::createCoreObjects()
 {
   if (validation::enable_validation_layers &&
      !validation::checkValidationLayerSupport())
@@ -483,14 +427,14 @@ void VulkanEngine::createInstance()
   create_info.pApplicationInfo = &app_info;
 
   auto extensions = props::getRequiredExtensions();
-  create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+  create_info.enabledExtensionCount   = extensions.size();
   create_info.ppEnabledExtensionNames = extensions.data();
 
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
   // Include validation layer names if they are enabled
   if (validation::enable_validation_layers)
   {
-    create_info.enabledLayerCount = static_cast<uint32_t>(validation::layers.size());
+    create_info.enabledLayerCount   = validation::layers.size();
     create_info.ppEnabledLayerNames = validation::layers.data();
 
     validation::populateDebugMessengerCreateInfo(debug_create_info);
@@ -504,6 +448,10 @@ void VulkanEngine::createInstance()
 
   //utils::listAvailableExtensions();
   validation::checkVulkan(vkCreateInstance(&create_info, nullptr, &instance));
+
+  validation::checkVulkan(
+    glfwCreateWindowSurface(instance, window, nullptr, &surface)
+  );
 }
 
 void VulkanEngine::setupDebugMessenger()
@@ -603,13 +551,6 @@ void VulkanEngine::createLogicalDevice()
   // TODO: Get device UUID
 }
 
-void VulkanEngine::createSurface()
-{
-  validation::checkVulkan(
-    glfwCreateWindowSurface(instance, window, nullptr, &surface)
-  );
-}
-
 void VulkanEngine::initImgui()
 {
   VkDescriptorPoolSize pool_sizes[] =
@@ -658,30 +599,6 @@ void VulkanEngine::initImgui()
   ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
-void VulkanEngine::createDescriptorSetLayout()
-{
-  auto ubo_layout = vkinit::descriptorLayoutBinding(0, // binding
-    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
-  );
-  auto extent_layout = vkinit::descriptorLayoutBinding(1, // binding
-    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
-  );
-  auto sampler_layout = vkinit::descriptorLayoutBinding(2, // binding
-    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
-  );
-
-  std::array bindings{ubo_layout, extent_layout, sampler_layout};
-
-  VkDescriptorSetLayoutCreateInfo layout_info{};
-  layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  layout_info.bindingCount = bindings.size();
-  layout_info.pBindings    = bindings.data();
-
-  validation::checkVulkan(vkCreateDescriptorSetLayout(
-    device, &layout_info, nullptr, &descriptor_layout)
-  );
-}
-
 bool VulkanEngine::toggleRenderingMode(const std::string& key)
 {
   // TODO: Use c++-20 map::contains(key)
@@ -692,69 +609,4 @@ bool VulkanEngine::toggleRenderingMode(const std::string& key)
     return true;
   }
   return false;
-}
-
-void VulkanEngine::prepareWindow()
-{
-  std::unique_lock<std::mutex> ul(mutex);
-  device_working = true;
-  cudaSemaphoreWait();
-  ul.unlock();
-  cond.notify_one();
-}
-
-void VulkanEngine::updateWindow()
-{
-  std::unique_lock<std::mutex> ul(mutex);
-  device_working = false;
-  cudaSemaphoreSignal();
-  ul.unlock();
-  cond.notify_one();
-}
-
-void VulkanEngine::updateDescriptors()
-{
-  for (size_t i = 0; i < descriptor_sets.size(); ++i)
-  {
-    // Write MVP matrix, scene info and texture samplers
-    std::vector<VkWriteDescriptorSet> desc_writes;
-    desc_writes.reserve(2 + structured_buffers.size());
-
-    VkDescriptorBufferInfo mvp_info{};
-    mvp_info.buffer = uniform_buffers[i];
-    mvp_info.offset = 0;
-    mvp_info.range  = sizeof(ModelViewProjection);
-
-    auto write_mvp = vkinit::writeDescriptorBuffer(
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &mvp_info, 0
-    );
-    desc_writes.push_back(write_mvp);
-
-    VkDescriptorBufferInfo extent_info{};
-    extent_info.buffer = uniform_buffers[i];
-    extent_info.offset = sizeof(ModelViewProjection);
-    extent_info.range  = sizeof(SceneParams);
-
-    auto write_scene = vkinit::writeDescriptorBuffer(
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &extent_info, 1
-    );
-    desc_writes.push_back(write_scene);
-
-    for (const auto& buffer : structured_buffers)
-    {
-      VkDescriptorImageInfo img_info{};
-      img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      img_info.imageView   = buffer.vk_view;
-      img_info.sampler     = texture_sampler;
-
-      auto write_tex = vkinit::writeDescriptorImage(
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptor_sets[i], &img_info, 2
-      );
-      desc_writes.push_back(write_tex);
-    }
-
-    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
-      desc_writes.data(), 0, nullptr
-    );
-  }
 }

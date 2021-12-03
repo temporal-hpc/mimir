@@ -14,6 +14,23 @@ namespace validation
   constexpr bool enable_validation_layers = true;
 #endif
 
+using source_location = std::experimental::source_location;
+
+constexpr void checkCuda(cudaError_t code, bool panic = true,
+  source_location src = source_location::current())
+{
+  if (code != cudaSuccess)
+  {
+    fprintf(stderr, "CUDA assertion: %s on function %s at %s(%d)\n",
+      cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
+    );
+    if (panic)
+    {
+      throw std::runtime_error("CUDA failure!");
+    }
+  }
+}
+
 // Validation layers to enable
 const std::vector<const char*> layers = {
   "VK_LAYER_KHRONOS_validation"
@@ -22,7 +39,7 @@ const std::vector<const char*> layers = {
 std::string getVulkanErrorString(VkResult code);
 
 constexpr VkResult checkVulkan(VkResult code, bool panic = true,
-  std::experimental::source_location src = std::experimental::source_location::current())
+  source_location src = source_location::current())
 {
   if (code != VK_SUCCESS)
   {

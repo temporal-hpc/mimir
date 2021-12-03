@@ -70,7 +70,7 @@ void VulkanEngine::cleanupSwapchain()
 
 void VulkanEngine::initSwapchain()
 {
-  createSwapChain();
+  createSwapchain();
   createImageViews();
   createRenderPass();
   createGraphicsPipelines();
@@ -79,7 +79,7 @@ void VulkanEngine::initSwapchain()
   createDescriptorPool();
   createDescriptorSets();
   createCommandBuffers();
-  updateDescriptors();
+  updateDescriptorSets();
 }
 
 void VulkanEngine::recreateSwapchain()
@@ -113,7 +113,7 @@ VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabi
   }
 }
 
-void VulkanEngine::createSwapChain()
+void VulkanEngine::createSwapchain()
 {
   auto swapchain_support = props::getSwapchainProperties(physical_device, surface);
   auto surface_format = chooseSwapSurfaceFormat(swapchain_support.formats);
@@ -317,4 +317,75 @@ void VulkanEngine::createDescriptorSets()
   validation::checkVulkan(
     vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data())
   );
+}
+
+void VulkanEngine::createDescriptorSetLayout()
+{
+  auto ubo_layout = vkinit::descriptorLayoutBinding(0, // binding
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+  );
+  auto extent_layout = vkinit::descriptorLayoutBinding(1, // binding
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+  );
+  auto sampler_layout = vkinit::descriptorLayoutBinding(2, // binding
+    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
+  );
+
+  std::array bindings{ubo_layout, extent_layout, sampler_layout};
+
+  VkDescriptorSetLayoutCreateInfo layout_info{};
+  layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  layout_info.bindingCount = bindings.size();
+  layout_info.pBindings    = bindings.data();
+
+  validation::checkVulkan(vkCreateDescriptorSetLayout(
+    device, &layout_info, nullptr, &descriptor_layout)
+  );
+}
+
+void VulkanEngine::updateDescriptorSets()
+{
+  for (size_t i = 0; i < descriptor_sets.size(); ++i)
+  {
+    // Write MVP matrix, scene info and texture samplers
+    std::vector<VkWriteDescriptorSet> desc_writes;
+    desc_writes.reserve(2 + structured_buffers.size());
+
+    VkDescriptorBufferInfo mvp_info{};
+    mvp_info.buffer = uniform_buffers[i];
+    mvp_info.offset = 0;
+    mvp_info.range  = sizeof(ModelViewProjection);
+
+    auto write_mvp = vkinit::writeDescriptorBuffer(
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &mvp_info, 0
+    );
+    desc_writes.push_back(write_mvp);
+
+    VkDescriptorBufferInfo extent_info{};
+    extent_info.buffer = uniform_buffers[i];
+    extent_info.offset = sizeof(ModelViewProjection);
+    extent_info.range  = sizeof(SceneParams);
+
+    auto write_scene = vkinit::writeDescriptorBuffer(
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &extent_info, 1
+    );
+    desc_writes.push_back(write_scene);
+
+    for (const auto& buffer : structured_buffers)
+    {
+      VkDescriptorImageInfo img_info{};
+      img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      img_info.imageView   = buffer.vk_view;
+      img_info.sampler     = texture_sampler;
+
+      auto write_tex = vkinit::writeDescriptorImage(
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptor_sets[i], &img_info, 2
+      );
+      desc_writes.push_back(write_tex);
+    }
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
+      desc_writes.data(), 0, nullptr
+    );
+  }
 }
