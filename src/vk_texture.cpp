@@ -1,4 +1,5 @@
 #include "cudaview/vk_engine.hpp"
+#include "vk_initializers.hpp"
 #include "validation.hpp"
 #include "io.hpp"
 #include "utils.hpp"
@@ -14,19 +15,11 @@ void VulkanEngine::createExternalImage(uint32_t width, uint32_t height,
   ext_info.pNext = nullptr;
   ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
-  VkImageCreateInfo image_info{};
-  image_info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  auto image_info = vkinit::imageCreateInfo(format, usage, width, height);
   image_info.pNext         = &ext_info;
-  image_info.imageType     = VK_IMAGE_TYPE_2D;
-  image_info.extent.width  = width;
-  image_info.extent.height = height;
-  image_info.extent.depth  = 1;
-  image_info.mipLevels     = 1;
-  image_info.arrayLayers   = 1;
   image_info.format        = format;
   image_info.tiling        = tiling;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  image_info.usage         = usage;
   image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
   image_info.samples       = VK_SAMPLE_COUNT_1_BIT;
   image_info.flags         = 0;
@@ -44,42 +37,6 @@ void VulkanEngine::createExternalImage(uint32_t width, uint32_t height,
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.pNext = &export_info;
-  alloc_info.allocationSize = mem_req.size;
-  alloc_info.memoryTypeIndex =
-    utils::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
-
-  validation::checkVulkan(
-    vkAllocateMemory(device, &alloc_info, nullptr, &image_memory)
-  );
-  vkBindImageMemory(device, image, image_memory, 0);
-}
-
-void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format,
-  VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
-  VkImage& image, VkDeviceMemory& image_memory)
-{
-  VkImageCreateInfo image_info{};
-  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  image_info.imageType     = VK_IMAGE_TYPE_2D;
-  image_info.extent.width  = width;
-  image_info.extent.height = height;
-  image_info.extent.depth  = 1;
-  image_info.mipLevels     = 1;
-  image_info.arrayLayers   = 1;
-  image_info.format        = format;
-  image_info.tiling        = tiling;
-  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  image_info.usage         = usage;
-  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-  image_info.samples       = VK_SAMPLE_COUNT_1_BIT;
-  image_info.flags         = 0;
-
-  validation::checkVulkan(vkCreateImage(device, &image_info, nullptr, &image));
-  VkMemoryRequirements mem_req;
-  vkGetImageMemoryRequirements(device, image, &mem_req);
-
-  VkMemoryAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.allocationSize = mem_req.size;
   alloc_info.memoryTypeIndex =
     utils::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
@@ -146,53 +103,11 @@ void VulkanEngine::transitionImageLayout(VkImage image, VkFormat format,
   endSingleTimeCommands(cmd_buffer);
 }
 
-void VulkanEngine::copyBufferToImage(VkBuffer buffer, VkImage image,
-  uint32_t width, uint32_t height)
-{
-  auto cmd_buffer = beginSingleTimeCommands();
-
-  VkBufferImageCopy region{};
-  region.bufferOffset      = 0;
-  region.bufferRowLength   = 0;
-  region.bufferImageHeight = 0;
-  region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-  region.imageSubresource.mipLevel       = 0;
-  region.imageSubresource.baseArrayLayer = 0;
-  region.imageSubresource.layerCount     = 1;
-  region.imageOffset = {0, 0, 0};
-  region.imageExtent = {width, height, 1};
-
-  vkCmdCopyBufferToImage(cmd_buffer, buffer, image,
-    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
-  );
-
-  endSingleTimeCommands(cmd_buffer);
-}
-
 VkImageView VulkanEngine::createImageView(VkImage image, VkFormat format)
 {
-  VkImageViewCreateInfo view_info{};
-  view_info.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  view_info.image    = image;
-  // Treat image as 1D/2D/3D texture or as a cube map
-  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  view_info.format   = format;
-  // Default mapping of all color channels
-  view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-  view_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-  view_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-  view_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-  // Describe image purpose and which part of it should be accesssed
-  view_info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-  view_info.subresourceRange.baseMipLevel   = 0;
-  view_info.subresourceRange.levelCount     = 1;
-  view_info.subresourceRange.baseArrayLayer = 0;
-  view_info.subresourceRange.layerCount     = 1;
-
+  auto info = vkinit::imageViewCreateInfo(format, image, VK_IMAGE_ASPECT_COLOR_BIT);
   VkImageView image_view;
-  validation::checkVulkan(
-    vkCreateImageView(device, &view_info, nullptr, &image_view)
-  );
+  validation::checkVulkan(vkCreateImageView(device, &info, nullptr, &image_view));
   return image_view;
 }
 
@@ -212,13 +127,7 @@ void VulkanEngine::createTextureSampler()
   VkPhysicalDeviceProperties properties{};
   vkGetPhysicalDeviceProperties(physical_device, &properties);
 
-  VkSamplerCreateInfo sampler_info{};
-  sampler_info.sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  sampler_info.magFilter               = VK_FILTER_LINEAR;
-  sampler_info.minFilter               = VK_FILTER_LINEAR;
-  sampler_info.addressModeU            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  sampler_info.addressModeV            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  sampler_info.addressModeW            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  auto sampler_info = vkinit::samplerCreateInfo(VK_FILTER_LINEAR);
   sampler_info.anisotropyEnable        = VK_TRUE;
   sampler_info.maxAnisotropy           = properties.limits.maxSamplerAnisotropy;
   sampler_info.borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK;

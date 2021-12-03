@@ -28,29 +28,25 @@ void VulkanEngine::createCommandBuffers()
 
 VkCommandBuffer VulkanEngine::beginSingleTimeCommands()
 {
+  VkCommandBuffer cmd;
   auto alloc_info = vkinit::commandBufferAllocateInfo(command_pool);
-  VkCommandBuffer command_buffer;
-  vkAllocateCommandBuffers(device, &alloc_info, &command_buffer);
+  validation::checkVulkan(vkAllocateCommandBuffers(device, &alloc_info, &cmd));
 
-  VkCommandBufferBeginInfo begin_info{};
-  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  // Begin command buffer recording with a only-one-use buffer
+  auto flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  auto begin_info = vkinit::commandBufferBeginInfo(flags);
 
-  vkBeginCommandBuffer(command_buffer, &begin_info);
-  return command_buffer;
+  validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
+  return cmd;
 }
 
-void VulkanEngine::endSingleTimeCommands(VkCommandBuffer command_buffer)
+void VulkanEngine::endSingleTimeCommands(VkCommandBuffer cmd)
 {
   // Finish recording the command buffer
-  vkEndCommandBuffer(command_buffer);
+  validation::checkVulkan(vkEndCommandBuffer(cmd));
 
-  VkSubmitInfo submit_info{};
-  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers    = &command_buffer;
-
-  vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+  auto submit_info = vkinit::submitInfo(&cmd);
+  validation::checkVulkan(vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
   vkQueueWaitIdle(graphics_queue);
-  vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+  vkFreeCommandBuffers(device, command_pool, 1, &cmd);
 }

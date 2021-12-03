@@ -175,14 +175,8 @@ void VulkanEngine::createFramebuffers()
   for (size_t i = 0; i < swapchain_views.size(); ++i)
   {
     VkImageView attachments[] = { swapchain_views[i] };
-    VkFramebufferCreateInfo fb_info{};
-    fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fb_info.renderPass      = render_pass;
-    fb_info.attachmentCount = 1;
+    auto fb_info = vkinit::framebufferCreateInfo(render_pass, swapchain_extent);
     fb_info.pAttachments    = attachments;
-    fb_info.width           = swapchain_extent.width;
-    fb_info.height          = swapchain_extent.height;
-    fb_info.layers          = 1;
 
     validation::checkVulkan(vkCreateFramebuffer(
       device, &fb_info, nullptr, &framebuffers[i])
@@ -194,15 +188,15 @@ void VulkanEngine::createDescriptorPool()
 {
   std::array<VkDescriptorPoolSize, 2> pool_sizes{};
   pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  pool_sizes[0].descriptorCount = static_cast<uint32_t>(swapchain_images.size());
+  pool_sizes[0].descriptorCount = swapchain_images.size();
   pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  pool_sizes[1].descriptorCount = static_cast<uint32_t>(swapchain_images.size());
+  pool_sizes[1].descriptorCount = swapchain_images.size();
 
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
+  pool_info.poolSizeCount = pool_sizes.size();
   pool_info.pPoolSizes    = pool_sizes.data();
-  pool_info.maxSets       = static_cast<uint32_t>(swapchain_images.size());
+  pool_info.maxSets       = swapchain_images.size();
   pool_info.flags         = 0;
 
   validation::checkVulkan(
@@ -226,7 +220,7 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
 
 void VulkanEngine::createGraphicsPipelines()
 {
-  // Linux-only hack: Change current directory as lazy fix for finding shader paths
+  // Linux-only hack: Change current directory as quick fix for finding shader paths
   auto orig_path = std::filesystem::current_path();
   auto exec_path = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
   std::filesystem::current_path(exec_path);

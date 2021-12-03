@@ -1,4 +1,5 @@
 #include "cudaview/vk_engine.hpp"
+#include "vk_initializers.hpp"
 #include "validation.hpp"
 
 #include "imgui.h"
@@ -402,17 +403,6 @@ void VulkanEngine::initVulkan()
   createVertexBuffer();
   createIndexBuffer();
   createSyncObjects();
-
-  //createExternalSemaphore(vk_timeline_semaphore);
-  //importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
-
-  createExternalSemaphore(vk_wait_semaphore);
-  // Vulkan signal will be CUDA wait
-  importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
-
-  createExternalSemaphore(vk_signal_semaphore);
-  // CUDA signal will be vulkan wait
-  importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
 }
 
 void VulkanEngine::importCudaExternalMemory(void **cuda_ptr,
@@ -555,12 +545,11 @@ void VulkanEngine::pickPhysicalDevice()
 
 void VulkanEngine::createLogicalDevice()
 {
-  uint32_t graphics_queue_index, present_queue_index;
-  findQueueFamilies(physical_device, graphics_queue_index, present_queue_index);
+  uint32_t graphics_queue_idx, present_queue_idx;
+  findQueueFamilies(physical_device, graphics_queue_idx, present_queue_idx);
 
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-  std::set<uint32_t> unique_queue_families =
-    { graphics_queue_index, present_queue_index};
+  std::set unique_queue_families{ graphics_queue_idx, present_queue_idx};
   auto queue_priority = 1.f;
 
   for (auto queue_family : unique_queue_families)
@@ -583,18 +572,18 @@ void VulkanEngine::createLogicalDevice()
 
   VkDeviceCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-  create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
+  create_info.pNext = &features;
+  create_info.queueCreateInfoCount = queue_create_infos.size();
   create_info.pQueueCreateInfos    = queue_create_infos.data();
   create_info.pEnabledFeatures     = &device_features;
-  create_info.pNext = &features;
 
   auto device_extensions = getRequiredDeviceExtensions();
-  create_info.enabledExtensionCount = static_cast<uint32_t>(device_extensions.size());
+  create_info.enabledExtensionCount   = device_extensions.size();
   create_info.ppEnabledExtensionNames = device_extensions.data();
 
   if (validation::enable_validation_layers)
   {
-    create_info.enabledLayerCount = static_cast<uint32_t>(validation::layers.size());
+    create_info.enabledLayerCount   = validation::layers.size();
     create_info.ppEnabledLayerNames = validation::layers.data();
   }
   else
@@ -607,8 +596,8 @@ void VulkanEngine::createLogicalDevice()
   );
 
   // Must be called after logical device is created (obviously!)
-  vkGetDeviceQueue(device, graphics_queue_index, 0, &graphics_queue);
-  vkGetDeviceQueue(device, present_queue_index, 0, &present_queue);
+  vkGetDeviceQueue(device, graphics_queue_idx, 0, &graphics_queue);
+  vkGetDeviceQueue(device, present_queue_idx, 0, &present_queue);
 
   // TODO: Get device UUID
 }
@@ -670,32 +659,21 @@ void VulkanEngine::initImgui()
 
 void VulkanEngine::createDescriptorSetLayout()
 {
-  VkDescriptorSetLayoutBinding ubo_layout{};
-  ubo_layout.binding            = 0;
-  ubo_layout.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  ubo_layout.descriptorCount    = 1; // number of values in the UBO array
-  ubo_layout.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
-  ubo_layout.pImmutableSamplers = nullptr;
-
-  VkDescriptorSetLayoutBinding extent_layout{};
-  extent_layout.binding            = 1;
-  extent_layout.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  extent_layout.descriptorCount    = 1;
-  extent_layout.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
-  extent_layout.pImmutableSamplers = nullptr;
-
-  VkDescriptorSetLayoutBinding sampler_layout{};
-  sampler_layout.binding            = 2;
-  sampler_layout.descriptorCount    = 1;
-  sampler_layout.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  sampler_layout.pImmutableSamplers = nullptr;
-  sampler_layout.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+  auto ubo_layout = vkinit::descriptorLayoutBinding(0, // binding
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+  );
+  auto extent_layout = vkinit::descriptorLayoutBinding(1, // binding
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+  );
+  auto sampler_layout = vkinit::descriptorLayoutBinding(2, // binding
+    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
+  );
 
   std::array bindings{ubo_layout, extent_layout, sampler_layout};
 
   VkDescriptorSetLayoutCreateInfo layout_info{};
   layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  layout_info.bindingCount = static_cast<uint32_t>(bindings.size());
+  layout_info.bindingCount = bindings.size();
   layout_info.pBindings    = bindings.data();
 
   validation::checkVulkan(vkCreateDescriptorSetLayout(
@@ -746,16 +724,9 @@ void VulkanEngine::updateDescriptors()
     mvp_info.offset = 0;
     mvp_info.range  = sizeof(ModelViewProjection);
 
-    VkWriteDescriptorSet write_mvp{};
-    write_mvp.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write_mvp.dstSet           = descriptor_sets[i];
-    write_mvp.dstBinding       = 0;
-    write_mvp.dstArrayElement  = 0;
-    write_mvp.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    write_mvp.descriptorCount  = 1;
-    write_mvp.pBufferInfo      = &mvp_info;
-    write_mvp.pImageInfo       = nullptr;
-    write_mvp.pTexelBufferView = nullptr;
+    auto write_mvp = vkinit::writeDescriptorBuffer(
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &mvp_info, 0
+    );
     desc_writes.push_back(write_mvp);
 
     VkDescriptorBufferInfo extent_info{};
@@ -763,33 +734,21 @@ void VulkanEngine::updateDescriptors()
     extent_info.offset = sizeof(ModelViewProjection);
     extent_info.range  = sizeof(SceneParams);
 
-    VkWriteDescriptorSet write_scene{};
-    write_scene.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write_scene.dstSet           = descriptor_sets[i];
-    write_scene.dstBinding       = 1;
-    write_scene.dstArrayElement  = 0;
-    write_scene.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    write_scene.descriptorCount  = 1;
-    write_scene.pBufferInfo      = &extent_info;
-    write_scene.pImageInfo       = nullptr;
-    write_scene.pTexelBufferView = nullptr;
+    auto write_scene = vkinit::writeDescriptorBuffer(
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &extent_info, 1
+    );
     desc_writes.push_back(write_scene);
 
     for (const auto& buffer : structured_buffers)
     {
-      VkDescriptorImageInfo image_info{};
-      image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      image_info.imageView   = buffer.vk_view;
-      image_info.sampler     = texture_sampler;
+      VkDescriptorImageInfo img_info{};
+      img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      img_info.imageView   = buffer.vk_view;
+      img_info.sampler     = texture_sampler;
 
-      VkWriteDescriptorSet write_tex{};
-      write_tex.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-      write_tex.dstSet          = descriptor_sets[i];
-      write_tex.dstBinding      = 2;
-      write_tex.dstArrayElement = 0;
-      write_tex.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-      write_tex.descriptorCount = 1;
-      write_tex.pImageInfo      = &image_info;
+      auto write_tex = vkinit::writeDescriptorImage(
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptor_sets[i], &img_info, 2
+      );
       desc_writes.push_back(write_tex);
     }
 

@@ -111,6 +111,28 @@ private:
   VkDeviceMemory index_buffer_memory;
   uint64_t current_frame;
 
+  std::vector<VkDescriptorSet> descriptor_sets;
+  VkSampler texture_sampler;
+  // CPU thread synchronization variables
+  bool device_working = false;
+  std::thread rendering_thread;
+  std::mutex mutex;
+  std::condition_variable cond;
+
+  VkDescriptorPool imgui_pool, descriptor_pool;
+  std::map<std::string, bool> rendering_modes;
+
+  // Cuda interop data
+  size_t iteration_count, iteration_idx;
+  int2 data_extent;
+  std::function<void(void)> step_function;
+  cudaStream_t stream;
+  cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
+  //cudaExternalSemaphore_t cuda_timeline_semaphore;
+
+  std::vector<MappedStructuredMemory> structured_buffers;
+  std::vector<MappedUnstructuredMemory> unstructured_buffers;
+
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
   );
@@ -125,13 +147,6 @@ private:
     VkDeviceMemory& buffer_memory
   );
   void createExternalSemaphore(VkSemaphore& semaphore);
-  VkCommandBuffer beginSingleTimeCommands();
-  void endSingleTimeCommands(VkCommandBuffer command_buffer);
-  void createTextureSampler();
-  void createImage(uint32_t width, uint32_t height, VkFormat format,
-    VkImageTiling tiling, VkImageUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
-  );
   void createExternalImage(uint32_t width, uint32_t height, VkFormat format,
     VkImageTiling tiling, VkImageUsageFlags usage,
     VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
@@ -146,10 +161,8 @@ private:
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
-  void drawFrame();
-  void drawGui();
-  void initSwapchain();
-  void cleanupSwapchain();
+  VkCommandBuffer beginSingleTimeCommands();
+  void endSingleTimeCommands(VkCommandBuffer command_buffer);
 
   void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
 
@@ -163,27 +176,51 @@ private:
   );
   void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
   void updateUniformBuffer(uint32_t image_index);
-  void initVulkan();
-  void recreateSwapchain();
 
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
 
-  std::vector<VkDescriptorSet> descriptor_sets;
-  VkSampler texture_sampler;
-  // CPU thread synchronization variables
-  bool device_working = false;
-  std::thread rendering_thread;
-  std::mutex mutex;
-  std::condition_variable cond;
+  bool checkAllExtensionsSupported(VkPhysicalDevice device,
+    const std::vector<const char*>& device_extensions) const;
+  bool isDeviceSuitable(VkPhysicalDevice device) const;
+  bool findQueueFamilies(VkPhysicalDevice device,
+    uint32_t& graphics_family, uint32_t& present_family) const;
+  SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice device) const;
 
-  VkDescriptorPool imgui_pool, descriptor_pool;
-  std::map<std::string, bool> rendering_modes;
+  VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
+  VkShaderModule createShaderModule(const std::vector<char>& code);
 
+  // Interop import functions
+  void importCudaExternalMemory(void **cuda_ptr,
+    cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size
+  );
+  void importCudaExternalSemaphore(
+    cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
+  );
+
+  // TODO: Remove
+  void createVertexBuffer();
+  void createIndexBuffer();
+  VkBuffer staging_buffer;
+  VkDeviceMemory staging_memory;
+
+  void initVulkan();
   void initImgui();
+  void initSwapchain();
   void setupDebugMessenger();
   void pickPhysicalDevice();
+
+  void drawFrame();
+  void drawGui();
+  void mainLoopThreaded();
+  void cudaSemaphoreSignal();
+  void cudaSemaphoreWait();
+
+  void cleanupSwapchain();
+  void recreateSwapchain();
+  void updateDescriptors();
+
   void createLogicalDevice();
   void createInstance();
   void createSurface();
@@ -199,48 +236,5 @@ private:
   void createUniformBuffers();
   void createDescriptorPool();
   void createDescriptorSets();
-
-  void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-
-  bool checkAllExtensionsSupported(VkPhysicalDevice device,
-    const std::vector<const char*>& device_extensions) const;
-  bool isDeviceSuitable(VkPhysicalDevice device) const;
-  bool findQueueFamilies(VkPhysicalDevice device,
-    uint32_t& graphics_family, uint32_t& present_family) const;
-  SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice device) const;
-
-  VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
-  VkShaderModule createShaderModule(const std::vector<char>& code);
-
-  // TODO: Remove
-  void createVertexBuffer();
-  void createIndexBuffer();
-  VkBuffer staging_buffer;
-  VkDeviceMemory staging_memory;
-
-  // Cuda interop data
-  size_t iteration_count, iteration_idx;
-  int2 data_extent;
-  std::function<void(void)> step_function;
-  cudaStream_t stream;
-  cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
-  //cudaExternalSemaphore_t cuda_timeline_semaphore;
-
-  std::vector<MappedStructuredMemory> structured_buffers;
-  std::vector<MappedUnstructuredMemory> unstructured_buffers;
-
-  void mainLoopThreaded();
-  void cudaSemaphoreSignal();
-  void cudaSemaphoreWait();
-  void updateDescriptors();
-
-  // Interop import functions
-  void importCudaExternalMemory(void **cuda_ptr,
-    cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size
-  );
-  void importCudaExternalSemaphore(
-    cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
-  );
-
-
+  void createTextureSampler();
 };

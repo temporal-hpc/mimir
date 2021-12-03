@@ -1,4 +1,5 @@
 #include "cudaview/vk_engine.hpp"
+#include "vk_initializers.hpp"
 #include "validation.hpp"
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
@@ -23,18 +24,15 @@ void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) co
   signal.push_back(vk_signal_semaphore);
 }
 
-void VulkanEngine::createSyncObjects() // TODO: add inflight_frame_count as parameter
+void VulkanEngine::createSyncObjects() // TODO: add inflight_frame_count as param
 {
   images_inflight.resize(swapchain_images.size(), VK_NULL_HANDLE);
 
-  VkSemaphoreCreateInfo semaphore_info{};
-  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
   /*validation::checkVulkan(vkCreateSemaphore(
     device, &semaphore_info, nullptr, &vk_presentation_semaphore)
   );*/
-  VkFenceCreateInfo fence_info{};
-  fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+  auto semaphore_info = vkinit::semaphoreCreateInfo();
+  auto fence_info = vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
   {
     validation::checkVulkan(vkCreateSemaphore(
@@ -47,6 +45,17 @@ void VulkanEngine::createSyncObjects() // TODO: add inflight_frame_count as para
       device, &fence_info, nullptr, &inflight_fences[i])
     );
   }
+
+  //createExternalSemaphore(vk_timeline_semaphore);
+  //importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
+
+  createExternalSemaphore(vk_wait_semaphore);
+  // Vulkan signal will be CUDA wait
+  importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
+
+  createExternalSemaphore(vk_signal_semaphore);
+  // CUDA signal will be vulkan wait
+  importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
 }
 
 void VulkanEngine::createExternalSemaphore(VkSemaphore& semaphore)
@@ -62,15 +71,13 @@ void VulkanEngine::createExternalSemaphore(VkSemaphore& semaphore)
   export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
   export_info.pNext = nullptr; // &timeline_info
 
-  VkSemaphoreCreateInfo semaphore_info{};
-  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+  auto semaphore_info = vkinit::semaphoreCreateInfo();
   semaphore_info.pNext = &export_info;
 
   validation::checkVulkan(
     vkCreateSemaphore(device, &semaphore_info, nullptr, &semaphore)
   );
 }
-
 
 void *VulkanEngine::getSemaphoreHandle(VkSemaphore semaphore,
   VkExternalSemaphoreHandleTypeFlagBits handle_type)
@@ -79,7 +86,7 @@ void *VulkanEngine::getSemaphoreHandle(VkSemaphore semaphore,
   VkSemaphoreGetFdInfoKHR fd_info{};
   fd_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
   fd_info.pNext = nullptr;
-  fd_info.semaphore = semaphore;
+  fd_info.semaphore  = semaphore;
   fd_info.handleType = handle_type;
 
   PFN_vkGetSemaphoreFdKHR fpGetSemaphore;

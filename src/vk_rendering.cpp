@@ -1,5 +1,6 @@
 #include "cudaview/vk_engine.hpp"
 #include "validation.hpp"
+#include "vk_initializers.hpp"
 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -54,22 +55,16 @@ void VulkanEngine::drawFrame()
   }
   images_inflight[image_idx] = inflight_fences[frame_idx];
 
-  VkCommandBufferBeginInfo begin_info{};
-  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-  begin_info.pInheritanceInfo = nullptr;
+  auto cmd_flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+  auto begin_info = vkinit::commandBufferBeginInfo(cmd_flags);
 
   validation::checkVulkan(vkBeginCommandBuffer(
     command_buffers[image_idx], &begin_info)
   );
 
-  VkRenderPassBeginInfo render_pass_info{};
-  render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  render_pass_info.renderPass  = render_pass;
-  render_pass_info.framebuffer = framebuffers[image_idx];
-  render_pass_info.renderArea.offset = {0, 0};
-  render_pass_info.renderArea.extent = swapchain_extent;
-
+  auto render_pass_info = vkinit::renderPassBeginInfo(
+    render_pass, swapchain_extent, framebuffers[image_idx]
+  );
   VkClearValue clear_color         = {{{.5f, .5f, .5f, 1.f}}};
   render_pass_info.clearValueCount = 1;
   render_pass_info.pClearValues    = &clear_color;
@@ -111,25 +106,21 @@ void VulkanEngine::drawFrame()
 
   updateUniformBuffer(image_idx);
 
-  VkSubmitInfo submit_info{};
-  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
   std::vector<VkSemaphore> wait_semaphores;
   std::vector<VkPipelineStageFlags> wait_stages;
   wait_semaphores.push_back(image_available[frame_idx]); //vk_timeline_semaphore
   wait_stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
   getWaitFrameSemaphores(wait_semaphores, wait_stages);
 
-  submit_info.waitSemaphoreCount = (uint32_t)wait_semaphores.size();
-  submit_info.pWaitSemaphores    = wait_semaphores.data();
-  submit_info.pWaitDstStageMask  = wait_stages.data();
-  submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers    = &command_buffers[image_idx];
-
   std::vector<VkSemaphore> signal_semaphores;
   getSignalFrameSemaphores(signal_semaphores);
   signal_semaphores.push_back(render_finished[frame_idx]); // vk_timeline_semaphore
-  submit_info.signalSemaphoreCount = (uint32_t)signal_semaphores.size();
+
+  auto submit_info = vkinit::submitInfo(&command_buffers[image_idx]);
+  submit_info.waitSemaphoreCount   = wait_semaphores.size();
+  submit_info.pWaitSemaphores      = wait_semaphores.data();
+  submit_info.pWaitDstStageMask    = wait_stages.data();
+  submit_info.signalSemaphoreCount = signal_semaphores.size();
   submit_info.pSignalSemaphores    = signal_semaphores.data();
 
   /*VkTimelineSemaphoreSubmitInfo timeline_info{};
@@ -149,14 +140,13 @@ void VulkanEngine::drawFrame()
 
   // Return image result back to swapchain for presentation on screen
   VkSwapchainKHR swapchains[] = { swapchain };
-  VkPresentInfoKHR present_info{};
-  present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+  auto present_info = vkinit::presentInfo();
+  present_info.swapchainCount     = 1;
+  present_info.pSwapchains        = swapchains;
   present_info.waitSemaphoreCount = 1;
   //present_info.pWaitSemaphores = &vk_presentation_semaphore;
-  present_info.pWaitSemaphores = &render_finished[frame_idx];
-  present_info.swapchainCount  = 1;
-  present_info.pSwapchains     = swapchains;
-  present_info.pImageIndices   = &image_idx;
+  present_info.pWaitSemaphores    = &render_finished[frame_idx];
+  present_info.pImageIndices      = &image_idx;
 
   result = vkQueuePresentKHR(present_queue, &present_info);
   // Resize should be done after presentation to ensure semaphore consistency
@@ -201,18 +191,16 @@ void VulkanEngine::createRenderPass()
   dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
                              VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-  VkRenderPassCreateInfo renderpass_info{};
-  renderpass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-  renderpass_info.attachmentCount = 1;
-  renderpass_info.pAttachments    = &color_attachment;
-  renderpass_info.subpassCount    = 1;
-  renderpass_info.pSubpasses      = &subpass;
-  renderpass_info.dependencyCount = 1;
-  renderpass_info.pDependencies   = &dependency;
+  VkRenderPassCreateInfo pass_info{};
+  pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  pass_info.attachmentCount = 1;
+  pass_info.pAttachments    = &color_attachment;
+  pass_info.subpassCount    = 1;
+  pass_info.pSubpasses      = &subpass;
+  pass_info.dependencyCount = 1;
+  pass_info.pDependencies   = &dependency;
 
-  validation::checkVulkan(vkCreateRenderPass(
-    device, &renderpass_info, nullptr, &render_pass)
-  );
+  validation::checkVulkan(vkCreateRenderPass(device, &pass_info, nullptr, &render_pass));
 }
 
 void VulkanEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer)
