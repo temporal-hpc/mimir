@@ -21,8 +21,8 @@ int main(int argc, char *argv[])
   {
     VulkanEngine engine(program.extent, program.stream);
     engine.init(800, 600);
-    engine.registerUnstructuredMemory(
-      (void**)&program.d_coords, program.element_count, sizeof(float2)
+    engine.registerUnstructuredMemory((void**)&program.d_coords,
+      program.element_count, sizeof(float2), UnstructuredDataType::Points
     );
     engine.registerStructuredMemory((void**)&program.d_distances,
       program.extent.x, program.extent.y, sizeof(float), DataFormat::Float32

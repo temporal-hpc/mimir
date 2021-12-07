@@ -85,7 +85,9 @@ int main(int argc, char *argv[]) {
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    engine.registerUnstructuredMemory((void**)&dPoints, n, sizeof(float2));
+    engine.registerUnstructuredMemory(
+      (void**)&dPoints, n, sizeof(float2), UnstructuredDataType::Points
+    );
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);

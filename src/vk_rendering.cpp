@@ -71,7 +71,7 @@ void VulkanEngine::drawFrame()
     VK_SUBPASS_CONTENTS_INLINE
   );
 
-  if (rendering_modes["structured"])
+  for (const auto& buffer : structured_buffers)
   {
     vkCmdBindPipeline(command_buffers[image_idx],
       VK_PIPELINE_BIND_POINT_GRAPHICS, screen_pipeline
@@ -83,7 +83,7 @@ void VulkanEngine::drawFrame()
     vkCmdDraw(command_buffers[image_idx], 3, 1, 0, 0);
   }
 
-  if (rendering_modes["unstructured"])
+  for (const auto& buffer : unstructured_buffers)
   {
     // Note: Second parameter can be also used to bind a compute pipeline
     vkCmdBindPipeline(command_buffers[image_idx],
@@ -148,7 +148,8 @@ void VulkanEngine::drawFrame()
 
   result = vkQueuePresentKHR(present_queue, &present_info);
   // Resize should be done after presentation to ensure semaphore consistency
-  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
+  if (result == VK_ERROR_OUT_OF_DATE_KHR ||
+       result == VK_SUBOPTIMAL_KHR || should_resize)
   {
     recreateSwapchain();
     should_resize = false;
@@ -198,7 +199,9 @@ void VulkanEngine::createRenderPass()
   pass_info.dependencyCount = 1;
   pass_info.pDependencies   = &dependency;
 
-  validation::checkVulkan(vkCreateRenderPass(device, &pass_info, nullptr, &render_pass));
+  validation::checkVulkan(
+    vkCreateRenderPass(device, &pass_info, nullptr, &render_pass)
+  );
 }
 
 void VulkanEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer)
@@ -226,7 +229,8 @@ void VulkanEngine::getVertexDescriptions(
   attr_desc[0].offset = 0;
 }
 
-void VulkanEngine::getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info)
+void VulkanEngine::getAssemblyStateInfo(
+  VkPipelineInputAssemblyStateCreateInfo& info)
 {
   info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
   info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;

@@ -18,12 +18,19 @@ enum class DataFormat
   Rgba32
 };
 
+enum class UnstructuredDataType
+{
+  Points,
+  Edges
+};
+
 struct MappedUnstructuredMemory
 {
-  void *cuda_ptr;
-  cudaExternalMemory_t cuda_extmem;
   size_t element_count;
   size_t element_size;
+  UnstructuredDataType data_type;
+  void *cuda_ptr;
+  cudaExternalMemory_t cuda_extmem;
   VkFormat vk_format;
   VkBuffer vk_buffer;
   VkDeviceMemory vk_memory;
@@ -51,7 +58,9 @@ public:
   void init(int width = 800, int height = 600);
   bool toggleRenderingMode(const std::string& key);
   void mainLoop();
-  void registerUnstructuredMemory(void **ptr_devmem, size_t elem_count, size_t elem_size);
+  void registerUnstructuredMemory(void **ptr_devmem, 
+    size_t elem_count, size_t elem_size, UnstructuredDataType type
+  );
   void registerStructuredMemory(void **ptr_devmem, size_t width, size_t height,
     size_t elem_size, DataFormat format
   );

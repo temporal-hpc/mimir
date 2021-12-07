@@ -287,11 +287,12 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 }
 
 void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
-  size_t elem_count, size_t elem_size)
+  size_t elem_count, size_t elem_size, UnstructuredDataType type)
 {
   MappedUnstructuredMemory mapped{};
   mapped.element_count = elem_count;
   mapped.element_size  = elem_size;
+  mapped.data_type     = type;
   mapped.cuda_ptr      = nullptr;
   mapped.cuda_extmem   = nullptr;
   mapped.vk_format     = VK_FORMAT_UNDEFINED; //getVulkanFormat(format);
