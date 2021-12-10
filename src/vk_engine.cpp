@@ -40,8 +40,9 @@ VulkanEngine::VulkanEngine(int2 extent, cudaStream_t cuda_stream):
   render_pass(VK_NULL_HANDLE),
   descriptor_layout(VK_NULL_HANDLE),
   pipeline_layout(VK_NULL_HANDLE),
-  graphics_pipeline(VK_NULL_HANDLE),
+  point_pipeline(VK_NULL_HANDLE),
   screen_pipeline(VK_NULL_HANDLE),
+  mesh_pipeline(VK_NULL_HANDLE),
   command_pool(VK_NULL_HANDLE),
   //vk_presentation_semaphore(VK_NULL_HANDLE),
   //vk_timeline_semaphore(VK_NULL_HANDLE),
@@ -50,10 +51,7 @@ VulkanEngine::VulkanEngine(int2 extent, cudaStream_t cuda_stream):
   render_finished(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE),
   vk_wait_semaphore(VK_NULL_HANDLE),
   vk_signal_semaphore(VK_NULL_HANDLE),
-  vertex_buffer(VK_NULL_HANDLE),
-  vertex_buffer_memory(VK_NULL_HANDLE),
-  index_buffer(VK_NULL_HANDLE),
-  index_buffer_memory(VK_NULL_HANDLE),
+
   current_frame(0),
 
   window(nullptr),
@@ -61,8 +59,6 @@ VulkanEngine::VulkanEngine(int2 extent, cudaStream_t cuda_stream):
   descriptor_pool(VK_NULL_HANDLE),
   rendering_modes{ {"structured", false}, {"unstructured", false} },
 
-  staging_buffer(VK_NULL_HANDLE),
-  staging_memory(VK_NULL_HANDLE),
   texture_sampler(VK_NULL_HANDLE),
   data_extent(extent),
   stream(cuda_stream),
@@ -146,22 +142,6 @@ VulkanEngine::~VulkanEngine()
   if (descriptor_layout != VK_NULL_HANDLE)
   {
     vkDestroyDescriptorSetLayout(device, descriptor_layout, nullptr);
-  }
-  if (vertex_buffer != VK_NULL_HANDLE)
-  {
-    vkDestroyBuffer(device, vertex_buffer, nullptr);
-  }
-  if (vertex_buffer_memory != VK_NULL_HANDLE)
-  {
-    vkFreeMemory(device, vertex_buffer_memory, nullptr);
-  }
-  if (index_buffer != VK_NULL_HANDLE)
-  {
-    vkDestroyBuffer(device, index_buffer, nullptr);
-  }
-  if (index_buffer_memory != VK_NULL_HANDLE)
-  {
-    vkFreeMemory(device, index_buffer_memory, nullptr);
   }
   if (texture_sampler != VK_NULL_HANDLE)
   {
@@ -299,9 +279,19 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
   mapped.vk_buffer     = VK_NULL_HANDLE;
   mapped.vk_memory     = VK_NULL_HANDLE;
 
+  VkBufferUsageFlagBits usage;
+  if (type == UnstructuredDataType::Points)
+  {
+    usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  }
+  else if (type == UnstructuredDataType::Edges)
+  {
+    usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+  }
+
   // Init unstructured memory
   createExternalBuffer(mapped.element_size * mapped.element_count,
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     mapped.vk_buffer, mapped.vk_memory
@@ -365,8 +355,6 @@ void VulkanEngine::initVulkan()
   initSwapchain();
 
   initImgui(); // After command pool and render pass are created
-  createVertexBuffer();
-  createIndexBuffer();
   createSyncObjects();
 }
 
@@ -495,6 +483,7 @@ void VulkanEngine::createLogicalDevice()
 
   VkPhysicalDeviceFeatures device_features{};
   device_features.samplerAnisotropy = VK_TRUE;
+  device_features.fillModeNonSolid  = VK_TRUE; // Enable wireframe
 
   // Explicitly enable timeline semaphores, or validation layer will complain
   VkPhysicalDeviceVulkan12Features features{};

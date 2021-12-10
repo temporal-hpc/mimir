@@ -6,8 +6,6 @@
 
 #include <cstring> // memcpy
 
-const std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 }; // TODO: Remove
-
 void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory)
 {
@@ -29,57 +27,6 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   validation::checkVulkan(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
 
   vkBindBufferMemory(device, buffer, memory, 0);
-}
-
-void VulkanEngine::createVertexBuffer()
-{
-  VkDeviceSize buffer_size = sizeof(vertices[0]) * vertices.size();
-
-  VkBuffer staging_buffer;
-  VkDeviceMemory staging_buffer_memory;
-  createBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-    staging_buffer, staging_buffer_memory
-  );
-
-  void *data;
-  vkMapMemory(device, staging_buffer_memory, 0, buffer_size, 0, &data);
-  memcpy(data, vertices.data(), (size_t) buffer_size);
-  vkUnmapMemory(device, staging_buffer_memory);
-
-  createBuffer(buffer_size,
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertex_buffer, vertex_buffer_memory
-  );
-  copyBuffer(staging_buffer, vertex_buffer, buffer_size);
-
-  vkDestroyBuffer(device, staging_buffer, nullptr);
-  vkFreeMemory(device, staging_buffer_memory, nullptr);
-}
-
-void VulkanEngine::createIndexBuffer()
-{
-  VkDeviceSize buffer_size = sizeof(indices[0]) * indices.size();
-  VkBuffer staging_buffer;
-  VkDeviceMemory staging_buffer_memory;
-  createBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-    staging_buffer, staging_buffer_memory
-  );
-
-  void *data;
-  vkMapMemory(device, staging_buffer_memory, 0, buffer_size, 0, &data);
-  memcpy(data, indices.data(), (size_t) buffer_size);
-  vkUnmapMemory(device, staging_buffer_memory);
-
-  createBuffer(buffer_size,
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, index_buffer, index_buffer_memory
-  );
-  copyBuffer(staging_buffer, index_buffer, buffer_size);
-
-  vkDestroyBuffer(device, staging_buffer, nullptr);
-  vkFreeMemory(device, staging_buffer_memory, nullptr);
 }
 
 void VulkanEngine::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size)

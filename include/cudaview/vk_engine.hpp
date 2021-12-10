@@ -58,7 +58,7 @@ public:
   void init(int width = 800, int height = 600);
   bool toggleRenderingMode(const std::string& key);
   void mainLoop();
-  void registerUnstructuredMemory(void **ptr_devmem, 
+  void registerUnstructuredMemory(void **ptr_devmem,
     size_t elem_count, size_t elem_size, UnstructuredDataType type
   );
   void registerStructuredMemory(void **ptr_devmem, size_t width, size_t height,
@@ -78,8 +78,7 @@ private:
   VkSurfaceKHR surface; // Vulkan window surface
   VkPhysicalDevice physical_device; // GPU used for operations
   VkDevice device;
-  VkQueue graphics_queue;
-  VkQueue present_queue;
+  VkQueue graphics_queue, present_queue;
   VkSwapchainKHR swapchain;
   std::vector<VkImage> swapchain_images;
   // How to access the image(s) and which part of it (them) to access
@@ -89,47 +88,40 @@ private:
   VkRenderPass render_pass;
   VkDescriptorSetLayout descriptor_layout;
   VkPipelineLayout pipeline_layout;
-  VkPipeline graphics_pipeline, screen_pipeline;
+  VkPipeline point_pipeline, screen_pipeline, mesh_pipeline;
   VkCommandPool command_pool;
+  VkDescriptorPool imgui_pool, descriptor_pool;
+  VkSampler texture_sampler;
   std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
-  //VkSemaphore vk_presentation_semaphore;
-  //VkSemaphore vk_timeline_semaphore;
+  std::vector<VkBuffer> uniform_buffers;
+  std::vector<VkDeviceMemory> ubo_memory;
+  std::vector<VkDescriptorSet> descriptor_sets;
 
+  // Synchronization structures
   std::vector<VkFence> images_inflight;
   std::vector<VkFence> inflight_fences;
   std::vector<VkSemaphore> image_available;
   std::vector<VkSemaphore> render_finished;
   VkSemaphore vk_wait_semaphore;
   VkSemaphore vk_signal_semaphore;
+  //VkSemaphore vk_presentation_semaphore;
+  //VkSemaphore vk_timeline_semaphore;
 
-  std::vector<VkBuffer> uniform_buffers;
-  std::vector<VkDeviceMemory> ubo_memory;
-
-  VkBuffer vertex_buffer;
-  VkDeviceMemory vertex_buffer_memory;
-  VkBuffer index_buffer;
-  VkDeviceMemory index_buffer_memory;
-  uint64_t current_frame;
-
-  std::vector<VkDescriptorSet> descriptor_sets;
-  VkSampler texture_sampler;
   // CPU thread synchronization variables
   bool device_working = false;
   std::thread rendering_thread;
   std::mutex mutex;
   std::condition_variable cond;
 
-  VkDescriptorPool imgui_pool, descriptor_pool;
-  std::map<std::string, bool> rendering_modes;
-
   // Cuda interop data
   int2 data_extent;
-  std::function<void(void)> step_function;
   cudaStream_t stream;
   cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
+  uint64_t current_frame;
+  std::map<std::string, bool> rendering_modes;
   std::vector<MappedStructuredMemory> structured_buffers;
   std::vector<MappedUnstructuredMemory> unstructured_buffers;
 
@@ -164,8 +156,6 @@ private:
   VkCommandBuffer beginSingleTimeCommands();
   void endSingleTimeCommands(VkCommandBuffer command_buffer);
 
-  void setUnstructuredRendering(VkCommandBuffer& cmd_buffer);
-
   void getVertexDescriptions(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
     std::vector<VkVertexInputAttributeDescription>& attr_desc
@@ -187,12 +177,6 @@ private:
   void importCudaExternalSemaphore(
     cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
   );
-
-  // TODO: Remove
-  void createVertexBuffer();
-  void createIndexBuffer();
-  VkBuffer staging_buffer;
-  VkDeviceMemory staging_memory;
 
   void initVulkan();
   void initImgui();

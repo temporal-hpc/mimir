@@ -43,6 +43,14 @@ ObjectList('cuda-structured')
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
 }
+Executable('run_structured')
+{
+  .Libraries     = { 'cudaview', 'cuda-structured' }
+  .Linker        = .CudaCompilerPath
+  .LinkerOutput  = '_out/run_structured'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
+}
 
 ObjectList('cuda-unstructured')
 {
@@ -53,6 +61,14 @@ ObjectList('cuda-unstructured')
   .CompilerInputPath    = 'samples/unstructured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
+}
+Executable('run_unstructured')
+{
+  .Libraries     = { 'cudaview', 'cuda-unstructured' }
+  .Linker        = .CudaCompilerPath
+  .LinkerOutput  = '_out/run_unstructured'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
 }
 
 ObjectList('cuda-image')
@@ -65,6 +81,14 @@ ObjectList('cuda-image')
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
 }
+Executable('run_image')
+{
+  .Libraries     = { 'cudaview', 'cuda-image' }
+  .Linker        = .CudaCompilerPath
+  .LinkerOutput  = '_out/run_image'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
+}
 
 ObjectList('cuda-sync')
 {
@@ -75,34 +99,6 @@ ObjectList('cuda-sync')
   .CompilerInputPattern = { 'main.cu' }
   .CompilerOutputPath   = '_out/'
 }
-
-Executable('run_structured')
-{
-  .Libraries     = { 'cudaview', 'cuda-structured' }
-  .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/run_structured'
-  .LinkerOptions = '"%1" -o "%2"'
-                 + ' -lglfw -lvulkan -ldl'
-}
-
-Executable('run_unstructured')
-{
-  .Libraries     = { 'cudaview', 'cuda-unstructured' }
-  .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/run_unstructured'
-  .LinkerOptions = '"%1" -o "%2"'
-                 + ' -lglfw -lvulkan -ldl'
-}
-
-Executable('run_image')
-{
-  .Libraries     = { 'cudaview', 'cuda-image' }
-  .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/run_image'
-  .LinkerOptions = '"%1" -o "%2"'
-                 + ' -lglfw -lvulkan -ldl'
-}
-
 Executable('run_sync')
 {
   .Libraries     = { 'cudaview', 'cuda-sync' }
@@ -112,6 +108,25 @@ Executable('run_sync')
                  + ' -lglfw -lvulkan -ldl'
 }
 
-Alias('samples') { .Targets = { 'run_structured', 'run_unstructured', 'run_image', 'run_sync' } }
+ObjectList('cuda-mesh')
+{
+  .Compiler             = 'CudaCompiler'
+  .CompilerOptions      = '-o "%2" "%1" -c'
+                        + ' -std=c++17 -Isamples/include -Iinclude'
+  .CompilerInputPath    = 'samples/mesh2d'
+  .CompilerInputPattern = { '*.cu', '*.cpp' }
+  .CompilerOutputPath   = '_out/'
+}
+Executable('run_mesh')
+{
+  .Libraries     = { 'cudaview', 'cuda-mesh' }
+  .Linker        = .CudaCompilerPath
+  .LinkerOutput  = '_out/mesh2d'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
+}
+
+Alias('samples') { .Targets = { 'run_structured', 'run_unstructured',
+  'run_image', 'run_sync', 'run_mesh' } }
 
 Alias('all') { .Targets = { 'cudaview', 'shaders', 'samples' } }

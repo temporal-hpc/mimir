@@ -56,9 +56,8 @@ void VulkanEngine::drawFrame()
   auto cmd_flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
   auto begin_info = vkinit::commandBufferBeginInfo(cmd_flags);
 
-  validation::checkVulkan(vkBeginCommandBuffer(
-    command_buffers[image_idx], &begin_info)
-  );
+  auto cmd = command_buffers[image_idx];
+  validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
   auto render_pass_info = vkinit::renderPassBeginInfo(
     render_pass, swapchain_extent, framebuffers[image_idx]
@@ -67,40 +66,52 @@ void VulkanEngine::drawFrame()
   render_pass_info.clearValueCount = 1;
   render_pass_info.pClearValues    = &clear_color;
 
-  vkCmdBeginRenderPass(command_buffers[image_idx], &render_pass_info,
-    VK_SUBPASS_CONTENTS_INLINE
-  );
+  vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
   for (const auto& buffer : structured_buffers)
   {
-    vkCmdBindPipeline(command_buffers[image_idx],
-      VK_PIPELINE_BIND_POINT_GRAPHICS, screen_pipeline
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, screen_pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
     );
-    vkCmdBindDescriptorSets(command_buffers[image_idx],
-      VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
-      &descriptor_sets[image_idx], 0, nullptr
-    );
-    vkCmdDraw(command_buffers[image_idx], 3, 1, 0, 0);
+    vkCmdDraw(cmd, 3, 1, 0, 0); // Draw a screen-covering triangle
   }
 
   for (const auto& buffer : unstructured_buffers)
   {
-    // Note: Second parameter can be also used to bind a compute pipeline
-    vkCmdBindPipeline(command_buffers[image_idx],
-      VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline
-    );
-    vkCmdBindDescriptorSets(command_buffers[image_idx],
-      VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
-      &descriptor_sets[image_idx], 0, nullptr
-    );
-    setUnstructuredRendering(command_buffers[image_idx]);
+    if (buffer.data_type == UnstructuredDataType::Points)
+    {
+      // Note: Second parameter can be also used to bind a compute pipeline
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
+      VkBuffer vertex_buffers[] = { buffer.vk_buffer };
+      VkDeviceSize offsets[] = { 0 };
+      auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+      vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+      vkCmdDraw(cmd, buffer.element_count, 1, 0, 0);
+    }
+    else if (buffer.data_type == UnstructuredDataType::Edges)
+    {
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
+      VkBuffer vertexBuffers[] = { unstructured_buffers[0].vk_buffer };
+      VkDeviceSize offsets[] = {0};
+      vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+      vkCmdBindIndexBuffer(cmd, buffer.vk_buffer, 0, VK_INDEX_TYPE_UINT32);
+      vkCmdDrawIndexed(cmd, 3 * buffer.element_count, 1, 0, 0, 0);
+    }
   }
 
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffers[image_idx]);
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 
-  // End render pass and finish recording the command buffer
-  vkCmdEndRenderPass(command_buffers[image_idx]);
-  validation::checkVulkan(vkEndCommandBuffer(command_buffers[image_idx]));
+  // Finalize render pass
+  vkCmdEndRenderPass(cmd);
+  // Finalize command buffer recording, so it can be executed
+  validation::checkVulkan(vkEndCommandBuffer(cmd));
 
   updateUniformBuffer(image_idx);
 
@@ -112,9 +123,9 @@ void VulkanEngine::drawFrame()
 
   std::vector<VkSemaphore> signal_semaphores;
   getSignalFrameSemaphores(signal_semaphores);
-  signal_semaphores.push_back(render_finished[frame_idx]); // vk_timeline_semaphore
+  signal_semaphores.push_back(render_finished[frame_idx]);//vk_timeline_semaphore
 
-  auto submit_info = vkinit::submitInfo(&command_buffers[image_idx]);
+  auto submit_info = vkinit::submitInfo(&cmd);
   submit_info.waitSemaphoreCount   = wait_semaphores.size();
   submit_info.pWaitSemaphores      = wait_semaphores.data();
   submit_info.pWaitDstStageMask    = wait_stages.data();
@@ -137,10 +148,9 @@ void VulkanEngine::drawFrame()
   );
 
   // Return image result back to swapchain for presentation on screen
-  VkSwapchainKHR swapchains[] = { swapchain };
   auto present_info = vkinit::presentInfo();
   present_info.swapchainCount     = 1;
-  present_info.pSwapchains        = swapchains;
+  present_info.pSwapchains        = &swapchain;
   present_info.waitSemaphoreCount = 1;
   //present_info.pWaitSemaphores = &vk_presentation_semaphore;
   present_info.pWaitSemaphores    = &render_finished[frame_idx];
@@ -148,8 +158,8 @@ void VulkanEngine::drawFrame()
 
   result = vkQueuePresentKHR(present_queue, &present_info);
   // Resize should be done after presentation to ensure semaphore consistency
-  if (result == VK_ERROR_OUT_OF_DATE_KHR ||
-       result == VK_SUBOPTIMAL_KHR || should_resize)
+  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
+    || should_resize)
   {
     recreateSwapchain();
     should_resize = false;
@@ -157,7 +167,6 @@ void VulkanEngine::drawFrame()
 
   current_frame++;
 }
-
 
 void VulkanEngine::createRenderPass()
 {
@@ -202,15 +211,6 @@ void VulkanEngine::createRenderPass()
   validation::checkVulkan(
     vkCreateRenderPass(device, &pass_info, nullptr, &render_pass)
   );
-}
-
-void VulkanEngine::setUnstructuredRendering(VkCommandBuffer& cmd_buffer)
-{
-  VkBuffer vertex_buffers[] = { unstructured_buffers[0].vk_buffer };
-  VkDeviceSize offsets[] = { 0 };
-  auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-  vkCmdBindVertexBuffers(cmd_buffer, 0, binding_count, vertex_buffers, offsets);
-  vkCmdDraw(cmd_buffer, unstructured_buffers[0].element_count, 1, 0, 0);
 }
 
 void VulkanEngine::getVertexDescriptions(

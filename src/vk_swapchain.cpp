@@ -53,8 +53,9 @@ void VulkanEngine::cleanupSwapchain()
   vkFreeCommandBuffers(device, command_pool,
     static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
   );
-  vkDestroyPipeline(device, graphics_pipeline, nullptr);
+  vkDestroyPipeline(device, point_pipeline, nullptr);
   vkDestroyPipeline(device, screen_pipeline, nullptr);
+  vkDestroyPipeline(device, mesh_pipeline, nullptr);
   vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
   for (auto framebuffer : framebuffers)
   {
@@ -270,7 +271,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.multisampling     = vkinit::multisamplingStateCreateInfo();
   builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.pipeline_layout   = pipeline_layout;
-  graphics_pipeline = builder.buildPipeline(device, render_pass);
+  point_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
   vkDestroyShaderModule(device, frag_module, nullptr);
@@ -294,6 +295,30 @@ void VulkanEngine::createGraphicsPipelines()
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo();
   builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   screen_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+  vkDestroyShaderModule(device, frag_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex.spv");
+  vert_module = createShaderModule(vert_code);
+
+  frag_code   = io::readFile("shaders/unstructured/wireframe_fragment.spv");
+  frag_module = createShaderModule(frag_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.rasterizer        = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
+  mesh_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
   vkDestroyShaderModule(device, frag_module, nullptr);

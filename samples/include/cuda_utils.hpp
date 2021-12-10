@@ -1,3 +1,5 @@
+#pragma once
+
 #include <cstdio>
 
 #include <experimental/source_location>
