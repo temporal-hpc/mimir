@@ -364,7 +364,7 @@ void VulkanEngine::importCudaExternalMemory(void **cuda_ptr,
   cudaExternalMemoryHandleDesc extmem_desc{};
   extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
   extmem_desc.size = size;
-  extmem_desc.handle.fd = (int)(uintptr_t)getMemHandle(
+  extmem_desc.handle.fd = (int)(uintptr_t)getMemoryHandle(
     vk_mem, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
   );
 

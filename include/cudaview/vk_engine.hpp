@@ -61,8 +61,8 @@ public:
   void registerUnstructuredMemory(void **ptr_devmem,
     size_t elem_count, size_t elem_size, UnstructuredDataType type
   );
-  void registerStructuredMemory(void **ptr_devmem, size_t width, size_t height,
-    size_t elem_size, DataFormat format
+  void registerStructuredMemory(void **ptr_devmem,
+    size_t width, size_t height, size_t elem_size, DataFormat format
   );
 
   void display(std::function<void(void)> func, size_t iter_count);
@@ -125,19 +125,17 @@ private:
   std::vector<MappedStructuredMemory> structured_buffers;
   std::vector<MappedUnstructuredMemory> unstructured_buffers;
 
+  // Buffer functions
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
-  );
-  void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
-  void importExternalBuffer(void *handle, size_t size,
-    VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory
   );
   void createExternalBuffer(VkDeviceSize size,
     VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
     VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
     VkDeviceMemory& buffer_memory
   );
+  void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
+
   void createExternalSemaphore(VkSemaphore& semaphore);
   void createExternalImage(uint32_t width, uint32_t height, VkFormat format,
     VkImageTiling tiling, VkImageUsageFlags usage,
@@ -147,7 +145,7 @@ private:
     VkImageLayout old_layout, VkImageLayout new_layout
   );
   VkImageView createImageView(VkImage image, VkFormat format);
-  void *getMemHandle(VkDeviceMemory memory,
+  void *getMemoryHandle(VkDeviceMemory memory,
     VkExternalMemoryHandleTypeFlagBits handle_type
   );
   void *getSemaphoreHandle(VkSemaphore semaphore,
@@ -160,7 +158,6 @@ private:
     std::vector<VkVertexInputBindingDescription>& bind_desc,
     std::vector<VkVertexInputAttributeDescription>& attr_desc
   );
-  void getAssemblyStateInfo(VkPipelineInputAssemblyStateCreateInfo& info);
   void updateUniformBuffer(uint32_t image_index);
 
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,

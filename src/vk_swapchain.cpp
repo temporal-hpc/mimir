@@ -251,14 +251,11 @@ void VulkanEngine::createGraphicsPipelines()
   std::vector<VkVertexInputAttributeDescription> attr_desc;
   getVertexDescriptions(bind_desc, attr_desc);
 
-  VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-  getAssemblyStateInfo(input_assembly);
-
   PipelineBuilder builder;
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly    = input_assembly;
+  builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   builder.viewport.x        = 0.f;
   builder.viewport.y        = 0.f;
   builder.viewport.width    = static_cast<float>(swapchain_extent.width);

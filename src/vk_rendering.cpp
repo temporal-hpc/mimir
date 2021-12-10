@@ -228,11 +228,3 @@ void VulkanEngine::getVertexDescriptions(
   attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
   attr_desc[0].offset = 0;
 }
-
-void VulkanEngine::getAssemblyStateInfo(
-  VkPipelineInputAssemblyStateCreateInfo& info)
-{
-  info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-  info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-  info.primitiveRestartEnable = VK_FALSE;
-}

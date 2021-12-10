@@ -29,20 +29,6 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   vkBindBufferMemory(device, buffer, memory, 0);
 }
 
-void VulkanEngine::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size)
-{
-  // Memory transfers are commands executed with buffers, just like drawing
-  auto cmd_buffer = beginSingleTimeCommands();
-
-  VkBufferCopy copy_region{};
-  copy_region.srcOffset = 0;
-  copy_region.dstOffset = 0;
-  copy_region.size = size;
-  vkCmdCopyBuffer(cmd_buffer, src, dst, 1, &copy_region);
-
-  endSingleTimeCommands(cmd_buffer);
-}
-
 void VulkanEngine::createExternalBuffer(VkDeviceSize size,
   VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
   VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
@@ -81,7 +67,21 @@ void VulkanEngine::createExternalBuffer(VkDeviceSize size,
   vkBindBufferMemory(device, buffer, buffer_memory, 0);
 }
 
-void *VulkanEngine::getMemHandle(VkDeviceMemory memory,
+void VulkanEngine::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size)
+{
+  // Memory transfers are commands executed with buffers, just like drawing
+  auto cmd_buffer = beginSingleTimeCommands();
+
+  VkBufferCopy copy_region{};
+  copy_region.srcOffset = 0;
+  copy_region.dstOffset = 0;
+  copy_region.size = size;
+  vkCmdCopyBuffer(cmd_buffer, src, dst, 1, &copy_region);
+
+  endSingleTimeCommands(cmd_buffer);
+}
+
+void *VulkanEngine::getMemoryHandle(VkDeviceMemory memory,
   VkExternalMemoryHandleTypeFlagBits handle_type)
 {
   int fd = -1;
@@ -104,38 +104,6 @@ void *VulkanEngine::getMemHandle(VkDeviceMemory memory,
     throw std::runtime_error("Failed to retrieve handle for buffer!");
   }
   return (void*)(uintptr_t)fd;
-}
-
-void VulkanEngine::importExternalBuffer(void *handle, size_t size,
-  VkExternalMemoryHandleTypeFlagBits handle_type, VkBufferUsageFlags usage,
-  VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory)
-{
-  VkBufferCreateInfo buffer_info{};
-  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_info.size = size;
-  buffer_info.usage = usage;
-  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-  validation::checkVulkan(vkCreateBuffer(device, &buffer_info, nullptr, &buffer));
-
-  VkMemoryRequirements mem_req;
-  vkGetBufferMemoryRequirements(device, buffer, &mem_req);
-
-  VkImportMemoryFdInfoKHR handle_info{};
-  handle_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
-  handle_info.pNext = nullptr;
-  handle_info.fd = (int)(uintptr_t)handle;
-  handle_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
-  VkMemoryAllocateInfo mem_alloc{};
-  mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  mem_alloc.pNext = (void*)&handle_info;
-  mem_alloc.allocationSize = size;
-  auto type = props::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
-  mem_alloc.memoryTypeIndex = type;
-
-  validation::checkVulkan(vkAllocateMemory(device, &mem_alloc, nullptr, &memory));
-  vkBindBufferMemory(device, buffer, memory, 0);
 }
 
 void VulkanEngine::createUniformBuffers()
