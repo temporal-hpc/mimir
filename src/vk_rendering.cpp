@@ -82,7 +82,7 @@ void VulkanEngine::drawFrame()
     if (buffer.data_type == UnstructuredDataType::Points)
     {
       // Note: Second parameter can be also used to bind a compute pipeline
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline);
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point2d_pipeline);
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
@@ -211,20 +211,4 @@ void VulkanEngine::createRenderPass()
   validation::checkVulkan(
     vkCreateRenderPass(device, &pass_info, nullptr, &render_pass)
   );
-}
-
-void VulkanEngine::getVertexDescriptions(
-  std::vector<VkVertexInputBindingDescription>& bind_desc,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc)
-{
-  bind_desc.resize(1);
-  bind_desc[0].binding = 0;
-  bind_desc[0].stride = sizeof(float2);
-  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-  attr_desc.resize(1);
-  attr_desc[0].binding = 0;
-  attr_desc[0].location = 0;
-  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
-  attr_desc[0].offset = 0;
 }

@@ -32,7 +32,7 @@ __global__ void integrate2d(float *coords, size_t particle_count,
     if (p.x > extent.x) p.x = extent.x;
     if (p.x < 0) p.x = 0;
     p.y += r.y / 5.f;
-    if (p.y > extent.x) p.y = extent.x;
+    if (p.y > extent.y) p.y = extent.y;
     if (p.y < 0) p.y = 0;
     particles[tidx] = p;
     global_states[tidx] = local_state;

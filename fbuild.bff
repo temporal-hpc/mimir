@@ -126,7 +126,25 @@ Executable('run_mesh')
                  + ' -lglfw -lvulkan -ldl'
 }
 
+ObjectList('points3d')
+{
+  .Compiler             = 'CudaCompiler'
+  .CompilerOptions      = '-o "%2" "%1" -c'
+                        + ' -std=c++17 -Isamples/include -Iinclude'
+  .CompilerInputPath    = 'samples/points3d'
+  .CompilerInputPattern = { 'points3d.cu' }
+  .CompilerOutputPath   = '_out/'
+}
+Executable('run_points3d')
+{
+  .Libraries     = { 'cudaview', 'points3d' }
+  .Linker        = .CudaCompilerPath
+  .LinkerOutput  = '_out/points3d'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
+}
+
 Alias('samples') { .Targets = { 'run_structured', 'run_unstructured',
-  'run_image', 'run_sync', 'run_mesh' } }
+  'run_image', 'run_sync', 'run_mesh', 'run_points3d' } }
 
 Alias('all') { .Targets = { 'cudaview', 'shaders', 'samples' } }

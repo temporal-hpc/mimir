@@ -53,7 +53,8 @@ void VulkanEngine::cleanupSwapchain()
   vkFreeCommandBuffers(device, command_pool,
     static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
   );
-  vkDestroyPipeline(device, point_pipeline, nullptr);
+  vkDestroyPipeline(device, point2d_pipeline, nullptr);
+  vkDestroyPipeline(device, point3d_pipeline, nullptr);
   vkDestroyPipeline(device, screen_pipeline, nullptr);
   vkDestroyPipeline(device, mesh_pipeline, nullptr);
   vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
@@ -227,7 +228,7 @@ void VulkanEngine::createGraphicsPipelines()
   auto exec_path = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
   std::filesystem::current_path(exec_path);
 
-  auto vert_code   = io::readFile("shaders/unstructured/particle_pos.spv");
+  auto vert_code   = io::readFile("shaders/unstructured/particle_pos_2d.spv");
   auto vert_module = createShaderModule(vert_code);
 
   auto frag_code   = io::readFile("shaders/unstructured/particle_draw.spv");
@@ -249,7 +250,7 @@ void VulkanEngine::createGraphicsPipelines()
 
   std::vector<VkVertexInputBindingDescription> bind_desc;
   std::vector<VkVertexInputAttributeDescription> attr_desc;
-  getVertexDescriptions(bind_desc, attr_desc);
+  getVertexDescriptions2d(bind_desc, attr_desc);
 
   PipelineBuilder builder;
   builder.shader_stages.push_back(vert_info);
@@ -268,7 +269,23 @@ void VulkanEngine::createGraphicsPipelines()
   builder.multisampling     = vkinit::multisamplingStateCreateInfo();
   builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.pipeline_layout   = pipeline_layout;
-  point_pipeline = builder.buildPipeline(device, render_pass);
+  point2d_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/particle_pos_3d.spv");
+  vert_module = createShaderModule(vert_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+
+  getVertexDescriptions3d(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  point3d_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
   vkDestroyShaderModule(device, frag_module, nullptr);
@@ -410,4 +427,36 @@ void VulkanEngine::updateDescriptorSets()
       desc_writes.data(), 0, nullptr
     );
   }
+}
+
+void VulkanEngine::getVertexDescriptions2d(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(float2);
+  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  attr_desc.resize(1);
+  attr_desc[0].binding = 0;
+  attr_desc[0].location = 0;
+  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc[0].offset = 0;
+}
+
+void VulkanEngine::getVertexDescriptions3d(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(float3);
+  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  attr_desc.resize(1);
+  attr_desc[0].binding = 0;
+  attr_desc[0].location = 0;
+  attr_desc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attr_desc[0].offset = 0;
 }

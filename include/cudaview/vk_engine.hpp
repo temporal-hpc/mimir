@@ -18,6 +18,12 @@ enum class DataFormat
   Rgba32
 };
 
+enum class DataDomain
+{
+  Domain2D,
+  Domain3D
+};
+
 enum class UnstructuredDataType
 {
   Points,
@@ -28,6 +34,7 @@ struct MappedUnstructuredMemory
 {
   size_t element_count;
   size_t element_size;
+  DataDomain data_domain;
   UnstructuredDataType data_type;
   void *cuda_ptr;
   cudaExternalMemory_t cuda_extmem;
@@ -88,7 +95,7 @@ private:
   VkRenderPass render_pass;
   VkDescriptorSetLayout descriptor_layout;
   VkPipelineLayout pipeline_layout;
-  VkPipeline point_pipeline, screen_pipeline, mesh_pipeline;
+  VkPipeline point2d_pipeline, point3d_pipeline, screen_pipeline, mesh_pipeline;
   VkCommandPool command_pool;
   VkDescriptorPool imgui_pool, descriptor_pool;
   VkSampler texture_sampler;
@@ -154,7 +161,11 @@ private:
   VkCommandBuffer beginSingleTimeCommands();
   void endSingleTimeCommands(VkCommandBuffer command_buffer);
 
-  void getVertexDescriptions(
+  void getVertexDescriptions2d(
+    std::vector<VkVertexInputBindingDescription>& bind_desc,
+    std::vector<VkVertexInputAttributeDescription>& attr_desc
+  );
+  void getVertexDescriptions3d(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
     std::vector<VkVertexInputAttributeDescription>& attr_desc
   );

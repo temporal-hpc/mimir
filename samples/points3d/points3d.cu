@@ -1,0 +1,106 @@
+#include "cudaprogram.hpp"
+#include "cudaview/vk_engine.hpp"
+
+#include <string> // std::stoul
+#include <experimental/source_location>
+
+using source_location = std::experimental::source_location;
+
+constexpr void checkCuda(cudaError_t code, bool panic = true,
+  source_location src = source_location::current())
+{
+  if (code != cudaSuccess)
+  {
+    fprintf(stderr, "CUDA assertion: %s on function %s at %s(%d)\n",
+      cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
+    );
+    if (panic) exit(code);
+  }
+}
+
+__global__ void initSystem(float *coords, size_t point_count,
+  curandState *global_states, int3 extent, unsigned seed)
+{
+  auto points = reinterpret_cast<float3*>(coords);
+  auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
+  if (tidx < point_count)
+  {
+    auto local_state = global_states[tidx];
+    curand_init(seed, tidx, 0, &local_state);
+    auto rx = extent.x * curand_uniform(&local_state);
+    auto ry = extent.y * curand_uniform(&local_state);
+    auto rz = extent.z * curand_uniform(&local_state);
+    points[tidx] = {rx, ry, rz};
+    global_states[tidx] = local_state;
+  }
+}
+
+__global__ void integrate3d(float *coords, size_t point_count,
+  curandState *global_states, int3 extent)
+{
+  auto points = reinterpret_cast<float3*>(coords);
+  auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
+  if (tidx < point_count)
+  {
+    auto local_state = global_states[tidx];
+    auto p = points[tidx];
+    p.x += curand_normal(&local_state) / 5.f;
+    if (p.x > extent.x) p.x = extent.x;
+    if (p.x < 0) p.x = 0;
+    p.y += curand_normal(&local_state) / 5.f;
+    if (p.y > extent.x) p.y = extent.y;
+    if (p.y < 0) p.y = 0;
+    p.z += curand_normal(&local_state) / 5.f;
+    if (p.z > extent.z) p.z = extent.z;
+    if (p.z < 0) p.z = 0;
+    points[tidx] = p;
+    global_states[tidx] = local_state;
+  }
+}
+
+int main(int argc, char *argv[])
+{
+  float *d_coords       = nullptr;
+  curandState *d_states = nullptr;
+  unsigned block_size   = 256;
+  unsigned seed         = 123456;
+  int3 extent           = {200, 200, 200};
+
+  size_t point_count = 100;
+  size_t iter_count  = 10000;
+  if (argc >= 2)
+  {
+    point_count = std::stoul(argv[1]);
+  }
+  if (argc >= 3)
+  {
+    iter_count = std::stoul(argv[2]);
+  }
+
+  VulkanEngine engine({200, 200});
+  engine.init(800, 600);
+  engine.registerUnstructuredMemory((void**)&d_coords,
+    point_count, sizeof(float3), UnstructuredDataType::Points
+  );
+
+  checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
+  unsigned grid_size = (point_count + block_size - 1) / block_size;
+  initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
+
+  for(size_t i = 0; i < iter_count; ++i)
+  {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    engine.prepareWindow();
+    integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
+    cudaDeviceSynchronize();
+    engine.updateWindow();
+  }
+
+  checkCuda(cudaFree(d_states));
+  checkCuda(cudaFree(d_coords));
+
+  return EXIT_SUCCESS;
+}
+
+//VulkanEngine engine(vertices.size());
