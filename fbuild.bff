@@ -22,14 +22,14 @@ ObjectList('imgui')
 Library('cudaview')
 {
   .Compiler           = '/usr/bin/g++'
-  .CompilerOptions    = '-o "%2" "%1" -c'
+  .CompilerOptions    = ' -o "%2" "%1" -c'
                       + ' -Iinclude -I$CudaIncludePath$'
                       + ' -Icontrib/imgui-1.84.2 -Icontrib/stb -Icontrib/color'
                       + ' -std=c++17'
                       + .'Flags$BuildType$'
   .CompilerInputPath  = 'src/'
   .CompilerOutputPath = '_out/'
-  .LibrarianOutput    = '_out/cudaview.lib'
+  .LibrarianOutput    = '_out/libcudaview.a'
   .LibrarianAdditionalInputs = { 'imgui' }
 }
 
