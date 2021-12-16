@@ -141,7 +141,7 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_index)
   vkUnmapMemory(device, ubo_memory[image_index]);
 
   SceneParams params{};
-  params.extent = glm::ivec2{data_extent.x, data_extent.y};
+  params.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
 
   // TODO: Merge mappings
   data = nullptr;

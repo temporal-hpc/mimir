@@ -21,7 +21,7 @@ struct ModelViewProjection
 
 struct SceneParams
 {
-  glm::ivec2 extent;
+  glm::ivec3 extent;
 };
 
 struct Vertex

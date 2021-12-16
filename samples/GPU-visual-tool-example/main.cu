@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
     CUDA_CALL(cudaMalloc((void **)&dStates, n * sizeof(curandState)));
 
     int width = 900, height = 900;
-    VulkanEngine engine({1, 1});
+    VulkanEngine engine;
 
     // [VULKAN] I) CREAR UNA VENTANA VULKAN
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)
@@ -85,8 +85,8 @@ int main(int argc, char *argv[]) {
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    engine.registerUnstructuredMemory(
-      (void**)&dPoints, n, sizeof(float2), UnstructuredDataType::Points
+    engine.registerUnstructuredMemory((void**)&dPoints, n, sizeof(float2),
+      UnstructuredDataType::Points, DataDomain::Domain2D
     );
 
     /* SIMULATION */

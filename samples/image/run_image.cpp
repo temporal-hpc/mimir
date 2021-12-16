@@ -15,7 +15,8 @@ int main(int argc, char *argv[])
   ImageProgram program;
   try
   {
-    VulkanEngine engine(program.extent, program.stream);
+    int3 extent{program.extent.x, program.extent.y, 1};
+    VulkanEngine engine(extent, program.stream);
     engine.init(800, 600);
     engine.registerStructuredMemory((void**)&program.d_pixels,
       program.extent.x, program.extent.y, sizeof(uchar4), DataFormat::Rgba32

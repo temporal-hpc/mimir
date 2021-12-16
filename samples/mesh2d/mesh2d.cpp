@@ -21,13 +21,13 @@ int main(int argc, char *argv[])
   try
   {
     // Initialize engine
-    VulkanEngine engine({1, 1}, 0);
+    VulkanEngine engine;
     engine.init(800, 600);
     engine.registerUnstructuredMemory((void**)&program.d_points,
-      9, sizeof(float2), UnstructuredDataType::Points
+      9, sizeof(float2), UnstructuredDataType::Points, DataDomain::Domain2D
     );
     engine.registerUnstructuredMemory((void**)&program.d_triangles,
-      8, sizeof(uint3), UnstructuredDataType::Edges
+      8, sizeof(uint3), UnstructuredDataType::Edges, DataDomain::Domain2D
     );
 
     // Cannot make CUDA calls that use the target device memory before

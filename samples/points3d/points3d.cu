@@ -1,5 +1,6 @@
-#include "cudaprogram.hpp"
 #include "cudaview/vk_engine.hpp"
+
+#include <curand_kernel.h>
 
 #include <string> // std::stoul
 #include <experimental/source_location>
@@ -29,7 +30,7 @@ __global__ void initSystem(float *coords, size_t point_count,
     curand_init(seed, tidx, 0, &local_state);
     auto rx = extent.x * curand_uniform(&local_state);
     auto ry = extent.y * curand_uniform(&local_state);
-    auto rz = extent.z * curand_uniform(&local_state);
+    auto rz = 1.f;//extent.z * curand_uniform(&local_state);
     points[tidx] = {rx, ry, rz};
     global_states[tidx] = local_state;
   }
@@ -44,15 +45,15 @@ __global__ void integrate3d(float *coords, size_t point_count,
   {
     auto local_state = global_states[tidx];
     auto p = points[tidx];
-    p.x += curand_normal(&local_state) / 5.f;
+    p.x += curand_normal(&local_state);
     if (p.x > extent.x) p.x = extent.x;
     if (p.x < 0) p.x = 0;
-    p.y += curand_normal(&local_state) / 5.f;
+    p.y += curand_normal(&local_state);
     if (p.y > extent.x) p.y = extent.y;
     if (p.y < 0) p.y = 0;
-    p.z += curand_normal(&local_state) / 5.f;
+    /*p.z += curand_normal(&local_state) / 5.f;
     if (p.z > extent.z) p.z = extent.z;
-    if (p.z < 0) p.z = 0;
+    if (p.z < 0) p.z = 0;*/
     points[tidx] = p;
     global_states[tidx] = local_state;
   }
@@ -77,23 +78,25 @@ int main(int argc, char *argv[])
     iter_count = std::stoul(argv[2]);
   }
 
-  VulkanEngine engine({200, 200});
+  VulkanEngine engine({200, 200, 1});
   engine.init(800, 600);
-  engine.registerUnstructuredMemory((void**)&d_coords,
-    point_count, sizeof(float3), UnstructuredDataType::Points
+  engine.registerUnstructuredMemory((void**)&d_coords, point_count,
+    sizeof(float3), UnstructuredDataType::Points, DataDomain::Domain3D
   );
 
   checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
   unsigned grid_size = (point_count + block_size - 1) / block_size;
   initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
+  checkCuda(cudaDeviceSynchronize());
 
-  for(size_t i = 0; i < iter_count; ++i)
+  engine.displayAsync();
+  for (size_t i = 0; i < iter_count; ++i)
   {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     engine.prepareWindow();
     integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
-    cudaDeviceSynchronize();
+    checkCuda(cudaDeviceSynchronize());
     engine.updateWindow();
   }
 
@@ -102,5 +105,3 @@ int main(int argc, char *argv[])
 
   return EXIT_SUCCESS;
 }
-
-//VulkanEngine engine(vertices.size());

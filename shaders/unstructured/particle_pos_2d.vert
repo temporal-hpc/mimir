@@ -9,7 +9,7 @@ layout(binding = 0) uniform ModelViewProjection
 
 layout(binding = 1) uniform UniformDataParams
 {
-  ivec2 extent;
+  ivec3 extent;
 } params;
 
 // Vertex attributes, specified per-vertex in the respective buffer
@@ -24,8 +24,8 @@ layout(location = 0) out vec3 frag_color;
 void main()
 {
   gl_PointSize = 10.f;
-  vec2 pos = 2.f * (in_pos / params.extent) - 1.f;
-  gl_Position = mvp.proj * mvp.view * mvp.model * vec4(pos, 0.0, 1.0);
+  vec3 pos = 2.f * (vec3(in_pos, 1.f) / params.extent) - 1.f;
+  gl_Position = mvp.proj * mvp.view * mvp.model * vec4(pos, 1.f);
   frag_color = vec3(0, 0, 1);
   //frag_color = in_color;
 }

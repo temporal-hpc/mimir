@@ -81,8 +81,15 @@ void VulkanEngine::drawFrame()
   {
     if (buffer.data_type == UnstructuredDataType::Points)
     {
+      if (buffer.data_domain == DataDomain::Domain2D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point2d_pipeline);
+      }
+      else if (buffer.data_domain == DataDomain::Domain3D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point3d_pipeline);
+      }
       // Note: Second parameter can be also used to bind a compute pipeline
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point2d_pipeline);
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );

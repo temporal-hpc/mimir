@@ -129,7 +129,7 @@ Executable('run_mesh')
 ObjectList('points3d')
 {
   .Compiler             = 'CudaCompiler'
-  .CompilerOptions      = '-o "%2" "%1" -c'
+  .CompilerOptions      = '-o "%2" "%1" -c -G'
                         + ' -std=c++17 -Isamples/include -Iinclude'
   .CompilerInputPath    = 'samples/points3d'
   .CompilerInputPattern = { 'points3d.cu' }

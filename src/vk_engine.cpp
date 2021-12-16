@@ -27,7 +27,7 @@ static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
   app->should_resize = true;
 }
 
-VulkanEngine::VulkanEngine(int2 extent, cudaStream_t cuda_stream):
+VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   should_resize(false),
   instance(VK_NULL_HANDLE),
   debug_messenger(VK_NULL_HANDLE),
@@ -268,12 +268,14 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 }
 
 void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
-  size_t elem_count, size_t elem_size, UnstructuredDataType type)
+  size_t elem_count, size_t elem_size, UnstructuredDataType type,
+  DataDomain domain)
 {
   MappedUnstructuredMemory mapped{};
   mapped.element_count = elem_count;
   mapped.element_size  = elem_size;
   mapped.data_type     = type;
+  mapped.data_domain   = domain;
   mapped.cuda_ptr      = nullptr;
   mapped.cuda_extmem   = nullptr;
   mapped.vk_format     = VK_FORMAT_UNDEFINED; //getVulkanFormat(format);

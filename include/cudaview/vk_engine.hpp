@@ -60,13 +60,14 @@ struct MappedStructuredMemory
 class VulkanEngine
 {
 public:
-  VulkanEngine(int2 extent, cudaStream_t stream = 0);
+  VulkanEngine(int3 extent = {1, 1, 1}, cudaStream_t stream = 0);
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
   bool toggleRenderingMode(const std::string& key);
   void mainLoop();
   void registerUnstructuredMemory(void **ptr_devmem,
-    size_t elem_count, size_t elem_size, UnstructuredDataType type
+    size_t elem_count, size_t elem_size,
+    UnstructuredDataType type, DataDomain domain
   );
   void registerStructuredMemory(void **ptr_devmem,
     size_t width, size_t height, size_t elem_size, DataFormat format
@@ -122,7 +123,7 @@ private:
   std::condition_variable cond;
 
   // Cuda interop data
-  int2 data_extent;
+  int3 data_extent;
   cudaStream_t stream;
   cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
