@@ -326,6 +326,7 @@ void VulkanEngine::createGraphicsPipelines()
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
   );
 
+  getVertexDescriptions2d(bind_desc, attr_desc);
   builder.shader_stages.clear();
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);

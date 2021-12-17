@@ -28,6 +28,10 @@ void loadMesh2d(const std::string& filename, std::vector<float2>& coords,
   {
     uint3 triangle;
     file >> triangle.x >> triangle.y >> triangle.z;
+
+    auto p1 = coords[triangle.x];
+    auto p2 = coords[triangle.y];
+    auto p3 = coords[triangle.z];
     triangles.push_back(triangle);
   }
 }

@@ -12,6 +12,8 @@
 #include <thread> // std::thread
 #include <vector> // std::vector
 
+#include "cudaview/camera.hpp"
+
 enum class DataFormat
 {
   Float32,
@@ -186,6 +188,21 @@ private:
   void importCudaExternalSemaphore(
     cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
   );
+
+  // Camera functions
+  struct {
+    bool left = false;
+    bool right = false;
+    bool middle = false;
+  } mouse_buttons;
+  bool view_updated = false;
+  glm::vec2 mouse_pos;
+  void handleMouseMove(float x, float y);
+  void handleMouseButton(int button, int action);
+  static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
+  static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
+  static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
+  Camera camera;
 
   void initVulkan();
   void initImgui();
