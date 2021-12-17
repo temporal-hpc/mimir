@@ -3,7 +3,7 @@
 #include "vk_pipeline.hpp"
 #include "vk_properties.hpp"
 #include "validation.hpp"
-#include "io.hpp"
+#include "cudaview/io.hpp"
 
 #include <algorithm> // std::clamp
 #include <filesystem> // std::filesystem
@@ -55,8 +55,9 @@ void VulkanEngine::cleanupSwapchain()
   );
   vkDestroyPipeline(device, point2d_pipeline, nullptr);
   vkDestroyPipeline(device, point3d_pipeline, nullptr);
+  vkDestroyPipeline(device, mesh2d_pipeline, nullptr);
+  vkDestroyPipeline(device, mesh3d_pipeline, nullptr);
   vkDestroyPipeline(device, screen_pipeline, nullptr);
-  vkDestroyPipeline(device, mesh_pipeline, nullptr);
   vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
   for (auto framebuffer : framebuffers)
   {
@@ -313,7 +314,7 @@ void VulkanEngine::createGraphicsPipelines()
   vkDestroyShaderModule(device, vert_module, nullptr);
   vkDestroyShaderModule(device, frag_module, nullptr);
 
-  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex.spv");
+  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
   vert_module = createShaderModule(vert_code);
 
   frag_code   = io::readFile("shaders/unstructured/wireframe_fragment.spv");
@@ -333,7 +334,21 @@ void VulkanEngine::createGraphicsPipelines()
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
   builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.rasterizer        = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
-  mesh_pipeline = builder.buildPipeline(device, render_pass);
+  mesh2d_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_3d.spv");
+  vert_module = createShaderModule(vert_code);
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+
+  getVertexDescriptions3d(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  mesh3d_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
   vkDestroyShaderModule(device, frag_module, nullptr);

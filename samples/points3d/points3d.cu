@@ -30,7 +30,7 @@ __global__ void initSystem(float *coords, size_t point_count,
     curand_init(seed, tidx, 0, &local_state);
     auto rx = extent.x * curand_uniform(&local_state);
     auto ry = extent.y * curand_uniform(&local_state);
-    auto rz = 1.f;//extent.z * curand_uniform(&local_state);
+    auto rz = extent.z * curand_uniform(&local_state);
     points[tidx] = {rx, ry, rz};
     global_states[tidx] = local_state;
   }
@@ -51,9 +51,9 @@ __global__ void integrate3d(float *coords, size_t point_count,
     p.y += curand_normal(&local_state);
     if (p.y > extent.x) p.y = extent.y;
     if (p.y < 0) p.y = 0;
-    /*p.z += curand_normal(&local_state) / 5.f;
+    p.z += curand_normal(&local_state);
     if (p.z > extent.z) p.z = extent.z;
-    if (p.z < 0) p.z = 0;*/
+    if (p.z < 0) p.z = 0;
     points[tidx] = p;
     global_states[tidx] = local_state;
   }
@@ -78,7 +78,7 @@ int main(int argc, char *argv[])
     iter_count = std::stoul(argv[2]);
   }
 
-  VulkanEngine engine({200, 200, 1});
+  VulkanEngine engine(extent);
   engine.init(800, 600);
   engine.registerUnstructuredMemory((void**)&d_coords, point_count,
     sizeof(float3), UnstructuredDataType::Points, DataDomain::Domain3D

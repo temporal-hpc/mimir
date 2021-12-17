@@ -98,7 +98,8 @@ private:
   VkRenderPass render_pass;
   VkDescriptorSetLayout descriptor_layout;
   VkPipelineLayout pipeline_layout;
-  VkPipeline point2d_pipeline, point3d_pipeline, screen_pipeline, mesh_pipeline;
+  VkPipeline screen_pipeline;
+  VkPipeline point2d_pipeline, point3d_pipeline, mesh2d_pipeline, mesh3d_pipeline;
   VkCommandPool command_pool;
   VkDescriptorPool imgui_pool, descriptor_pool;
   VkSampler texture_sampler;

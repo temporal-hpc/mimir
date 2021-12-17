@@ -101,7 +101,14 @@ void VulkanEngine::drawFrame()
     }
     else if (buffer.data_type == UnstructuredDataType::Edges)
     {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline);
+      if (buffer.data_domain == DataDomain::Domain2D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh2d_pipeline);
+      }
+      else if (buffer.data_domain == DataDomain::Domain3D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh3d_pipeline);
+      }
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );

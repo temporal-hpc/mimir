@@ -24,7 +24,7 @@ Library('cudaview')
   .Compiler           = '/usr/bin/g++'
   .CompilerOptions    = ' -o "%2" "%1" -c'
                       + ' -Iinclude -I$CudaIncludePath$'
-                      + ' -Icontrib/imgui-1.84.2 -Icontrib/stb -Icontrib/color'
+                      + ' -Icontrib/imgui-1.84.2 -Icontrib/color'
                       + ' -std=c++17'
                       + .'Flags$BuildType$'
   .CompilerInputPath  = 'src/'
@@ -38,7 +38,7 @@ ObjectList('cuda-structured')
   .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17 -g -G'
-                        + ' -Isamples/include -Iinclude -Icontrib/stb'
+                        + ' -Isamples/include -Iinclude'
   .CompilerInputPath    = 'samples/structured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
@@ -78,7 +78,7 @@ ObjectList('cuda-image')
                         + ' -std=c++17'
                         + ' -Isamples/include -Iinclude -Icontrib/stb'
   .CompilerInputPath    = 'samples/image'
-  .CompilerInputPattern = { '*.cu', '*.cpp' }
+  .CompilerInputPattern = { '*.cu' }
   .CompilerOutputPath   = '_out/'
 }
 Executable('run_image')
@@ -113,15 +113,15 @@ ObjectList('cuda-mesh')
   .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17 -Isamples/include -Iinclude'
-  .CompilerInputPath    = 'samples/mesh2d'
-  .CompilerInputPattern = { '*.cu', '*.cpp' }
+  .CompilerInputPath    = 'samples/mesh3d'
+  .CompilerInputPattern = { '*.cu' }
   .CompilerOutputPath   = '_out/'
 }
 Executable('run_mesh')
 {
   .Libraries     = { 'cudaview', 'cuda-mesh' }
   .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/mesh2d'
+  .LinkerOutput  = '_out/mesh3d'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
 }
