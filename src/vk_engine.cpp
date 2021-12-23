@@ -11,16 +11,6 @@
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 
-VkFormat getVulkanFormat(DataFormat format)
-{
-  switch (format)
-  {
-    case DataFormat::Float32: return VK_FORMAT_R32_SFLOAT;
-    case DataFormat::Rgba32:  return VK_FORMAT_R8G8B8A8_SRGB;
-    default:                  return VK_FORMAT_UNDEFINED;
-  }
-}
-
 VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   should_resize(false),
   instance(VK_NULL_HANDLE),
@@ -53,7 +43,6 @@ VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   window(nullptr),
   imgui_pool(VK_NULL_HANDLE),
   descriptor_pool(VK_NULL_HANDLE),
-  rendering_modes{ {"structured", false}, {"unstructured", false} },
 
   texture_sampler(VK_NULL_HANDLE),
   data_extent(extent),
@@ -276,27 +265,17 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
   size_t elem_count, size_t elem_size, UnstructuredDataType type,
   DataDomain domain)
 {
-  MappedUnstructuredMemory mapped{};
-  mapped.element_count = elem_count;
-  mapped.element_size  = elem_size;
-  mapped.data_type     = type;
-  mapped.data_domain   = domain;
-  mapped.cuda_ptr      = nullptr;
-  mapped.cuda_extmem   = nullptr;
-  mapped.vk_format     = VK_FORMAT_UNDEFINED; //getVulkanFormat(format);
-  mapped.vk_buffer     = VK_NULL_HANDLE;
-  mapped.vk_memory     = VK_NULL_HANDLE;
+  auto mapped = newUnstructuredMemory(elem_count, elem_size, type, domain);
 
   VkBufferUsageFlagBits usage;
-  if (type == UnstructuredDataType::Points)
+  if (mapped.data_type == UnstructuredDataType::Points)
   {
     usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
   }
-  else if (type == UnstructuredDataType::Edges)
+  else if (mapped.data_type == UnstructuredDataType::Edges)
   {
     usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
   }
-
   // Init unstructured memory
   createExternalBuffer(mapped.element_size * mapped.element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
@@ -310,24 +289,13 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
 
   unstructured_buffers.push_back(mapped);
   updateDescriptorSets();
-  toggleRenderingMode("unstructured");
   *ptr_devmem = mapped.cuda_ptr;
 }
 
 void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
   size_t width, size_t height, size_t elem_size, DataFormat format)
 {
-  MappedStructuredMemory mapped{};
-  mapped.element_count = width * height;
-  mapped.element_size  = elem_size;
-  mapped.cuda_ptr      = nullptr;
-  mapped.cuda_extmem   = nullptr;
-  mapped.vk_format     = getVulkanFormat(format);
-  mapped.vk_buffer     = VK_NULL_HANDLE;
-  mapped.vk_memory     = VK_NULL_HANDLE;
-  mapped.vk_image      = VK_NULL_HANDLE;
-  mapped.vk_view       = VK_NULL_HANDLE;
-  mapped.extent        = { width, height };
+  auto mapped = newStructuredMemory(width, height, elem_size, format);
 
   // Init structured memory
   createExternalImage(width, height, mapped.vk_format,
@@ -347,7 +315,6 @@ void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
 
   structured_buffers.push_back(mapped);
   updateDescriptorSets();
-  toggleRenderingMode("structured");
   *ptr_devmem = mapped.cuda_ptr;
 }
 
@@ -554,98 +521,6 @@ void VulkanEngine::initImgui()
   ImGui_ImplVulkan_CreateFontsTexture(cmd);
   endSingleTimeCommands(cmd);
   ImGui_ImplVulkan_DestroyFontUploadObjects();
-}
-
-bool VulkanEngine::toggleRenderingMode(const std::string& key)
-{
-  // TODO: Use c++-20 map::contains(key)
-  auto search = rendering_modes.find(key);
-  if (search != rendering_modes.end())
-  {
-    rendering_modes[key] = !rendering_modes[key];
-    return true;
-  }
-  return false;
-}
-
-void VulkanEngine::handleMouseMove(float x, float y)
-{
-  auto dx = mouse_pos.x - x;
-  auto dy = mouse_pos.y - y;
-
-  if (mouse_buttons.left)
-  {
-    camera.rotate(glm::vec3(dy * camera.rotation_speed, -dx * camera.rotation_speed, 0.f));
-    view_updated = true;
-  }
-  if (mouse_buttons.right)
-  {
-    camera.translate(glm::vec3(0.f, 0.f, dy * .005f));
-  }
-  if (mouse_buttons.middle)
-  {
-    camera.translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
-  }
-  mouse_pos = glm::vec2(x, y);
-}
-
-void VulkanEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
-{
-  auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
-  app->handleMouseMove(static_cast<float>(xpos), static_cast<float>(ypos));
-}
-
-void VulkanEngine::handleMouseButton(int button, int action)
-{
-  switch (action)
-  {
-    case GLFW_PRESS:
-      switch (button)
-      {
-        case GLFW_MOUSE_BUTTON_LEFT:
-          mouse_buttons.left = true;
-          break;
-        case GLFW_MOUSE_BUTTON_MIDDLE:
-          mouse_buttons.middle = true;
-          break;
-        case GLFW_MOUSE_BUTTON_RIGHT:
-          mouse_buttons.right = true;
-          break;
-        default:
-          break;
-      }
-      break;
-    case GLFW_RELEASE:
-      switch (button)
-      {
-        case GLFW_MOUSE_BUTTON_LEFT:
-          mouse_buttons.left = false;
-          break;
-        case GLFW_MOUSE_BUTTON_MIDDLE:
-          mouse_buttons.middle = false;
-          break;
-        case GLFW_MOUSE_BUTTON_RIGHT:
-          mouse_buttons.right = false;
-          break;
-        default:
-          break;
-      }
-      break;
-    default:
-      break;
-  }
-}
-
-void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
-{
-  auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
-  app->handleMouseButton(button, action);
-}
-
-void VulkanEngine::framebufferResizeCallback(GLFWwindow *window, int width, int height)
-{
-  auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
-  app->should_resize = true;
 }
 
 void VulkanEngine::setBackgroundColor(color::rgba<float> color)

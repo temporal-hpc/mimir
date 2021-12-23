@@ -13,52 +13,8 @@
 
 #include "color/color.hpp"
 
+#include "cudaview/vk_cuda_map.hpp"
 #include "cudaview/camera.hpp"
-
-enum class DataFormat
-{
-  Float32,
-  Rgba32
-};
-
-enum class DataDomain
-{
-  Domain2D,
-  Domain3D
-};
-
-enum class UnstructuredDataType
-{
-  Points,
-  Edges
-};
-
-struct MappedUnstructuredMemory
-{
-  size_t element_count;
-  size_t element_size;
-  DataDomain data_domain;
-  UnstructuredDataType data_type;
-  void *cuda_ptr;
-  cudaExternalMemory_t cuda_extmem;
-  VkFormat vk_format;
-  VkBuffer vk_buffer;
-  VkDeviceMemory vk_memory;
-};
-
-struct MappedStructuredMemory
-{
-  void *cuda_ptr;
-  cudaExternalMemory_t cuda_extmem;
-  size_t element_count;
-  size_t element_size;
-  VkFormat vk_format;
-  VkBuffer vk_buffer;
-  VkDeviceMemory vk_memory;
-  VkImage vk_image;
-  VkImageView vk_view;
-  std::array<ulong, 3> extent;
-};
 
 class VulkanEngine
 {
@@ -66,7 +22,6 @@ public:
   VulkanEngine(int3 extent = {1, 1, 1}, cudaStream_t stream = 0);
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
-  bool toggleRenderingMode(const std::string& key);
   void mainLoop();
   void registerUnstructuredMemory(void **ptr_devmem,
     size_t elem_count, size_t elem_size,
@@ -137,7 +92,6 @@ private:
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
   uint64_t current_frame;
-  std::map<std::string, bool> rendering_modes;
   std::vector<MappedStructuredMemory> structured_buffers;
   std::vector<MappedUnstructuredMemory> unstructured_buffers;
 
