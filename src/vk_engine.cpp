@@ -1,7 +1,7 @@
 #include "cudaview/vk_engine.hpp"
 
-#include "vk_properties.hpp"
-#include "validation.hpp"
+#include "internal/vk_properties.hpp"
+#include "internal/validation.hpp"
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"

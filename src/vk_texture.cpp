@@ -1,7 +1,7 @@
 #include "cudaview/vk_engine.hpp"
-#include "vk_initializers.hpp"
-#include "validation.hpp"
-#include "vk_properties.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/validation.hpp"
+#include "internal/vk_properties.hpp"
 
 void VulkanEngine::createExternalImage(uint32_t width, uint32_t height,
   VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,

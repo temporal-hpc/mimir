@@ -1,4 +1,4 @@
-#include "vk_initializers.hpp"
+#include "internal/vk_initializers.hpp"
 
 namespace vkinit
 {

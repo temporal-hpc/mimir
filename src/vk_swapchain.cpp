@@ -1,11 +1,10 @@
 #include "cudaview/vk_engine.hpp"
-#include "vk_initializers.hpp"
-#include "vk_pipeline.hpp"
-#include "vk_properties.hpp"
-#include "validation.hpp"
 #include "cudaview/io.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/vk_pipeline.hpp"
+#include "internal/vk_properties.hpp"
+#include "internal/validation.hpp"
 
-#include <algorithm> // std::clamp
 #include <filesystem> // std::filesystem
 
 #include "cudaview/vk_types.hpp"
@@ -61,35 +60,16 @@ void VulkanEngine::recreateSwapchain()
   initSwapchain();
 }
 
-VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities)
-{
-  if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
-  {
-    return capabilities.currentExtent;
-  }
-  else
-  {
-    int width, height;
-    glfwGetFramebufferSize(window, &width, &height);
-    VkExtent2D actual_extent = {
-      static_cast<uint32_t>(width), static_cast<uint32_t>(height)
-    };
-    actual_extent.width = std::clamp(actual_extent.width,
-      capabilities.minImageExtent.width, capabilities.maxImageExtent.width
-    );
-    actual_extent.height = std::clamp(actual_extent.height,
-      capabilities.minImageExtent.height, capabilities.maxImageExtent.height
-    );
-    return actual_extent;
-  }
-}
-
 void VulkanEngine::createSwapchain()
 {
+  int width, height;
+  glfwGetFramebufferSize(window, &width, &height);
+  VkExtent2D win_ext{static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+
   auto swapchain_support = props::getSwapchainProperties(physical_device, surface);
   auto surface_format = props::chooseSwapSurfaceFormat(swapchain_support.formats);
   auto present_mode = props::chooseSwapPresentMode(swapchain_support.present_modes);
-  auto extent = chooseSwapExtent(swapchain_support.capabilities);
+  auto extent = props::chooseSwapExtent(swapchain_support.capabilities, win_ext);
 
   auto image_count = swapchain_support.capabilities.minImageCount + 1;
   const auto max_image_count = swapchain_support.capabilities.maxImageCount;

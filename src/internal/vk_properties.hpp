@@ -47,4 +47,8 @@ uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
   VkMemoryPropertyFlags properties
 );
 
+VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities,
+  VkExtent2D new_extent
+);
+
 } // namespace props

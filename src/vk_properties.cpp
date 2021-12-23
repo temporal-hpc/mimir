@@ -1,7 +1,8 @@
-#include "vk_properties.hpp"
+#include "internal/vk_properties.hpp"
 
 #include <GLFW/glfw3.h> // glfwGetRequiredInstanceExtensions
 
+#include <algorithm> // std::clamp
 #include <set> // std::set
 
 namespace props
@@ -200,6 +201,25 @@ VkPresentModeKHR chooseSwapPresentMode(
     }
   }
   return best_mode;
+}
+
+VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities,
+  VkExtent2D new_extent)
+{
+  if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+  {
+    return capabilities.currentExtent;
+  }
+  else
+  {
+    new_extent.width = std::clamp(new_extent.width,
+      capabilities.minImageExtent.width, capabilities.maxImageExtent.width
+    );
+    new_extent.height = std::clamp(new_extent.height,
+      capabilities.minImageExtent.height, capabilities.maxImageExtent.height
+    );
+    return new_extent;
+  }
 }
 
 } // namespace props

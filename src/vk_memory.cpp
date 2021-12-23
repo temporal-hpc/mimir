@@ -1,6 +1,6 @@
 #include "cudaview/vk_engine.hpp"
-#include "validation.hpp"
-#include "vk_properties.hpp"
+#include "internal/validation.hpp"
+#include "internal/vk_properties.hpp"
 
 void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory)

@@ -1,7 +1,7 @@
 #include "cudaview/vk_engine.hpp"
 #include "cudaview/vk_types.hpp"
-#include "vk_initializers.hpp"
-#include "validation.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/validation.hpp"
 
 #include "glm/gtc/type_ptr.hpp"
 

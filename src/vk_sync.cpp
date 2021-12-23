@@ -1,6 +1,6 @@
 #include "cudaview/vk_engine.hpp"
-#include "vk_initializers.hpp"
-#include "validation.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/validation.hpp"
 
 static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 

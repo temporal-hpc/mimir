@@ -1,7 +1,7 @@
 #include "cudaview/vk_engine.hpp"
-#include "vk_initializers.hpp"
-#include "vk_properties.hpp"
-#include "validation.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/vk_properties.hpp"
+#include "internal/validation.hpp"
 
 void VulkanEngine::createCommandPool()
 {

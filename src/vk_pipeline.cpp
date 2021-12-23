@@ -1,4 +1,4 @@
-#include "vk_pipeline.hpp"
+#include "internal/vk_pipeline.hpp"
 
 VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
 {

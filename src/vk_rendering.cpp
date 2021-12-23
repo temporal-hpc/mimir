@@ -1,6 +1,6 @@
 #include "cudaview/vk_engine.hpp"
-#include "validation.hpp"
-#include "vk_initializers.hpp"
+#include "internal/validation.hpp"
+#include "internal/vk_initializers.hpp"
 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
