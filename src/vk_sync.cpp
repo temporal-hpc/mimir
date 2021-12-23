@@ -2,8 +2,6 @@
 #include "internal/vk_initializers.hpp"
 #include "internal/validation.hpp"
 
-static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
-
 void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
   std::vector<VkPipelineStageFlags>& wait_stages) const
 {
@@ -24,7 +22,7 @@ void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) co
   signal.push_back(vk_signal_semaphore);
 }
 
-void VulkanEngine::createSyncObjects() // TODO: add inflight_frame_count as param
+void VulkanEngine::createSyncObjects()
 {
   images_inflight.resize(swapchain_images.size(), VK_NULL_HANDLE);
 
@@ -33,16 +31,16 @@ void VulkanEngine::createSyncObjects() // TODO: add inflight_frame_count as para
   );*/
   auto semaphore_info = vkinit::semaphoreCreateInfo();
   auto fence_info = vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
-  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+  for (auto& frame : frames)
   {
     validation::checkVulkan(vkCreateSemaphore(
-      device, &semaphore_info, nullptr, &image_available[i])
+      device, &semaphore_info, nullptr, &frame.present_semaphore)
     );
     validation::checkVulkan(vkCreateSemaphore(
-      device, &semaphore_info, nullptr, &render_finished[i])
+      device, &semaphore_info, nullptr, &frame.render_semaphore)
     );
     validation::checkVulkan(vkCreateFence(
-      device, &fence_info, nullptr, &inflight_fences[i])
+      device, &fence_info, nullptr, &frame.render_fence)
     );
   }
 

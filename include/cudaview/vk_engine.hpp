@@ -14,7 +14,13 @@
 #include "color/color.hpp"
 
 #include "cudaview/vk_cuda_map.hpp"
+#include "cudaview/frame.hpp"
 #include "cudaview/camera.hpp"
+
+namespace
+{
+  static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
+}
 
 class VulkanEngine
 {
@@ -59,7 +65,8 @@ private:
   VkDescriptorSetLayout descriptor_layout;
   VkPipelineLayout pipeline_layout;
   VkPipeline screen_pipeline;
-  VkPipeline point2d_pipeline, point3d_pipeline, mesh2d_pipeline, mesh3d_pipeline;
+  VkPipeline point2d_pipeline, point3d_pipeline;
+  VkPipeline mesh2d_pipeline, mesh3d_pipeline;
   VkCommandPool command_pool;
   VkDescriptorPool imgui_pool, descriptor_pool;
   VkSampler texture_sampler;
@@ -69,11 +76,10 @@ private:
   std::vector<VkDeviceMemory> ubo_memory;
   std::vector<VkDescriptorSet> descriptor_sets;
 
+  std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
+
   // Synchronization structures
   std::vector<VkFence> images_inflight;
-  std::vector<VkFence> inflight_fences;
-  std::vector<VkSemaphore> image_available;
-  std::vector<VkSemaphore> render_finished;
   VkSemaphore vk_wait_semaphore;
   VkSemaphore vk_signal_semaphore;
   //VkSemaphore vk_presentation_semaphore;
@@ -94,6 +100,8 @@ private:
   uint64_t current_frame;
   std::vector<MappedStructuredMemory> structured_buffers;
   std::vector<MappedUnstructuredMemory> unstructured_buffers;
+
+  FrameData& getCurrentFrame();
 
   // Buffer functions
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -170,7 +178,8 @@ private:
 
   void initVulkan();
   void initImgui();
-  void drawFrame();
+  void renderFrame();
+  void drawObjects(uint32_t image_idx);
   void drawGui();
   void cudaSemaphoreSignal();
   void cudaSemaphoreWait();

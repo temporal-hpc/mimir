@@ -9,10 +9,10 @@
 #include <set> // std::set
 #include <stdexcept> // std::throw
 
-static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
-
 VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
+  current_frame(0),
   should_resize(false),
+
   instance(VK_NULL_HANDLE),
   debug_messenger(VK_NULL_HANDLE),
   surface(VK_NULL_HANDLE),
@@ -20,8 +20,14 @@ VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   device(VK_NULL_HANDLE),
   graphics_queue(VK_NULL_HANDLE),
   present_queue(VK_NULL_HANDLE),
+
   swapchain(VK_NULL_HANDLE),
   render_pass(VK_NULL_HANDLE),
+  command_pool(VK_NULL_HANDLE),
+  imgui_pool(VK_NULL_HANDLE),
+  descriptor_pool(VK_NULL_HANDLE),
+  texture_sampler(VK_NULL_HANDLE),
+
   descriptor_layout(VK_NULL_HANDLE),
   pipeline_layout(VK_NULL_HANDLE),
   point2d_pipeline(VK_NULL_HANDLE),
@@ -29,27 +35,18 @@ VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   mesh2d_pipeline(VK_NULL_HANDLE),
   mesh3d_pipeline(VK_NULL_HANDLE),
   screen_pipeline(VK_NULL_HANDLE),
-  command_pool(VK_NULL_HANDLE),
-  //vk_presentation_semaphore(VK_NULL_HANDLE),
-  //vk_timeline_semaphore(VK_NULL_HANDLE),
-  inflight_fences(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE),
-  image_available(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE),
-  render_finished(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE),
+
   vk_wait_semaphore(VK_NULL_HANDLE),
   vk_signal_semaphore(VK_NULL_HANDLE),
+  //vk_presentation_semaphore(VK_NULL_HANDLE),
+  //vk_timeline_semaphore(VK_NULL_HANDLE),
+  cuda_wait_semaphore(nullptr),
+  cuda_signal_semaphore(nullptr),
+  //cuda_timeline_semaphore(nullptr),
 
-  current_frame(0),
-
-  window(nullptr),
-  imgui_pool(VK_NULL_HANDLE),
-  descriptor_pool(VK_NULL_HANDLE),
-
-  texture_sampler(VK_NULL_HANDLE),
   data_extent(extent),
   stream(cuda_stream),
-  //cuda_timeline_semaphore(nullptr),
-  cuda_wait_semaphore(nullptr),
-  cuda_signal_semaphore(nullptr)
+  window(nullptr)
 {}
 
 VulkanEngine::~VulkanEngine()
@@ -141,19 +138,19 @@ VulkanEngine::~VulkanEngine()
   {
     vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
   }*/
-  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+  for (size_t i = 0; i < frames.size(); ++i)
   {
-    if (image_available[i] != VK_NULL_HANDLE)
+    if (frames[i].present_semaphore != VK_NULL_HANDLE)
     {
-      vkDestroySemaphore(device, image_available[i], nullptr);
+      vkDestroySemaphore(device, frames[i].present_semaphore, nullptr);
     }
-    if (render_finished[i] != VK_NULL_HANDLE)
+    if (frames[i].render_semaphore != VK_NULL_HANDLE)
     {
-      vkDestroySemaphore(device, render_finished[i], nullptr);
+      vkDestroySemaphore(device, frames[i].render_semaphore, nullptr);
     }
-    if (inflight_fences[i] != VK_NULL_HANDLE)
+    if (frames[i].render_fence != VK_NULL_HANDLE)
     {
-      vkDestroyFence(device, inflight_fences[i], nullptr);
+      vkDestroyFence(device, frames[i].render_fence, nullptr);
     }
   }
   if (vk_wait_semaphore != VK_NULL_HANDLE)
@@ -228,7 +225,7 @@ void VulkanEngine::displayAsync()
       std::unique_lock<std::mutex> lock(mutex);
       cond.wait(lock, [&]{ return device_working == false; });
 
-      drawFrame();
+      renderFrame();
 
       lock.unlock();
     }
@@ -246,7 +243,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 
     drawGui();
 
-    drawFrame();
+    renderFrame();
 
     cudaSemaphoreWait();
     if (iteration_idx < iter_count)
@@ -421,7 +418,7 @@ void VulkanEngine::createLogicalDevice()
   props::findQueueFamilies(physical_device, surface, graphics_idx, present_idx);
 
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-  std::set unique_queue_families{ graphics_idx, present_idx};
+  std::set unique_queue_families{ graphics_idx, present_idx };
   auto queue_priority = 1.f;
 
   for (auto queue_family : unique_queue_families)
