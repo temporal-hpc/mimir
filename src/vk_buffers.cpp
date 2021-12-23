@@ -5,6 +5,8 @@
 #include "cudaview/vk_types.hpp"
 #include "cudaview/camera.hpp"
 
+#include "glm/gtc/type_ptr.hpp"
+
 #include <cstring> // memcpy
 
 void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -109,7 +111,7 @@ void *VulkanEngine::getMemoryHandle(VkDeviceMemory memory,
 
 void VulkanEngine::createUniformBuffers()
 {
-  VkDeviceSize buffer_size = sizeof(ModelViewProjection) + sizeof(SceneParams);
+  VkDeviceSize buffer_size = sizeof(ModelViewProjection) + 2 * 0x40;
   auto img_count = swapchain_images.size();
   uniform_buffers.resize(img_count);
   ubo_memory.resize(img_count);
@@ -136,12 +138,21 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_index)
   memcpy(data, &ubo, sizeof(ubo));
   vkUnmapMemory(device, ubo_memory[image_index]);
 
+  ColorParams colors{};
+  colors.point_color = setColor(point_color);
+  colors.edge_color  = setColor(edge_color);
+  data = nullptr;
+  vkMapMemory(device, ubo_memory[image_index], sizeof(ubo),
+    sizeof(ColorParams), 0, &data
+  );
+  memcpy(data, &colors, sizeof(colors));
+  vkUnmapMemory(device, ubo_memory[image_index]);
+
   SceneParams params{};
   params.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
-
   // TODO: Merge mappings
   data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], sizeof(ModelViewProjection),
+  vkMapMemory(device, ubo_memory[image_index], sizeof(ubo) + 0x40,
     sizeof(SceneParams), 0, &data
   );
   memcpy(data, &params, sizeof(params));

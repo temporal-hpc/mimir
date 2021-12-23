@@ -62,7 +62,8 @@ void VulkanEngine::drawFrame()
   auto render_pass_info = vkinit::renderPassBeginInfo(
     render_pass, swapchain_extent, framebuffers[image_idx]
   );
-  VkClearValue clear_color         = {{{.5f, .5f, .5f, 1.f}}};
+  VkClearValue clear_color;
+  setColor(clear_color.color.float32, bg_color);
   render_pass_info.clearValueCount = 1;
   render_pass_info.pClearValues    = &clear_color;
 

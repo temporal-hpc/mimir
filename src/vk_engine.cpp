@@ -669,3 +669,36 @@ void VulkanEngine::framebufferResizeCallback(GLFWwindow *window, int width, int 
   auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
   app->should_resize = true;
 }
+
+void VulkanEngine::setBackgroundColor(color::rgba<float> color)
+{
+  bg_color = color;
+}
+
+void VulkanEngine::setPointColor(color::rgba<float> color)
+{
+  point_color = color;
+}
+
+void VulkanEngine::setEdgeColor(color::rgba<float> color)
+{
+  edge_color = color;
+}
+
+void VulkanEngine::setColor(float *vk_color, color::rgba<float> color)
+{
+  vk_color[0] = color::get::red(color);
+  vk_color[1] = color::get::green(color);
+  vk_color[2] = color::get::blue(color);
+  vk_color[3] = color::get::alpha(color);
+}
+
+glm::vec4 VulkanEngine::setColor(color::rgba<float> color)
+{
+  glm::vec4 colorvec;
+  colorvec.x = color::get::red(color);
+  colorvec.y = color::get::green(color);
+  colorvec.z = color::get::blue(color);
+  colorvec.w = color::get::alpha(color);
+  return colorvec;
+}

@@ -38,7 +38,7 @@ ObjectList('cuda-structured')
   .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17 -g -G'
-                        + ' -Isamples/include -Iinclude'
+                        + ' -Isamples/include -Iinclude -Icontrib/color'
   .CompilerInputPath    = 'samples/structured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
@@ -57,7 +57,7 @@ ObjectList('cuda-unstructured')
   .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17'
-                        + ' -Isamples/include -Iinclude'
+                        + ' -Isamples/include -Iinclude -Icontrib/color'
   .CompilerInputPath    = 'samples/unstructured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = '_out/'
@@ -76,7 +76,7 @@ ObjectList('cuda-image')
   .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17'
-                        + ' -Isamples/include -Iinclude -Icontrib/stb'
+                        + ' -Isamples/include -Iinclude -Icontrib/stb -Icontrib/color'
   .CompilerInputPath    = 'samples/image'
   .CompilerInputPattern = { '*.cu' }
   .CompilerOutputPath   = '_out/'
@@ -94,7 +94,7 @@ ObjectList('cuda-sync')
 {
   .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
-                        + ' -std=c++17 -Iinclude'
+                        + ' -std=c++17 -Iinclude -Icontrib/color'
   .CompilerInputPath    = 'samples/GPU-visual-tool-example'
   .CompilerInputPattern = { 'main.cu' }
   .CompilerOutputPath   = '_out/'
@@ -112,7 +112,7 @@ ObjectList('cuda-mesh')
 {
   .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c'
-                        + ' -std=c++17 -Isamples/include -Iinclude'
+                        + ' -std=c++17 -Isamples/include -Iinclude -Icontrib/color'
   .CompilerInputPath    = 'samples/mesh3d'
   .CompilerInputPattern = { '*.cu' }
   .CompilerOutputPath   = '_out/'
@@ -130,7 +130,7 @@ ObjectList('points3d')
 {
   .Compiler             = 'CudaCompiler'
   .CompilerOptions      = '-o "%2" "%1" -c -G'
-                        + ' -std=c++17 -Isamples/include -Iinclude'
+                        + ' -std=c++17 -Isamples/include -Iinclude -Icontrib/color'
   .CompilerInputPath    = 'samples/points3d'
   .CompilerInputPattern = { 'points3d.cu' }
   .CompilerOutputPath   = '_out/'

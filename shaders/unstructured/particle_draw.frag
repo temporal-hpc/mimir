@@ -1,5 +1,10 @@
 #version 450
 
+layout(binding = 2) uniform ColorParams
+{
+  vec4 point_color;
+} colors;
+
 layout(location = 0) in vec3 fragColor;
 layout(location = 0) out vec4 outColor;
 
@@ -9,5 +14,5 @@ void main()
   vec2 center_coords = 2.f * gl_PointCoord - 1.f;
   float r = dot(center_coords, center_coords);
   if (r > 1.f) discard;
-  outColor = vec4(fragColor, 1.f);
+  outColor = colors.point_color;
 }

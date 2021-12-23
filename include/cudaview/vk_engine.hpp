@@ -2,7 +2,6 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-
 #include <cuda_runtime_api.h>
 
 #include <condition_variable> // std::condition_variable
@@ -11,6 +10,8 @@
 #include <mutex> // std::mutex
 #include <thread> // std::thread
 #include <vector> // std::vector
+
+#include "color/color.hpp"
 
 #include "cudaview/camera.hpp"
 
@@ -80,6 +81,10 @@ public:
   void prepareWindow();
   void updateWindow();
   bool should_resize = false;
+
+  void setBackgroundColor(color::rgba<float> color);
+  void setPointColor(color::rgba<float> color);
+  void setEdgeColor(color::rgba<float> color);
 
 private:
   GLFWwindow *window;
@@ -189,6 +194,12 @@ private:
   void importCudaExternalSemaphore(
     cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
   );
+
+  void setColor(float *vk_color, color::rgba<float> color);
+  glm::vec4 setColor(color::rgba<float> color);
+  color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};
+  color::rgba<float> point_color{0.f, 0.f, 1.f, 1.f};
+  color::rgba<float> edge_color{0.f, 1.f, 0.f, 1.f};
 
   // Camera functions
   struct {

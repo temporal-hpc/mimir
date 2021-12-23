@@ -19,6 +19,12 @@ struct ModelViewProjection
   glm::mat4 proj;
 };
 
+struct ColorParams
+{
+  glm::vec4 point_color;
+  glm::vec4 edge_color;
+};
+
 struct SceneParams
 {
   glm::ivec3 extent;

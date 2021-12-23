@@ -382,11 +382,14 @@ void VulkanEngine::createDescriptorSetLayout()
   auto extent_layout = vkinit::descriptorLayoutBinding(1, // binding
     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
   );
-  auto sampler_layout = vkinit::descriptorLayoutBinding(2, // binding
+  auto point_color_layout = vkinit::descriptorLayoutBinding(2, // binding
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT
+  );
+  auto sampler_layout = vkinit::descriptorLayoutBinding(3, // binding
     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
   );
 
-  std::array bindings{ubo_layout, extent_layout, sampler_layout};
+  std::array bindings{ubo_layout, extent_layout, point_color_layout, sampler_layout};
 
   VkDescriptorSetLayoutCreateInfo layout_info{};
   layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -404,7 +407,7 @@ void VulkanEngine::updateDescriptorSets()
   {
     // Write MVP matrix, scene info and texture samplers
     std::vector<VkWriteDescriptorSet> desc_writes;
-    desc_writes.reserve(2 + structured_buffers.size());
+    desc_writes.reserve(3 + structured_buffers.size());
 
     VkDescriptorBufferInfo mvp_info{};
     mvp_info.buffer = uniform_buffers[i];
@@ -416,9 +419,19 @@ void VulkanEngine::updateDescriptorSets()
     );
     desc_writes.push_back(write_mvp);
 
+    VkDescriptorBufferInfo pcolor_info{};
+    pcolor_info.buffer = uniform_buffers[i];
+    pcolor_info.offset = sizeof(ModelViewProjection);
+    pcolor_info.range  = sizeof(ColorParams);
+
+    auto write_pcolor = vkinit::writeDescriptorBuffer(
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &pcolor_info, 2
+    );
+    desc_writes.push_back(write_pcolor);
+
     VkDescriptorBufferInfo extent_info{};
     extent_info.buffer = uniform_buffers[i];
-    extent_info.offset = sizeof(ModelViewProjection);
+    extent_info.offset = sizeof(ModelViewProjection) + 0x40;
     extent_info.range  = sizeof(SceneParams);
 
     auto write_scene = vkinit::writeDescriptorBuffer(
@@ -434,7 +447,7 @@ void VulkanEngine::updateDescriptorSets()
       img_info.sampler     = texture_sampler;
 
       auto write_tex = vkinit::writeDescriptorImage(
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptor_sets[i], &img_info, 2
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptor_sets[i], &img_info, 3
       );
       desc_writes.push_back(write_tex);
     }
