@@ -1,7 +1,7 @@
 #include "cudaview/vk_engine.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h" // stbi_load
+#include "stb/stb_image.h" // stbi_load
 
 #include <iostream>
 #include <string> // std::string
