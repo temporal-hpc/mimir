@@ -7,9 +7,24 @@
 
 #include <cstring> // memcpy
 
+size_t getAlignedUniformSize(size_t original_size, size_t min_alignment)
+{
+	// Calculate required alignment based on minimum device offset alignment
+	size_t aligned_size = original_size;
+	if (min_alignment > 0) {
+		aligned_size = (aligned_size + min_alignment - 1) & ~(min_alignment - 1);
+	}
+	return aligned_size;
+}
+
 void VulkanEngine::createUniformBuffers()
 {
-  VkDeviceSize buffer_size = sizeof(ModelViewProjection) + 2 * 0x40;
+  auto min_alignment = device_properties.limits.minUniformBufferOffsetAlignment;
+  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
+  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  VkDeviceSize buffer_size = size_mvp + size_colors + size_scene;
+
   auto img_count = swapchain_images.size();
   uniform_buffers.resize(img_count);
   ubo_memory.resize(img_count);
@@ -103,6 +118,11 @@ void VulkanEngine::createDescriptorSetLayout()
 
 void VulkanEngine::updateDescriptorSets()
 {
+  auto min_alignment = device_properties.limits.minUniformBufferOffsetAlignment;
+  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
+  //auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+
   for (size_t i = 0; i < descriptor_sets.size(); ++i)
   {
     // Write MVP matrix, scene info and texture samplers
@@ -121,7 +141,7 @@ void VulkanEngine::updateDescriptorSets()
 
     VkDescriptorBufferInfo pcolor_info{};
     pcolor_info.buffer = uniform_buffers[i];
-    pcolor_info.offset = sizeof(ModelViewProjection);
+    pcolor_info.offset = size_mvp;
     pcolor_info.range  = sizeof(ColorParams);
 
     auto write_pcolor = vkinit::writeDescriptorBuffer(
@@ -131,7 +151,7 @@ void VulkanEngine::updateDescriptorSets()
 
     VkDescriptorBufferInfo extent_info{};
     extent_info.buffer = uniform_buffers[i];
-    extent_info.offset = sizeof(ModelViewProjection) + 0x40;
+    extent_info.offset = size_mvp + size_colors;
     extent_info.range  = sizeof(SceneParams);
 
     auto write_scene = vkinit::writeDescriptorBuffer(

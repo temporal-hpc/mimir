@@ -53,6 +53,7 @@ private:
   VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
   VkSurfaceKHR surface; // Vulkan window surface
   VkPhysicalDevice physical_device; // GPU used for operations
+  VkPhysicalDeviceProperties device_properties;
   VkDevice device;
   VkQueue graphics_queue, present_queue;
   VkSwapchainKHR swapchain;
