@@ -19,6 +19,15 @@ SwapchainSupportDetails getSwapchainProperties(
   VkPhysicalDevice dev, VkSurfaceKHR surface
 );
 
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(
+  const std::vector<VkSurfaceFormatKHR>& available_formats
+);
+
+
+VkPresentModeKHR chooseSwapPresentMode(
+  const std::vector<VkPresentModeKHR>& available_modes
+);
+
 // Handle additional extensions required by CUDA interop
 std::vector<const char*> getRequiredExtensions(bool enable_validation);
 std::vector<const char*> getRequiredDeviceExtensions();

@@ -366,28 +366,6 @@ void VulkanEngine::initVulkan()
   createSyncObjects();
 }
 
-void VulkanEngine::importCudaExternalMemory(void **cuda_ptr,
-  cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size)
-{
-  cudaExternalMemoryHandleDesc extmem_desc{};
-  extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
-  extmem_desc.size = size;
-  extmem_desc.handle.fd = (int)(uintptr_t)getMemoryHandle(
-    vk_mem, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-  );
-
-  validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
-
-  cudaExternalMemoryBufferDesc buffer_desc{};
-  buffer_desc.offset = 0;
-  buffer_desc.size = size;
-  buffer_desc.flags = 0;
-
-  validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-    cuda_ptr, cuda_mem, &buffer_desc)
-  );
-}
-
 void VulkanEngine::createCoreObjects()
 {
   if (validation::enable_layers &&

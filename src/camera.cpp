@@ -1,5 +1,7 @@
 #include "cudaview/camera.hpp"
 
+#include <glm/gtc/matrix_transform.hpp>
+
 void Camera::updateViewMatrix()
 {
   glm::mat4 rotmat(1.f);

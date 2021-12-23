@@ -2,13 +2,6 @@
 #include "validation.hpp"
 #include "vk_properties.hpp"
 
-#include "cudaview/vk_types.hpp"
-#include "cudaview/camera.hpp"
-
-#include "glm/gtc/type_ptr.hpp"
-
-#include <cstring> // memcpy
-
 void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory)
 {
@@ -84,6 +77,28 @@ void VulkanEngine::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size)
   endSingleTimeCommands(cmd_buffer);
 }
 
+void VulkanEngine::importCudaExternalMemory(void **cuda_ptr,
+  cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size)
+{
+  cudaExternalMemoryHandleDesc extmem_desc{};
+  extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
+  extmem_desc.size = size;
+  extmem_desc.handle.fd = (int)(uintptr_t)getMemoryHandle(
+    vk_mem, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+  );
+
+  validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
+
+  cudaExternalMemoryBufferDesc buffer_desc{};
+  buffer_desc.offset = 0;
+  buffer_desc.size = size;
+  buffer_desc.flags = 0;
+
+  validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+    cuda_ptr, cuda_mem, &buffer_desc)
+  );
+}
+
 void *VulkanEngine::getMemoryHandle(VkDeviceMemory memory,
   VkExternalMemoryHandleTypeFlagBits handle_type)
 {
@@ -107,54 +122,4 @@ void *VulkanEngine::getMemoryHandle(VkDeviceMemory memory,
     throw std::runtime_error("Failed to retrieve handle for buffer!");
   }
   return (void*)(uintptr_t)fd;
-}
-
-void VulkanEngine::createUniformBuffers()
-{
-  VkDeviceSize buffer_size = sizeof(ModelViewProjection) + 2 * 0x40;
-  auto img_count = swapchain_images.size();
-  uniform_buffers.resize(img_count);
-  ubo_memory.resize(img_count);
-
-  // TODO: Use a single buffer of "img_count * buffer_size" bytes
-  for (size_t i = 0; i < img_count; ++i)
-  {
-    createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-      uniform_buffers[i], ubo_memory[i]
-    );
-  }
-}
-
-void VulkanEngine::updateUniformBuffer(uint32_t image_index)
-{
-  ModelViewProjection ubo{};
-  ubo.model = glm::mat4(1.f);
-  ubo.view  = camera.matrices.view; // glm::mat4(1.f);
-  ubo.proj  = camera.matrices.perspective; //glm::mat4(1.f);
-
-  void *data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], 0, sizeof(ubo), 0, &data);
-  memcpy(data, &ubo, sizeof(ubo));
-  vkUnmapMemory(device, ubo_memory[image_index]);
-
-  ColorParams colors{};
-  colors.point_color = setColor(point_color);
-  colors.edge_color  = setColor(edge_color);
-  data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], sizeof(ubo),
-    sizeof(ColorParams), 0, &data
-  );
-  memcpy(data, &colors, sizeof(colors));
-  vkUnmapMemory(device, ubo_memory[image_index]);
-
-  SceneParams params{};
-  params.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
-  // TODO: Merge mappings
-  data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], sizeof(ubo) + 0x40,
-    sizeof(SceneParams), 0, &data
-  );
-  memcpy(data, &params, sizeof(params));
-  vkUnmapMemory(device, ubo_memory[image_index]);
 }
