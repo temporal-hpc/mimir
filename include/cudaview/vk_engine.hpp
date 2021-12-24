@@ -73,9 +73,9 @@ private:
   VkSampler texture_sampler;
   std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
-  std::vector<VkBuffer> uniform_buffers;
-  std::vector<VkDeviceMemory> ubo_memory;
   std::vector<VkDescriptorSet> descriptor_sets;
+  VkBuffer uniform_buffer;
+  VkDeviceMemory ubo_memory;
 
   std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
 

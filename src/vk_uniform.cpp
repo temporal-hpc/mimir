@@ -23,53 +23,42 @@ void VulkanEngine::createUniformBuffers()
   auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
   auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
   auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
-  VkDeviceSize buffer_size = size_mvp + size_colors + size_scene;
 
   auto img_count = swapchain_images.size();
-  uniform_buffers.resize(img_count);
-  ubo_memory.resize(img_count);
-
-  // TODO: Use a single buffer of "img_count * buffer_size" bytes
-  for (size_t i = 0; i < img_count; ++i)
-  {
-    createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-      uniform_buffers[i], ubo_memory[i]
-    );
-  }
+  VkDeviceSize buffer_size = img_count * (size_mvp + size_colors + size_scene);
+  createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    uniform_buffer, ubo_memory
+  );
 }
 
-void VulkanEngine::updateUniformBuffer(uint32_t image_index)
+void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
 {
+  auto min_alignment = device_properties.limits.minUniformBufferOffsetAlignment;
+  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
+  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  auto size_ubo = size_mvp + size_colors + size_scene;
+  auto offset = image_idx * size_ubo;
+
   ModelViewProjection ubo{};
   ubo.model = glm::mat4(1.f);
   ubo.view  = camera.matrices.view; // glm::mat4(1.f);
   ubo.proj  = camera.matrices.perspective; //glm::mat4(1.f);
 
-  void *data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], 0, sizeof(ubo), 0, &data);
-  memcpy(data, &ubo, sizeof(ubo));
-  vkUnmapMemory(device, ubo_memory[image_index]);
-
   ColorParams colors{};
   colors.point_color = setColor(point_color);
   colors.edge_color  = setColor(edge_color);
-  data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], sizeof(ubo),
-    sizeof(ColorParams), 0, &data
-  );
-  memcpy(data, &colors, sizeof(colors));
-  vkUnmapMemory(device, ubo_memory[image_index]);
 
   SceneParams params{};
   params.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
-  // TODO: Merge mappings
-  data = nullptr;
-  vkMapMemory(device, ubo_memory[image_index], sizeof(ubo) + 0x40,
-    sizeof(SceneParams), 0, &data
-  );
-  memcpy(data, &params, sizeof(params));
-  vkUnmapMemory(device, ubo_memory[image_index]);
+
+  char *data = nullptr;
+  vkMapMemory(device, ubo_memory, offset, size_ubo, 0, (void**)&data);
+  std::memcpy(data, &ubo, sizeof(ubo));
+  std::memcpy(data + size_mvp, &colors, sizeof(colors));
+  std::memcpy(data + size_mvp + size_colors, &params, sizeof(params));
+  vkUnmapMemory(device, ubo_memory);
 }
 
 void VulkanEngine::createDescriptorSets()
@@ -121,7 +110,8 @@ void VulkanEngine::updateDescriptorSets()
   auto min_alignment = device_properties.limits.minUniformBufferOffsetAlignment;
   auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
   auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
-  //auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  auto size_ubo = size_mvp + size_colors + size_scene;
 
   for (size_t i = 0; i < descriptor_sets.size(); ++i)
   {
@@ -130,8 +120,8 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.reserve(3 + structured_buffers.size());
 
     VkDescriptorBufferInfo mvp_info{};
-    mvp_info.buffer = uniform_buffers[i];
-    mvp_info.offset = 0;
+    mvp_info.buffer = uniform_buffer;
+    mvp_info.offset = i * size_ubo;
     mvp_info.range  = sizeof(ModelViewProjection);
 
     auto write_mvp = vkinit::writeDescriptorBuffer(
@@ -140,8 +130,8 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.push_back(write_mvp);
 
     VkDescriptorBufferInfo pcolor_info{};
-    pcolor_info.buffer = uniform_buffers[i];
-    pcolor_info.offset = size_mvp;
+    pcolor_info.buffer = uniform_buffer;
+    pcolor_info.offset = i * size_ubo + size_mvp;
     pcolor_info.range  = sizeof(ColorParams);
 
     auto write_pcolor = vkinit::writeDescriptorBuffer(
@@ -150,8 +140,8 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.push_back(write_pcolor);
 
     VkDescriptorBufferInfo extent_info{};
-    extent_info.buffer = uniform_buffers[i];
-    extent_info.offset = size_mvp + size_colors;
+    extent_info.buffer = uniform_buffer;
+    extent_info.offset = i * size_ubo + size_mvp + size_colors;
     extent_info.range  = sizeof(SceneParams);
 
     auto write_scene = vkinit::writeDescriptorBuffer(

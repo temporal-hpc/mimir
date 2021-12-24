@@ -11,11 +11,8 @@
 
 void VulkanEngine::cleanupSwapchain()
 {
-  for (size_t i = 0; i < swapchain_images.size(); ++i)
-  {
-    vkDestroyBuffer(device, uniform_buffers[i], nullptr);
-    vkFreeMemory(device, ubo_memory[i], nullptr);
-  }
+  vkDestroyBuffer(device, uniform_buffer, nullptr);
+  vkFreeMemory(device, ubo_memory, nullptr);
   vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
   vkFreeCommandBuffers(device, command_pool,
     static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
