@@ -69,15 +69,13 @@ private:
   VkPipeline point2d_pipeline, point3d_pipeline;
   VkPipeline mesh2d_pipeline, mesh3d_pipeline;
   VkCommandPool command_pool;
-  VkDescriptorPool imgui_pool, descriptor_pool;
+  VkDescriptorPool descriptor_pool;
   VkSampler texture_sampler;
   std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
   VkBuffer uniform_buffer;
   VkDeviceMemory ubo_memory;
-
-  std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
 
   // Synchronization structures
   std::vector<VkFence> images_inflight;
@@ -99,6 +97,7 @@ private:
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
   uint64_t current_frame;
+  std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
   std::vector<MappedStructuredMemory> structured_buffers;
   std::vector<MappedUnstructuredMemory> unstructured_buffers;
 

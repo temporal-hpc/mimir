@@ -135,18 +135,27 @@ void VulkanEngine::createFramebuffers()
 
 void VulkanEngine::createDescriptorPool()
 {
-  std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-  pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  pool_sizes[0].descriptorCount = swapchain_images.size();
-  pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  pool_sizes[1].descriptorCount = swapchain_images.size();
+  VkDescriptorPoolSize pool_sizes[] =
+  {
+    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 }, // swapchain_images.size();
+    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 }, // swapchain_images.size();
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+  };
 
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  pool_info.poolSizeCount = pool_sizes.size();
-  pool_info.pPoolSizes    = pool_sizes.data();
-  pool_info.maxSets       = swapchain_images.size();
-  pool_info.flags         = 0;
+  pool_info.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets       = 1000; //swapchain_images.size();
+  pool_info.poolSizeCount = std::size(pool_sizes);
+  pool_info.pPoolSizes    = pool_sizes;
 
   validation::checkVulkan(
     vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool)
@@ -202,7 +211,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   builder.viewport.x        = 0.f;
   builder.viewport.y        = 0.f;
   builder.viewport.width    = static_cast<float>(swapchain_extent.width);
@@ -211,7 +220,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.viewport.maxDepth = 1.f;
   builder.scissor.offset    = {0, 0};
   builder.scissor.extent    = swapchain_extent;
-  builder.rasterizer        = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
   builder.multisampling     = vkinit::multisamplingStateCreateInfo();
   builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.pipeline_layout   = pipeline_layout;
@@ -277,8 +286,8 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  builder.rasterizer        = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
   mesh2d_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);

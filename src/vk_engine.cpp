@@ -24,7 +24,6 @@ VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   swapchain(VK_NULL_HANDLE),
   render_pass(VK_NULL_HANDLE),
   command_pool(VK_NULL_HANDLE),
-  imgui_pool(VK_NULL_HANDLE),
   descriptor_pool(VK_NULL_HANDLE),
   texture_sampler(VK_NULL_HANDLE),
 
@@ -117,10 +116,6 @@ VulkanEngine::~VulkanEngine()
   cleanupSwapchain();
 
   ImGui_ImplVulkan_Shutdown();
-  if (imgui_pool != VK_NULL_HANDLE)
-  {
-    vkDestroyDescriptorPool(device, imgui_pool, nullptr);
-  }
   if (descriptor_layout != VK_NULL_HANDLE)
   {
     vkDestroyDescriptorSetLayout(device, descriptor_layout, nullptr);
@@ -475,32 +470,6 @@ void VulkanEngine::createLogicalDevice()
 
 void VulkanEngine::initImgui()
 {
-  VkDescriptorPoolSize pool_sizes[] =
-  {
-    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-  };
-
-  VkDescriptorPoolCreateInfo pool_info{};
-  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets       = 1000;
-  pool_info.poolSizeCount = std::size(pool_sizes);
-  pool_info.pPoolSizes    = pool_sizes;
-
-  validation::checkVulkan(vkCreateDescriptorPool(
-    device, &pool_info, nullptr, &imgui_pool)
-  );
-
   ImGui::CreateContext();
   ImGui_ImplGlfw_InitForVulkan(window, true);
 
@@ -509,7 +478,7 @@ void VulkanEngine::initImgui()
   init_info.PhysicalDevice = physical_device;
   init_info.Device         = device;
   init_info.Queue          = graphics_queue;
-  init_info.DescriptorPool = imgui_pool;
+  init_info.DescriptorPool = descriptor_pool;
   init_info.MinImageCount  = 3; // TODO: Check if this is true
   init_info.ImageCount     = 3;
   init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
