@@ -97,6 +97,7 @@ private:
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
   uint64_t current_frame;
+  std::string shader_path;
   std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
   std::vector<MappedStructuredMemory> structured_buffers;
   std::vector<MappedUnstructuredMemory> unstructured_buffers;

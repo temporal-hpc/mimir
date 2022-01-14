@@ -6,30 +6,73 @@ ObjectList('shaders')
   .CompilerOptions         = '-o "%2" "%1" -c'
   .CompilerInputPath       = 'shaders/'
   .CompilerInputPattern    = { '*.vert', '*.frag' }
-  .CompilerOutputPath      = '_out/shaders'
+  .CompilerOutputPath      = .BuildPrefix + 'shaders/'
   .CompilerOutputExtension = '.spv'
 }
 
 ObjectList('imgui')
 {
-  .Compiler           = '/usr/bin/g++'
-  .CompilerOptions    = '-o "%2" "%1" -c'
+  .Compiler           = 'CppCompiler'
+  .CompilerOptions    = '-o "%2" "%1" -c -fPIC'
                       + ' -Icontrib/imgui -Icontrib/imgui/backends'
   .CompilerInputPath  = 'contrib/imgui'
-  .CompilerOutputPath = '_out/'
+  .CompilerOutputPath = .BuildPrefix + 'temp'
 }
 
-Library('cudaview')
+ObjectList('cudaview')
 {
-  .Compiler           = '/usr/bin/g++'
+  .Compiler           = 'CppCompiler'
   .CompilerOptions    = ' -o "%2" "%1" -c'
                       + ' -Iinclude -Icontrib/imgui -I$CudaIncludePath$'
-                      + ' -std=c++17'
+                      + ' -std=c++17 -fPIC'
                       + .'Flags$BuildType$'
+  .CompilerOutputPath = .BuildPrefix + 'temp'
   .CompilerInputPath  = 'src/'
-  .CompilerOutputPath = '_out/'
-  .LibrarianOutput    = '_out/libcudaview.a'
-  .LibrarianAdditionalInputs = { 'imgui' }
+  .Hidden             = true
+}
+
+Library('lib-static')
+{
+  .Compiler        = 'CppCompiler'
+  .CompilerOptions = ' -o "%2" "%1" -c'
+                   + ' -Iinclude -Icontrib/imgui -I$CudaIncludePath$'
+                   + ' -std=c++17'
+                   + .'Flags$BuildType$'
+  .LibrarianOutput = .BuildPrefix + 'libcudaview.a'
+  .LibrarianAdditionalInputs = { 'cudaview', 'imgui' }
+}
+
+DLL('lib-dynamic')
+{
+  .Libraries     = { 'cudaview', 'imgui' }
+  .Linker        = .CudaCompilerPath
+  .LinkerOutput  = .BuildPrefix + 'libcudaview.so'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -shared -lglfw -lvulkan -ldl'
+}
+
+CopyDir('copy-headers')
+{
+  .SourcePaths          = 'include'
+  .SourcePathsPattern   = { '*.hpp', '*.h', '*.inl' }
+  .Dest                 = .InstallPrefix + 'include/'
+  .PreBuildDependencies = 'headers'
+}
+
+CopyDir('copy-shaders')
+{
+  .SourcePaths          = .BuildPrefix + 'shaders/'
+  .SourcePathsPattern   = '*.spv'
+  .Dest                 = .InstallPrefix + 'lib/shaders/'
+  .PreBuildDependencies = 'shaders'
+}
+
+CopyDir('copy-lib')
+{
+  .SourcePaths          = .BuildPrefix
+  .SourcePathsPattern   = { '*.a', '*.so' }
+  .Dest                 = .InstallPrefix + 'lib/'
+  .PreBuildDependencies = { 'lib-static', 'lib-dynamic' }
 }
 
 ObjectList('cuda-structured')
@@ -40,13 +83,13 @@ ObjectList('cuda-structured')
                         + ' -Isamples/include -Iinclude'
   .CompilerInputPath    = 'samples/structured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
-  .CompilerOutputPath   = '_out/'
+  .CompilerOutputPath   = .BuildPrefix + 'temp'
 }
 Executable('run_structured')
 {
-  .Libraries     = { 'cudaview', 'cuda-structured' }
+  .Libraries     = { 'lib-static', 'cuda-structured' }
   .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/run_structured'
+  .LinkerOutput  = .BuildPrefix + 'run_structured'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
 }
@@ -59,13 +102,13 @@ ObjectList('cuda-unstructured')
                         + ' -Isamples/include -Iinclude'
   .CompilerInputPath    = 'samples/unstructured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
-  .CompilerOutputPath   = '_out/'
+  .CompilerOutputPath   = .BuildPrefix + 'temp'
 }
 Executable('run_unstructured')
 {
-  .Libraries     = { 'cudaview', 'cuda-unstructured' }
+  .Libraries     = { 'lib-static', 'cuda-unstructured' }
   .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/run_unstructured'
+  .LinkerOutput  = .BuildPrefix + 'run_unstructured'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
 }
@@ -78,13 +121,13 @@ ObjectList('cuda-image')
                         + ' -Isamples/include -Iinclude'
   .CompilerInputPath    = 'samples/image'
   .CompilerInputPattern = { '*.cu' }
-  .CompilerOutputPath   = '_out/'
+  .CompilerOutputPath   = .BuildPrefix + 'temp'
 }
 Executable('run_image')
 {
-  .Libraries     = { 'cudaview', 'cuda-image' }
+  .Libraries     = { 'lib-static', 'cuda-image' }
   .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/run_image'
+  .LinkerOutput  = .BuildPrefix + 'run_image'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
 }
@@ -96,13 +139,13 @@ ObjectList('cuda-sync')
                         + ' -std=c++17 -Iinclude'
   .CompilerInputPath    = 'samples/GPU-visual-tool-example'
   .CompilerInputPattern = { 'main.cu' }
-  .CompilerOutputPath   = '_out/'
+  .CompilerOutputPath   = .BuildPrefix + 'temp'
 }
 Executable('run_sync')
 {
-  .Libraries     = { 'cudaview', 'cuda-sync' }
+  .Libraries     = { 'lib-static', 'cuda-sync' }
   .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/prog'
+  .LinkerOutput  = .BuildPrefix + 'prog'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
 }
@@ -114,13 +157,13 @@ ObjectList('cuda-mesh')
                         + ' -std=c++17 -Isamples/include -Iinclude'
   .CompilerInputPath    = 'samples/mesh3d'
   .CompilerInputPattern = { '*.cu' }
-  .CompilerOutputPath   = '_out/'
+  .CompilerOutputPath   = .BuildPrefix + 'temp'
 }
 Executable('run_mesh')
 {
-  .Libraries     = { 'cudaview', 'cuda-mesh' }
+  .Libraries     = { 'lib-static', 'cuda-mesh' }
   .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/mesh3d'
+  .LinkerOutput  = .BuildPrefix + 'mesh3d'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
 }
@@ -132,13 +175,13 @@ ObjectList('points3d')
                         + ' -std=c++17 -Isamples/include -Iinclude'
   .CompilerInputPath    = 'samples/points3d'
   .CompilerInputPattern = { 'points3d.cu' }
-  .CompilerOutputPath   = '_out/'
+  .CompilerOutputPath   = .BuildPrefix + 'temp'
 }
 Executable('run_points3d')
 {
-  .Libraries     = { 'cudaview', 'points3d' }
+  .Libraries     = { 'lib-static', 'points3d' }
   .Linker        = .CudaCompilerPath
-  .LinkerOutput  = '_out/points3d'
+  .LinkerOutput  = .BuildPrefix + 'points3d'
   .LinkerOptions = '"%1" -o "%2"'
                  + ' -lglfw -lvulkan -ldl'
 }
@@ -146,4 +189,6 @@ Executable('run_points3d')
 Alias('samples') { .Targets = { 'run_structured', 'run_unstructured',
   'run_image', 'run_sync', 'run_mesh', 'run_points3d' } }
 
-Alias('all') { .Targets = { 'cudaview', 'shaders', 'samples' } }
+Alias('all') { .Targets = { 'lib-static', 'lib-dynamic' 'shaders', 'samples' } }
+
+Alias('install') { .Targets = { 'copy-headers', 'copy-shaders', 'copy-lib'} }

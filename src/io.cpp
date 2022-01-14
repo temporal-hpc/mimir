@@ -1,5 +1,8 @@
 #include "cudaview/io.hpp"
 
+#include <dlfcn.h> // dladdr
+
+#include <filesystem> // std::filesystem
 #include <fstream> // std::ifstream
 
 namespace io
@@ -58,6 +61,23 @@ void loadTriangleMesh(const std::string& filename,
     stream >> temp_string >> triangle.x >> triangle.y >> triangle.z;
     triangles.push_back(triangle);
     stream.ignore(stream_max, '\n');
+  }
+}
+
+std::string getDefaultShaderPath()
+{
+  // If shaders are installed in library path, set working directory there
+  Dl_info dl_info;
+  dladdr((void*)getDefaultShaderPath, &dl_info);
+  auto lib_pathname = dl_info.dli_fname;
+  if (lib_pathname != nullptr)
+  {
+    std::filesystem::path lib_path(lib_pathname);
+    return lib_path.parent_path().string();
+  }
+  else // Use executable path as working dir
+  {
+    return std::filesystem::read_symlink("/proc/self/exe").remove_filename();
   }
 }
 

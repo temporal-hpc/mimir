@@ -178,10 +178,9 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
 
 void VulkanEngine::createGraphicsPipelines()
 {
-  // Linux-only hack: Change current directory as quick fix for finding shader paths
   auto orig_path = std::filesystem::current_path();
-  auto exec_path = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
-  std::filesystem::current_path(exec_path);
+  std::filesystem::current_path(shader_path);
+  std::cout << shader_path << "\n";
 
   auto vert_code   = io::readFile("shaders/unstructured/particle_pos_2d.spv");
   auto vert_module = createShaderModule(vert_code);

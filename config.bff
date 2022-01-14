@@ -1,8 +1,10 @@
 #once
 
-.CudaPath = '/usr/local/cuda/'
+.CudaPath         = '/usr/local/cuda/'
 .CudaCompilerPath = .CudaPath + 'bin/nvcc'
 .CudaIncludePath  = .CudaPath + 'include'
+.BuildPrefix      = './_out/'
+.InstallPrefix    = '/usr/local/'
 
 .BuildType    = 'Debug'
 .FlagsDebug   = ' -g'
@@ -10,6 +12,12 @@
 
 .Librarian        = '/usr/bin/ar'
 .LibrarianOptions = 'rcs "%2" "%1"'
+
+Compiler('CppCompiler')
+{
+  .Executable     = '/usr/bin/g++'
+  .CompilerFamily = 'gcc'
+}
 
 Compiler('CudaCompiler')
 {

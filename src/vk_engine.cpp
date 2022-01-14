@@ -1,4 +1,5 @@
 #include "cudaview/vk_engine.hpp"
+#include "cudaview/io.hpp"
 
 #include "internal/vk_properties.hpp"
 #include "internal/validation.hpp"
@@ -12,6 +13,7 @@
 VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   current_frame(0),
   should_resize(false),
+  shader_path(io::getDefaultShaderPath()),
 
   instance(VK_NULL_HANDLE),
   debug_messenger(VK_NULL_HANDLE),
