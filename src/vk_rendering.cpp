@@ -1,4 +1,5 @@
 #include "cudaview/vk_engine.hpp"
+#include "internal/color.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_initializers.hpp"
 
@@ -66,7 +67,7 @@ void VulkanEngine::renderFrame()
     render_pass, swapchain_extent, framebuffers[image_idx]
   );
   VkClearValue clear_color;
-  setColor(clear_color.color.float32, bg_color);
+  color::setColor(clear_color.color.float32, bg_color);
   render_pass_info.clearValueCount = 1;
   render_pass_info.pClearValues    = &clear_color;
 

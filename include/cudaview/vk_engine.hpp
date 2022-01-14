@@ -7,6 +7,7 @@
 #include <condition_variable> // std::condition_variable
 #include <functional> // std::function
 #include <map> // std::map
+#include <memory> // std::unique_ptr
 #include <mutex> // std::mutex
 #include <thread> // std::thread
 #include <vector> // std::vector
@@ -15,12 +16,13 @@
 
 #include "cudaview/vk_cuda_map.hpp"
 #include "cudaview/frame.hpp"
-#include "cudaview/camera.hpp"
 
 namespace
 {
   static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 }
+
+struct Camera;
 
 class VulkanEngine
 {
@@ -156,8 +158,6 @@ private:
     cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
   );
 
-  void setColor(float *vk_color, color::rgba<float> color);
-  glm::vec4 setColor(color::rgba<float> color);
   color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};
   color::rgba<float> point_color{0.f, 0.f, 1.f, 1.f};
   color::rgba<float> edge_color{0.f, 1.f, 0.f, 1.f};
@@ -169,13 +169,13 @@ private:
     bool middle = false;
   } mouse_buttons;
   bool view_updated = false;
-  glm::vec2 mouse_pos;
+  float2 mouse_pos;
   void handleMouseMove(float x, float y);
   void handleMouseButton(int button, int action);
   static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
   static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
   static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
-  Camera camera;
+  std::unique_ptr<Camera> camera;
 
   void initVulkan();
   void initImgui();

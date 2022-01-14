@@ -1,6 +1,8 @@
 #include "cudaview/vk_engine.hpp"
 #include "cudaview/vk_types.hpp"
+#include "internal/camera.hpp"
 #include "internal/vk_initializers.hpp"
+#include "internal/color.hpp"
 #include "internal/validation.hpp"
 
 #include "glm/gtc/type_ptr.hpp"
@@ -43,12 +45,12 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
 
   ModelViewProjection ubo{};
   ubo.model = glm::mat4(1.f);
-  ubo.view  = camera.matrices.view; // glm::mat4(1.f);
-  ubo.proj  = camera.matrices.perspective; //glm::mat4(1.f);
+  ubo.view  = camera->matrices.view; // glm::mat4(1.f);
+  ubo.proj  = camera->matrices.perspective; //glm::mat4(1.f);
 
   ColorParams colors{};
-  colors.point_color = setColor(point_color);
-  colors.edge_color  = setColor(edge_color);
+  colors.point_color = color::getColor(point_color);
+  colors.edge_color  = color::getColor(edge_color);
 
   SceneParams params{};
   params.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};

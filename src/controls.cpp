@@ -1,4 +1,20 @@
 #include "cudaview/vk_engine.hpp"
+#include "internal/camera.hpp"
+
+void VulkanEngine::setBackgroundColor(color::rgba<float> color)
+{
+  bg_color = color;
+}
+
+void VulkanEngine::setPointColor(color::rgba<float> color)
+{
+  point_color = color;
+}
+
+void VulkanEngine::setEdgeColor(color::rgba<float> color)
+{
+  edge_color = color;
+}
 
 void VulkanEngine::handleMouseMove(float x, float y)
 {
@@ -7,18 +23,18 @@ void VulkanEngine::handleMouseMove(float x, float y)
 
   if (mouse_buttons.left)
   {
-    camera.rotate(glm::vec3(dy * camera.rotation_speed, -dx * camera.rotation_speed, 0.f));
+    camera->rotate(glm::vec3(dy * camera->rotation_speed, -dx * camera->rotation_speed, 0.f));
     view_updated = true;
   }
   if (mouse_buttons.right)
   {
-    camera.translate(glm::vec3(0.f, 0.f, dy * .005f));
+    camera->translate(glm::vec3(0.f, 0.f, dy * .005f));
   }
   if (mouse_buttons.middle)
   {
-    camera.translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
+    camera->translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
   }
-  mouse_pos = glm::vec2(x, y);
+  mouse_pos = float2{x, y};
 }
 
 void VulkanEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)

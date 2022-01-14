@@ -1,5 +1,6 @@
 #include "cudaview/vk_engine.hpp"
 #include "cudaview/io.hpp"
+#include "internal/camera.hpp"
 
 #include "internal/vk_properties.hpp"
 #include "internal/validation.hpp"
@@ -14,6 +15,7 @@ VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   current_frame(0),
   should_resize(false),
   shader_path(io::getDefaultShaderPath()),
+  camera(std::make_unique<Camera>()),
 
   instance(VK_NULL_HANDLE),
   debug_messenger(VK_NULL_HANDLE),
@@ -200,12 +202,12 @@ void VulkanEngine::init(int width, int height)
 
   initVulkan();
 
-  camera.type = Camera::CameraType::LookAt;
-  //camera.flipY = true;
-  camera.setPosition(glm::vec3(0.0f, 0.0f, -3.75f));
-  camera.setRotation(glm::vec3(15.0f, 0.0f, 0.0f));
-  camera.setRotationSpeed(0.5f);
-  camera.setPerspective(60.0f, (float)width / (float)height, 0.1f, 256.0f);
+  camera->type = Camera::CameraType::LookAt;
+  //camera->flipY = true;
+  camera->setPosition(glm::vec3(0.0f, 0.0f, -3.75f));
+  camera->setRotation(glm::vec3(15.0f, 0.0f, 0.0f));
+  camera->setRotationSpeed(0.5f);
+  camera->setPerspective(60.0f, (float)width / (float)height, 0.1f, 256.0f);
                       //45.f, aspect_ratio, .1f, 10.f);
 }
 
@@ -490,37 +492,4 @@ void VulkanEngine::initImgui()
   ImGui_ImplVulkan_CreateFontsTexture(cmd);
   endSingleTimeCommands(cmd);
   ImGui_ImplVulkan_DestroyFontUploadObjects();
-}
-
-void VulkanEngine::setBackgroundColor(color::rgba<float> color)
-{
-  bg_color = color;
-}
-
-void VulkanEngine::setPointColor(color::rgba<float> color)
-{
-  point_color = color;
-}
-
-void VulkanEngine::setEdgeColor(color::rgba<float> color)
-{
-  edge_color = color;
-}
-
-void VulkanEngine::setColor(float *vk_color, color::rgba<float> color)
-{
-  vk_color[0] = color::get::red(color);
-  vk_color[1] = color::get::green(color);
-  vk_color[2] = color::get::blue(color);
-  vk_color[3] = color::get::alpha(color);
-}
-
-glm::vec4 VulkanEngine::setColor(color::rgba<float> color)
-{
-  glm::vec4 colorvec;
-  colorvec.x = color::get::red(color);
-  colorvec.y = color::get::green(color);
-  colorvec.z = color::get::blue(color);
-  colorvec.w = color::get::alpha(color);
-  return colorvec;
 }
