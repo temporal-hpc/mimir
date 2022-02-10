@@ -43,10 +43,6 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
   uint32_t& graphics_family, uint32_t& present_family
 );
 
-uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
-  VkMemoryPropertyFlags properties
-);
-
 VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities,
   VkExtent2D new_extent
 );

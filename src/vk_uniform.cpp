@@ -1,4 +1,6 @@
 #include "cudaview/vk_engine.hpp"
+#include "cudaview/vk_device.hpp"
+
 #include "cudaview/vk_types.hpp"
 #include "internal/camera.hpp"
 #include "internal/vk_initializers.hpp"
@@ -28,7 +30,7 @@ void VulkanEngine::createUniformBuffers()
 
   auto img_count = swapchain_images.size();
   VkDeviceSize buffer_size = img_count * (size_mvp + size_colors + size_scene);
-  createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+  dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
     uniform_buffer, ubo_memory
   );

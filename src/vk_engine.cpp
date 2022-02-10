@@ -1,6 +1,9 @@
 #include "cudaview/vk_engine.hpp"
 #include "cudaview/io.hpp"
 #include "internal/camera.hpp"
+#include "internal/vk_initializers.hpp"
+
+#include "cudaview/vk_device.hpp"
 
 #include "internal/vk_properties.hpp"
 #include "internal/validation.hpp"
@@ -273,7 +276,7 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
     usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
   }
   // Init unstructured memory
-  createExternalBuffer(mapped.element_size * mapped.element_count,
+  dev->createExternalBuffer(mapped.element_size * mapped.element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
@@ -318,8 +321,11 @@ void VulkanEngine::initVulkan()
 {
   createCoreObjects();
   pickPhysicalDevice();
+  dev = std::make_unique<VulkanDevice>(physical_device);
+  dev->initLogicalDevice(surface);
+  device = dev->logical_device;
+  command_pool = dev->command_pool;
   createLogicalDevice();
-  createCommandPool();
   createDescriptorSetLayout();
   createTextureSampler();
 
@@ -417,54 +423,6 @@ void VulkanEngine::createLogicalDevice()
   uint32_t graphics_idx, present_idx;
   props::findQueueFamilies(physical_device, surface, graphics_idx, present_idx);
 
-  std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-  std::set unique_queue_families{ graphics_idx, present_idx };
-  auto queue_priority = 1.f;
-
-  for (auto queue_family : unique_queue_families)
-  {
-    VkDeviceQueueCreateInfo queue_create_info{};
-    queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info.queueFamilyIndex = queue_family;
-    queue_create_info.queueCount       = 1;
-    queue_create_info.pQueuePriorities = &queue_priority;
-    queue_create_infos.push_back(queue_create_info);
-  }
-
-  VkPhysicalDeviceFeatures device_features{};
-  device_features.samplerAnisotropy = VK_TRUE;
-  device_features.fillModeNonSolid  = VK_TRUE; // Enable wireframe
-
-  // Explicitly enable timeline semaphores, or validation layer will complain
-  VkPhysicalDeviceVulkan12Features features{};
-  features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-  features.timelineSemaphore = true;
-
-  VkDeviceCreateInfo create_info{};
-  create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-  create_info.pNext = &features;
-  create_info.queueCreateInfoCount = queue_create_infos.size();
-  create_info.pQueueCreateInfos    = queue_create_infos.data();
-  create_info.pEnabledFeatures     = &device_features;
-
-  auto device_extensions = props::getRequiredDeviceExtensions();
-  create_info.enabledExtensionCount   = device_extensions.size();
-  create_info.ppEnabledExtensionNames = device_extensions.data();
-
-  if (validation::enable_layers)
-  {
-    create_info.enabledLayerCount   = validation::layers.size();
-    create_info.ppEnabledLayerNames = validation::layers.data();
-  }
-  else
-  {
-    create_info.enabledLayerCount = 0;
-  }
-
-  validation::checkVulkan(vkCreateDevice(
-    physical_device, &create_info, nullptr, &device)
-  );
-
   // Must be called after logical device is created (obviously!)
   vkGetDeviceQueue(device, graphics_idx, 0, &graphics_queue);
   vkGetDeviceQueue(device, present_idx, 0, &present_queue);
@@ -488,8 +446,55 @@ void VulkanEngine::initImgui()
   init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
   ImGui_ImplVulkan_Init(&init_info, render_pass);
 
-  auto cmd = beginSingleTimeCommands();
+  auto cmd = dev->beginSingleTimeCommands();
   ImGui_ImplVulkan_CreateFontsTexture(cmd);
-  endSingleTimeCommands(cmd);
+  dev->endSingleTimeCommands(cmd, graphics_queue);
   ImGui_ImplVulkan_DestroyFontUploadObjects();
+}
+
+void VulkanEngine::importCudaExternalMemory(void **cuda_ptr,
+  cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size)
+{
+  cudaExternalMemoryHandleDesc extmem_desc{};
+  extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
+  extmem_desc.size = size;
+  extmem_desc.handle.fd = (int)(uintptr_t)getMemoryHandle(
+    vk_mem, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+  );
+
+  validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
+
+  cudaExternalMemoryBufferDesc buffer_desc{};
+  buffer_desc.offset = 0;
+  buffer_desc.size = size;
+  buffer_desc.flags = 0;
+
+  validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+    cuda_ptr, cuda_mem, &buffer_desc)
+  );
+}
+
+void *VulkanEngine::getMemoryHandle(VkDeviceMemory memory,
+  VkExternalMemoryHandleTypeFlagBits handle_type)
+{
+  int fd = -1;
+
+  VkMemoryGetFdInfoKHR fd_info{};
+  fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
+  fd_info.pNext = nullptr;
+  fd_info.memory = memory;
+  fd_info.handleType = handle_type;
+
+  auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(
+    device, "vkGetMemoryFdKHR"
+  );
+  if (!fpGetMemoryFdKHR)
+  {
+    throw std::runtime_error("Failed to retrieve function!");
+  }
+  if (fpGetMemoryFdKHR(device, &fd_info, &fd) != VK_SUCCESS)
+  {
+    throw std::runtime_error("Failed to retrieve handle for buffer!");
+  }
+  return (void*)(uintptr_t)fd;
 }

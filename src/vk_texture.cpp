@@ -1,4 +1,5 @@
 #include "cudaview/vk_engine.hpp"
+#include "cudaview/vk_device.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_properties.hpp"
@@ -35,8 +36,7 @@ void VulkanEngine::createExternalImage(uint32_t width, uint32_t height,
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.pNext = &export_info;
   alloc_info.allocationSize = mem_req.size;
-  alloc_info.memoryTypeIndex =
-    props::findMemoryType(physical_device, mem_req.memoryTypeBits, properties);
+  alloc_info.memoryTypeIndex = dev->findMemoryType(mem_req.memoryTypeBits, properties);
 
   validation::checkVulkan(
     vkAllocateMemory(device, &alloc_info, nullptr, &image_memory)
@@ -93,11 +93,11 @@ void VulkanEngine::transitionImageLayout(VkImage image, VkFormat format,
     throw std::invalid_argument("unsupported layout transition");
   }
 
-  auto cmd_buffer = beginSingleTimeCommands();
+  auto cmd_buffer = dev->beginSingleTimeCommands();
   vkCmdPipelineBarrier(cmd_buffer, src_stage, dst_stage,
     0, 0, nullptr, 0, nullptr, 1, &barrier
   );
-  endSingleTimeCommands(cmd_buffer);
+  dev->endSingleTimeCommands(cmd_buffer, graphics_queue);
 }
 
 VkImageView VulkanEngine::createImageView(VkImage image, VkFormat format)

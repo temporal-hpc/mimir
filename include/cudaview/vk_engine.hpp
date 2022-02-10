@@ -23,6 +23,7 @@ namespace
 }
 
 struct Camera;
+struct VulkanDevice;
 
 class VulkanEngine
 {
@@ -50,6 +51,7 @@ public:
   void setEdgeColor(color::rgba<float> color);
 
 private:
+  std::unique_ptr<VulkanDevice> dev;
   GLFWwindow *window;
   VkInstance instance; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
@@ -106,17 +108,6 @@ private:
 
   FrameData& getCurrentFrame();
 
-  // Buffer functions
-  void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory &memory
-  );
-  void createExternalBuffer(VkDeviceSize size,
-    VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
-    VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
-    VkDeviceMemory& buffer_memory
-  );
-  void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
-
   void createExternalSemaphore(VkSemaphore& semaphore);
   void createExternalImage(uint32_t width, uint32_t height, VkFormat format,
     VkImageTiling tiling, VkImageUsageFlags usage,
@@ -132,8 +123,6 @@ private:
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
-  VkCommandBuffer beginSingleTimeCommands();
-  void endSingleTimeCommands(VkCommandBuffer command_buffer);
 
   void getVertexDescriptions2d(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
@@ -189,7 +178,6 @@ private:
   void createCoreObjects();
   void pickPhysicalDevice();
   void createLogicalDevice();
-  void createCommandPool();
   void createDescriptorSetLayout();
   void createTextureSampler();
   void createSyncObjects();
@@ -208,6 +196,5 @@ private:
   void createUniformBuffers();
   void createDescriptorPool();
   void createDescriptorSets();
-  void createCommandBuffers();
   void updateDescriptorSets();
 };

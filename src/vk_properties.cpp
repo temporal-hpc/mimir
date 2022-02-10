@@ -126,23 +126,6 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
   return graphics_family != family_empty && present_family != family_empty;
 }
 
-uint32_t findMemoryType(VkPhysicalDevice ph_device, uint32_t type_filter,
-  VkMemoryPropertyFlags properties)
-{
-  VkPhysicalDeviceMemoryProperties mem_props;
-  vkGetPhysicalDeviceMemoryProperties(ph_device, &mem_props);
-
-  for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i)
-  {
-    if ((type_filter & (1 << i)) &&
-        (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
-    {
-      return i;
-    }
-  }
-  return ~0;
-}
-
 SwapchainSupportDetails getSwapchainProperties(
   VkPhysicalDevice dev, VkSurfaceKHR surface)
 {

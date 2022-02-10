@@ -1,4 +1,6 @@
 #include "cudaview/vk_engine.hpp"
+#include "cudaview/vk_device.hpp"
+
 #include "cudaview/io.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
@@ -45,7 +47,7 @@ void VulkanEngine::initSwapchain()
   createUniformBuffers();
   createDescriptorPool();
   createDescriptorSets();
-  createCommandBuffers();
+  command_buffers = dev->createCommandBuffers(framebuffers.size());
   updateDescriptorSets();
 }
 
