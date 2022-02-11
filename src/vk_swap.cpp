@@ -31,11 +31,7 @@ void VulkanEngine::cleanupSwapchain()
     vkDestroyFramebuffer(device, framebuffer, nullptr);
   }
   vkDestroyRenderPass(device, render_pass, nullptr);
-  for (auto image_view : swapchain_views)
-  {
-    vkDestroyImageView(device, image_view, nullptr);
-  }
-  vkDestroySwapchainKHR(device, swapchain, nullptr);
+  swap->cleanup();
 }
 
 void VulkanEngine::initSwapchain()
@@ -46,9 +42,6 @@ void VulkanEngine::initSwapchain()
   uint32_t height = h;
   std::vector<uint32_t> queue_indices{dev->queue_indices.graphics, dev->queue_indices.present};
   swap->create(width, height, queue_indices);
-  swapchain = swap->swapchain;
-  swapchain_images = swap->images;
-  swapchain_views = swap->views;
   createRenderPass();
   createGraphicsPipelines();
   createFramebuffers();
@@ -69,10 +62,10 @@ void VulkanEngine::recreateSwapchain()
 
 void VulkanEngine::createFramebuffers()
 {
-  framebuffers.resize(swapchain_views.size());
-  for (size_t i = 0; i < swapchain_views.size(); ++i)
+  framebuffers.resize(swap->image_count);
+  for (size_t i = 0; i < framebuffers.size(); ++i)
   {
-    VkImageView attachments[] = { swapchain_views[i] };
+    VkImageView attachments[] = { swap->views[i] };
     auto fb_info = vkinit::framebufferCreateInfo(render_pass, swap->swapchain_extent);
     fb_info.pAttachments    = attachments;
 
@@ -87,12 +80,12 @@ void VulkanEngine::createDescriptorPool()
   VkDescriptorPoolSize pool_sizes[] =
   {
     { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 }, // swapchain_images.size();
+    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
     { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
     { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
     { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
     { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 }, // swapchain_images.size();
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
     { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
     { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
     { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
@@ -102,7 +95,7 @@ void VulkanEngine::createDescriptorPool()
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   pool_info.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets       = 1000; //swapchain_images.size();
+  pool_info.maxSets       = 1000;
   pool_info.poolSizeCount = std::size(pool_sizes);
   pool_info.pPoolSizes    = pool_sizes;
 

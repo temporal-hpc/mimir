@@ -18,8 +18,10 @@ struct VulkanSwapchain
   VkSwapchainKHR swapchain = VK_NULL_HANDLE;
   uint32_t image_count = 0;
   std::vector<VkImage> images;
+  // How to access the image(s) and which part of it (them) to access
   std::vector<VkImageView> views;
 
+  void cleanup();
   void initSurface(VkInstance instance, GLFWwindow *window);
   void connect(VkInstance instance, VkPhysicalDevice gpu, VkDevice device);
   void create(uint32_t& width, uint32_t& height, std::vector<uint32_t> queue_indices);

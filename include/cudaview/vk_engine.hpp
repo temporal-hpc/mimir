@@ -61,10 +61,6 @@ private:
   VkPhysicalDevice physical_device; // GPU used for operations
   VkDevice device;
   VkQueue graphics_queue, present_queue;
-  VkSwapchainKHR swapchain;
-  std::vector<VkImage> swapchain_images;
-  // How to access the image(s) and which part of it (them) to access
-  std::vector<VkImageView> swapchain_views;
   VkRenderPass render_pass;
   VkDescriptorSetLayout descriptor_layout;
   VkPipelineLayout pipeline_layout;

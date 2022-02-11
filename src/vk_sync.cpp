@@ -1,6 +1,8 @@
 #include "cudaview/vk_engine.hpp"
-#include "internal/vk_initializers.hpp"
+
 #include "internal/validation.hpp"
+#include "internal/vk_swapchain.hpp"
+#include "internal/vk_initializers.hpp"
 
 void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
   std::vector<VkPipelineStageFlags>& wait_stages) const
@@ -24,7 +26,7 @@ void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) co
 
 void VulkanEngine::createSyncObjects()
 {
-  images_inflight.resize(swapchain_images.size(), VK_NULL_HANDLE);
+  images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
 
   /*validation::checkVulkan(vkCreateSemaphore(
     device, &semaphore_info, nullptr, &vk_presentation_semaphore)

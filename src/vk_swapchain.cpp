@@ -4,6 +4,15 @@
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_properties.hpp"
 
+void VulkanSwapchain::cleanup()
+{
+  for (auto image_view : views)
+  {
+    vkDestroyImageView(logical_device, image_view, nullptr);
+  }
+  vkDestroySwapchainKHR(logical_device, swapchain, nullptr);
+}
+
 void VulkanSwapchain::connect(VkInstance instance, VkPhysicalDevice gpu, VkDevice device)
 {
   instance = instance;
@@ -75,7 +84,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
     }
   }
 
-  auto image_count = surf_caps.minImageCount + 1;
+  image_count = surf_caps.minImageCount + 1;
   const auto max_image_count = surf_caps.maxImageCount;
   if (max_image_count > 0 && image_count > max_image_count)
   {

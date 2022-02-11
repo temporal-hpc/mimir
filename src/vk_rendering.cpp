@@ -40,7 +40,7 @@ void VulkanEngine::renderFrame()
   // Acquire image from swap chain
   uint32_t image_idx;
   // TODO: vk_presentation_semaphore instead of frame.present_semaphore
-  auto result = vkAcquireNextImageKHR(device, swapchain, timeout,
+  auto result = vkAcquireNextImageKHR(device, swap->swapchain, timeout,
     frame.present_semaphore, VK_NULL_HANDLE, &image_idx
   );
   if (result == VK_ERROR_OUT_OF_DATE_KHR)
@@ -118,7 +118,7 @@ void VulkanEngine::renderFrame()
   // Return image result back to swapchain for presentation on screen
   auto present_info = vkinit::presentInfo();
   present_info.swapchainCount     = 1;
-  present_info.pSwapchains        = &swapchain;
+  present_info.pSwapchains        = &swap->swapchain;
   present_info.waitSemaphoreCount = 1;
   //present_info.pWaitSemaphores = &vk_presentation_semaphore;
   present_info.pWaitSemaphores    = &frame.render_semaphore;

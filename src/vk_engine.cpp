@@ -29,7 +29,6 @@ VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   graphics_queue(VK_NULL_HANDLE),
   present_queue(VK_NULL_HANDLE),
 
-  swapchain(VK_NULL_HANDLE),
   render_pass(VK_NULL_HANDLE),
   descriptor_pool(VK_NULL_HANDLE),
   texture_sampler(VK_NULL_HANDLE),
