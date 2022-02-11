@@ -26,8 +26,6 @@ VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
   surface(VK_NULL_HANDLE),
   physical_device(VK_NULL_HANDLE),
   device(VK_NULL_HANDLE),
-  graphics_queue(VK_NULL_HANDLE),
-  present_queue(VK_NULL_HANDLE),
 
   render_pass(VK_NULL_HANDLE),
   descriptor_pool(VK_NULL_HANDLE),
@@ -318,11 +316,10 @@ void VulkanEngine::initVulkan()
   dev = std::make_unique<VulkanDevice>(physical_device);
   dev->initLogicalDevice(surface);
   device = dev->logical_device;
-  createLogicalDevice();
   createDescriptorSetLayout();
   createTextureSampler();
 
-  swap->connect(instance, physical_device, device);
+  swap->connect(physical_device, device);
   initSwapchain();
 
   initImgui(); // After command pool and render pass are created
@@ -380,10 +377,6 @@ void VulkanEngine::createCoreObjects()
       instance, &debug_info, nullptr, &debug_messenger)
     );
   }
-
-  /*validation::checkVulkan(
-    glfwCreateWindowSurface(instance, window, nullptr, &surface)
-  );*/
 }
 
 void VulkanEngine::pickPhysicalDevice()
@@ -411,15 +404,6 @@ void VulkanEngine::pickPhysicalDevice()
   }
 }
 
-void VulkanEngine::createLogicalDevice()
-{
-  // Must be called after logical device is created (obviously!)
-  vkGetDeviceQueue(device, dev->queue_indices.graphics, 0, &graphics_queue);
-  vkGetDeviceQueue(device, dev->queue_indices.present, 0, &present_queue);
-
-  // TODO: Get device UUID
-}
-
 void VulkanEngine::initImgui()
 {
   ImGui::CreateContext();
@@ -429,7 +413,7 @@ void VulkanEngine::initImgui()
   init_info.Instance       = instance;
   init_info.PhysicalDevice = physical_device;
   init_info.Device         = device;
-  init_info.Queue          = graphics_queue;
+  init_info.Queue          = dev->queues.graphics;
   init_info.DescriptorPool = descriptor_pool;
   init_info.MinImageCount  = 3; // TODO: Check if this is true
   init_info.ImageCount     = 3;
@@ -438,7 +422,7 @@ void VulkanEngine::initImgui()
 
   auto cmd = dev->beginSingleTimeCommands();
   ImGui_ImplVulkan_CreateFontsTexture(cmd);
-  dev->endSingleTimeCommands(cmd, graphics_queue);
+  dev->endSingleTimeCommands(cmd, dev->queues.graphics);
   ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 

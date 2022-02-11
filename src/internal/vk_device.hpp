@@ -17,9 +17,14 @@ struct VulkanDevice
 
   struct
   {
-    uint32_t graphics;
-    uint32_t present;
+    uint32_t graphics = ~0u;
+    uint32_t present = ~0u;
   } queue_indices;
+  struct
+  {
+    VkQueue graphics = VK_NULL_HANDLE;
+    VkQueue present = VK_NULL_HANDLE;
+  } queues;
 
   explicit VulkanDevice(VkPhysicalDevice gpu);
   ~VulkanDevice();

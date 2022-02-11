@@ -23,6 +23,6 @@ struct VulkanSwapchain
 
   void cleanup();
   void initSurface(VkInstance instance, GLFWwindow *window);
-  void connect(VkInstance instance, VkPhysicalDevice gpu, VkDevice device);
+  void connect(VkPhysicalDevice gpu, VkDevice device);
   void create(uint32_t& width, uint32_t& height, std::vector<uint32_t> queue_indices);
 };

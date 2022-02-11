@@ -79,6 +79,11 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     physical_device, &create_info, nullptr, &logical_device)
   );
 
+  vkGetDeviceQueue(logical_device, queue_indices.graphics, 0, &queues.graphics);
+  vkGetDeviceQueue(logical_device, queue_indices.present, 0, &queues.present);
+
+  // TODO: Get device UUID for cuda
+
   command_pool = createCommandPool(queue_indices.graphics,
     VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
   );

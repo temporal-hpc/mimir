@@ -98,7 +98,7 @@ void VulkanEngine::transitionImageLayout(VkImage image, VkFormat format,
   vkCmdPipelineBarrier(cmd_buffer, src_stage, dst_stage,
     0, 0, nullptr, 0, nullptr, 1, &barrier
   );
-  dev->endSingleTimeCommands(cmd_buffer, graphics_queue);
+  dev->endSingleTimeCommands(cmd_buffer, dev->queues.graphics);
 }
 
 VkImageView VulkanEngine::createImageView(VkImage image, VkFormat format)

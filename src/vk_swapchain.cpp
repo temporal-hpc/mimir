@@ -13,9 +13,8 @@ void VulkanSwapchain::cleanup()
   vkDestroySwapchainKHR(logical_device, swapchain, nullptr);
 }
 
-void VulkanSwapchain::connect(VkInstance instance, VkPhysicalDevice gpu, VkDevice device)
+void VulkanSwapchain::connect(VkPhysicalDevice gpu, VkDevice device)
 {
-  instance = instance;
   physical_device = gpu;
   logical_device = device;
 }

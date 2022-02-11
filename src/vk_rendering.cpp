@@ -1,7 +1,9 @@
 #include "cudaview/vk_engine.hpp"
+
 #include "internal/color.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_initializers.hpp"
+#include "internal/vk_device.hpp"
 #include "internal/vk_swapchain.hpp"
 
 #include "backends/imgui_impl_glfw.h"
@@ -112,7 +114,7 @@ void VulkanEngine::renderFrame()
 
   // Execute command buffer using image as attachment in framebuffer
   validation::checkVulkan(vkQueueSubmit(
-    graphics_queue, 1, &submit_info, frame.render_fence) //VK_NULL_HANDLE
+    dev->queues.graphics, 1, &submit_info, frame.render_fence) //VK_NULL_HANDLE
   );
 
   // Return image result back to swapchain for presentation on screen
@@ -124,7 +126,7 @@ void VulkanEngine::renderFrame()
   present_info.pWaitSemaphores    = &frame.render_semaphore;
   present_info.pImageIndices      = &image_idx;
 
-  result = vkQueuePresentKHR(present_queue, &present_info);
+  result = vkQueuePresentKHR(dev->queues.present, &present_info);
   // Resize should be done after presentation to ensure semaphore consistency
   if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
     || should_resize)

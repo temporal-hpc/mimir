@@ -60,7 +60,6 @@ private:
   VkSurfaceKHR surface; // Vulkan window surface
   VkPhysicalDevice physical_device; // GPU used for operations
   VkDevice device;
-  VkQueue graphics_queue, present_queue;
   VkRenderPass render_pass;
   VkDescriptorSetLayout descriptor_layout;
   VkPipelineLayout pipeline_layout;
@@ -171,7 +170,6 @@ private:
   // Vulkan core-related functions
   void createCoreObjects();
   void pickPhysicalDevice();
-  void createLogicalDevice();
   void createDescriptorSetLayout();
   void createTextureSampler();
   void createSyncObjects();
