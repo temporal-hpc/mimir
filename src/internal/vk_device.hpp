@@ -4,6 +4,8 @@
 
 #include <vector>
 
+#include "cudaview/deletion_queue.hpp"
+
 struct VulkanDevice
 {
   // GPU used for Vulkan operations
@@ -25,6 +27,8 @@ struct VulkanDevice
     VkQueue graphics = VK_NULL_HANDLE;
     VkQueue present = VK_NULL_HANDLE;
   } queues;
+
+  DeletionQueue deletors;
 
   explicit VulkanDevice(VkPhysicalDevice gpu);
   ~VulkanDevice();

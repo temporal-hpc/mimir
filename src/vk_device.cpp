@@ -15,14 +15,7 @@ VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
 
 VulkanDevice::~VulkanDevice()
 {
-  if (command_pool != VK_NULL_HANDLE)
-  {
-    vkDestroyCommandPool(logical_device, command_pool, nullptr);
-  }
-  if (logical_device != VK_NULL_HANDLE)
-  {
-    vkDestroyDevice(logical_device, nullptr);
-  }
+  deletors.flush();
 }
 
 void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
@@ -78,6 +71,9 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
   validation::checkVulkan(vkCreateDevice(
     physical_device, &create_info, nullptr, &logical_device)
   );
+  deletors.pushFunction([=](){
+    vkDestroyDevice(logical_device, nullptr);
+  });
 
   vkGetDeviceQueue(logical_device, queue_indices.graphics, 0, &queues.graphics);
   vkGetDeviceQueue(logical_device, queue_indices.present, 0, &queues.present);
@@ -97,6 +93,9 @@ VkCommandPool VulkanDevice::createCommandPool(
   validation::checkVulkan(vkCreateCommandPool(
     logical_device, &pool_info, nullptr, &new_pool)
   );
+  deletors.pushFunction([=](){
+    vkDestroyCommandPool(logical_device, command_pool, nullptr);
+  });
 
   return new_pool;
 }

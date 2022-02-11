@@ -6,17 +6,7 @@
 
 void VulkanSwapchain::cleanup()
 {
-  for (auto image_view : views)
-  {
-    vkDestroyImageView(logical_device, image_view, nullptr);
-  }
-  vkDestroySwapchainKHR(logical_device, swapchain, nullptr);
-}
-
-void VulkanSwapchain::connect(VkPhysicalDevice gpu, VkDevice device)
-{
-  physical_device = gpu;
-  logical_device = device;
+  deletors.flush();
 }
 
 void VulkanSwapchain::initSurface(VkInstance instance, GLFWwindow *window)
@@ -27,7 +17,7 @@ void VulkanSwapchain::initSurface(VkInstance instance, GLFWwindow *window)
 }
 
 void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
-  std::vector<uint32_t> queue_indices)
+  std::vector<uint32_t> queue_indices, VkPhysicalDevice physical_device, VkDevice device)
 {
   VkSurfaceCapabilitiesKHR surf_caps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surf_caps);
@@ -120,12 +110,15 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
   create_info.oldSwapchain     = old_swapchain;
 
   validation::checkVulkan(vkCreateSwapchainKHR(
-    logical_device, &create_info, nullptr, &swapchain)
+    device, &create_info, nullptr, &swapchain)
   );
+  deletors.pushFunction([=](){
+    vkDestroySwapchainKHR(device, swapchain, nullptr);
+  });
 
-  vkGetSwapchainImagesKHR(logical_device, swapchain, &image_count, nullptr);
+  vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
   images.resize(image_count);
-  vkGetSwapchainImagesKHR(logical_device, swapchain, &image_count, images.data());
+  vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data());
 
   // Set up image views, so they can be used as color targets later on
   views.resize(image_count);
@@ -136,7 +129,10 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
       color_format, images[i], VK_IMAGE_ASPECT_COLOR_BIT
     );
     validation::checkVulkan(
-      vkCreateImageView(logical_device, &info, nullptr, &views[i])
+      vkCreateImageView(device, &info, nullptr, &views[i])
     );
+    deletors.pushFunction([=](){
+      vkDestroyImageView(device, views[i], nullptr);
+    });
   }
 }

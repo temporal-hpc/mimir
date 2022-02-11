@@ -319,7 +319,6 @@ void VulkanEngine::initVulkan()
   createDescriptorSetLayout();
   createTextureSampler();
 
-  swap->connect(physical_device, device);
   initSwapchain();
 
   initImgui(); // After command pool and render pass are created
