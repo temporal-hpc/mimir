@@ -108,6 +108,9 @@ void VulkanEngine::createDescriptorSetLayout()
   validation::checkVulkan(vkCreateDescriptorSetLayout(
     device, &layout_info, nullptr, &descriptor_layout)
   );
+	deletors.pushFunction([=](){
+		vkDestroyDescriptorSetLayout(device, descriptor_layout, nullptr);
+	});
 }
 
 void VulkanEngine::updateDescriptorSets()

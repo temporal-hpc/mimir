@@ -127,4 +127,7 @@ void VulkanEngine::createTextureSampler()
   validation::checkVulkan(
     vkCreateSampler(device, &sampler_info, nullptr, &texture_sampler)
   );
+  deletors.pushFunction([=]{
+    vkDestroySampler(device, texture_sampler, nullptr);
+  });
 }

@@ -16,40 +16,10 @@
 #include <stdexcept> // std::throw
 
 VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
-  current_frame(0),
-  should_resize(false),
   shader_path(io::getDefaultShaderPath()),
   camera(std::make_unique<Camera>()),
-
-  instance(VK_NULL_HANDLE),
-  debug_messenger(VK_NULL_HANDLE),
-  surface(VK_NULL_HANDLE),
-  physical_device(VK_NULL_HANDLE),
-  device(VK_NULL_HANDLE),
-
-  render_pass(VK_NULL_HANDLE),
-  descriptor_pool(VK_NULL_HANDLE),
-  texture_sampler(VK_NULL_HANDLE),
-
-  descriptor_layout(VK_NULL_HANDLE),
-  pipeline_layout(VK_NULL_HANDLE),
-  point2d_pipeline(VK_NULL_HANDLE),
-  point3d_pipeline(VK_NULL_HANDLE),
-  mesh2d_pipeline(VK_NULL_HANDLE),
-  mesh3d_pipeline(VK_NULL_HANDLE),
-  screen_pipeline(VK_NULL_HANDLE),
-
-  vk_wait_semaphore(VK_NULL_HANDLE),
-  vk_signal_semaphore(VK_NULL_HANDLE),
-  //vk_presentation_semaphore(VK_NULL_HANDLE),
-  //vk_timeline_semaphore(VK_NULL_HANDLE),
-  cuda_wait_semaphore(nullptr),
-  cuda_signal_semaphore(nullptr),
-  //cuda_timeline_semaphore(nullptr),
-
   data_extent(extent),
-  stream(cuda_stream),
-  window(nullptr)
+  stream(cuda_stream)
 {}
 
 VulkanEngine::~VulkanEngine()
@@ -64,108 +34,12 @@ VulkanEngine::~VulkanEngine()
   {
     validation::checkCuda(cudaStreamSynchronize(stream));
   }
-  /*if (cuda_timeline_semaphore != nullptr)
-  {
-    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
-  }*/
-  if (cuda_wait_semaphore != nullptr)
-  {
-    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
-  }
-  if (cuda_signal_semaphore != nullptr)
-  {
-    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
-  }
-
-  for (auto& buffer : unstructured_buffers)
-  {
-    if (buffer.cuda_ptr != nullptr)
-    {
-      validation::checkCuda(cudaDestroyExternalMemory(buffer.cuda_extmem));
-    }
-    if (buffer.vk_buffer != VK_NULL_HANDLE)
-    {
-      vkDestroyBuffer(device, buffer.vk_buffer, nullptr);
-    }
-    if (buffer.vk_memory != VK_NULL_HANDLE)
-    {
-      vkFreeMemory(device, buffer.vk_memory, nullptr);
-    }
-  }
-
-  for (auto& buffer : structured_buffers)
-  {
-    if (buffer.cuda_ptr != nullptr)
-    {
-      validation::checkCuda(cudaDestroyExternalMemory(buffer.cuda_extmem));
-    }
-    if (buffer.vk_buffer != VK_NULL_HANDLE)
-    {
-      vkDestroyBuffer(device, buffer.vk_buffer, nullptr);
-    }
-    if (buffer.vk_memory != VK_NULL_HANDLE)
-    {
-      vkFreeMemory(device, buffer.vk_memory, nullptr);
-    }
-    if (buffer.vk_view != VK_NULL_HANDLE)
-    {
-      vkDestroyImageView(device, buffer.vk_view, nullptr);
-    }
-    if (buffer.vk_image != VK_NULL_HANDLE)
-    {
-      vkDestroyImage(device, buffer.vk_image, nullptr);
-    }
-  }
 
   cleanupSwapchain();
 
   ImGui_ImplVulkan_Shutdown();
-  if (descriptor_layout != VK_NULL_HANDLE)
-  {
-    vkDestroyDescriptorSetLayout(device, descriptor_layout, nullptr);
-  }
-  if (texture_sampler != VK_NULL_HANDLE)
-  {
-    vkDestroySampler(device, texture_sampler, nullptr);
-  }
-
-  /*if (vk_presentation_semaphore != VK_NULL_HANDLE)
-  {
-    vkDestroySemaphore(device, vk_presentation_semaphore, nullptr);
-  }
-  if (vk_timeline_semaphore != VK_NULL_HANDLE)
-  {
-    vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
-  }*/
-  for (size_t i = 0; i < frames.size(); ++i)
-  {
-    if (frames[i].present_semaphore != VK_NULL_HANDLE)
-    {
-      vkDestroySemaphore(device, frames[i].present_semaphore, nullptr);
-    }
-    if (frames[i].render_semaphore != VK_NULL_HANDLE)
-    {
-      vkDestroySemaphore(device, frames[i].render_semaphore, nullptr);
-    }
-    if (frames[i].render_fence != VK_NULL_HANDLE)
-    {
-      vkDestroyFence(device, frames[i].render_fence, nullptr);
-    }
-  }
-  if (vk_wait_semaphore != VK_NULL_HANDLE)
-  {
-    vkDestroySemaphore(device, vk_wait_semaphore, nullptr);
-  }
-  if (vk_signal_semaphore != VK_NULL_HANDLE)
-  {
-    vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
-  }
-
+  deletors.flush();
   dev.reset();
-  if (validation::enable_layers)
-  {
-    validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
-  }
   if (surface != VK_NULL_HANDLE)
   {
     vkDestroySurfaceKHR(instance, surface, nullptr);
@@ -274,6 +148,11 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
   importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
     mapped.vk_memory, mapped.element_size * mapped.element_count
   );
+  deletors.pushFunction([=]{
+    validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
+    vkDestroyBuffer(device, mapped.vk_buffer, nullptr);
+    vkFreeMemory(device, mapped.vk_memory, nullptr);
+  });
 
   unstructured_buffers.push_back(mapped);
   updateDescriptorSets();
@@ -301,6 +180,14 @@ void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
   );
   mapped.vk_view = createImageView(mapped.vk_image, mapped.vk_format);
 
+  deletors.pushFunction([=]{
+    validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
+    vkDestroyBuffer(device, mapped.vk_buffer, nullptr);
+    vkFreeMemory(device, mapped.vk_memory, nullptr);
+    vkDestroyImageView(device, mapped.vk_view, nullptr);
+    vkDestroyImage(device, mapped.vk_image, nullptr);
+  });
+
   structured_buffers.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
@@ -308,7 +195,7 @@ void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
 
 void VulkanEngine::initVulkan()
 {
-  createCoreObjects();
+  createInstance();
   swap = std::make_unique<VulkanSwapchain>();
   swap->initSurface(instance, window);
   surface = swap->surface;
@@ -317,6 +204,7 @@ void VulkanEngine::initVulkan()
   dev->initLogicalDevice(surface);
   device = dev->logical_device;
   createDescriptorSetLayout();
+  createDescriptorPool();
   createTextureSampler();
 
   initSwapchain();
@@ -325,7 +213,7 @@ void VulkanEngine::initVulkan()
   createSyncObjects();
 }
 
-void VulkanEngine::createCoreObjects()
+void VulkanEngine::createInstance()
 {
   if (validation::enable_layers &&
      !validation::checkValidationLayerSupport())
@@ -375,6 +263,9 @@ void VulkanEngine::createCoreObjects()
     validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
       instance, &debug_info, nullptr, &debug_messenger)
     );
+    deletors.pushFunction([=]{
+      validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
+    });
   }
 }
 
@@ -401,6 +292,38 @@ void VulkanEngine::pickPhysicalDevice()
   {
     throw std::runtime_error("failed to find a suitable GPU!");
   }
+}
+
+void VulkanEngine::createDescriptorPool()
+{
+  VkDescriptorPoolSize pool_sizes[] =
+  {
+    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+  };
+
+  VkDescriptorPoolCreateInfo pool_info{};
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets       = 1000;
+  pool_info.poolSizeCount = std::size(pool_sizes);
+  pool_info.pPoolSizes    = pool_sizes;
+
+  validation::checkVulkan(
+    vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool)
+  );
+  deletors.pushFunction([=]{
+    vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
+  });
 }
 
 void VulkanEngine::initImgui()
@@ -470,4 +393,181 @@ void *VulkanEngine::getMemoryHandle(VkDeviceMemory memory,
     throw std::runtime_error("Failed to retrieve handle for buffer!");
   }
   return (void*)(uintptr_t)fd;
+}
+
+void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
+  std::vector<VkPipelineStageFlags>& wait_stages) const
+{
+  // Wait semaphore has not been initialized on the first frame
+  if (current_frame != 0 && device_working == true)
+  {
+    // Vulkan waits until Cuda is done with the display buffer before rendering
+    wait.push_back(vk_wait_semaphore);
+    // Cuda will wait until all pipeline commands are complete
+    wait_stages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+  }
+}
+
+void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
+{
+  // Vulkan will signal to this semaphore once the device array is ready
+  // for Cuda to process
+  signal.push_back(vk_signal_semaphore);
+}
+
+void VulkanEngine::createSyncObjects()
+{
+  images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
+
+  auto semaphore_info = vkinit::semaphoreCreateInfo();
+  auto fence_info = vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
+  for (auto& frame : frames)
+  {
+    validation::checkVulkan(vkCreateSemaphore(
+      device, &semaphore_info, nullptr, &frame.present_semaphore)
+    );
+    validation::checkVulkan(vkCreateSemaphore(
+      device, &semaphore_info, nullptr, &frame.render_semaphore)
+    );
+    validation::checkVulkan(vkCreateFence(
+      device, &fence_info, nullptr, &frame.render_fence)
+    );
+    deletors.pushFunction([=]{
+      vkDestroySemaphore(device, frame.present_semaphore, nullptr);
+      vkDestroySemaphore(device, frame.render_semaphore, nullptr);
+      vkDestroyFence(device, frame.render_fence, nullptr);
+    });
+  }
+
+  /*validation::checkVulkan(vkCreateSemaphore(
+    device, &semaphore_info, nullptr, &vk_presentation_semaphore)
+  );
+  createExternalSemaphore(vk_timeline_semaphore);
+  importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
+  if (cuda_timeline_semaphore != nullptr)
+  {
+    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
+  }
+  if (vk_presentation_semaphore != VK_NULL_HANDLE)
+  {
+    vkDestroySemaphore(device, vk_presentation_semaphore, nullptr);
+  }
+  if (vk_timeline_semaphore != VK_NULL_HANDLE)
+  {
+    vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
+  }*/
+
+  createExternalSemaphore(vk_wait_semaphore);
+  // Vulkan signal will be CUDA wait
+  importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
+  deletors.pushFunction([=]{
+    vkDestroySemaphore(device, vk_wait_semaphore, nullptr);
+    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
+  });
+
+  createExternalSemaphore(vk_signal_semaphore);
+  // CUDA signal will be vulkan wait
+  importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
+  deletors.pushFunction([=]{
+    vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
+    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
+  });
+}
+
+void VulkanEngine::createExternalSemaphore(VkSemaphore& semaphore)
+{
+  /*VkSemaphoreTypeCreateInfo timeline_info{};
+  timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+  timeline_info.pNext = nullptr;
+  timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+  timeline_info.initialValue = 0;*/
+
+  VkExportSemaphoreCreateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
+  export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+  export_info.pNext = nullptr; // &timeline_info
+
+  auto semaphore_info = vkinit::semaphoreCreateInfo();
+  semaphore_info.pNext = &export_info;
+
+  validation::checkVulkan(
+    vkCreateSemaphore(device, &semaphore_info, nullptr, &semaphore)
+  );
+}
+
+void *VulkanEngine::getSemaphoreHandle(VkSemaphore semaphore,
+  VkExternalSemaphoreHandleTypeFlagBits handle_type)
+{
+  int fd;
+  VkSemaphoreGetFdInfoKHR fd_info{};
+  fd_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
+  fd_info.pNext = nullptr;
+  fd_info.semaphore  = semaphore;
+  fd_info.handleType = handle_type;
+
+  PFN_vkGetSemaphoreFdKHR fpGetSemaphore;
+  fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
+    device, "vkGetSemaphoreFdKHR"
+  );
+  if (!fpGetSemaphore)
+  {
+    throw std::runtime_error("Failed to retrieve semaphore function handle!");
+  }
+  validation::checkVulkan(fpGetSemaphore(device, &fd_info, &fd));
+
+  return (void*)(uintptr_t)fd;
+}
+
+void VulkanEngine::importCudaExternalSemaphore(
+  cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem)
+{
+  cudaExternalSemaphoreHandleDesc sem_desc{};
+  //sem_desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+  sem_desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
+  sem_desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
+    vk_sem, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
+  );
+  sem_desc.flags = 0;
+  validation::checkCuda(cudaImportExternalSemaphore(&cuda_sem, &sem_desc));
+}
+
+void VulkanEngine::cudaSemaphoreWait()
+{
+  cudaExternalSemaphoreWaitParams wait_params{};
+  wait_params.flags = 0;
+  wait_params.params.fence.value = 0;
+  // Wait for Vulkan to complete its work
+  validation::checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
+    &cuda_wait_semaphore, &wait_params, 1, stream)
+  );
+}
+
+void VulkanEngine::cudaSemaphoreSignal()
+{
+  cudaExternalSemaphoreSignalParams signal_params{};
+  signal_params.flags = 0;
+  signal_params.params.fence.value = 0;
+
+  // Signal Vulkan to continue with the updated buffers
+  validation::checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
+    &cuda_signal_semaphore, &signal_params, 1, stream)
+  );
+}
+
+void VulkanEngine::prepareWindow()
+{
+  std::unique_lock<std::mutex> ul(mutex);
+  device_working = true;
+  cudaSemaphoreWait();
+  ul.unlock();
+  cond.notify_one();
+}
+
+void VulkanEngine::updateWindow()
+{
+  std::unique_lock<std::mutex> ul(mutex);
+  device_working = false;
+  cudaSemaphoreSignal();
+  ul.unlock();
+  cond.notify_one();
 }

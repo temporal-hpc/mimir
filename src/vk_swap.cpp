@@ -16,10 +16,6 @@ void VulkanEngine::cleanupSwapchain()
 {
   vkDestroyBuffer(device, uniform_buffer, nullptr);
   vkFreeMemory(device, ubo_memory, nullptr);
-  vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
-  vkFreeCommandBuffers(device, dev->command_pool,
-    static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
-  );
   vkDestroyPipeline(device, point2d_pipeline, nullptr);
   vkDestroyPipeline(device, point3d_pipeline, nullptr);
   vkDestroyPipeline(device, mesh2d_pipeline, nullptr);
@@ -31,6 +27,9 @@ void VulkanEngine::cleanupSwapchain()
     vkDestroyFramebuffer(device, framebuffer, nullptr);
   }
   vkDestroyRenderPass(device, render_pass, nullptr);
+  vkFreeCommandBuffers(
+    device, dev->command_pool, command_buffers.size(), command_buffers.data()
+  );
   swap->cleanup();
 }
 
@@ -46,7 +45,6 @@ void VulkanEngine::initSwapchain()
   createGraphicsPipelines();
   createFramebuffers();
   createUniformBuffers();
-  createDescriptorPool();
   createDescriptorSets();
   command_buffers = dev->createCommandBuffers(framebuffers.size());
   updateDescriptorSets();
@@ -73,35 +71,6 @@ void VulkanEngine::createFramebuffers()
       device, &fb_info, nullptr, &framebuffers[i])
     );
   }
-}
-
-void VulkanEngine::createDescriptorPool()
-{
-  VkDescriptorPoolSize pool_sizes[] =
-  {
-    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-  };
-
-  VkDescriptorPoolCreateInfo pool_info{};
-  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  pool_info.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets       = 1000;
-  pool_info.poolSizeCount = std::size(pool_sizes);
-  pool_info.pPoolSizes    = pool_sizes;
-
-  validation::checkVulkan(
-    vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool)
-  );
 }
 
 // Take buffer with shader bytecode and create a shader module from it

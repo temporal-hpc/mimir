@@ -16,6 +16,7 @@
 
 #include "cudaview/vk_cuda_map.hpp"
 #include "cudaview/frame.hpp"
+#include "cudaview/deletion_queue.hpp"
 
 namespace
 {
@@ -54,32 +55,36 @@ public:
 private:
   std::unique_ptr<VulkanDevice> dev;
   std::unique_ptr<VulkanSwapchain> swap;
-  GLFWwindow *window;
-  VkInstance instance; // Vulkan library handle
-  VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
-  VkSurfaceKHR surface; // Vulkan window surface
-  VkPhysicalDevice physical_device; // GPU used for operations
-  VkDevice device;
-  VkRenderPass render_pass;
-  VkDescriptorSetLayout descriptor_layout;
-  VkPipelineLayout pipeline_layout;
-  VkPipeline screen_pipeline;
-  VkPipeline point2d_pipeline, point3d_pipeline;
-  VkPipeline mesh2d_pipeline, mesh3d_pipeline;
-  VkDescriptorPool descriptor_pool;
-  VkSampler texture_sampler;
+  GLFWwindow *window = nullptr;
+  VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
+  VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE; // Vulkan debug output handle
+  VkSurfaceKHR surface = VK_NULL_HANDLE; // Vulkan window surface
+  VkPhysicalDevice physical_device = VK_NULL_HANDLE; // GPU used for operations
+  VkDevice device = VK_NULL_HANDLE;
+  VkRenderPass render_pass = VK_NULL_HANDLE;
+  VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
+  VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+  VkPipeline screen_pipeline = VK_NULL_HANDLE;
+  VkPipeline point2d_pipeline = VK_NULL_HANDLE;
+  VkPipeline point3d_pipeline = VK_NULL_HANDLE;
+  VkPipeline mesh2d_pipeline = VK_NULL_HANDLE;
+  VkPipeline mesh3d_pipeline = VK_NULL_HANDLE;
+  VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+  VkSampler texture_sampler = VK_NULL_HANDLE;
   std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
   VkBuffer uniform_buffer;
   VkDeviceMemory ubo_memory;
+  DeletionQueue deletors;
 
   // Synchronization structures
   std::vector<VkFence> images_inflight;
-  VkSemaphore vk_wait_semaphore;
-  VkSemaphore vk_signal_semaphore;
+  VkSemaphore vk_wait_semaphore = VK_NULL_HANDLE;
+  VkSemaphore vk_signal_semaphore = VK_NULL_HANDLE;
   //VkSemaphore vk_presentation_semaphore;
   //VkSemaphore vk_timeline_semaphore;
+  //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
   // CPU thread synchronization variables
   bool device_working = false;
@@ -90,10 +95,10 @@ private:
   // Cuda interop data
   int3 data_extent;
   cudaStream_t stream;
-  cudaExternalSemaphore_t cuda_wait_semaphore, cuda_signal_semaphore;
-  //cudaExternalSemaphore_t cuda_timeline_semaphore;
+  cudaExternalSemaphore_t cuda_wait_semaphore = nullptr;
+  cudaExternalSemaphore_t cuda_signal_semaphore = nullptr;
 
-  uint64_t current_frame;
+  uint64_t current_frame = 0;
   std::string shader_path;
   std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
   std::vector<MappedStructuredMemory> structured_buffers;
@@ -168,7 +173,7 @@ private:
   void cudaSemaphoreWait();
 
   // Vulkan core-related functions
-  void createCoreObjects();
+  void createInstance();
   void pickPhysicalDevice();
   void createDescriptorSetLayout();
   void createTextureSampler();
