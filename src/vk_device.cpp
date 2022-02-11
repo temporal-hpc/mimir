@@ -10,20 +10,29 @@ VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
 {
   vkGetPhysicalDeviceProperties(physical_device, &properties);
   vkGetPhysicalDeviceFeatures(physical_device, &features);
+  vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
 }
 
 VulkanDevice::~VulkanDevice()
 {
-
+  if (command_pool != VK_NULL_HANDLE)
+  {
+    vkDestroyCommandPool(logical_device, command_pool, nullptr);
+  }
+  if (logical_device != VK_NULL_HANDLE)
+  {
+    vkDestroyDevice(logical_device, nullptr);
+  }
 }
 
 void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
 {
-  uint32_t graphics_idx, present_idx;
-  props::findQueueFamilies(physical_device, surface, graphics_idx, present_idx);
+  props::findQueueFamilies(
+    physical_device, surface, queue_indices.graphics, queue_indices.present
+  );
 
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-  std::set unique_queue_families{ graphics_idx, present_idx };
+  std::set unique_queue_families{ queue_indices.graphics, queue_indices.present };
   auto queue_priority = 1.f;
 
   for (auto queue_family : unique_queue_families)
@@ -70,19 +79,16 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     physical_device, &create_info, nullptr, &logical_device)
   );
 
-  command_pool = createCommandPool(
-    graphics_idx, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, surface
+  command_pool = createCommandPool(queue_indices.graphics,
+    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
   );
 }
 
 VkCommandPool VulkanDevice::createCommandPool(
-  uint32_t queue_idx, VkCommandPoolCreateFlags flags, VkSurfaceKHR surface)
+  uint32_t queue_idx, VkCommandPoolCreateFlags flags)
 {
   VkCommandPool new_pool = VK_NULL_HANDLE;
-
-  uint32_t graphics_idx, present_idx;
-  props::findQueueFamilies(physical_device, surface, graphics_idx, present_idx);
-  auto pool_info = vkinit::commandPoolCreateInfo(graphics_idx, flags);
+  auto pool_info = vkinit::commandPoolCreateInfo(queue_idx, flags);
   validation::checkVulkan(vkCreateCommandPool(
     logical_device, &pool_info, nullptr, &new_pool)
   );
@@ -209,13 +215,10 @@ void VulkanDevice::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size, VkQ
 uint32_t VulkanDevice::findMemoryType(
   uint32_t type_filter, VkMemoryPropertyFlags properties)
 {
-  VkPhysicalDeviceMemoryProperties mem_props;
-  vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
-
-  for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i)
+  for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
   {
-    if ((type_filter & (1 << i)) &&
-        (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
+    auto flags = memory_properties.memoryTypes[i].propertyFlags;
+    if ((type_filter & (1 << i)) && (flags & properties) == properties)
     {
       return i;
     }

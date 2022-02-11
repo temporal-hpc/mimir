@@ -121,7 +121,7 @@ void VulkanEngine::createImageViews()
 
 void VulkanEngine::createTextureSampler()
 {
-  auto max_anisotropy = device_properties.limits.maxSamplerAnisotropy;
+  auto max_anisotropy = dev->properties.limits.maxSamplerAnisotropy;
   auto sampler_info = vkinit::samplerCreateInfo(VK_FILTER_LINEAR);
   sampler_info.anisotropyEnable        = VK_TRUE;
   sampler_info.maxAnisotropy           = max_anisotropy;

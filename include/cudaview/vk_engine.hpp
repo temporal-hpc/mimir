@@ -57,7 +57,6 @@ private:
   VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
   VkSurfaceKHR surface; // Vulkan window surface
   VkPhysicalDevice physical_device; // GPU used for operations
-  VkPhysicalDeviceProperties device_properties;
   VkDevice device;
   VkQueue graphics_queue, present_queue;
   VkSwapchainKHR swapchain;
@@ -72,7 +71,6 @@ private:
   VkPipeline screen_pipeline;
   VkPipeline point2d_pipeline, point3d_pipeline;
   VkPipeline mesh2d_pipeline, mesh3d_pipeline;
-  VkCommandPool command_pool;
   VkDescriptorPool descriptor_pool;
   VkSampler texture_sampler;
   std::vector<VkFramebuffer> framebuffers;

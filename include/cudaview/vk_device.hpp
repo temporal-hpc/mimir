@@ -10,23 +10,22 @@ struct VulkanDevice
   VkPhysicalDevice physical_device = VK_NULL_HANDLE;
   VkPhysicalDeviceProperties properties;
   VkPhysicalDeviceFeatures features;
+  VkPhysicalDeviceMemoryProperties memory_properties;
 
   VkDevice logical_device = VK_NULL_HANDLE;
   VkCommandPool command_pool = VK_NULL_HANDLE;
 
-  /*struct
+  struct
   {
     uint32_t graphics;
     uint32_t present;
-  } queueFamilyIndices;*/
+  } queue_indices;
 
   explicit VulkanDevice(VkPhysicalDevice gpu);
   ~VulkanDevice();
 
   void initLogicalDevice(VkSurfaceKHR surface);
-  VkCommandPool createCommandPool(uint32_t queue_idx, VkCommandPoolCreateFlags flags,
-    VkSurfaceKHR surface
-  );
+  VkCommandPool createCommandPool(uint32_t queue_idx, VkCommandPoolCreateFlags flags);
   std::vector<VkCommandBuffer> createCommandBuffers(uint32_t buffer_count);
   VkCommandBuffer beginSingleTimeCommands();
   void endSingleTimeCommands(VkCommandBuffer command_buffer, VkQueue queue);

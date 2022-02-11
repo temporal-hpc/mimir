@@ -11,12 +11,63 @@
 
 #include "cudaview/vk_types.hpp"
 
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(
+  const std::vector<VkSurfaceFormatKHR>& available_formats)
+{
+  for (const auto& available_format : available_formats)
+  {
+    if (available_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+        available_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+    {
+      return available_format;
+    }
+  }
+  return available_formats[0];
+}
+
+VkPresentModeKHR chooseSwapPresentMode(
+  const std::vector<VkPresentModeKHR>& available_modes)
+{
+  VkPresentModeKHR best_mode = VK_PRESENT_MODE_FIFO_KHR;
+  for (const auto& available_mode : available_modes)
+  {
+    if (available_mode == VK_PRESENT_MODE_MAILBOX_KHR)
+    {
+      return available_mode;
+    }
+    else if (available_mode == VK_PRESENT_MODE_IMMEDIATE_KHR)
+    {
+      best_mode = available_mode;
+    }
+  }
+  return best_mode;
+}
+
+VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities,
+  VkExtent2D new_extent)
+{
+  if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+  {
+    return capabilities.currentExtent;
+  }
+  else
+  {
+    new_extent.width = std::clamp(new_extent.width,
+      capabilities.minImageExtent.width, capabilities.maxImageExtent.width
+    );
+    new_extent.height = std::clamp(new_extent.height,
+      capabilities.minImageExtent.height, capabilities.maxImageExtent.height
+    );
+    return new_extent;
+  }
+}
+
 void VulkanEngine::cleanupSwapchain()
 {
   vkDestroyBuffer(device, uniform_buffer, nullptr);
   vkFreeMemory(device, ubo_memory, nullptr);
   vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
-  vkFreeCommandBuffers(device, command_pool,
+  vkFreeCommandBuffers(device, dev->command_pool,
     static_cast<uint32_t>(command_buffers.size()), command_buffers.data()
   );
   vkDestroyPipeline(device, point2d_pipeline, nullptr);
@@ -66,9 +117,9 @@ void VulkanEngine::createSwapchain()
   VkExtent2D win_ext{static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 
   auto swapchain_support = props::getSwapchainProperties(physical_device, surface);
-  auto surface_format = props::chooseSwapSurfaceFormat(swapchain_support.formats);
-  auto present_mode = props::chooseSwapPresentMode(swapchain_support.present_modes);
-  auto extent = props::chooseSwapExtent(swapchain_support.capabilities, win_ext);
+  auto surface_format = chooseSwapSurfaceFormat(swapchain_support.formats);
+  auto present_mode = chooseSwapPresentMode(swapchain_support.present_modes);
+  auto extent = chooseSwapExtent(swapchain_support.capabilities, win_ext);
 
   auto image_count = swapchain_support.capabilities.minImageCount + 1;
   const auto max_image_count = swapchain_support.capabilities.maxImageCount;
@@ -87,8 +138,7 @@ void VulkanEngine::createSwapchain()
   create_info.imageArrayLayers = 1;
   create_info.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-  uint32_t queue_ids[2];
-  props::findQueueFamilies(physical_device, surface, queue_ids[0], queue_ids[1]);
+  uint32_t queue_ids[2] = {dev->queue_indices.graphics, dev->queue_indices.present};
 
   if (queue_ids[0] != queue_ids[1])
   {

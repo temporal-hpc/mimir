@@ -30,7 +30,6 @@ VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
 
   swapchain(VK_NULL_HANDLE),
   render_pass(VK_NULL_HANDLE),
-  command_pool(VK_NULL_HANDLE),
   descriptor_pool(VK_NULL_HANDLE),
   texture_sampler(VK_NULL_HANDLE),
 
@@ -164,14 +163,7 @@ VulkanEngine::~VulkanEngine()
     vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
   }
 
-  if (command_pool != VK_NULL_HANDLE)
-  {
-    vkDestroyCommandPool(device, command_pool, nullptr);
-  }
-  if (device != VK_NULL_HANDLE)
-  {
-    vkDestroyDevice(device, nullptr);
-  }
+  dev.reset();
   if (validation::enable_layers)
   {
     validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
@@ -324,7 +316,6 @@ void VulkanEngine::initVulkan()
   dev = std::make_unique<VulkanDevice>(physical_device);
   dev->initLogicalDevice(surface);
   device = dev->logical_device;
-  command_pool = dev->command_pool;
   createLogicalDevice();
   createDescriptorSetLayout();
   createTextureSampler();
@@ -415,17 +406,13 @@ void VulkanEngine::pickPhysicalDevice()
   {
     throw std::runtime_error("failed to find a suitable GPU!");
   }
-  vkGetPhysicalDeviceProperties(physical_device, &device_properties);
 }
 
 void VulkanEngine::createLogicalDevice()
 {
-  uint32_t graphics_idx, present_idx;
-  props::findQueueFamilies(physical_device, surface, graphics_idx, present_idx);
-
   // Must be called after logical device is created (obviously!)
-  vkGetDeviceQueue(device, graphics_idx, 0, &graphics_queue);
-  vkGetDeviceQueue(device, present_idx, 0, &present_queue);
+  vkGetDeviceQueue(device, dev->queue_indices.graphics, 0, &graphics_queue);
+  vkGetDeviceQueue(device, dev->queue_indices.present, 0, &present_queue);
 
   // TODO: Get device UUID
 }

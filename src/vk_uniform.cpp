@@ -23,7 +23,7 @@ size_t getAlignedUniformSize(size_t original_size, size_t min_alignment)
 
 void VulkanEngine::createUniformBuffers()
 {
-  auto min_alignment = device_properties.limits.minUniformBufferOffsetAlignment;
+  auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
   auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
   auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
   auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
@@ -38,7 +38,7 @@ void VulkanEngine::createUniformBuffers()
 
 void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
 {
-  auto min_alignment = device_properties.limits.minUniformBufferOffsetAlignment;
+  auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
   auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
   auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
   auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
@@ -111,7 +111,7 @@ void VulkanEngine::createDescriptorSetLayout()
 
 void VulkanEngine::updateDescriptorSets()
 {
-  auto min_alignment = device_properties.limits.minUniformBufferOffsetAlignment;
+  auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
   auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
   auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
   auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);

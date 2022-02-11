@@ -19,15 +19,6 @@ SwapchainSupportDetails getSwapchainProperties(
   VkPhysicalDevice dev, VkSurfaceKHR surface
 );
 
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(
-  const std::vector<VkSurfaceFormatKHR>& available_formats
-);
-
-
-VkPresentModeKHR chooseSwapPresentMode(
-  const std::vector<VkPresentModeKHR>& available_modes
-);
-
 // Handle additional extensions required by CUDA interop
 std::vector<const char*> getRequiredExtensions(bool enable_validation);
 std::vector<const char*> getRequiredDeviceExtensions();
@@ -41,10 +32,6 @@ bool isDeviceSuitable(VkPhysicalDevice dev, VkSurfaceKHR surface);
 
 bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
   uint32_t& graphics_family, uint32_t& present_family
-);
-
-VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities,
-  VkExtent2D new_extent
 );
 
 } // namespace props
