@@ -1,5 +1,5 @@
 #include "cudaview/vk_engine.hpp"
-#include "cudaview/vk_device.hpp"
+#include "internal/vk_device.hpp"
 
 #include "cudaview/vk_types.hpp"
 #include "internal/camera.hpp"

@@ -24,6 +24,7 @@ namespace
 
 struct Camera;
 struct VulkanDevice;
+struct VulkanSwapchain;
 
 class VulkanEngine
 {
@@ -52,6 +53,7 @@ public:
 
 private:
   std::unique_ptr<VulkanDevice> dev;
+  std::unique_ptr<VulkanSwapchain> swap;
   GLFWwindow *window;
   VkInstance instance; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger; // Vulkan debug output handle
@@ -63,8 +65,6 @@ private:
   std::vector<VkImage> swapchain_images;
   // How to access the image(s) and which part of it (them) to access
   std::vector<VkImageView> swapchain_views;
-  VkFormat swapchain_format;
-  VkExtent2D swapchain_extent;
   VkRenderPass render_pass;
   VkDescriptorSetLayout descriptor_layout;
   VkPipelineLayout pipeline_layout;
@@ -186,8 +186,6 @@ private:
   void recreateSwapchain();
 
   // Swapchain subroutines
-  void createSwapchain();
-  void createImageViews();
   void createRenderPass();
   void createGraphicsPipelines();
   void createFramebuffers();

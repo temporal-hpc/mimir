@@ -1,5 +1,6 @@
 #include "cudaview/vk_engine.hpp"
-#include "cudaview/vk_device.hpp"
+#include "internal/vk_device.hpp"
+#include "internal/vk_swapchain.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_properties.hpp"
@@ -106,17 +107,6 @@ VkImageView VulkanEngine::createImageView(VkImage image, VkFormat format)
   VkImageView image_view;
   validation::checkVulkan(vkCreateImageView(device, &info, nullptr, &image_view));
   return image_view;
-}
-
-// Set up image views, so they can be used as color targets later on
-void VulkanEngine::createImageViews()
-{
-  swapchain_views.resize(swapchain_images.size());
-  // Create a basic image view for every image in the swap chain
-  for (size_t i = 0; i < swapchain_images.size(); ++i)
-  {
-    swapchain_views[i] = createImageView(swapchain_images[i], swapchain_format);
-  }
 }
 
 void VulkanEngine::createTextureSampler()

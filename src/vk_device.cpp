@@ -1,4 +1,4 @@
-#include "cudaview/vk_device.hpp"
+#include "internal/vk_device.hpp"
 
 #include <set>
 

@@ -2,6 +2,7 @@
 #include "internal/color.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_initializers.hpp"
+#include "internal/vk_swapchain.hpp"
 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -64,7 +65,7 @@ void VulkanEngine::renderFrame()
   validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
   auto render_pass_info = vkinit::renderPassBeginInfo(
-    render_pass, swapchain_extent, framebuffers[image_idx]
+    render_pass, swap->swapchain_extent, framebuffers[image_idx]
   );
   VkClearValue clear_color;
   color::setColor(clear_color.color.float32, bg_color);
@@ -194,7 +195,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
 void VulkanEngine::createRenderPass()
 {
   VkAttachmentDescription color_attachment{};
-  color_attachment.format         = swapchain_format;
+  color_attachment.format         = swap->color_format;
   color_attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
   color_attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
   color_attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;

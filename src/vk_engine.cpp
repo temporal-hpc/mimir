@@ -3,7 +3,8 @@
 #include "internal/camera.hpp"
 #include "internal/vk_initializers.hpp"
 
-#include "cudaview/vk_device.hpp"
+#include "internal/vk_device.hpp"
+#include "internal/vk_swapchain.hpp"
 
 #include "internal/vk_properties.hpp"
 #include "internal/validation.hpp"
@@ -168,7 +169,6 @@ VulkanEngine::~VulkanEngine()
   {
     validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
   }
-  // Surface must be destroyed before instance
   if (surface != VK_NULL_HANDLE)
   {
     vkDestroySurfaceKHR(instance, surface, nullptr);
@@ -312,6 +312,9 @@ void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
 void VulkanEngine::initVulkan()
 {
   createCoreObjects();
+  swap = std::make_unique<VulkanSwapchain>();
+  swap->initSurface(instance, window);
+  surface = swap->surface;
   pickPhysicalDevice();
   dev = std::make_unique<VulkanDevice>(physical_device);
   dev->initLogicalDevice(surface);
@@ -320,6 +323,7 @@ void VulkanEngine::initVulkan()
   createDescriptorSetLayout();
   createTextureSampler();
 
+  swap->connect(instance, physical_device, device);
   initSwapchain();
 
   initImgui(); // After command pool and render pass are created
@@ -378,9 +382,9 @@ void VulkanEngine::createCoreObjects()
     );
   }
 
-  validation::checkVulkan(
+  /*validation::checkVulkan(
     glfwCreateWindowSurface(instance, window, nullptr, &surface)
-  );
+  );*/
 }
 
 void VulkanEngine::pickPhysicalDevice()
