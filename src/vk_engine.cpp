@@ -1,13 +1,13 @@
 #include "cudaview/vk_engine.hpp"
 #include "cudaview/io.hpp"
-#include "internal/camera.hpp"
-#include "internal/vk_initializers.hpp"
 
+#include "internal/camera.hpp"
+#include "internal/validation.hpp"
 #include "internal/vk_device.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/vk_properties.hpp"
 #include "internal/vk_swapchain.hpp"
 
-#include "internal/vk_properties.hpp"
-#include "internal/validation.hpp"
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -39,11 +39,8 @@ VulkanEngine::~VulkanEngine()
 
   ImGui_ImplVulkan_Shutdown();
   deletors.flush();
+  swap.reset();
   dev.reset();
-  if (surface != VK_NULL_HANDLE)
-  {
-    vkDestroySurfaceKHR(instance, surface, nullptr);
-  }
   if (instance != VK_NULL_HANDLE)
   {
     vkDestroyInstance(instance, nullptr);
@@ -198,10 +195,9 @@ void VulkanEngine::initVulkan()
   createInstance();
   swap = std::make_unique<VulkanSwapchain>();
   swap->initSurface(instance, window);
-  surface = swap->surface;
   pickPhysicalDevice();
   dev = std::make_unique<VulkanDevice>(physical_device);
-  dev->initLogicalDevice(surface);
+  dev->initLogicalDevice(swap->surface);
   device = dev->logical_device;
   createDescriptorSetLayout();
   createDescriptorPool();
@@ -229,7 +225,17 @@ void VulkanEngine::createInstance()
   app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
   app_info.apiVersion         = VK_API_VERSION_1_2;
 
-  auto extensions = props::getRequiredExtensions(validation::enable_layers);
+  uint32_t glfw_ext_count = 0;
+  // List required GLFW extensions and additional required validation layers
+  const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
+  std::vector<const char*> extensions(glfw_exts, glfw_exts + glfw_ext_count);
+  if (validation::enable_layers)
+  {
+    // Enable debugging message extension
+    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
+  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
 
   VkInstanceCreateInfo instance_info{};
   instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -253,7 +259,16 @@ void VulkanEngine::createInstance()
     instance_info.ppEnabledLayerNames = nullptr;
   }
 
-  //utils::listAvailableExtensions();
+  /*uint32_t extension_count = 0;
+  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
+  std::vector<VkExtensionProperties> available_exts(extension_count);
+  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_exts.data());
+
+  std::cout << "Available extensions:\n";
+  for (const auto& extension : available_exts)
+  {
+    std::cout << '\t' << extension.extensionName << '\n';
+  }*/
   validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
 
   if (validation::enable_layers)
@@ -282,7 +297,7 @@ void VulkanEngine::pickPhysicalDevice()
 
   for (const auto& dev : devices)
   {
-    if (props::isDeviceSuitable(dev, surface))
+    if (props::isDeviceSuitable(dev, swap->surface))
     {
       physical_device = dev;
       break;
@@ -570,4 +585,51 @@ void VulkanEngine::updateWindow()
   cudaSemaphoreSignal();
   ul.unlock();
   cond.notify_one();
+}
+
+VkRenderPass VulkanEngine::createRenderPass(VkFormat color_format)
+{
+  VkAttachmentDescription color_attachment{};
+  color_attachment.format         = color_format;
+  color_attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+  color_attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+  color_attachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  color_attachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+  color_attachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+  VkAttachmentReference color_attachment_ref{};
+  color_attachment_ref.attachment = 0;
+  color_attachment_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+  VkSubpassDescription subpass{};
+  subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass.colorAttachmentCount = 1;
+  subpass.pColorAttachments    = &color_attachment_ref;
+
+  // Specify memory and execution dependencies between subpasses
+  VkSubpassDependency dependency{};
+  dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
+  dependency.dstSubpass    = 0;
+  dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependency.srcAccessMask = 0;
+  dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+  VkRenderPassCreateInfo pass_info{};
+  pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  pass_info.attachmentCount = 1;
+  pass_info.pAttachments    = &color_attachment;
+  pass_info.subpassCount    = 1;
+  pass_info.pSubpasses      = &subpass;
+  pass_info.dependencyCount = 1;
+  pass_info.pDependencies   = &dependency;
+
+  VkRenderPass render_pass;
+  validation::checkVulkan(
+    vkCreateRenderPass(device, &pass_info, nullptr, &render_pass)
+  );
+  return render_pass;
 }

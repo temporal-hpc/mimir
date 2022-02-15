@@ -4,9 +4,15 @@
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_properties.hpp"
 
+VulkanSwapchain::~VulkanSwapchain()
+{
+  cleanup();
+  main_deletors.flush();
+}
+
 void VulkanSwapchain::cleanup()
 {
-  deletors.flush();
+  aux_deletors.flush();
 }
 
 void VulkanSwapchain::initSurface(VkInstance instance, GLFWwindow *window)
@@ -14,6 +20,9 @@ void VulkanSwapchain::initSurface(VkInstance instance, GLFWwindow *window)
   validation::checkVulkan(
     glfwCreateWindowSurface(instance, window, nullptr, &surface)
   );
+  main_deletors.pushFunction([=](){
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+  });
 }
 
 void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
@@ -112,7 +121,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
   validation::checkVulkan(vkCreateSwapchainKHR(
     device, &create_info, nullptr, &swapchain)
   );
-  deletors.pushFunction([=](){
+  aux_deletors.pushFunction([=](){
     vkDestroySwapchainKHR(device, swapchain, nullptr);
   });
 
@@ -131,7 +140,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
     validation::checkVulkan(
       vkCreateImageView(device, &info, nullptr, &views[i])
     );
-    deletors.pushFunction([=](){
+    aux_deletors.pushFunction([=](){
       vkDestroyImageView(device, views[i], nullptr);
     });
   }

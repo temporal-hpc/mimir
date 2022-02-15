@@ -8,46 +8,16 @@
 namespace props
 {
 
-// List required GLFW extensions and additional required validation layers
-std::vector<const char*> getRequiredExtensions(bool enable_validation)
-{
-  uint32_t glfw_ext_count = 0;
-  const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
-  std::vector<const char*> extensions(glfw_exts, glfw_exts + glfw_ext_count);
-  if (enable_validation)
-  {
-    // Enable debugging message extension
-    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-  }
-  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
-  return extensions;
-}
-
 std::vector<const char*> getRequiredDeviceExtensions()
 {
-  std::vector<const char*> extensions;
-  extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
-  return extensions;
-}
-
-void listAvailableExtensions()
-{
-  uint32_t extension_count = 0;
-  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
-  std::vector<VkExtensionProperties> available_exts(extension_count);
-  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_exts.data());
-
-  std::cout << "Available extensions:\n";
-  for (const auto& extension : available_exts)
-  {
-    std::cout << '\t' << extension.extensionName << '\n';
-  }
+  return std::vector<const char*>{
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME
+  };
 }
 
 bool checkAllExtensionsSupported(VkPhysicalDevice dev,

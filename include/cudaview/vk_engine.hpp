@@ -58,7 +58,7 @@ private:
   GLFWwindow *window = nullptr;
   VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE; // Vulkan debug output handle
-  VkSurfaceKHR surface = VK_NULL_HANDLE; // Vulkan window surface
+  //VkSurfaceKHR surface = VK_NULL_HANDLE; // Vulkan window surface
   VkPhysicalDevice physical_device = VK_NULL_HANDLE; // GPU used for operations
   VkDevice device = VK_NULL_HANDLE;
   VkRenderPass render_pass = VK_NULL_HANDLE;
@@ -178,6 +178,7 @@ private:
   void createDescriptorSetLayout();
   void createTextureSampler();
   void createSyncObjects();
+  VkRenderPass createRenderPass(VkFormat color_format);
 
   // Swapchain-related functions
   void initSwapchain();
@@ -185,7 +186,6 @@ private:
   void recreateSwapchain();
 
   // Swapchain subroutines
-  void createRenderPass();
   void createGraphicsPipelines();
   void createFramebuffers();
   void createUniformBuffers();

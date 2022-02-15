@@ -20,9 +20,7 @@ SwapchainSupportDetails getSwapchainProperties(
 );
 
 // Handle additional extensions required by CUDA interop
-std::vector<const char*> getRequiredExtensions(bool enable_validation);
 std::vector<const char*> getRequiredDeviceExtensions();
-void listAvailableExtensions();
 
 bool checkAllExtensionsSupported(VkPhysicalDevice dev,
   const std::vector<const char*>& device_extensions

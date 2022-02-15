@@ -9,17 +9,19 @@
 
 struct VulkanSwapchain
 {
-  VkSurfaceKHR surface = VK_NULL_HANDLE;
-  VkFormat color_format;
+  VkSurfaceKHR surface     = VK_NULL_HANDLE;
+  VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+  VkFormat color_format    = VK_FORMAT_UNDEFINED;
   VkColorSpaceKHR color_space;
   VkExtent2D swapchain_extent;
-  VkSwapchainKHR swapchain = VK_NULL_HANDLE;
   uint32_t image_count = 0;
   std::vector<VkImage> images;
   // How to access the image(s) and which part of it (them) to access
   std::vector<VkImageView> views;
-  DeletionQueue deletors;
+  DeletionQueue main_deletors;
+  DeletionQueue aux_deletors;
 
+  ~VulkanSwapchain();
   void cleanup();
   void initSurface(VkInstance instance, GLFWwindow *window);
   void create(uint32_t& width, uint32_t& height,

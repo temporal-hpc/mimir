@@ -41,7 +41,7 @@ void VulkanEngine::initSwapchain()
   uint32_t height = h;
   std::vector<uint32_t> queue_indices{dev->queue_indices.graphics, dev->queue_indices.present};
   swap->create(width, height, queue_indices, dev->physical_device, dev->logical_device);
-  createRenderPass();
+  render_pass = createRenderPass(swap->color_format);
   createGraphicsPipelines();
   createFramebuffers();
   createUniformBuffers();
