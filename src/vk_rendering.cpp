@@ -2,8 +2,9 @@
 
 #include "internal/color.hpp"
 #include "internal/validation.hpp"
-#include "internal/vk_initializers.hpp"
 #include "internal/vk_device.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/vk_framebuffer.hpp"
 #include "internal/vk_swapchain.hpp"
 
 #include "backends/imgui_impl_glfw.h"
@@ -67,7 +68,7 @@ void VulkanEngine::renderFrame()
   validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
   auto render_pass_info = vkinit::renderPassBeginInfo(
-    render_pass, swap->swapchain_extent, framebuffers[image_idx]
+    render_pass, swap->swapchain_extent, fbs[image_idx].framebuffer
   );
   VkClearValue clear_color;
   color::setColor(clear_color.color.float32, bg_color);

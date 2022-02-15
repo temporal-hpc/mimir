@@ -15,9 +15,7 @@ struct VulkanSwapchain
   VkColorSpaceKHR color_space;
   VkExtent2D swapchain_extent;
   uint32_t image_count = 0;
-  std::vector<VkImage> images;
-  // How to access the image(s) and which part of it (them) to access
-  std::vector<VkImageView> views;
+
   DeletionQueue main_deletors;
   DeletionQueue aux_deletors;
 
@@ -27,4 +25,5 @@ struct VulkanSwapchain
   void create(uint32_t& width, uint32_t& height,
     std::vector<uint32_t> queue_indices, VkPhysicalDevice gpu, VkDevice device
   );
+  std::vector<VkImage> createImages(VkDevice device);
 };

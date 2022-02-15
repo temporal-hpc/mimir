@@ -2,9 +2,12 @@
 #include "cudaview/io.hpp"
 
 #include "internal/camera.hpp"
+#include "internal/color.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_device.hpp"
+#include "internal/vk_framebuffer.hpp"
 #include "internal/vk_initializers.hpp"
+#include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include "internal/vk_swapchain.hpp"
 
@@ -12,6 +15,7 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 
+#include <filesystem> // std::filesystem
 #include <set> // std::set
 #include <stdexcept> // std::throw
 
@@ -39,6 +43,7 @@ VulkanEngine::~VulkanEngine()
 
   ImGui_ImplVulkan_Shutdown();
   deletors.flush();
+  fbs.clear();
   swap.reset();
   dev.reset();
   if (instance != VK_NULL_HANDLE)
@@ -587,49 +592,398 @@ void VulkanEngine::updateWindow()
   cond.notify_one();
 }
 
-VkRenderPass VulkanEngine::createRenderPass(VkFormat color_format)
+
+void VulkanEngine::cleanupSwapchain()
 {
-  VkAttachmentDescription color_attachment{};
-  color_attachment.format         = color_format;
-  color_attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
-  color_attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  color_attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-  color_attachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  color_attachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-  color_attachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-  VkAttachmentReference color_attachment_ref{};
-  color_attachment_ref.attachment = 0;
-  color_attachment_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-  VkSubpassDescription subpass{};
-  subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpass.colorAttachmentCount = 1;
-  subpass.pColorAttachments    = &color_attachment_ref;
-
-  // Specify memory and execution dependencies between subpasses
-  VkSubpassDependency dependency{};
-  dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
-  dependency.dstSubpass    = 0;
-  dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  dependency.srcAccessMask = 0;
-  dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
-                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-  VkRenderPassCreateInfo pass_info{};
-  pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-  pass_info.attachmentCount = 1;
-  pass_info.pAttachments    = &color_attachment;
-  pass_info.subpassCount    = 1;
-  pass_info.pSubpasses      = &subpass;
-  pass_info.dependencyCount = 1;
-  pass_info.pDependencies   = &dependency;
-
-  VkRenderPass render_pass;
-  validation::checkVulkan(
-    vkCreateRenderPass(device, &pass_info, nullptr, &render_pass)
+  vkDestroyBuffer(device, uniform_buffer, nullptr);
+  vkFreeMemory(device, ubo_memory, nullptr);
+  vkDestroyPipeline(device, point2d_pipeline, nullptr);
+  vkDestroyPipeline(device, point3d_pipeline, nullptr);
+  vkDestroyPipeline(device, mesh2d_pipeline, nullptr);
+  vkDestroyPipeline(device, mesh3d_pipeline, nullptr);
+  vkDestroyPipeline(device, screen_pipeline, nullptr);
+  vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
+  vkDestroyRenderPass(device, render_pass, nullptr);
+  vkFreeCommandBuffers(
+    device, dev->command_pool, command_buffers.size(), command_buffers.data()
   );
-  return render_pass;
+  swap->cleanup();
+}
+
+void VulkanEngine::initSwapchain()
+{
+  int w, h;
+  glfwGetFramebufferSize(window, &w, &h);
+  uint32_t width = w;
+  uint32_t height = h;
+  std::vector<uint32_t> queue_indices{dev->queue_indices.graphics, dev->queue_indices.present};
+  swap->create(width, height, queue_indices, dev->physical_device, dev->logical_device);
+  command_buffers = dev->createCommandBuffers(swap->image_count);
+  render_pass = createRenderPass(device, swap->color_format);
+
+  auto images = swap->createImages(device);
+
+  fbs.resize(swap->image_count);
+  for (size_t i = 0; i < swap->image_count; ++i)
+  {
+    // Create a basic image view to be used as color target
+    fbs[i].addAttachment(device, images[i], swap->color_format);
+    fbs[i].create(device, render_pass, swap->swapchain_extent);
+  }
+
+  createGraphicsPipelines();
+  createUniformBuffers();
+  createDescriptorSets();
+  updateDescriptorSets();
+}
+
+void VulkanEngine::recreateSwapchain()
+{
+  vkDeviceWaitIdle(device);
+
+  cleanupSwapchain();
+  initSwapchain();
+}
+
+// Take buffer with shader bytecode and create a shader module from it
+VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
+{
+  VkShaderModuleCreateInfo create_info{};
+  create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  create_info.codeSize = code.size();
+  create_info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
+
+  VkShaderModule module;
+  validation::checkVulkan(vkCreateShaderModule(device, &create_info, nullptr, &module));
+
+  return module;
+}
+
+void VulkanEngine::createGraphicsPipelines()
+{
+  auto orig_path = std::filesystem::current_path();
+  std::filesystem::current_path(shader_path);
+
+  auto vert_code   = io::readFile("shaders/unstructured/particle_pos_2d.spv");
+  auto vert_module = createShaderModule(vert_code);
+
+  auto frag_code   = io::readFile("shaders/unstructured/particle_draw.spv");
+  auto frag_module = createShaderModule(frag_code);
+
+  auto vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  auto frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
+  auto pipeline_layout_info = vkinit::pipelineLayoutCreateInfo(layouts);
+
+  validation::checkVulkan(vkCreatePipelineLayout(
+    device, &pipeline_layout_info, nullptr, &pipeline_layout)
+  );
+
+  std::vector<VkVertexInputBindingDescription> bind_desc;
+  std::vector<VkVertexInputAttributeDescription> attr_desc;
+  getVertexDescriptions2d(bind_desc, attr_desc);
+
+  PipelineBuilder builder;
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+  builder.viewport.x        = 0.f;
+  builder.viewport.y        = 0.f;
+  builder.viewport.width    = static_cast<float>(swap->swapchain_extent.width);
+  builder.viewport.height   = static_cast<float>(swap->swapchain_extent.height);
+  builder.viewport.minDepth = 0.f;
+  builder.viewport.maxDepth = 1.f;
+  builder.scissor.offset    = {0, 0};
+  builder.scissor.extent    = swap->swapchain_extent;
+  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  builder.multisampling     = vkinit::multisamplingStateCreateInfo();
+  builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.pipeline_layout   = pipeline_layout;
+  point2d_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/particle_pos_3d.spv");
+  vert_module = createShaderModule(vert_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+
+  getVertexDescriptions3d(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  point3d_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+  vkDestroyShaderModule(device, frag_module, nullptr);
+
+  vert_code   = io::readFile("shaders/structured/screen_triangle.spv");
+  vert_module = createShaderModule(vert_code);
+
+  frag_code   = io::readFile("shaders/structured/texture_greyscale.spv");
+  frag_module = createShaderModule(frag_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo();
+  builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  screen_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+  vkDestroyShaderModule(device, frag_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
+  vert_module = createShaderModule(vert_code);
+
+  frag_code   = io::readFile("shaders/unstructured/wireframe_fragment.spv");
+  frag_module = createShaderModule(frag_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  getVertexDescriptions2d(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
+  mesh2d_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_3d.spv");
+  vert_module = createShaderModule(vert_code);
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+
+  getVertexDescriptions3d(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  mesh3d_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+  vkDestroyShaderModule(device, frag_module, nullptr);
+
+  // Restore original working directory
+  std::filesystem::current_path(orig_path);
+}
+
+void VulkanEngine::getVertexDescriptions2d(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(float2);
+  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  attr_desc.resize(1);
+  attr_desc[0].binding = 0;
+  attr_desc[0].location = 0;
+  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc[0].offset = 0;
+}
+
+void VulkanEngine::getVertexDescriptions3d(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(float3);
+  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  attr_desc.resize(1);
+  attr_desc[0].binding = 0;
+  attr_desc[0].location = 0;
+  attr_desc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attr_desc[0].offset = 0;
+}
+
+size_t getAlignedUniformSize(size_t original_size, size_t min_alignment)
+{
+	// Calculate required alignment based on minimum device offset alignment
+	size_t aligned_size = original_size;
+	if (min_alignment > 0) {
+		aligned_size = (aligned_size + min_alignment - 1) & ~(min_alignment - 1);
+	}
+	return aligned_size;
+}
+
+void VulkanEngine::createUniformBuffers()
+{
+  auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
+  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+
+  auto img_count = swap->image_count;
+  VkDeviceSize buffer_size = img_count * (size_mvp + size_colors + size_scene);
+  dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    uniform_buffer, ubo_memory
+  );
+}
+
+void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
+{
+  auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
+  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  auto size_ubo = size_mvp + size_colors + size_scene;
+  auto offset = image_idx * size_ubo;
+
+  ModelViewProjection ubo{};
+  ubo.model = glm::mat4(1.f);
+  ubo.view  = camera->matrices.view; // glm::mat4(1.f);
+  ubo.proj  = camera->matrices.perspective; //glm::mat4(1.f);
+
+  ColorParams colors{};
+  colors.point_color = color::getColor(point_color);
+  colors.edge_color  = color::getColor(edge_color);
+
+  SceneParams params{};
+  params.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
+
+  char *data = nullptr;
+  vkMapMemory(device, ubo_memory, offset, size_ubo, 0, (void**)&data);
+  std::memcpy(data, &ubo, sizeof(ubo));
+  std::memcpy(data + size_mvp, &colors, sizeof(colors));
+  std::memcpy(data + size_mvp + size_colors, &params, sizeof(params));
+  vkUnmapMemory(device, ubo_memory);
+}
+
+void VulkanEngine::createDescriptorSets()
+{
+  auto img_count = swap->image_count;
+  descriptor_sets.resize(img_count);
+
+  std::vector<VkDescriptorSetLayout> layouts(img_count, descriptor_layout);
+  VkDescriptorSetAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  alloc_info.descriptorPool     = descriptor_pool;
+  alloc_info.descriptorSetCount = static_cast<uint32_t>(img_count);
+  alloc_info.pSetLayouts        = layouts.data();
+
+  validation::checkVulkan(
+    vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data())
+  );
+}
+
+void VulkanEngine::createDescriptorSetLayout()
+{
+  auto ubo_layout = vkinit::descriptorLayoutBinding(0, // binding
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+  );
+  auto extent_layout = vkinit::descriptorLayoutBinding(1, // binding
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+  );
+  auto point_color_layout = vkinit::descriptorLayoutBinding(2, // binding
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT
+  );
+  auto sampler_layout = vkinit::descriptorLayoutBinding(3, // binding
+    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
+  );
+
+  std::array bindings{ubo_layout, extent_layout, point_color_layout, sampler_layout};
+
+  VkDescriptorSetLayoutCreateInfo layout_info{};
+  layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  layout_info.bindingCount = bindings.size();
+  layout_info.pBindings    = bindings.data();
+
+  validation::checkVulkan(vkCreateDescriptorSetLayout(
+    device, &layout_info, nullptr, &descriptor_layout)
+  );
+	deletors.pushFunction([=](){
+		vkDestroyDescriptorSetLayout(device, descriptor_layout, nullptr);
+	});
+}
+
+void VulkanEngine::updateDescriptorSets()
+{
+  auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
+  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  auto size_ubo = size_mvp + size_colors + size_scene;
+
+  for (size_t i = 0; i < descriptor_sets.size(); ++i)
+  {
+    // Write MVP matrix, scene info and texture samplers
+    std::vector<VkWriteDescriptorSet> desc_writes;
+    desc_writes.reserve(3 + structured_buffers.size());
+
+    VkDescriptorBufferInfo mvp_info{};
+    mvp_info.buffer = uniform_buffer;
+    mvp_info.offset = i * size_ubo;
+    mvp_info.range  = sizeof(ModelViewProjection);
+
+    auto write_mvp = vkinit::writeDescriptorBuffer(
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &mvp_info, 0
+    );
+    desc_writes.push_back(write_mvp);
+
+    VkDescriptorBufferInfo pcolor_info{};
+    pcolor_info.buffer = uniform_buffer;
+    pcolor_info.offset = i * size_ubo + size_mvp;
+    pcolor_info.range  = sizeof(ColorParams);
+
+    auto write_pcolor = vkinit::writeDescriptorBuffer(
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &pcolor_info, 2
+    );
+    desc_writes.push_back(write_pcolor);
+
+    VkDescriptorBufferInfo extent_info{};
+    extent_info.buffer = uniform_buffer;
+    extent_info.offset = i * size_ubo + size_mvp + size_colors;
+    extent_info.range  = sizeof(SceneParams);
+
+    auto write_scene = vkinit::writeDescriptorBuffer(
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &extent_info, 1
+    );
+    desc_writes.push_back(write_scene);
+
+    for (const auto& buffer : structured_buffers)
+    {
+      VkDescriptorImageInfo img_info{};
+      img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      img_info.imageView   = buffer.vk_view;
+      img_info.sampler     = texture_sampler;
+
+      auto write_tex = vkinit::writeDescriptorImage(
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptor_sets[i], &img_info, 3
+      );
+      desc_writes.push_back(write_tex);
+    }
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
+      desc_writes.data(), 0, nullptr
+    );
+  }
 }

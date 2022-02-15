@@ -126,22 +126,12 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
   });
 
   vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
-  images.resize(image_count);
-  vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data());
+}
 
-  // Set up image views, so they can be used as color targets later on
-  views.resize(image_count);
-  for (uint32_t i = 0; i < image_count; ++i)
-  {
-    // Create a basic image view for every image in the swap chain
-    auto info = vkinit::imageViewCreateInfo(
-      color_format, images[i], VK_IMAGE_ASPECT_COLOR_BIT
-    );
-    validation::checkVulkan(
-      vkCreateImageView(device, &info, nullptr, &views[i])
-    );
-    aux_deletors.pushFunction([=](){
-      vkDestroyImageView(device, views[i], nullptr);
-    });
-  }
+std::vector<VkImage> VulkanSwapchain::createImages(VkDevice device)
+{
+  vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
+  std::vector<VkImage> images(image_count);
+  vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data());
+  return images;
 }

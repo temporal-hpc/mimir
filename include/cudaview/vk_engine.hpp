@@ -26,6 +26,7 @@ namespace
 struct Camera;
 struct VulkanDevice;
 struct VulkanSwapchain;
+struct VulkanFramebuffer;
 
 class VulkanEngine
 {
@@ -55,6 +56,7 @@ public:
 private:
   std::unique_ptr<VulkanDevice> dev;
   std::unique_ptr<VulkanSwapchain> swap;
+  std::vector<VulkanFramebuffer> fbs;
   GLFWwindow *window = nullptr;
   VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE; // Vulkan debug output handle
@@ -71,7 +73,7 @@ private:
   VkPipeline mesh3d_pipeline = VK_NULL_HANDLE;
   VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
   VkSampler texture_sampler = VK_NULL_HANDLE;
-  std::vector<VkFramebuffer> framebuffers;
+  //std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
   VkBuffer uniform_buffer;
@@ -178,7 +180,6 @@ private:
   void createDescriptorSetLayout();
   void createTextureSampler();
   void createSyncObjects();
-  VkRenderPass createRenderPass(VkFormat color_format);
 
   // Swapchain-related functions
   void initSwapchain();
@@ -187,7 +188,6 @@ private:
 
   // Swapchain subroutines
   void createGraphicsPipelines();
-  void createFramebuffers();
   void createUniformBuffers();
   void createDescriptorPool();
   void createDescriptorSets();
