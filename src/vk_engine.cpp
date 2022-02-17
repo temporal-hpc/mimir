@@ -357,7 +357,7 @@ void VulkanEngine::initImgui()
   init_info.Instance       = instance;
   init_info.PhysicalDevice = physical_device;
   init_info.Device         = device;
-  init_info.Queue          = dev->queues.graphics;
+  init_info.Queue          = dev->graphics.queue;
   init_info.DescriptorPool = descriptor_pool;
   init_info.MinImageCount  = 3; // TODO: Check if this is true
   init_info.ImageCount     = 3;
@@ -618,7 +618,7 @@ void VulkanEngine::initSwapchain()
   glfwGetFramebufferSize(window, &w, &h);
   uint32_t width = w;
   uint32_t height = h;
-  std::vector<uint32_t> queue_indices{dev->queue_indices.graphics, dev->queue_indices.present};
+  std::vector queue_indices{dev->graphics.family_index, dev->present.family_index};
   swap->create(width, height, queue_indices, dev->physical_device, dev->logical_device);
   command_buffers = dev->createCommandBuffers(swap->image_count);
   render_pass = createRenderPass(device, swap->color_format);
@@ -1094,7 +1094,7 @@ void VulkanEngine::renderFrame()
 
   // Execute command buffer using image as attachment in framebuffer
   validation::checkVulkan(vkQueueSubmit(
-    dev->queues.graphics, 1, &submit_info, frame.render_fence) //VK_NULL_HANDLE
+    dev->graphics.queue, 1, &submit_info, frame.render_fence) //VK_NULL_HANDLE
   );
 
   // Return image result back to swapchain for presentation on screen
@@ -1106,7 +1106,7 @@ void VulkanEngine::renderFrame()
   present_info.pWaitSemaphores    = &frame.render_semaphore;
   present_info.pImageIndices      = &image_idx;
 
-  result = vkQueuePresentKHR(dev->queues.present, &present_info);
+  result = vkQueuePresentKHR(dev->present.queue, &present_info);
   // Resize should be done after presentation to ensure semaphore consistency
   if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
     || should_resize)

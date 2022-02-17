@@ -21,11 +21,11 @@ VulkanDevice::~VulkanDevice()
 void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
 {
   props::findQueueFamilies(
-    physical_device, surface, queue_indices.graphics, queue_indices.present
+    physical_device, surface, graphics.family_index, present.family_index
   );
 
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-  std::set unique_queue_families{ queue_indices.graphics, queue_indices.present };
+  std::set unique_queue_families{ graphics.family_index, present.family_index };
   auto queue_priority = 1.f;
 
   for (auto queue_family : unique_queue_families)
@@ -75,12 +75,12 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     vkDestroyDevice(logical_device, nullptr);
   });
 
-  vkGetDeviceQueue(logical_device, queue_indices.graphics, 0, &queues.graphics);
-  vkGetDeviceQueue(logical_device, queue_indices.present, 0, &queues.present);
+  vkGetDeviceQueue(logical_device, graphics.family_index, 0, &graphics.queue);
+  vkGetDeviceQueue(logical_device, present.family_index, 0, &present.queue);
 
   // TODO: Get device UUID for cuda
 
-  command_pool = createCommandPool(queue_indices.graphics,
+  command_pool = createCommandPool(graphics.family_index,
     VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
   );
 }
@@ -112,7 +112,7 @@ std::vector<VkCommandBuffer> VulkanDevice::createCommandBuffers(uint32_t buffer_
 
 void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
 {
-  auto queue = queues.graphics;
+  auto queue = graphics.queue;
   VkCommandBuffer cmd;
   auto alloc_info = vkinit::commandBufferAllocateInfo(command_pool);
   validation::checkVulkan(vkAllocateCommandBuffers(logical_device, &alloc_info, &cmd));

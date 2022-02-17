@@ -8,6 +8,12 @@
 #include "vk_buffer.hpp"
 #include "vk_texture.hpp"
 
+struct VulkanQueue
+{
+  uint32_t family_index = ~0u;
+  VkQueue queue = VK_NULL_HANDLE;
+};
+
 struct VulkanDevice
 {
   // GPU used for Vulkan operations
@@ -19,17 +25,8 @@ struct VulkanDevice
   VkDevice logical_device = VK_NULL_HANDLE;
   VkCommandPool command_pool = VK_NULL_HANDLE;
 
-  struct
-  {
-    uint32_t graphics = ~0u;
-    uint32_t present = ~0u;
-  } queue_indices;
-  struct
-  {
-    VkQueue graphics = VK_NULL_HANDLE;
-    VkQueue present = VK_NULL_HANDLE;
-  } queues;
-
+  VulkanQueue graphics;
+  VulkanQueue present;
   DeletionQueue deletors;
 
   explicit VulkanDevice(VkPhysicalDevice gpu);
