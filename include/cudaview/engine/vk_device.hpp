@@ -6,6 +6,7 @@
 
 #include "cudaview/deletion_queue.hpp"
 #include "vk_buffer.hpp"
+#include "vk_texture.hpp"
 
 struct VulkanDevice
 {
@@ -46,9 +47,12 @@ struct VulkanDevice
   VulkanBuffer createExternalBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkExternalMemoryHandleTypeFlagsKHR handle_type
   );
-  uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties);
+  VulkanTexture createExternalImage(uint32_t width, uint32_t height, VkFormat format,
+    VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props
+  );
 
 private:
+  uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags mem_props);
   VulkanBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags props, const void *extmem_info, const void *export_info
   );

@@ -109,10 +109,6 @@ private:
   FrameData& getCurrentFrame();
 
   void createExternalSemaphore(VkSemaphore& semaphore);
-  void createExternalImage(uint32_t width, uint32_t height, VkFormat format,
-    VkImageTiling tiling, VkImageUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& image_memory
-  );
   void transitionImageLayout(VkImage image, VkFormat format,
     VkImageLayout old_layout, VkImageLayout new_layout
   );

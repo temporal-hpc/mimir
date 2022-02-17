@@ -86,14 +86,11 @@ void VulkanEngine::displayAsync()
     while(!glfwWindowShouldClose(window))
     {
       glfwPollEvents(); // TODO: Move to main thread
-
       drawGui();
 
       std::unique_lock<std::mutex> lock(mutex);
       cond.wait(lock, [&]{ return device_working == false; });
-
       renderFrame();
-
       lock.unlock();
     }
     vkDeviceWaitIdle(device);
@@ -107,9 +104,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
   while(!glfwWindowShouldClose(window))
   {
     glfwPollEvents();
-
     drawGui();
-
     renderFrame();
 
     cudaSemaphoreWait();
@@ -168,12 +163,13 @@ void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
   auto mapped = newStructuredMemory(width, height, elem_size, format);
 
   // Init structured memory
-  createExternalImage(width, height, mapped.vk_format,
+  auto tex = dev->createExternalImage(width, height, mapped.vk_format,
     VK_IMAGE_TILING_LINEAR,
     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    mapped.vk_image, mapped.vk_memory
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
   );
+  mapped.vk_image = tex.image;
+  mapped.vk_memory = tex.memory;
   importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
     mapped.vk_memory, mapped.element_size * width * height
   );
@@ -1171,4 +1167,91 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdDrawIndexed(cmd, 3 * buffer.element_count, 1, 0, 0, 0);
     }
   }
+}
+
+VkImageView VulkanEngine::createImageView(VkImage image, VkFormat format)
+{
+  auto info = vkinit::imageViewCreateInfo(format, image, VK_IMAGE_ASPECT_COLOR_BIT);
+  VkImageView image_view;
+  validation::checkVulkan(vkCreateImageView(device, &info, nullptr, &image_view));
+  return image_view;
+}
+
+void VulkanEngine::createTextureSampler()
+{
+  auto max_anisotropy = dev->properties.limits.maxSamplerAnisotropy;
+  auto sampler_info = vkinit::samplerCreateInfo(VK_FILTER_LINEAR);
+  sampler_info.anisotropyEnable        = VK_TRUE;
+  sampler_info.maxAnisotropy           = max_anisotropy;
+  sampler_info.borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  sampler_info.unnormalizedCoordinates = VK_FALSE;
+  sampler_info.compareEnable           = VK_FALSE;
+  sampler_info.compareOp               = VK_COMPARE_OP_ALWAYS;
+  sampler_info.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  sampler_info.mipLodBias              = 0.f;
+  sampler_info.minLod                  = 0.f;
+  sampler_info.maxLod                  = 0.f;
+
+  validation::checkVulkan(
+    vkCreateSampler(device, &sampler_info, nullptr, &texture_sampler)
+  );
+  deletors.pushFunction([=]{
+    vkDestroySampler(device, texture_sampler, nullptr);
+  });
+}
+
+void VulkanEngine::transitionImageLayout(VkImage image, VkFormat format,
+  VkImageLayout old_layout, VkImageLayout new_layout)
+{
+  VkImageMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.oldLayout = old_layout;
+  barrier.newLayout = new_layout;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = image;
+  barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.baseMipLevel   = 0;
+  barrier.subresourceRange.levelCount     = 1;
+  barrier.subresourceRange.baseArrayLayer = 0;
+  barrier.subresourceRange.layerCount     = 1;
+  barrier.srcAccessMask = 0;
+  barrier.dstAccessMask = 0;
+
+  VkPipelineStageFlags src_stage, dst_stage;
+  if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED)
+  {
+    barrier.srcAccessMask = 0;
+    src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+  }
+  else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+  {
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  }
+  else
+  {
+    throw std::invalid_argument("unsupported layout transition");
+  }
+
+  if (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+  {
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  }
+  else if (new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+  {
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  }
+  else
+  {
+    throw std::invalid_argument("unsupported layout transition");
+  }
+
+  auto cmd_buffer = dev->beginSingleTimeCommands();
+  vkCmdPipelineBarrier(cmd_buffer, src_stage, dst_stage,
+    0, 0, nullptr, 0, nullptr, 1, &barrier
+  );
+  dev->endSingleTimeCommands(cmd_buffer, dev->queues.graphics);
 }

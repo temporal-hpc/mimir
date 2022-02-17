@@ -6,13 +6,6 @@
 VulkanFramebuffer::~VulkanFramebuffer()
 {
   deletors.flush();
-  /*for (auto attachment : attachments)
-  {
-    vkDestroyImageView(device, attachment.view, nullptr);
-  }
-  vkDestroySampler(device, sampler, nullptr);
-  vkDestroyRenderPass(device, render_pass, nullptr);
-  vkDestroyFramebuffer(device, framebuffer, nullptr);*/
 }
 
 void VulkanFramebuffer::createSampler(VkDevice device)

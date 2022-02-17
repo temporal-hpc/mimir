@@ -157,8 +157,67 @@ VulkanBuffer VulkanDevice::createExternalBuffer(VkDeviceSize size,
   return createBuffer(size, usage, properties, &extmem_info, &export_info);
 }
 
+VulkanTexture VulkanDevice::createExternalImage(uint32_t width, uint32_t height,
+  VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+  VkMemoryPropertyFlags mem_props)
+{
+  VkExternalMemoryImageCreateInfo ext_info{};
+  ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+  ext_info.pNext = nullptr;
+  ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  auto image_info = vkinit::imageCreateInfo(format, usage, width, height);
+  image_info.pNext         = &ext_info;
+  image_info.format        = format;
+  image_info.tiling        = tiling;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+  image_info.samples       = VK_SAMPLE_COUNT_1_BIT;
+  image_info.flags         = 0;
+
+  VulkanTexture new_tex;
+  validation::checkVulkan(
+    vkCreateImage(logical_device, &image_info, nullptr, &new_tex.image)
+  );
+
+  VkMemoryRequirements mem_req;
+  vkGetImageMemoryRequirements(logical_device, new_tex.image, &mem_req);
+
+  VkExportMemoryAllocateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+  export_info.pNext = nullptr;
+  export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  VkMemoryAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  alloc_info.pNext = &export_info;
+  alloc_info.allocationSize = mem_req.size;
+  alloc_info.memoryTypeIndex = findMemoryType(mem_req.memoryTypeBits, mem_props);
+
+  validation::checkVulkan(
+    vkAllocateMemory(logical_device, &alloc_info, nullptr, &new_tex.memory)
+  );
+  vkBindImageMemory(logical_device, new_tex.image, new_tex.memory, 0);
+
+  return new_tex;
+}
+
+uint32_t VulkanDevice::findMemoryType(
+  uint32_t type_filter, VkMemoryPropertyFlags properties)
+{
+  for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
+  {
+    auto flags = memory_properties.memoryTypes[i].propertyFlags;
+    if ((type_filter & (1 << i)) && (flags & properties) == properties)
+    {
+      return i;
+    }
+  }
+  return ~0;
+}
+
 VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-  VkMemoryPropertyFlags props, const void *extmem_info, const void *export_info)
+  VkMemoryPropertyFlags mem_props, const void *extmem_info, const void *export_info)
 {
   VkBufferCreateInfo buffer_info{};
   buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -179,7 +238,7 @@ VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags us
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.pNext = export_info;
   alloc_info.allocationSize = mem_reqs.size;
-  auto type = findMemoryType(mem_reqs.memoryTypeBits, props);
+  auto type = findMemoryType(mem_reqs.memoryTypeBits, mem_props);
   alloc_info.memoryTypeIndex = type;
 
   validation::checkVulkan(vkAllocateMemory(
@@ -187,18 +246,4 @@ VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags us
   );
   vkBindBufferMemory(logical_device, new_buffer.buffer, new_buffer.memory, 0);
   return new_buffer;
-}
-
-uint32_t VulkanDevice::findMemoryType(
-  uint32_t type_filter, VkMemoryPropertyFlags properties)
-{
-  for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
-  {
-    auto flags = memory_properties.memoryTypes[i].propertyFlags;
-    if ((type_filter & (1 << i)) && (flags & properties) == properties)
-    {
-      return i;
-    }
-  }
-  return ~0;
 }
