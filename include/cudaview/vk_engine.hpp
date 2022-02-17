@@ -15,7 +15,7 @@
 #include "color/color.hpp"
 
 #include "cudaview/engine/vk_buffer.hpp"
-#include "cudaview/vk_cuda_map.hpp"
+#include "cudaview/engine/vk_cudamem.hpp"
 #include "cudaview/frame.hpp"
 #include "cudaview/deletion_queue.hpp"
 
@@ -25,7 +25,7 @@ namespace
 }
 
 struct Camera;
-struct VulkanDevice;
+struct VulkanCudaDevice;
 struct VulkanSwapchain;
 struct VulkanFramebuffer;
 
@@ -55,13 +55,12 @@ public:
   void setEdgeColor(color::rgba<float> color);
 
 private:
-  std::unique_ptr<VulkanDevice> dev;
+  std::unique_ptr<VulkanCudaDevice> dev;
   std::unique_ptr<VulkanSwapchain> swap;
   std::vector<VulkanFramebuffer> fbs;
   GLFWwindow *window = nullptr;
   VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE; // Vulkan debug output handle
-  //VkSurfaceKHR surface = VK_NULL_HANDLE; // Vulkan window surface
   VkPhysicalDevice physical_device = VK_NULL_HANDLE; // GPU used for operations
   VkDevice device = VK_NULL_HANDLE;
   VkRenderPass render_pass = VK_NULL_HANDLE;
@@ -109,15 +108,6 @@ private:
   FrameData& getCurrentFrame();
 
   void createExternalSemaphore(VkSemaphore& semaphore);
-  void transitionImageLayout(VkImage image, VkFormat format,
-    VkImageLayout old_layout, VkImageLayout new_layout
-  );
-  void *getMemoryHandle(VkDeviceMemory memory,
-    VkExternalMemoryHandleTypeFlagBits handle_type
-  );
-  void *getSemaphoreHandle(VkSemaphore semaphore,
-    VkExternalSemaphoreHandleTypeFlagBits handle_type
-  );
 
   void getVertexDescriptions2d(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
@@ -133,14 +123,6 @@ private:
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
   VkShaderModule createShaderModule(const std::vector<char>& code);
-
-  // Interop import functions
-  void importCudaExternalMemory(void **cuda_ptr,
-    cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size
-  );
-  void importCudaExternalSemaphore(
-    cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem
-  );
 
   color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};
   color::rgba<float> point_color{0.f, 0.f, 1.f, 1.f};

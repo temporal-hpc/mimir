@@ -4,7 +4,7 @@
 #include "internal/camera.hpp"
 #include "internal/color.hpp"
 #include "internal/validation.hpp"
-#include "cudaview/engine/vk_device.hpp"
+#include "cudaview/engine/vk_cudadevice.hpp"
 #include "cudaview/engine/vk_framebuffer.hpp"
 #include "cudaview/engine/vk_initializers.hpp"
 #include "cudaview/engine/vk_pipeline.hpp"
@@ -120,38 +120,10 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
   vkDeviceWaitIdle(device);
 }
 
-void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
-  size_t elem_count, size_t elem_size, UnstructuredDataType type,
-  DataDomain domain)
+void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem, size_t elem_count,
+  size_t elem_size, UnstructuredDataType type, DataDomain domain)
 {
-  auto mapped = newUnstructuredMemory(elem_count, elem_size, type, domain);
-
-  VkBufferUsageFlagBits usage;
-  if (mapped.data_type == UnstructuredDataType::Points)
-  {
-    usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-  }
-  else if (mapped.data_type == UnstructuredDataType::Edges)
-  {
-    usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-  }
-  // Init unstructured memory
-  auto buffer = dev->createExternalBuffer(mapped.element_size * mapped.element_count,
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-  );
-  mapped.vk_buffer = buffer.buffer;
-  mapped.vk_memory = buffer.memory;
-  importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
-    mapped.vk_memory, mapped.element_size * mapped.element_count
-  );
-  deletors.pushFunction([=]{
-    validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
-    vkDestroyBuffer(device, mapped.vk_buffer, nullptr);
-    vkFreeMemory(device, mapped.vk_memory, nullptr);
-  });
-
+  auto mapped = dev->createUnstructuredBuffer(ptr_devmem, elem_count, elem_size, type, domain);
   unstructured_buffers.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
@@ -160,38 +132,7 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
 void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
   size_t width, size_t height, size_t elem_size, DataFormat format)
 {
-  auto mapped = newStructuredMemory(width, height, elem_size, format);
-
-  // Init structured memory
-  auto tex = dev->createExternalImage(width, height, mapped.vk_format,
-    VK_IMAGE_TILING_LINEAR,
-    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-  );
-  mapped.vk_image = tex.image;
-  mapped.vk_memory = tex.memory;
-  importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
-    mapped.vk_memory, mapped.element_size * width * height
-  );
-
-  transitionImageLayout(mapped.vk_image, mapped.vk_format,
-    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-  );
-  auto info = vkinit::imageViewCreateInfo(mapped.vk_format, mapped.vk_image,
-    VK_IMAGE_ASPECT_COLOR_BIT
-  );
-  validation::checkVulkan(
-    vkCreateImageView(device, &info, nullptr, &mapped.vk_view)
-  );
-
-  deletors.pushFunction([=]{
-    validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
-    vkDestroyBuffer(device, mapped.vk_buffer, nullptr);
-    vkFreeMemory(device, mapped.vk_memory, nullptr);
-    vkDestroyImageView(device, mapped.vk_view, nullptr);
-    vkDestroyImage(device, mapped.vk_image, nullptr);
-  });
-
+  auto mapped = dev->createStructuredBuffer(ptr_devmem, width, height, elem_size, format);
   structured_buffers.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
@@ -203,7 +144,7 @@ void VulkanEngine::initVulkan()
   swap = std::make_unique<VulkanSwapchain>();
   swap->initSurface(instance, window);
   pickPhysicalDevice();
-  dev = std::make_unique<VulkanDevice>(physical_device);
+  dev = std::make_unique<VulkanCudaDevice>(physical_device);
   dev->initLogicalDevice(swap->surface);
   device = dev->logical_device;
   createDescriptorSetLayout();
@@ -370,53 +311,6 @@ void VulkanEngine::initImgui()
   ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
-void VulkanEngine::importCudaExternalMemory(void **cuda_ptr,
-  cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size)
-{
-  cudaExternalMemoryHandleDesc extmem_desc{};
-  extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
-  extmem_desc.size = size;
-  extmem_desc.handle.fd = (int)(uintptr_t)getMemoryHandle(
-    vk_mem, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-  );
-
-  validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
-
-  cudaExternalMemoryBufferDesc buffer_desc{};
-  buffer_desc.offset = 0;
-  buffer_desc.size = size;
-  buffer_desc.flags = 0;
-
-  validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-    cuda_ptr, cuda_mem, &buffer_desc)
-  );
-}
-
-void *VulkanEngine::getMemoryHandle(VkDeviceMemory memory,
-  VkExternalMemoryHandleTypeFlagBits handle_type)
-{
-  int fd = -1;
-
-  VkMemoryGetFdInfoKHR fd_info{};
-  fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
-  fd_info.pNext = nullptr;
-  fd_info.memory = memory;
-  fd_info.handleType = handle_type;
-
-  auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(
-    device, "vkGetMemoryFdKHR"
-  );
-  if (!fpGetMemoryFdKHR)
-  {
-    throw std::runtime_error("Failed to retrieve function!");
-  }
-  if (fpGetMemoryFdKHR(device, &fd_info, &fd) != VK_SUCCESS)
-  {
-    throw std::runtime_error("Failed to retrieve handle for buffer!");
-  }
-  return (void*)(uintptr_t)fd;
-}
-
 void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
   std::vector<VkPipelineStageFlags>& wait_stages) const
 {
@@ -481,7 +375,7 @@ void VulkanEngine::createSyncObjects()
 
   createExternalSemaphore(vk_wait_semaphore);
   // Vulkan signal will be CUDA wait
-  importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
+  dev->importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
   deletors.pushFunction([=]{
     vkDestroySemaphore(device, vk_wait_semaphore, nullptr);
     validation::checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
@@ -489,7 +383,7 @@ void VulkanEngine::createSyncObjects()
 
   createExternalSemaphore(vk_signal_semaphore);
   // CUDA signal will be vulkan wait
-  importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
+  dev->importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
   deletors.pushFunction([=]{
     vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
     validation::checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
@@ -515,42 +409,6 @@ void VulkanEngine::createExternalSemaphore(VkSemaphore& semaphore)
   validation::checkVulkan(
     vkCreateSemaphore(device, &semaphore_info, nullptr, &semaphore)
   );
-}
-
-void *VulkanEngine::getSemaphoreHandle(VkSemaphore semaphore,
-  VkExternalSemaphoreHandleTypeFlagBits handle_type)
-{
-  int fd;
-  VkSemaphoreGetFdInfoKHR fd_info{};
-  fd_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
-  fd_info.pNext = nullptr;
-  fd_info.semaphore  = semaphore;
-  fd_info.handleType = handle_type;
-
-  PFN_vkGetSemaphoreFdKHR fpGetSemaphore;
-  fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
-    device, "vkGetSemaphoreFdKHR"
-  );
-  if (!fpGetSemaphore)
-  {
-    throw std::runtime_error("Failed to retrieve semaphore function handle!");
-  }
-  validation::checkVulkan(fpGetSemaphore(device, &fd_info, &fd));
-
-  return (void*)(uintptr_t)fd;
-}
-
-void VulkanEngine::importCudaExternalSemaphore(
-  cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem)
-{
-  cudaExternalSemaphoreHandleDesc sem_desc{};
-  //sem_desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-  sem_desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
-  sem_desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
-    vk_sem, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
-  );
-  sem_desc.flags = 0;
-  validation::checkCuda(cudaImportExternalSemaphore(&cuda_sem, &sem_desc));
 }
 
 void VulkanEngine::cudaSemaphoreWait()
@@ -593,7 +451,6 @@ void VulkanEngine::updateWindow()
   ul.unlock();
   cond.notify_one();
 }
-
 
 void VulkanEngine::cleanupSwapchain()
 {
@@ -1194,62 +1051,5 @@ void VulkanEngine::createTextureSampler()
   );
   deletors.pushFunction([=]{
     vkDestroySampler(device, texture_sampler, nullptr);
-  });
-}
-
-void VulkanEngine::transitionImageLayout(VkImage image, VkFormat format,
-  VkImageLayout old_layout, VkImageLayout new_layout)
-{
-  VkImageMemoryBarrier barrier{};
-  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-  barrier.oldLayout = old_layout;
-  barrier.newLayout = new_layout;
-  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.image = image;
-  barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-  barrier.subresourceRange.baseMipLevel   = 0;
-  barrier.subresourceRange.levelCount     = 1;
-  barrier.subresourceRange.baseArrayLayer = 0;
-  barrier.subresourceRange.layerCount     = 1;
-  barrier.srcAccessMask = 0;
-  barrier.dstAccessMask = 0;
-
-  VkPipelineStageFlags src_stage, dst_stage;
-  if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED)
-  {
-    barrier.srcAccessMask = 0;
-    src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-  }
-  else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-  {
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-  }
-  else
-  {
-    throw std::invalid_argument("unsupported layout transition");
-  }
-
-  if (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-  {
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-  }
-  else if (new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-  {
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-  }
-  else
-  {
-    throw std::invalid_argument("unsupported layout transition");
-  }
-
-  dev->immediateSubmit([=](VkCommandBuffer cmd)
-  {
-    vkCmdPipelineBarrier(
-      cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier
-    );
   });
 }

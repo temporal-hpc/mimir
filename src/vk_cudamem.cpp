@@ -1,4 +1,4 @@
-#include "cudaview/vk_cuda_map.hpp"
+#include "cudaview/engine/vk_cudamem.hpp"
 
 MappedUnstructuredMemory newUnstructuredMemory(size_t elem_count,
   size_t elem_size, UnstructuredDataType type, DataDomain domain)
