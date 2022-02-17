@@ -110,8 +110,9 @@ std::vector<VkCommandBuffer> VulkanDevice::createCommandBuffers(uint32_t buffer_
   return buffers;
 }
 
-VkCommandBuffer VulkanDevice::beginSingleTimeCommands()
+void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
 {
+  auto queue = queues.graphics;
   VkCommandBuffer cmd;
   auto alloc_info = vkinit::commandBufferAllocateInfo(command_pool);
   validation::checkVulkan(vkAllocateCommandBuffers(logical_device, &alloc_info, &cmd));
@@ -121,12 +122,7 @@ VkCommandBuffer VulkanDevice::beginSingleTimeCommands()
   auto begin_info = vkinit::commandBufferBeginInfo(flags);
 
   validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
-  return cmd;
-}
-
-void VulkanDevice::endSingleTimeCommands(VkCommandBuffer cmd, VkQueue queue)
-{
-  // Finish recording the command buffer
+  function(cmd);
   validation::checkVulkan(vkEndCommandBuffer(cmd));
 
   auto submit_info = vkinit::submitInfo(&cmd);

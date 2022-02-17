@@ -112,7 +112,6 @@ private:
   void transitionImageLayout(VkImage image, VkFormat format,
     VkImageLayout old_layout, VkImageLayout new_layout
   );
-  VkImageView createImageView(VkImage image, VkFormat format);
   void *getMemoryHandle(VkDeviceMemory memory,
     VkExternalMemoryHandleTypeFlagBits handle_type
   );

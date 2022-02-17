@@ -38,8 +38,7 @@ struct VulkanDevice
   void initLogicalDevice(VkSurfaceKHR surface);
   VkCommandPool createCommandPool(uint32_t queue_idx, VkCommandPoolCreateFlags flags);
   std::vector<VkCommandBuffer> createCommandBuffers(uint32_t buffer_count);
-  VkCommandBuffer beginSingleTimeCommands();
-  void endSingleTimeCommands(VkCommandBuffer command_buffer, VkQueue queue);
+  void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
   VulkanBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties

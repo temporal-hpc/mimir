@@ -177,7 +177,12 @@ void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
   transitionImageLayout(mapped.vk_image, mapped.vk_format,
     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
-  mapped.vk_view = createImageView(mapped.vk_image, mapped.vk_format);
+  auto info = vkinit::imageViewCreateInfo(mapped.vk_format, mapped.vk_image,
+    VK_IMAGE_ASPECT_COLOR_BIT
+  );
+  validation::checkVulkan(
+    vkCreateImageView(device, &info, nullptr, &mapped.vk_view)
+  );
 
   deletors.pushFunction([=]{
     validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
@@ -359,9 +364,9 @@ void VulkanEngine::initImgui()
   init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
   ImGui_ImplVulkan_Init(&init_info, render_pass);
 
-  auto cmd = dev->beginSingleTimeCommands();
-  ImGui_ImplVulkan_CreateFontsTexture(cmd);
-  dev->endSingleTimeCommands(cmd, dev->queues.graphics);
+  dev->immediateSubmit([=](VkCommandBuffer cmd) {
+    ImGui_ImplVulkan_CreateFontsTexture(cmd);
+  });
   ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
@@ -1169,14 +1174,6 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   }
 }
 
-VkImageView VulkanEngine::createImageView(VkImage image, VkFormat format)
-{
-  auto info = vkinit::imageViewCreateInfo(format, image, VK_IMAGE_ASPECT_COLOR_BIT);
-  VkImageView image_view;
-  validation::checkVulkan(vkCreateImageView(device, &info, nullptr, &image_view));
-  return image_view;
-}
-
 void VulkanEngine::createTextureSampler()
 {
   auto max_anisotropy = dev->properties.limits.maxSamplerAnisotropy;
@@ -1249,9 +1246,10 @@ void VulkanEngine::transitionImageLayout(VkImage image, VkFormat format,
     throw std::invalid_argument("unsupported layout transition");
   }
 
-  auto cmd_buffer = dev->beginSingleTimeCommands();
-  vkCmdPipelineBarrier(cmd_buffer, src_stage, dst_stage,
-    0, 0, nullptr, 0, nullptr, 1, &barrier
-  );
-  dev->endSingleTimeCommands(cmd_buffer, dev->queues.graphics);
+  dev->immediateSubmit([=](VkCommandBuffer cmd)
+  {
+    vkCmdPipelineBarrier(
+      cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier
+    );
+  });
 }
