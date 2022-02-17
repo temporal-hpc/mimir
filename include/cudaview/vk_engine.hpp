@@ -14,6 +14,7 @@
 
 #include "color/color.hpp"
 
+#include "cudaview/engine/vk_buffer.hpp"
 #include "cudaview/vk_cuda_map.hpp"
 #include "cudaview/frame.hpp"
 #include "cudaview/deletion_queue.hpp"
@@ -76,8 +77,7 @@ private:
   //std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
-  VkBuffer uniform_buffer;
-  VkDeviceMemory ubo_memory;
+  VulkanBuffer ubo;
   DeletionQueue deletors;
 
   // Synchronization structures

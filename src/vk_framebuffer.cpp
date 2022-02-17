@@ -1,7 +1,7 @@
-#include "internal/vk_framebuffer.hpp"
+#include "cudaview/engine/vk_framebuffer.hpp"
 
 #include "internal/validation.hpp"
-#include "internal/vk_initializers.hpp"
+#include "cudaview/engine/vk_initializers.hpp"
 
 VulkanFramebuffer::~VulkanFramebuffer()
 {

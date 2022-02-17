@@ -1,10 +1,10 @@
-#include "internal/vk_device.hpp"
+#include "cudaview/engine/vk_device.hpp"
 
 #include <set>
 
 #include "internal/validation.hpp"
-#include "internal/vk_properties.hpp"
-#include "internal/vk_initializers.hpp"
+#include "cudaview/engine/vk_properties.hpp"
+#include "cudaview/engine/vk_initializers.hpp"
 
 VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
 {
@@ -135,85 +135,58 @@ void VulkanDevice::endSingleTimeCommands(VkCommandBuffer cmd, VkQueue queue)
   vkFreeCommandBuffers(logical_device, command_pool, 1, &cmd);
 }
 
-void VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-  VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory)
+VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+  VkMemoryPropertyFlags properties)
 {
-  VkBufferCreateInfo buffer_info{};
-  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_info.size = size;
-  buffer_info.usage = usage;
-  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  validation::checkVulkan(
-    vkCreateBuffer(logical_device, &buffer_info, nullptr, &buffer)
-  );
-
-  VkMemoryRequirements mem_req;
-  vkGetBufferMemoryRequirements(logical_device, buffer, &mem_req);
-
-  VkMemoryAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.allocationSize = mem_req.size;
-  auto type = findMemoryType(mem_req.memoryTypeBits, properties);
-  alloc_info.memoryTypeIndex = type;
-  validation::checkVulkan(
-    vkAllocateMemory(logical_device, &alloc_info, nullptr, &memory)
-  );
-
-  vkBindBufferMemory(logical_device, buffer, memory, 0);
+  return createBuffer(size, usage, properties, nullptr, nullptr);
 }
 
-void VulkanDevice::createExternalBuffer(VkDeviceSize size,
+VulkanBuffer VulkanDevice::createExternalBuffer(VkDeviceSize size,
   VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
-  VkExternalMemoryHandleTypeFlagsKHR handle_type, VkBuffer& buffer,
-  VkDeviceMemory& buffer_memory)
+  VkExternalMemoryHandleTypeFlagsKHR handle_type)
 {
-  VkBufferCreateInfo buffer_info{};
-  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_info.size = size;
-  buffer_info.usage = usage;
-  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
   VkExternalMemoryBufferCreateInfo extmem_info{};
   extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
   extmem_info.handleTypes = handle_type;
-  buffer_info.pNext = &extmem_info;
 
-  validation::checkVulkan(
-    vkCreateBuffer(logical_device, &buffer_info, nullptr, &buffer)
-  );
-
-  VkMemoryRequirements mem_reqs;
-  vkGetBufferMemoryRequirements(logical_device, buffer, &mem_reqs);
   VkExportMemoryAllocateInfoKHR export_info{};
   export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
   export_info.pNext = nullptr;
   export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
+  return createBuffer(size, usage, properties, &extmem_info, &export_info);
+}
+
+VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+  VkMemoryPropertyFlags props, const void *extmem_info, const void *export_info)
+{
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size  = size;
+  buffer_info.usage = usage;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  buffer_info.pNext = extmem_info;
+
+  VulkanBuffer new_buffer;
+  new_buffer.size = size;
+  validation::checkVulkan(
+    vkCreateBuffer(logical_device, &buffer_info, nullptr, &new_buffer.buffer)
+  );
+
+  VkMemoryRequirements mem_reqs;
+  vkGetBufferMemoryRequirements(logical_device, new_buffer.buffer, &mem_reqs);
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.pNext = &export_info;
+  alloc_info.pNext = export_info;
   alloc_info.allocationSize = mem_reqs.size;
-  auto type = findMemoryType(mem_reqs.memoryTypeBits, properties);
+  auto type = findMemoryType(mem_reqs.memoryTypeBits, props);
   alloc_info.memoryTypeIndex = type;
 
   validation::checkVulkan(vkAllocateMemory(
-    logical_device, &alloc_info, nullptr, &buffer_memory)
+    logical_device, &alloc_info, nullptr, &new_buffer.memory)
   );
-  vkBindBufferMemory(logical_device, buffer, buffer_memory, 0);
-}
-
-void VulkanDevice::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size, VkQueue queue)
-{
-  // Memory transfers are commands executed with buffers, just like drawing
-  auto cmd_buffer = beginSingleTimeCommands();
-
-  VkBufferCopy copy_region{};
-  copy_region.srcOffset = 0;
-  copy_region.dstOffset = 0;
-  copy_region.size = size;
-  vkCmdCopyBuffer(cmd_buffer, src, dst, 1, &copy_region);
-
-  endSingleTimeCommands(cmd_buffer, queue);
+  vkBindBufferMemory(logical_device, new_buffer.buffer, new_buffer.memory, 0);
+  return new_buffer;
 }
 
 uint32_t VulkanDevice::findMemoryType(

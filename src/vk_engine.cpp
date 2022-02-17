@@ -4,12 +4,12 @@
 #include "internal/camera.hpp"
 #include "internal/color.hpp"
 #include "internal/validation.hpp"
-#include "internal/vk_device.hpp"
-#include "internal/vk_framebuffer.hpp"
-#include "internal/vk_initializers.hpp"
-#include "internal/vk_pipeline.hpp"
-#include "internal/vk_properties.hpp"
-#include "internal/vk_swapchain.hpp"
+#include "cudaview/engine/vk_device.hpp"
+#include "cudaview/engine/vk_framebuffer.hpp"
+#include "cudaview/engine/vk_initializers.hpp"
+#include "cudaview/engine/vk_pipeline.hpp"
+#include "cudaview/engine/vk_properties.hpp"
+#include "cudaview/engine/vk_swapchain.hpp"
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -141,12 +141,13 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem,
     usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
   }
   // Init unstructured memory
-  dev->createExternalBuffer(mapped.element_size * mapped.element_count,
+  auto buffer = dev->createExternalBuffer(mapped.element_size * mapped.element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-    mapped.vk_buffer, mapped.vk_memory
+    VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
   );
+  mapped.vk_buffer = buffer.buffer;
+  mapped.vk_memory = buffer.memory;
   importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
     mapped.vk_memory, mapped.element_size * mapped.element_count
   );
@@ -595,8 +596,8 @@ void VulkanEngine::updateWindow()
 
 void VulkanEngine::cleanupSwapchain()
 {
-  vkDestroyBuffer(device, uniform_buffer, nullptr);
-  vkFreeMemory(device, ubo_memory, nullptr);
+  vkDestroyBuffer(device, ubo.buffer, nullptr);
+  vkFreeMemory(device, ubo.memory, nullptr);
   vkDestroyPipeline(device, point2d_pipeline, nullptr);
   vkDestroyPipeline(device, point3d_pipeline, nullptr);
   vkDestroyPipeline(device, mesh2d_pipeline, nullptr);
@@ -843,9 +844,8 @@ void VulkanEngine::createUniformBuffers()
 
   auto img_count = swap->image_count;
   VkDeviceSize buffer_size = img_count * (size_mvp + size_colors + size_scene);
-  dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-    uniform_buffer, ubo_memory
+  ubo = dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
   );
 }
 
@@ -858,10 +858,10 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   auto size_ubo = size_mvp + size_colors + size_scene;
   auto offset = image_idx * size_ubo;
 
-  ModelViewProjection ubo{};
-  ubo.model = glm::mat4(1.f);
-  ubo.view  = camera->matrices.view; // glm::mat4(1.f);
-  ubo.proj  = camera->matrices.perspective; //glm::mat4(1.f);
+  ModelViewProjection mvp{};
+  mvp.model = glm::mat4(1.f);
+  mvp.view  = camera->matrices.view; // glm::mat4(1.f);
+  mvp.proj  = camera->matrices.perspective; //glm::mat4(1.f);
 
   ColorParams colors{};
   colors.point_color = color::getColor(point_color);
@@ -871,11 +871,11 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   params.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
 
   char *data = nullptr;
-  vkMapMemory(device, ubo_memory, offset, size_ubo, 0, (void**)&data);
-  std::memcpy(data, &ubo, sizeof(ubo));
+  vkMapMemory(device, ubo.memory, offset, size_ubo, 0, (void**)&data);
+  std::memcpy(data, &mvp, sizeof(mvp));
   std::memcpy(data + size_mvp, &colors, sizeof(colors));
   std::memcpy(data + size_mvp + size_colors, &params, sizeof(params));
-  vkUnmapMemory(device, ubo_memory);
+  vkUnmapMemory(device, ubo.memory);
 }
 
 void VulkanEngine::createDescriptorSets()
@@ -940,7 +940,7 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.reserve(3 + structured_buffers.size());
 
     VkDescriptorBufferInfo mvp_info{};
-    mvp_info.buffer = uniform_buffer;
+    mvp_info.buffer = ubo.buffer;
     mvp_info.offset = i * size_ubo;
     mvp_info.range  = sizeof(ModelViewProjection);
 
@@ -950,7 +950,7 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.push_back(write_mvp);
 
     VkDescriptorBufferInfo pcolor_info{};
-    pcolor_info.buffer = uniform_buffer;
+    pcolor_info.buffer = ubo.buffer;
     pcolor_info.offset = i * size_ubo + size_mvp;
     pcolor_info.range  = sizeof(ColorParams);
 
@@ -960,7 +960,7 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.push_back(write_pcolor);
 
     VkDescriptorBufferInfo extent_info{};
-    extent_info.buffer = uniform_buffer;
+    extent_info.buffer = ubo.buffer;
     extent_info.offset = i * size_ubo + size_mvp + size_colors;
     extent_info.range  = sizeof(SceneParams);
 
@@ -985,5 +985,190 @@ void VulkanEngine::updateDescriptorSets()
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
       desc_writes.data(), 0, nullptr
     );
+  }
+}
+
+void VulkanEngine::drawGui()
+{
+  ImGui_ImplVulkan_NewFrame();
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
+  //ImGui::ShowDemoWindow();
+  ImGui::Render();
+}
+
+FrameData& VulkanEngine::getCurrentFrame()
+{
+  return frames[current_frame % frames.size()];
+}
+
+void VulkanEngine::renderFrame()
+{
+  constexpr auto timeout = std::numeric_limits<uint64_t>::max();
+  /*const uint64_t wait_value = 0;
+  const uint64_t signal_value = 1;
+
+  VkSemaphoreWaitInfo wait_info{};
+  wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+  wait_info.pSemaphores = &vk_timeline_semaphore;
+  wait_info.semaphoreCount = 1;
+  wait_info.pValues = &wait_value;
+  vkWaitSemaphores(device, &wait_info, timeout);*/
+
+  auto frame = getCurrentFrame();
+  vkWaitForFences(device, 1, &frame.render_fence, VK_TRUE, timeout);
+
+  // Acquire image from swap chain
+  uint32_t image_idx;
+  // TODO: vk_presentation_semaphore instead of frame.present_semaphore
+  auto result = vkAcquireNextImageKHR(device, swap->swapchain, timeout,
+    frame.present_semaphore, VK_NULL_HANDLE, &image_idx
+  );
+  if (result == VK_ERROR_OUT_OF_DATE_KHR)
+  {
+    recreateSwapchain();
+  }
+  else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+  {
+    throw std::runtime_error("Failed to acquire swapchain image");
+  }
+
+  if (images_inflight[image_idx] != VK_NULL_HANDLE)
+  {
+    vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
+  }
+  images_inflight[image_idx] = frame.render_fence;
+
+  auto cmd_flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+  auto begin_info = vkinit::commandBufferBeginInfo(cmd_flags);
+
+  auto cmd = command_buffers[image_idx];
+  validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
+
+  auto render_pass_info = vkinit::renderPassBeginInfo(
+    render_pass, swap->swapchain_extent, fbs[image_idx].framebuffer
+  );
+  VkClearValue clear_color;
+  color::setColor(clear_color.color.float32, bg_color);
+  render_pass_info.clearValueCount = 1;
+  render_pass_info.pClearValues    = &clear_color;
+
+  vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+  drawObjects(image_idx);
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+  vkCmdEndRenderPass(cmd);
+  // Finalize command buffer recording, so it can be executed
+  validation::checkVulkan(vkEndCommandBuffer(cmd));
+
+  updateUniformBuffer(image_idx);
+
+  std::vector<VkSemaphore> wait_semaphores;
+  std::vector<VkPipelineStageFlags> wait_stages;
+  wait_semaphores.push_back(frame.present_semaphore); //vk_timeline_semaphore
+  wait_stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+  getWaitFrameSemaphores(wait_semaphores, wait_stages);
+
+  std::vector<VkSemaphore> signal_semaphores;
+  getSignalFrameSemaphores(signal_semaphores);
+  signal_semaphores.push_back(frame.render_semaphore);//vk_timeline_semaphore
+
+  auto submit_info = vkinit::submitInfo(&cmd);
+  submit_info.waitSemaphoreCount   = wait_semaphores.size();
+  submit_info.pWaitSemaphores      = wait_semaphores.data();
+  submit_info.pWaitDstStageMask    = wait_stages.data();
+  submit_info.signalSemaphoreCount = signal_semaphores.size();
+  submit_info.pSignalSemaphores    = signal_semaphores.data();
+
+  /*VkTimelineSemaphoreSubmitInfo timeline_info{};
+  timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+  timeline_info.waitSemaphoreValueCount = 1;
+  timeline_info.pWaitSemaphoreValues = &wait_value;
+  timeline_info.signalSemaphoreValueCount = 1;
+  timeline_info.pSignalSemaphoreValues = &signal_value;
+  submit_info.pNext = &timeline_info;*/
+
+  vkResetFences(device, 1, &frame.render_fence);
+
+  // Execute command buffer using image as attachment in framebuffer
+  validation::checkVulkan(vkQueueSubmit(
+    dev->queues.graphics, 1, &submit_info, frame.render_fence) //VK_NULL_HANDLE
+  );
+
+  // Return image result back to swapchain for presentation on screen
+  auto present_info = vkinit::presentInfo();
+  present_info.swapchainCount     = 1;
+  present_info.pSwapchains        = &swap->swapchain;
+  present_info.waitSemaphoreCount = 1;
+  //present_info.pWaitSemaphores = &vk_presentation_semaphore;
+  present_info.pWaitSemaphores    = &frame.render_semaphore;
+  present_info.pImageIndices      = &image_idx;
+
+  result = vkQueuePresentKHR(dev->queues.present, &present_info);
+  // Resize should be done after presentation to ensure semaphore consistency
+  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
+    || should_resize)
+  {
+    recreateSwapchain();
+    should_resize = false;
+  }
+
+  current_frame++;
+}
+
+void VulkanEngine::drawObjects(uint32_t image_idx)
+{
+  auto cmd = command_buffers[image_idx];
+  for (const auto& buffer : structured_buffers)
+  {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, screen_pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+    );
+    vkCmdDraw(cmd, 3, 1, 0, 0); // Draw a screen-covering triangle
+  }
+
+  for (const auto& buffer : unstructured_buffers)
+  {
+    if (buffer.data_type == UnstructuredDataType::Points)
+    {
+      if (buffer.data_domain == DataDomain::Domain2D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point2d_pipeline);
+      }
+      else if (buffer.data_domain == DataDomain::Domain3D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point3d_pipeline);
+      }
+      // Note: Second parameter can be also used to bind a compute pipeline
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
+      VkBuffer vertex_buffers[] = { buffer.vk_buffer };
+      VkDeviceSize offsets[] = { 0 };
+      auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+      vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+      vkCmdDraw(cmd, buffer.element_count, 1, 0, 0);
+    }
+    else if (buffer.data_type == UnstructuredDataType::Edges)
+    {
+      if (buffer.data_domain == DataDomain::Domain2D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh2d_pipeline);
+      }
+      else if (buffer.data_domain == DataDomain::Domain3D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh3d_pipeline);
+      }
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
+      VkBuffer vertexBuffers[] = { unstructured_buffers[0].vk_buffer };
+      VkDeviceSize offsets[] = {0};
+      vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+      vkCmdBindIndexBuffer(cmd, buffer.vk_buffer, 0, VK_INDEX_TYPE_UINT32);
+      vkCmdDrawIndexed(cmd, 3 * buffer.element_count, 1, 0, 0, 0);
+    }
   }
 }

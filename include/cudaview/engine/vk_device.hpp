@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "cudaview/deletion_queue.hpp"
+#include "vk_buffer.hpp"
 
 struct VulkanDevice
 {
@@ -39,14 +40,16 @@ struct VulkanDevice
   VkCommandBuffer beginSingleTimeCommands();
   void endSingleTimeCommands(VkCommandBuffer command_buffer, VkQueue queue);
 
-  void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory
+  VulkanBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties
   );
-  void createExternalBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkExternalMemoryHandleTypeFlagsKHR handle_type,
-    VkBuffer& buffer, VkDeviceMemory& memory
+  VulkanBuffer createExternalBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties, VkExternalMemoryHandleTypeFlagsKHR handle_type
   );
-  void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size, VkQueue queue);
-
   uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties);
+
+private:
+  VulkanBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags props, const void *extmem_info, const void *export_info
+  );
 };

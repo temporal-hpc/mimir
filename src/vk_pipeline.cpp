@@ -1,4 +1,4 @@
-#include "internal/vk_pipeline.hpp"
+#include "cudaview/engine/vk_pipeline.hpp"
 
 VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
 {

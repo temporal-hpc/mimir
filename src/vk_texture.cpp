@@ -1,9 +1,9 @@
 #include "cudaview/vk_engine.hpp"
-#include "internal/vk_device.hpp"
-#include "internal/vk_swapchain.hpp"
-#include "internal/vk_initializers.hpp"
+#include "cudaview/engine/vk_device.hpp"
+#include "cudaview/engine/vk_swapchain.hpp"
+#include "cudaview/engine/vk_initializers.hpp"
 #include "internal/validation.hpp"
-#include "internal/vk_properties.hpp"
+#include "cudaview/engine/vk_properties.hpp"
 
 void VulkanEngine::createExternalImage(uint32_t width, uint32_t height,
   VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
