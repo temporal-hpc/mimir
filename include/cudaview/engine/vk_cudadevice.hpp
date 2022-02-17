@@ -8,11 +8,11 @@ struct VulkanCudaDevice : public VulkanDevice
 {
   using VulkanDevice::VulkanDevice;
 
-  MappedUnstructuredMemory createUnstructuredBuffer(void **ptr_devmem,
-    size_t elem_count, size_t elem_size, UnstructuredDataType type, DataDomain domain
+  MappedUnstructuredMemory createUnstructuredBuffer(size_t elem_count,
+    size_t elem_size, UnstructuredDataType type, DataDomain domain
   );
-  MappedStructuredMemory createStructuredBuffer(void **ptr_devmem,
-    size_t width, size_t height, size_t elem_size, DataFormat format
+  MappedStructuredMemory createStructuredBuffer(size_t width, size_t height,
+    size_t elem_size, DataFormat format
   );
 
   void importCudaExternalMemory(void **cuda_ptr,

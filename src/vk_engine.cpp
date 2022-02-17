@@ -123,7 +123,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem, size_t elem_count,
   size_t elem_size, UnstructuredDataType type, DataDomain domain)
 {
-  auto mapped = dev->createUnstructuredBuffer(ptr_devmem, elem_count, elem_size, type, domain);
+  auto mapped = dev->createUnstructuredBuffer(elem_count, elem_size, type, domain);
   unstructured_buffers.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
@@ -132,7 +132,7 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem, size_t elem_cou
 void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
   size_t width, size_t height, size_t elem_size, DataFormat format)
 {
-  auto mapped = dev->createStructuredBuffer(ptr_devmem, width, height, elem_size, format);
+  auto mapped = dev->createStructuredBuffer(width, height, elem_size, format);
   structured_buffers.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
@@ -1003,7 +1003,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertex_buffers[] = { buffer.vk_buffer };
+      VkBuffer vertex_buffers[] = { buffer.buffer.buffer };
       VkDeviceSize offsets[] = { 0 };
       auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
       vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
@@ -1022,10 +1022,10 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertexBuffers[] = { unstructured_buffers[0].vk_buffer };
+      VkBuffer vertexBuffers[] = { unstructured_buffers[0].buffer.buffer };
       VkDeviceSize offsets[] = {0};
       vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-      vkCmdBindIndexBuffer(cmd, buffer.vk_buffer, 0, VK_INDEX_TYPE_UINT32);
+      vkCmdBindIndexBuffer(cmd, buffer.buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
       vkCmdDrawIndexed(cmd, 3 * buffer.element_count, 1, 0, 0, 0);
     }
   }

@@ -4,10 +4,9 @@
 #include "internal/validation.hpp"
 
 MappedUnstructuredMemory VulkanCudaDevice::createUnstructuredBuffer(
-  void **ptr_devmem, size_t elem_count, size_t elem_size,
-  UnstructuredDataType type, DataDomain domain)
+  size_t elem_count, size_t elem_size, UnstructuredDataType type, DataDomain domain)
 {
-  auto mapped = newUnstructuredMemory(elem_count, elem_size, type, domain);
+  MappedUnstructuredMemory mapped(elem_count, elem_size, type, domain);
 
   VkBufferUsageFlagBits usage;
   if (mapped.data_type == UnstructuredDataType::Points)
@@ -19,45 +18,41 @@ MappedUnstructuredMemory VulkanCudaDevice::createUnstructuredBuffer(
     usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
   }
   // Init unstructured memory
-  auto buffer = createExternalBuffer(mapped.element_size * mapped.element_count,
+  mapped.buffer = createExternalBuffer(mapped.element_size * mapped.element_count,
     VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
   );
-  mapped.vk_buffer = buffer.buffer;
-  mapped.vk_memory = buffer.memory;
   importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
-    mapped.vk_memory, mapped.element_size * mapped.element_count
+    mapped.buffer.memory, mapped.element_size * mapped.element_count
   );
   deletors.pushFunction([=]{
     validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
-    vkDestroyBuffer(logical_device, mapped.vk_buffer, nullptr);
-    vkFreeMemory(logical_device, mapped.vk_memory, nullptr);
+    vkDestroyBuffer(logical_device, mapped.buffer.buffer, nullptr);
+    vkFreeMemory(logical_device, mapped.buffer.memory, nullptr);
   });
   return mapped;
 }
 
 MappedStructuredMemory VulkanCudaDevice::createStructuredBuffer(
-  void **ptr_devmem, size_t width, size_t height, size_t elem_size, DataFormat format)
+  size_t width, size_t height, size_t elem_size, DataFormat format)
 {
-  auto mapped = newStructuredMemory(width, height, elem_size, format);
+  MappedStructuredMemory mapped(width, height, elem_size, format);
 
   // Init structured memory
-  auto tex = createExternalImage(width, height, mapped.vk_format,
+  mapped.texture = createExternalImage(width, height, mapped.vk_format,
     VK_IMAGE_TILING_LINEAR,
     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
   );
-  mapped.vk_image = tex.image;
-  mapped.vk_memory = tex.memory;
   importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
-    mapped.vk_memory, mapped.element_size * width * height
+    mapped.texture.memory, mapped.element_size * width * height
   );
 
-  transitionImageLayout(mapped.vk_image, mapped.vk_format,
+  transitionImageLayout(mapped.texture.image, mapped.vk_format,
     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
-  auto info = vkinit::imageViewCreateInfo(mapped.vk_format, mapped.vk_image,
+  auto info = vkinit::imageViewCreateInfo(mapped.vk_format, mapped.texture.image,
     VK_IMAGE_ASPECT_COLOR_BIT
   );
   validation::checkVulkan(
@@ -66,10 +61,9 @@ MappedStructuredMemory VulkanCudaDevice::createStructuredBuffer(
 
   deletors.pushFunction([=]{
     validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
-    vkDestroyBuffer(logical_device, mapped.vk_buffer, nullptr);
-    vkFreeMemory(logical_device, mapped.vk_memory, nullptr);
+    vkFreeMemory(logical_device, mapped.texture.memory, nullptr);
     vkDestroyImageView(logical_device, mapped.vk_view, nullptr);
-    vkDestroyImage(logical_device, mapped.vk_image, nullptr);
+    vkDestroyImage(logical_device, mapped.texture.image, nullptr);
   });
 
   return mapped;

@@ -3,36 +3,59 @@
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
 
+#include "cudaview/engine/vk_buffer.hpp"
+#include "cudaview/engine/vk_texture.hpp"
+
 enum class DataFormat { Float32, Rgba32 };
 enum class DataDomain { Domain2D, Domain3D };
 enum class UnstructuredDataType { Points, Edges };
 
-struct MappedMemory {
-  size_t element_count;
-  size_t element_size;
-  void *cuda_ptr;
-  cudaExternalMemory_t cuda_extmem;
-  VkFormat vk_format;
-  VkBuffer vk_buffer;
-  VkDeviceMemory vk_memory;
+inline VkFormat getVulkanFormat(DataFormat format)
+{
+  switch (format)
+  {
+    case DataFormat::Float32: return VK_FORMAT_R32_SFLOAT;
+    case DataFormat::Rgba32:  return VK_FORMAT_R8G8B8A8_SRGB;
+    default:                  return VK_FORMAT_UNDEFINED;
+  }
+}
+
+struct CudaMappedMemory
+{
+  size_t element_count = 0;
+  size_t element_size  = 0;
+  void *cuda_ptr = nullptr;
+  cudaExternalMemory_t cuda_extmem = nullptr;
+  VkFormat vk_format = VK_FORMAT_UNDEFINED;
+
+  CudaMappedMemory();
+  CudaMappedMemory(size_t elem_count, size_t elem_size, DataFormat format):
+    element_count{elem_count}, element_size{elem_size}, vk_format{getVulkanFormat(format)}
+  {}
+
+  CudaMappedMemory(size_t elem_count, size_t elem_size):
+    element_count{elem_count}, element_size{elem_size}, vk_format{VK_FORMAT_UNDEFINED}
+  {}
 };
 
-struct MappedUnstructuredMemory : MappedMemory
+struct MappedUnstructuredMemory : public CudaMappedMemory
 {
+  VulkanBuffer buffer;
   DataDomain data_domain;
   UnstructuredDataType data_type;
+
+  MappedUnstructuredMemory(size_t elem_count, size_t elem_size,
+    UnstructuredDataType type, DataDomain domain):
+  CudaMappedMemory{elem_count, elem_size}, data_type{type}, data_domain{domain}
+  {}
 };
 
-struct MappedStructuredMemory : MappedMemory
+struct MappedStructuredMemory : public CudaMappedMemory
 {
-  VkImage vk_image;
+  VulkanTexture texture;
   VkImageView vk_view;
-};
 
-MappedUnstructuredMemory newUnstructuredMemory(size_t elem_count,
-  size_t elem_size, UnstructuredDataType type, DataDomain domain
-);
-MappedStructuredMemory newStructuredMemory(
-  size_t width, size_t height, size_t elem_size, DataFormat format
-);
-VkFormat getVulkanFormat(DataFormat format);
+  MappedStructuredMemory(size_t width, size_t height, size_t elem_size, DataFormat format):
+    CudaMappedMemory{width * height, elem_size, format}
+  {}
+};
