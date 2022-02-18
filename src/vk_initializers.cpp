@@ -1,4 +1,4 @@
-#include "cudaview/engine/vk_initializers.hpp"
+#include "internal/vk_initializers.hpp"
 
 namespace vkinit
 {

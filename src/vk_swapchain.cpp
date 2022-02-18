@@ -1,8 +1,8 @@
 #include "cudaview/engine/vk_swapchain.hpp"
 
 #include "internal/validation.hpp"
-#include "cudaview/engine/vk_initializers.hpp"
-#include "cudaview/engine/vk_properties.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/vk_properties.hpp"
 
 VulkanSwapchain::~VulkanSwapchain()
 {

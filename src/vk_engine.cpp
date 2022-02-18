@@ -6,9 +6,9 @@
 #include "internal/validation.hpp"
 #include "cudaview/engine/vk_cudadevice.hpp"
 #include "cudaview/engine/vk_framebuffer.hpp"
-#include "cudaview/engine/vk_initializers.hpp"
-#include "cudaview/engine/vk_pipeline.hpp"
-#include "cudaview/engine/vk_properties.hpp"
+#include "internal/vk_initializers.hpp"
+#include "internal/vk_pipeline.hpp"
+#include "internal/vk_properties.hpp"
 #include "cudaview/engine/vk_swapchain.hpp"
 
 #include "imgui.h"
@@ -373,7 +373,7 @@ void VulkanEngine::createSyncObjects()
     vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
   }*/
 
-  createExternalSemaphore(vk_wait_semaphore);
+  vk_wait_semaphore = dev->createExternalSemaphore();
   // Vulkan signal will be CUDA wait
   dev->importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
   deletors.pushFunction([=]{
@@ -381,34 +381,13 @@ void VulkanEngine::createSyncObjects()
     validation::checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
   });
 
-  createExternalSemaphore(vk_signal_semaphore);
+  vk_signal_semaphore = dev->createExternalSemaphore();
   // CUDA signal will be vulkan wait
   dev->importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
   deletors.pushFunction([=]{
     vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
     validation::checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
   });
-}
-
-void VulkanEngine::createExternalSemaphore(VkSemaphore& semaphore)
-{
-  /*VkSemaphoreTypeCreateInfo timeline_info{};
-  timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-  timeline_info.pNext = nullptr;
-  timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-  timeline_info.initialValue = 0;*/
-
-  VkExportSemaphoreCreateInfoKHR export_info{};
-  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
-  export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-  export_info.pNext = nullptr; // &timeline_info
-
-  auto semaphore_info = vkinit::semaphoreCreateInfo();
-  semaphore_info.pNext = &export_info;
-
-  validation::checkVulkan(
-    vkCreateSemaphore(device, &semaphore_info, nullptr, &semaphore)
-  );
 }
 
 void VulkanEngine::cudaSemaphoreWait()

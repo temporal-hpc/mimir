@@ -3,8 +3,8 @@
 #include <set>
 
 #include "internal/validation.hpp"
-#include "cudaview/engine/vk_properties.hpp"
-#include "cudaview/engine/vk_initializers.hpp"
+#include "internal/vk_properties.hpp"
+#include "internal/vk_initializers.hpp"
 
 VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
 {
@@ -196,6 +196,29 @@ VulkanTexture VulkanDevice::createExternalImage(uint32_t width, uint32_t height,
   vkBindImageMemory(logical_device, new_tex.image, new_tex.memory, 0);
 
   return new_tex;
+}
+
+VkSemaphore VulkanDevice::createExternalSemaphore()
+{
+  /*VkSemaphoreTypeCreateInfo timeline_info{};
+  timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+  timeline_info.pNext = nullptr;
+  timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+  timeline_info.initialValue = 0;*/
+
+  VkExportSemaphoreCreateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
+  export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+  export_info.pNext = nullptr; // &timeline_info
+
+  auto semaphore_info = vkinit::semaphoreCreateInfo();
+  semaphore_info.pNext = &export_info;
+
+  VkSemaphore semaphore;
+  validation::checkVulkan(
+    vkCreateSemaphore(logical_device, &semaphore_info, nullptr, &semaphore)
+  );
+  return semaphore;
 }
 
 uint32_t VulkanDevice::findMemoryType(

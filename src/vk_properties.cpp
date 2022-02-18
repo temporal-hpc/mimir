@@ -1,4 +1,4 @@
-#include "cudaview/engine/vk_properties.hpp"
+#include "internal/vk_properties.hpp"
 
 #include <GLFW/glfw3.h> // glfwGetRequiredInstanceExtensions
 

@@ -1,6 +1,6 @@
 #include "cudaview/engine/vk_cudadevice.hpp"
 
-#include "cudaview/engine/vk_initializers.hpp"
+#include "internal/vk_initializers.hpp"
 #include "internal/validation.hpp"
 
 MappedUnstructuredMemory VulkanCudaDevice::createUnstructuredBuffer(
@@ -126,8 +126,7 @@ void *VulkanCudaDevice::getSemaphoreHandle(VkSemaphore semaphore,
   fd_info.semaphore  = semaphore;
   fd_info.handleType = handle_type;
 
-  PFN_vkGetSemaphoreFdKHR fpGetSemaphore;
-  fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
+  auto fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
     logical_device, "vkGetSemaphoreFdKHR"
   );
   if (!fpGetSemaphore)

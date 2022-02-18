@@ -107,8 +107,6 @@ private:
 
   FrameData& getCurrentFrame();
 
-  void createExternalSemaphore(VkSemaphore& semaphore);
-
   void getVertexDescriptions2d(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
     std::vector<VkVertexInputAttributeDescription>& attr_desc

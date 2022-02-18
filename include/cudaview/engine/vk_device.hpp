@@ -46,6 +46,7 @@ struct VulkanDevice
   VulkanTexture createExternalImage(uint32_t width, uint32_t height, VkFormat format,
     VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props
   );
+  VkSemaphore createExternalSemaphore();
   void transitionImageLayout(VkImage image, VkFormat format,
     VkImageLayout old_layout, VkImageLayout new_layout
   );
