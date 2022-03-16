@@ -150,6 +150,24 @@ Executable('run_sync')
                  + ' -lglfw -lvulkan -ldl'
 }
 
+ObjectList('automata3d')
+{
+  .Compiler             = 'CudaCompiler'
+  .CompilerOptions      = '-o "%2" "%1" -c -fopenmp -O3'
+                        + ' -std=c++17 -Iinclude'
+  .CompilerInputPath    = 'samples/ejemplo-automata-celular-3D'
+  .CompilerInputPattern = { 'main.cu' }
+  .CompilerOutputPath   = .BuildPrefix + 'temp'
+}
+Executable('run_automata3d')
+{
+  .Libraries     = { 'lib-static', 'automata3d' }
+  .Linker        = .CudaCompilerPath
+  .LinkerOutput  = .BuildPrefix + 'automata3d'
+  .LinkerOptions = '"%1" -o "%2"'
+                 + ' -lglfw -lvulkan -ldl'
+}
+
 ObjectList('cuda-mesh')
 {
   .Compiler             = 'CudaCompiler'
@@ -187,7 +205,7 @@ Executable('run_points3d')
 }
 
 Alias('samples') { .Targets = { 'run_structured', 'run_unstructured',
-  'run_image', 'run_sync', 'run_mesh', 'run_points3d' } }
+  'run_image', 'run_sync', 'run_mesh', 'run_points3d', 'run_automata3d' } }
 
 Alias('all') { .Targets = { 'lib-static', 'lib-dynamic' 'shaders', 'samples' } }
 
