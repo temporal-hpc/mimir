@@ -34,8 +34,8 @@ uint32_t VulkanFramebuffer::addAttachment(VkDevice device,
   attachment.image  = image;
   attachment.format = format;
 
-  auto view_info = vkinit::imageViewCreateInfo(
-    attachment.format, attachment.image, VK_IMAGE_ASPECT_COLOR_BIT
+  auto view_info = vkinit::imageViewCreateInfo(attachment.image,
+    VK_IMAGE_VIEW_TYPE_2D, attachment.format, VK_IMAGE_ASPECT_COLOR_BIT
   );
   validation::checkVulkan(
     vkCreateImageView(device, &view_info, nullptr, &attachment.view)

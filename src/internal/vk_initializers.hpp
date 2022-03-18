@@ -56,8 +56,8 @@ VkImageCreateInfo imageCreateInfo(VkImageType type,
   VkFormat format, VkExtent3D extent, VkImageUsageFlags usage
 );
 
-VkImageViewCreateInfo imageViewCreateInfo(
-  VkFormat format, VkImage image, VkImageAspectFlags flags
+VkImageViewCreateInfo imageViewCreateInfo(VkImage image,
+  VkImageViewType view_type, VkFormat format, VkImageAspectFlags aspect_mask
 );
 
 VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo(

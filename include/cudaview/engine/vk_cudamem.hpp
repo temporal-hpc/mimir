@@ -32,6 +32,16 @@ inline VkImageType getImageDimensions(DataDomain domain)
   }
 }
 
+inline VkImageViewType getViewType(DataDomain domain)
+{
+  switch (domain)
+  {
+    case DataDomain::Domain2D: return VK_IMAGE_VIEW_TYPE_2D;
+    case DataDomain::Domain3D: return VK_IMAGE_VIEW_TYPE_3D;
+    default:                   return VK_IMAGE_VIEW_TYPE_1D;
+  }
+}
+
 struct CudaMappedMemory
 {
   size_t element_count = 0;

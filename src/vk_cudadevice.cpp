@@ -57,12 +57,13 @@ MappedStructuredMemory VulkanCudaDevice::createStructuredBuffer(
     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
   );
-
   transitionImageLayout(mapped.texture.image, mapped.vk_format,
     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
-  auto info = vkinit::imageViewCreateInfo(mapped.vk_format, mapped.texture.image,
-    VK_IMAGE_ASPECT_COLOR_BIT
+
+  auto view_type = getViewType(domain);
+  auto info = vkinit::imageViewCreateInfo(mapped.texture.image,
+    view_type, mapped.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
   );
   validation::checkVulkan(
     vkCreateImageView(logical_device, &info, nullptr, &mapped.vk_view)

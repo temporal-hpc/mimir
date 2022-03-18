@@ -227,27 +227,27 @@ VkImageCreateInfo imageCreateInfo(VkImageType type,
   return info;
 }
 
-VkImageViewCreateInfo imageViewCreateInfo(VkFormat format, VkImage image,
-  VkImageAspectFlags flags)
+VkImageViewCreateInfo imageViewCreateInfo(VkImage image,
+  VkImageViewType view_type, VkFormat format, VkImageAspectFlags aspect_mask)
 {
   VkImageViewCreateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   info.pNext = nullptr;
   // Treat image as 1D/2D/3D texture or as a cube map
-  info.viewType = VK_IMAGE_VIEW_TYPE_2D;
   info.image    = image;
+  info.viewType = view_type;
   info.format   = format;
-  // Describe image purpose and which part of it should be accesssed
-  info.subresourceRange.baseMipLevel   = 0;
-  info.subresourceRange.levelCount     = 1;
-  info.subresourceRange.baseArrayLayer = 0;
-  info.subresourceRange.layerCount     = 1;
-  info.subresourceRange.aspectMask     = flags;
   // Default mapping of all color channels
   info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
   info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
   info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
   info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+  // Describe image purpose and which part of it should be accesssed
+  info.subresourceRange.baseMipLevel   = 0;
+  info.subresourceRange.levelCount     = 1;
+  info.subresourceRange.baseArrayLayer = 0;
+  info.subresourceRange.layerCount     = 1;
+  info.subresourceRange.aspectMask     = aspect_mask;
   return info;
 }
 
