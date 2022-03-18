@@ -35,18 +35,19 @@ MappedUnstructuredMemory VulkanCudaDevice::createUnstructuredBuffer(
 }
 
 MappedStructuredMemory VulkanCudaDevice::createStructuredBuffer(
-  size_t width, size_t height, size_t elem_size, DataFormat format)
+  uint3 buffer_size, size_t elem_size, DataFormat format)
 {
-  MappedStructuredMemory mapped(width, height, elem_size, format);
+  VkExtent3D extent{buffer_size.x, buffer_size.y, buffer_size.z};
+  MappedStructuredMemory mapped(extent, elem_size, format);
 
   // Init structured memory
-  mapped.texture = createExternalImage(width, height, mapped.vk_format,
+  mapped.texture = createExternalImage(mapped.vk_format, extent,
     VK_IMAGE_TILING_LINEAR,
     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
   );
   importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
-    mapped.texture.memory, mapped.element_size * width * height
+    mapped.texture.memory, mapped.element_size * mapped.element_count
   );
 
   transitionImageLayout(mapped.texture.image, mapped.vk_format,

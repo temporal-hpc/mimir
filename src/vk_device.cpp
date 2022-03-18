@@ -153,16 +153,16 @@ VulkanBuffer VulkanDevice::createExternalBuffer(VkDeviceSize size,
   return createBuffer(size, usage, properties, &extmem_info, &export_info);
 }
 
-VulkanTexture VulkanDevice::createExternalImage(uint32_t width, uint32_t height,
-  VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
-  VkMemoryPropertyFlags mem_props)
+VulkanTexture VulkanDevice::createExternalImage(
+  VkFormat format, VkExtent3D extent, VkImageTiling tiling,
+  VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props)
 {
   VkExternalMemoryImageCreateInfo ext_info{};
   ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
   ext_info.pNext = nullptr;
   ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
-  auto image_info = vkinit::imageCreateInfo(format, usage, width, height);
+  auto image_info = vkinit::imageCreateInfo(format, usage, extent);
   image_info.pNext         = &ext_info;
   image_info.format        = format;
   image_info.tiling        = tiling;

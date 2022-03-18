@@ -55,7 +55,7 @@ struct MappedStructuredMemory : public CudaMappedMemory
   VulkanTexture texture;
   VkImageView vk_view;
 
-  MappedStructuredMemory(size_t width, size_t height, size_t elem_size, DataFormat format):
-    CudaMappedMemory{width * height, elem_size, format}
+  MappedStructuredMemory(VkExtent3D extent, size_t elem_size, DataFormat format):
+    CudaMappedMemory{extent.width*extent.height*extent.depth, elem_size, format}
   {}
 };

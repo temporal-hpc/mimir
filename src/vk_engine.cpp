@@ -130,9 +130,9 @@ void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem, size_t elem_cou
 }
 
 void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
-  size_t width, size_t height, size_t elem_size, DataFormat format)
+  uint3 buffer_size, size_t elem_size, DataFormat format)
 {
-  auto mapped = dev->createStructuredBuffer(width, height, elem_size, format);
+  auto mapped = dev->createStructuredBuffer(buffer_size, elem_size, format);
   structured_buffers.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;

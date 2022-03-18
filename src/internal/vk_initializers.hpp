@@ -53,7 +53,7 @@ VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
 );
 
 VkImageCreateInfo imageCreateInfo(VkFormat format,
-  VkImageUsageFlags flags, uint32_t width, uint32_t height
+  VkImageUsageFlags flags, VkExtent3D extent
 );
 
 VkImageViewCreateInfo imageViewCreateInfo(

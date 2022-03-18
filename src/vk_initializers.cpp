@@ -211,21 +211,19 @@ VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
 }
 
 VkImageCreateInfo imageCreateInfo(VkFormat format, VkImageUsageFlags flags,
-  uint32_t width, uint32_t height)
+  VkExtent3D extent)
 {
   VkImageCreateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   info.pNext = nullptr;
-  info.imageType     = VK_IMAGE_TYPE_2D;
-  info.format        = format;
-  info.extent.width  = width;
-  info.extent.height = height;
-  info.extent.depth  = 1;
-  info.mipLevels     = 1;
-  info.arrayLayers   = 1;
-  info.samples       = VK_SAMPLE_COUNT_1_BIT;
-  info.tiling        = VK_IMAGE_TILING_OPTIMAL;
-  info.usage         = flags;
+  info.imageType   = VK_IMAGE_TYPE_2D;
+  info.format      = format;
+  info.extent      = extent;
+  info.mipLevels   = 1;
+  info.arrayLayers = 1;
+  info.samples     = VK_SAMPLE_COUNT_1_BIT;
+  info.tiling      = VK_IMAGE_TILING_OPTIMAL;
+  info.usage       = flags;
   return info;
 }
 

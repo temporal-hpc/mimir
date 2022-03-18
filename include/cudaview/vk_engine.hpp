@@ -41,7 +41,7 @@ public:
     UnstructuredDataType type, DataDomain domain
   );
   void registerStructuredMemory(void **ptr_devmem,
-    size_t width, size_t height, size_t elem_size, DataFormat format
+    uint3 buffer_size, size_t elem_size, DataFormat format
   );
 
   void display(std::function<void(void)> func, size_t iter_count);
