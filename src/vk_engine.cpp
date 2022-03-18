@@ -112,6 +112,10 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     {
       // Advance the simulation
       func();
+      for (auto structured : structured_buffers)
+      {
+        dev->updateStructuredBuffer(structured);
+      }
       iteration_idx++;
     }
     cudaSemaphoreSignal();

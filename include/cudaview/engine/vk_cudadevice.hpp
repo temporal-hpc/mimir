@@ -11,7 +11,7 @@ struct VulkanCudaDevice : public VulkanDevice
   MappedUnstructuredMemory createUnstructuredBuffer(size_t elem_count,
     size_t elem_size, DataDomain domain, UnstructuredDataType type
   );
-  MappedStructuredMemory createStructuredBuffer(uint3 buffer_size, 
+  MappedStructuredMemory createStructuredBuffer(uint3 buffer_size,
     size_t elem_size, DataDomain domain, DataFormat format
   );
 
@@ -28,4 +28,5 @@ struct VulkanCudaDevice : public VulkanDevice
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
+  void updateStructuredBuffer(MappedStructuredMemory mapped);
 };

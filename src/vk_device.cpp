@@ -172,13 +172,16 @@ VulkanTexture VulkanDevice::createExternalImage(VkImageType type,
   image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  VulkanTexture new_tex;
+  VulkanTexture tex;
+  tex.width  = extent.width;
+  tex.height = extent.height;
+  tex.depth  = extent.depth;
   validation::checkVulkan(
-    vkCreateImage(logical_device, &image_info, nullptr, &new_tex.image)
+    vkCreateImage(logical_device, &image_info, nullptr, &tex.image)
   );
 
   VkMemoryRequirements mem_req;
-  vkGetImageMemoryRequirements(logical_device, new_tex.image, &mem_req);
+  vkGetImageMemoryRequirements(logical_device, tex.image, &mem_req);
 
   VkExportMemoryAllocateInfoKHR export_info{};
   export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
@@ -192,11 +195,11 @@ VulkanTexture VulkanDevice::createExternalImage(VkImageType type,
   alloc_info.memoryTypeIndex = findMemoryType(mem_req.memoryTypeBits, mem_props);
 
   validation::checkVulkan(
-    vkAllocateMemory(logical_device, &alloc_info, nullptr, &new_tex.memory)
+    vkAllocateMemory(logical_device, &alloc_info, nullptr, &tex.memory)
   );
-  vkBindImageMemory(logical_device, new_tex.image, new_tex.memory, 0);
+  vkBindImageMemory(logical_device, tex.image, tex.memory, 0);
 
-  return new_tex;
+  return tex;
 }
 
 VkSemaphore VulkanDevice::createExternalSemaphore()
@@ -296,6 +299,11 @@ void VulkanDevice::transitionImageLayout(VkImage image, VkFormat format,
   {
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  }
+  else if (old_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+  {
+    barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    src_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
   }
   else
   {

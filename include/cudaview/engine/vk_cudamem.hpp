@@ -66,6 +66,7 @@ struct MappedUnstructuredMemory : public CudaMappedMemory
 
 struct MappedStructuredMemory : public CudaMappedMemory
 {
+  VulkanBuffer buffer;
   VulkanTexture texture;
   VkImageView vk_view;
 
