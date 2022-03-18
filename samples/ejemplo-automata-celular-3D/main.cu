@@ -10,6 +10,7 @@
 #include "kernel3D.cuh"
 #include "openmp3D.h"
 
+#include "cudaview/vk_engine.hpp"
 
 int main(int argc, char **argv){
     if(argc != 8){
