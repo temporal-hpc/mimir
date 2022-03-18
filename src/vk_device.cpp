@@ -153,7 +153,7 @@ VulkanBuffer VulkanDevice::createExternalBuffer(VkDeviceSize size,
   return createBuffer(size, usage, properties, &extmem_info, &export_info);
 }
 
-VulkanTexture VulkanDevice::createExternalImage(
+VulkanTexture VulkanDevice::createExternalImage(VkImageType type,
   VkFormat format, VkExtent3D extent, VkImageTiling tiling,
   VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props)
 {
@@ -162,14 +162,15 @@ VulkanTexture VulkanDevice::createExternalImage(
   ext_info.pNext = nullptr;
   ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
-  auto image_info = vkinit::imageCreateInfo(format, usage, extent);
+  // TODO: Check if texture is within bounds
+  //auto max_img_dim = properties.limits.maxImageDimension3D;
+
+  auto image_info = vkinit::imageCreateInfo(type, format, extent, usage);
   image_info.pNext         = &ext_info;
-  image_info.format        = format;
-  image_info.tiling        = tiling;
-  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-  image_info.samples       = VK_SAMPLE_COUNT_1_BIT;
   image_info.flags         = 0;
+  image_info.tiling        = tiling;
+  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
   VulkanTexture new_tex;
   validation::checkVulkan(

@@ -42,17 +42,23 @@ int main(int argc, char **argv){
     // original (3D)
     int *original = new int[n*n*n];
 
-    // secundario CPU (3D)
-    int *CPUd2 = new int[n*n*n];
-
     // punteros GPU (3D)
     int *d1, *d2;
+
+    int width = 900, height = 900;
+    VulkanEngine engine;
+    engine.init(width, height);
 
     // CREACION DE DATOS
     printf("Inicializando.................."); fflush(stdout);
     t1 = omp_get_wtime();
     init_prob(n, original, seed, prob);
-    gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
+
+    uint3 extent{(unsigned)n, (unsigned)n, (unsigned)n};
+    engine.registerStructuredMemory((void**)&d1, extent, sizeof(int),
+      DataDomain::Domain3D, DataFormat::Uint8
+    );
+    //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
     gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);
@@ -90,6 +96,9 @@ int main(int argc, char **argv){
         }
     }
     else{
+        // secundario CPU (3D)
+        int *CPUd2 = new int[n*n*n];
+
         // modo CPU (multicore segun nt escogido)
         for(int i=0; i<steps; ++i){
             printf("[CPU] Simulacion step=%i........", i);

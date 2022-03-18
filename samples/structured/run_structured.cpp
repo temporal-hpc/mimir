@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
     );
     engine.registerStructuredMemory((void**)&program.d_distances,
       {(unsigned)program.extent.x, (unsigned)program.extent.y, 1}, sizeof(float),
-      DataFormat::Float32
+      DataDomain::Domain2D, DataFormat::Float32
     );
 
     program.setInitialState();

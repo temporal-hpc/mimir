@@ -35,7 +35,8 @@ int main(int argc, char *argv[])
   VulkanEngine engine;
   engine.init(900, 900);
   engine.registerStructuredMemory((void**)&d_pixels,
-    {(unsigned)width, (unsigned)height, 1}, sizeof(uchar4), DataFormat::Rgba32
+    {(unsigned)width, (unsigned)height, 1}, sizeof(uchar4),
+    DataDomain::Domain2D, DataFormat::Rgba32
   );
 
   auto tex_size = sizeof(uchar4) * width * height;

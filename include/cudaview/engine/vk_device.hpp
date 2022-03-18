@@ -43,7 +43,7 @@ struct VulkanDevice
   VulkanBuffer createExternalBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties, VkExternalMemoryHandleTypeFlagsKHR handle_type
   );
-  VulkanTexture createExternalImage(VkFormat format, VkExtent3D extent,
+  VulkanTexture createExternalImage(VkImageType type, VkFormat format, VkExtent3D extent,
     VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props
   );
   VkSemaphore createExternalSemaphore();

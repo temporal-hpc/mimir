@@ -9,10 +9,10 @@ struct VulkanCudaDevice : public VulkanDevice
   using VulkanDevice::VulkanDevice;
 
   MappedUnstructuredMemory createUnstructuredBuffer(size_t elem_count,
-    size_t elem_size, UnstructuredDataType type, DataDomain domain
+    size_t elem_size, DataDomain domain, UnstructuredDataType type
   );
-  MappedStructuredMemory createStructuredBuffer(
-    uint3 buffer_size, size_t elem_size, DataFormat format
+  MappedStructuredMemory createStructuredBuffer(uint3 buffer_size, 
+    size_t elem_size, DataDomain domain, DataFormat format
   );
 
   void importCudaExternalMemory(void **cuda_ptr,

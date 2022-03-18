@@ -123,16 +123,16 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem, size_t elem_count,
   size_t elem_size, UnstructuredDataType type, DataDomain domain)
 {
-  auto mapped = dev->createUnstructuredBuffer(elem_count, elem_size, type, domain);
+  auto mapped = dev->createUnstructuredBuffer(elem_count, elem_size, domain, type);
   unstructured_buffers.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
 }
 
 void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
-  uint3 buffer_size, size_t elem_size, DataFormat format)
+  uint3 buffer_size, size_t elem_size, DataDomain domain, DataFormat format)
 {
-  auto mapped = dev->createStructuredBuffer(buffer_size, elem_size, format);
+  auto mapped = dev->createStructuredBuffer(buffer_size, elem_size, domain, format);
   structured_buffers.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;

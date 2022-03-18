@@ -52,8 +52,8 @@ VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
   const std::vector<VkDescriptorSetLayout>& layouts
 );
 
-VkImageCreateInfo imageCreateInfo(VkFormat format,
-  VkImageUsageFlags flags, VkExtent3D extent
+VkImageCreateInfo imageCreateInfo(VkImageType type,
+  VkFormat format, VkExtent3D extent, VkImageUsageFlags usage
 );
 
 VkImageViewCreateInfo imageViewCreateInfo(

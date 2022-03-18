@@ -4,9 +4,9 @@
 #include "internal/validation.hpp"
 
 MappedUnstructuredMemory VulkanCudaDevice::createUnstructuredBuffer(
-  size_t elem_count, size_t elem_size, UnstructuredDataType type, DataDomain domain)
+  size_t elem_count, size_t elem_size, DataDomain domain, UnstructuredDataType type)
 {
-  MappedUnstructuredMemory mapped(elem_count, elem_size, type, domain);
+  MappedUnstructuredMemory mapped(elem_count, elem_size, domain, type);
 
   VkBufferUsageFlagBits usage;
   if (mapped.data_type == UnstructuredDataType::Points)
@@ -35,13 +35,15 @@ MappedUnstructuredMemory VulkanCudaDevice::createUnstructuredBuffer(
 }
 
 MappedStructuredMemory VulkanCudaDevice::createStructuredBuffer(
-  uint3 buffer_size, size_t elem_size, DataFormat format)
+  uint3 buffer_size, size_t elem_size, DataDomain domain, DataFormat format)
 {
   VkExtent3D extent{buffer_size.x, buffer_size.y, buffer_size.z};
-  MappedStructuredMemory mapped(extent, elem_size, format);
+  MappedStructuredMemory mapped(extent, elem_size, domain, format);
 
   // Init structured memory
-  mapped.texture = createExternalImage(mapped.vk_format, extent,
+  auto img_type = getImageDimensions(domain);
+  mapped.texture = createExternalImage(img_type, mapped.vk_format, extent,
+    // TODO: Change to tiling_optimal and use linear staging buffer
     VK_IMAGE_TILING_LINEAR,
     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
@@ -109,8 +111,8 @@ void VulkanCudaDevice::importCudaExternalMemory(void **cuda_ptr,
 
   cudaExternalMemoryBufferDesc buffer_desc{};
   buffer_desc.offset = 0;
-  buffer_desc.size = size;
-  buffer_desc.flags = 0;
+  buffer_desc.size   = size;
+  buffer_desc.flags  = 0;
 
   validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
     cuda_ptr, cuda_mem, &buffer_desc)

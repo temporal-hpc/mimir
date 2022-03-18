@@ -210,20 +210,20 @@ VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
   return info;
 }
 
-VkImageCreateInfo imageCreateInfo(VkFormat format, VkImageUsageFlags flags,
-  VkExtent3D extent)
+VkImageCreateInfo imageCreateInfo(VkImageType type,
+  VkFormat format, VkExtent3D extent, VkImageUsageFlags usage)
 {
   VkImageCreateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   info.pNext = nullptr;
-  info.imageType   = VK_IMAGE_TYPE_2D;
+  info.imageType   = type;
   info.format      = format;
   info.extent      = extent;
   info.mipLevels   = 1;
   info.arrayLayers = 1;
   info.samples     = VK_SAMPLE_COUNT_1_BIT;
   info.tiling      = VK_IMAGE_TILING_OPTIMAL;
-  info.usage       = flags;
+  info.usage       = usage;
   return info;
 }
 
