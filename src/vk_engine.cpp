@@ -443,7 +443,7 @@ void VulkanEngine::cleanupSwapchain()
   vkDestroyPipeline(device, point3d_pipeline, nullptr);
   vkDestroyPipeline(device, mesh2d_pipeline, nullptr);
   vkDestroyPipeline(device, mesh3d_pipeline, nullptr);
-  vkDestroyPipeline(device, screen_pipeline, nullptr);
+  vkDestroyPipeline(device, texture2d_pipeline, nullptr);
   vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
   vkDestroyRenderPass(device, render_pass, nullptr);
   vkFreeCommandBuffers(
@@ -586,7 +586,27 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo();
   builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  screen_pipeline = builder.buildPipeline(device, render_pass);
+  texture2d_pipeline = builder.buildPipeline(device, render_pass);
+
+  vert_code   = io::readFile("shaders/structured/texture3d_quad.spv");
+  vert_module = createShaderModule(vert_code);
+
+  frag_code   = io::readFile("shaders/structured/texture3d_draw.spv");
+  frag_module = createShaderModule(frag_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo();
+  builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  texture3d_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
   vkDestroyShaderModule(device, frag_module, nullptr);
@@ -963,11 +983,22 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   auto cmd = command_buffers[image_idx];
   for (const auto& buffer : structured_buffers)
   {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, screen_pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-      pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-    );
-    vkCmdDraw(cmd, 3, 1, 0, 0); // Draw a screen-covering triangle
+    if (buffer.data_domain == DataDomain::Domain2D)
+    {
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texture2d_pipeline);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
+      vkCmdDraw(cmd, 3, 1, 0, 0); // Draw a screen-covering triangle
+    }
+    else if (buffer.data_domain == DataDomain::Domain3D)
+    {
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texture3d_pipeline);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
+      //vkCmdDraw(cmd, 3, 1, 0, 0); // Draw a screen-covering triangle
+    }
   }
 
   for (const auto& buffer : unstructured_buffers)

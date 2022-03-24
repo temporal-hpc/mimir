@@ -66,7 +66,8 @@ private:
   VkRenderPass render_pass = VK_NULL_HANDLE;
   VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
   VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-  VkPipeline screen_pipeline = VK_NULL_HANDLE;
+  VkPipeline texture2d_pipeline = VK_NULL_HANDLE;
+  VkPipeline texture3d_pipeline = VK_NULL_HANDLE;
   VkPipeline point2d_pipeline = VK_NULL_HANDLE;
   VkPipeline point3d_pipeline = VK_NULL_HANDLE;
   VkPipeline mesh2d_pipeline = VK_NULL_HANDLE;

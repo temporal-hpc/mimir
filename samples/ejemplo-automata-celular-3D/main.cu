@@ -56,7 +56,7 @@ int main(int argc, char **argv){
 
     uint3 extent{(unsigned)n, (unsigned)n, (unsigned)n};
     engine.registerStructuredMemory((void**)&d1, extent, sizeof(int),
-      DataDomain::Domain3D, DataFormat::Uint8
+      DataDomain::Domain3D, DataFormat::Int32
     );
     //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
     gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
@@ -70,6 +70,8 @@ int main(int argc, char **argv){
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
+    engine.displayAsync();
+
     // OJO: la cantidad total de threads tiene que ser Bx * By * Bz <= 1024
     dim3 block(B,B,B);
     dim3 grid((n+block.x-1)/block.x, (n+block.y-1)/block.y, (n+block.z-1)/block.z);
@@ -80,9 +82,14 @@ int main(int argc, char **argv){
             cudaEventRecord(start);
 
             // llamada al kernel
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            engine.prepareWindow();
+
             kernel_CA3D<<<grid, block>>>(n, d1, d2);
             gpuErrchk( cudaPeekAtLastError() );
             gpuErrchk( cudaDeviceSynchronize() );
+
+            engine.updateWindow();
 
             // tiempo y print
             cudaEventRecord(stop);
