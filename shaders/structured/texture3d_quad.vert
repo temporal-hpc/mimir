@@ -1,5 +1,8 @@
 #version 450
 
+layout(location = 0) in vec3 in_pos;
+layout(location = 1) in vec2 in_uv;
+
 layout(binding = 0) uniform ModelViewProjection
 {
   mat4 model;
@@ -9,10 +12,8 @@ layout(binding = 0) uniform ModelViewProjection
 
 layout(location = 0) out vec2 out_uv;
 
-// Render a fullscren texture without buffers
-// Uses a single triangle instead of a 2-triangle quad
 void main()
 {
-  out_uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-  gl_Position = mvp.proj * mvp.view * mvp.model * vec4(out_uv * 2.f - 1.f, 1.f, 1.f);
+  out_uv = in_uv;
+  gl_Position = mvp.proj * mvp.view * mvp.model * vec4(in_pos, 1.f);
 }

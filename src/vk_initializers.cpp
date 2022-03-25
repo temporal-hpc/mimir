@@ -320,4 +320,15 @@ VkSamplerCreateInfo samplerCreateInfo(VkFilter filters, VkSamplerAddressMode mod
   return info;
 }
 
+VkVertexInputAttributeDescription vertexDescription(
+  uint32_t location, uint32_t binding, VkFormat format, uint32_t offset)
+{
+  VkVertexInputAttributeDescription desc{};
+  desc.location = location;
+  desc.binding  = binding;
+  desc.format   = format;
+  desc.offset   = offset;
+  return desc;
+}
+
 } // namespace vkinit

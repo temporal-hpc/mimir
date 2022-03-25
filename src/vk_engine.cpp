@@ -614,12 +614,12 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.clear();
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo();
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
   builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   texture3d_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
-  vkDestroyShaderModule(device, frag_module, nullptr);
+  /*vkDestroyShaderModule(device, frag_module, nullptr);
 
   vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
   vert_module = createShaderModule(vert_code);
@@ -657,7 +657,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(frag_info);
   mesh3d_pipeline = builder.buildPipeline(device, render_pass);
 
-  vkDestroyShaderModule(device, vert_module, nullptr);
+  vkDestroyShaderModule(device, vert_module, nullptr);*/
   vkDestroyShaderModule(device, frag_module, nullptr);
 
   // Restore original working directory

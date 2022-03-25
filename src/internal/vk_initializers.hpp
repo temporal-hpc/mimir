@@ -80,4 +80,8 @@ VkSamplerCreateInfo samplerCreateInfo(VkFilter filters,
   VkSamplerAddressMode mode = VK_SAMPLER_ADDRESS_MODE_REPEAT
 );
 
+VkVertexInputAttributeDescription vertexDescription(
+  uint32_t location, uint32_t binding, VkFormat format, uint32_t offset
+);
+
 } // namespace vkinit
