@@ -611,6 +611,7 @@ void VulkanEngine::createGraphicsPipelines()
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
   );
 
+  getVertexDescriptionsVert(bind_desc, attr_desc);
   builder.shader_stages.clear();
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
@@ -619,7 +620,7 @@ void VulkanEngine::createGraphicsPipelines()
   texture3d_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
-  /*vkDestroyShaderModule(device, frag_module, nullptr);
+  vkDestroyShaderModule(device, frag_module, nullptr);
 
   vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
   vert_module = createShaderModule(vert_code);
@@ -634,7 +635,7 @@ void VulkanEngine::createGraphicsPipelines()
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
   );
 
-  getVertexDescriptionsVert(bind_desc, attr_desc);
+  getVertexDescriptions2d(bind_desc, attr_desc);
   builder.shader_stages.clear();
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
@@ -657,7 +658,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(frag_info);
   mesh3d_pipeline = builder.buildPipeline(device, render_pass);
 
-  vkDestroyShaderModule(device, vert_module, nullptr);*/
+  vkDestroyShaderModule(device, vert_module, nullptr);
   vkDestroyShaderModule(device, frag_module, nullptr);
 
   // Restore original working directory
@@ -1044,23 +1045,19 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     if (buffer.data_domain == DataDomain::Domain2D)
     {
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texture2d_pipeline);
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-      );
-
-      VkDeviceSize offsets[1] = {0};
-      vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets);
-      vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
-      vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
     }
     else if (buffer.data_domain == DataDomain::Domain3D)
     {
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texture3d_pipeline);
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-      );
-      //vkCmdDraw(cmd, 3, 1, 0, 0); // Draw a screen-covering triangle
     }
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+    );
+
+    VkDeviceSize offsets[1] = {0};
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets);
+    vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
   }
 
   for (const auto& buffer : unstructured_buffers)
