@@ -78,6 +78,8 @@ private:
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
   VulkanBuffer ubo;
+  VulkanBuffer vertex_buffer;
+  VulkanBuffer index_buffer;
   DeletionQueue deletors;
 
   // Synchronization structures
@@ -113,6 +115,10 @@ private:
     std::vector<VkVertexInputAttributeDescription>& attr_desc
   );
   void getVertexDescriptions3d(
+    std::vector<VkVertexInputBindingDescription>& bind_desc,
+    std::vector<VkVertexInputAttributeDescription>& attr_desc
+  );
+  void getVertexDescriptionsVert(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
     std::vector<VkVertexInputAttributeDescription>& attr_desc
   );
@@ -164,7 +170,7 @@ private:
 
   // Swapchain subroutines
   void createGraphicsPipelines();
-  void createUniformBuffers();
+  void createBuffers();
   void createDescriptorPool();
   void createDescriptorSets();
   void updateDescriptorSets();

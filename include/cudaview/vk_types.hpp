@@ -23,3 +23,9 @@ struct SceneParams
 {
   glm::ivec3 extent;
 };
+
+struct Vertex {
+  glm::vec3 pos;
+  glm::vec2 uv;
+  //glm::vec3 normal;
+};

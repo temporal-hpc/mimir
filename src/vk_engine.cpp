@@ -41,6 +41,11 @@ VulkanEngine::~VulkanEngine()
 
   cleanupSwapchain();
 
+  vkDestroyBuffer(device, vertex_buffer.buffer, nullptr);
+  vkFreeMemory(device, vertex_buffer.memory, nullptr);
+  vkDestroyBuffer(device, index_buffer.buffer, nullptr);
+  vkFreeMemory(device, index_buffer.memory, nullptr);
+
   ImGui_ImplVulkan_Shutdown();
   deletors.flush();
   fbs.clear();
@@ -444,6 +449,7 @@ void VulkanEngine::cleanupSwapchain()
   vkDestroyPipeline(device, mesh2d_pipeline, nullptr);
   vkDestroyPipeline(device, mesh3d_pipeline, nullptr);
   vkDestroyPipeline(device, texture2d_pipeline, nullptr);
+  vkDestroyPipeline(device, texture3d_pipeline, nullptr);
   vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
   vkDestroyRenderPass(device, render_pass, nullptr);
   vkFreeCommandBuffers(
@@ -474,7 +480,7 @@ void VulkanEngine::initSwapchain()
   }
 
   createGraphicsPipelines();
-  createUniformBuffers();
+  createBuffers();
   createDescriptorSets();
   updateDescriptorSets();
 }
@@ -581,12 +587,16 @@ void VulkanEngine::createGraphicsPipelines()
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
   );
 
+  getVertexDescriptionsVert(bind_desc, attr_desc);
   builder.shader_stages.clear();
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo();
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
   builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   texture2d_pipeline = builder.buildPipeline(device, render_pass);
+
+  vkDestroyShaderModule(device, vert_module, nullptr);
+  vkDestroyShaderModule(device, frag_module, nullptr);
 
   vert_code   = io::readFile("shaders/structured/texture3d_quad.spv");
   vert_module = createShaderModule(vert_code);
@@ -624,7 +634,7 @@ void VulkanEngine::createGraphicsPipelines()
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
   );
 
-  getVertexDescriptions2d(bind_desc, attr_desc);
+  getVertexDescriptionsVert(bind_desc, attr_desc);
   builder.shader_stages.clear();
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
@@ -686,6 +696,27 @@ void VulkanEngine::getVertexDescriptions3d(
   attr_desc[0].offset = 0;
 }
 
+void VulkanEngine::getVertexDescriptionsVert(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0].binding = 0;
+  bind_desc[0].stride = sizeof(Vertex);
+  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  attr_desc.resize(2);
+  attr_desc[0].binding = 0;
+  attr_desc[0].location = 0;
+  attr_desc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attr_desc[0].offset = offsetof(Vertex, pos);
+
+  attr_desc[1].binding = 0;
+  attr_desc[1].location = 1;
+  attr_desc[1].format = VK_FORMAT_R32G32_SFLOAT;
+  attr_desc[1].offset = offsetof(Vertex, uv);
+}
+
 size_t getAlignedUniformSize(size_t original_size, size_t min_alignment)
 {
 	// Calculate required alignment based on minimum device offset alignment
@@ -696,7 +727,7 @@ size_t getAlignedUniformSize(size_t original_size, size_t min_alignment)
 	return aligned_size;
 }
 
-void VulkanEngine::createUniformBuffers()
+void VulkanEngine::createBuffers()
 {
   auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
   auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
@@ -708,6 +739,33 @@ void VulkanEngine::createUniformBuffers()
   ubo = dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
   );
+
+  const std::vector<Vertex> vertices{
+		{ {  1.f,  1.f, 1.f }, { 1.f, 1.f } },
+		{ { -1.f,  1.f, 1.f }, { 0.f, 1.f } },
+		{ { -1.f, -1.f, 1.f }, { 0.f, 0.f } },
+		{ {  1.f, -1.f, 1.f }, { 1.f, 0.f } }
+	};
+  // Indices for a single uv-mapped quad made from two triangles
+  const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0 };
+
+  auto vert_size = sizeof(Vertex) * vertices.size();
+  vertex_buffer = dev->createBuffer(vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+  );
+  char *data = nullptr;
+  vkMapMemory(device, vertex_buffer.memory, 0, vert_size, 0, (void**)&data);
+  std::memcpy(data, vertices.data(), vert_size);
+  vkUnmapMemory(device, vertex_buffer.memory);
+
+  auto idx_size = sizeof(uint32_t) * indices.size();
+  index_buffer = dev->createBuffer(idx_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+  );
+  data = nullptr;
+  vkMapMemory(device, index_buffer.memory, 0, idx_size, 0, (void**)&data);
+  std::memcpy(data, indices.data(), idx_size);
+  vkUnmapMemory(device, index_buffer.memory);
 }
 
 void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
@@ -989,7 +1047,11 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      vkCmdDraw(cmd, 3, 1, 0, 0); // Draw a screen-covering triangle
+
+      VkDeviceSize offsets[1] = {0};
+      vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets);
+      vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+      vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
     }
     else if (buffer.data_domain == DataDomain::Domain3D)
     {
