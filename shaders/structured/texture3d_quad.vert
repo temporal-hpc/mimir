@@ -21,5 +21,7 @@ layout(location = 0) out vec3 out_uv;
 void main()
 {
   out_uv = vec3(in_uv, scene.depth);
-  gl_Position = mvp.proj * mvp.view * mvp.model * vec4(in_pos, 1.f);
+  vec3 pos = in_pos;
+  pos.z -= scene.depth;
+  gl_Position = mvp.proj * mvp.view * mvp.model * vec4(pos, 1.f);
 }
