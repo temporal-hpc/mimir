@@ -1,6 +1,8 @@
 #include "cudaview/vk_engine.hpp"
 #include "internal/camera.hpp"
 
+#include <algorithm>
+
 void VulkanEngine::setBackgroundColor(color::rgba<float> color)
 {
   bg_color = color;
@@ -88,6 +90,18 @@ void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int actio
 {
   auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
   app->handleMouseButton(button, action);
+}
+
+void VulkanEngine::handleScroll(float xoffset, float yoffset)
+{
+  depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
+  printf("depth= %f, offset= %f\n", depth, yoffset);
+}
+
+void VulkanEngine::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+{
+  auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+  app->handleScroll(static_cast<float>(xoffset), static_cast<float>(yoffset));
 }
 
 void VulkanEngine::framebufferResizeCallback(GLFWwindow *window, int width, int height)

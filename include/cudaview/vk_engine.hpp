@@ -143,9 +143,12 @@ private:
   float2 mouse_pos;
   void handleMouseMove(float x, float y);
   void handleMouseButton(int button, int action);
+  void handleScroll(float xoffset, float yoffset);
   static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
   static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
   static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
+  static void scrollCallback(GLFWwindow *window, double xoffset, double yoffset);
+  float depth = 0.01f;
   std::unique_ptr<Camera> camera;
 
   void initVulkan();

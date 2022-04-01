@@ -22,6 +22,7 @@ struct ColorParams
 struct SceneParams
 {
   glm::ivec3 extent;
+  float depth;
 };
 
 struct Vertex {

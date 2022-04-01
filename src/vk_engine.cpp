@@ -72,6 +72,7 @@ void VulkanEngine::init(int width, int height)
   glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
   glfwSetCursorPosCallback(window, cursorPositionCallback);
   glfwSetMouseButtonCallback(window, mouseButtonCallback);
+  glfwSetScrollCallback(window, scrollCallback);
 
   initVulkan();
 
@@ -791,14 +792,15 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   colors.point_color = color::getColor(point_color);
   colors.edge_color  = color::getColor(edge_color);
 
-  SceneParams params{};
-  params.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
+  SceneParams scene{};
+  scene.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
+  scene.depth = depth;
 
   char *data = nullptr;
   vkMapMemory(device, ubo.memory, offset, size_ubo, 0, (void**)&data);
   std::memcpy(data, &mvp, sizeof(mvp));
   std::memcpy(data + size_mvp, &colors, sizeof(colors));
-  std::memcpy(data + size_mvp + size_colors, &params, sizeof(params));
+  std::memcpy(data + size_mvp + size_colors, &scene, sizeof(scene));
   vkUnmapMemory(device, ubo.memory);
 }
 

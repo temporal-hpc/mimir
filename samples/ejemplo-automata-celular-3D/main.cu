@@ -58,11 +58,11 @@ int main(int argc, char **argv){
     engine.registerStructuredMemory((void**)&d1, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32
     );
-    engine.registerStructuredMemory((void**)&d2, extent, sizeof(int),
+    /*engine.registerStructuredMemory((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32
-    );
+    );*/
     //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
-    //gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
+    gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);
 

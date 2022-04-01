@@ -9,13 +9,17 @@ layout(binding = 0) uniform ModelViewProjection
   mat4 view;
   mat4 proj;
 } mvp;
-// TODO: Add depth uniform (probably on another binding)
+
+layout(binding = 1) uniform UniformDataParams
+{
+  ivec3 extent;
+  float depth;
+} scene;
 
 layout(location = 0) out vec3 out_uv;
 
 void main()
 {
-  float depth = 0.f;
-  out_uv = vec3(in_uv, depth);
+  out_uv = vec3(in_uv, scene.depth);
   gl_Position = mvp.proj * mvp.view * mvp.model * vec4(in_pos, 1.f);
 }
