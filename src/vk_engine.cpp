@@ -93,13 +93,35 @@ void VulkanEngine::displayAsync()
       glfwPollEvents(); // TODO: Move to main thread
       drawGui();
 
-      std::unique_lock<std::mutex> lock(mutex);
-      cond.wait(lock, [&]{ return device_working == false; });
+      std::unique_lock<std::mutex> ul(mutex);
+      cond.wait(ul, [&]{ return device_working == false; });
       renderFrame();
-      lock.unlock();
+      ul.unlock();
     }
     vkDeviceWaitIdle(device);
   });
+}
+
+void VulkanEngine::prepareWindow()
+{
+  device_working = true;
+  std::unique_lock<std::mutex> ul(mutex);
+  cudaSemaphoreWait();
+  ul.unlock();
+  cond.notify_one();
+}
+
+void VulkanEngine::updateWindow()
+{
+  std::unique_lock<std::mutex> ul(mutex);
+  for (auto structured : structured_buffers)
+  {
+    dev->updateStructuredBuffer(structured);
+  }
+  device_working = false;
+  cudaSemaphoreSignal();
+  ul.unlock();
+  cond.notify_one();
 }
 
 void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
@@ -420,24 +442,6 @@ void VulkanEngine::cudaSemaphoreSignal()
   validation::checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
     &cuda_signal_semaphore, &signal_params, 1, stream)
   );
-}
-
-void VulkanEngine::prepareWindow()
-{
-  std::unique_lock<std::mutex> ul(mutex);
-  device_working = true;
-  cudaSemaphoreWait();
-  ul.unlock();
-  cond.notify_one();
-}
-
-void VulkanEngine::updateWindow()
-{
-  std::unique_lock<std::mutex> ul(mutex);
-  device_working = false;
-  cudaSemaphoreSignal();
-  ul.unlock();
-  cond.notify_one();
 }
 
 void VulkanEngine::cleanupSwapchain()
@@ -1107,17 +1111,17 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
 void VulkanEngine::createTextureSampler()
 {
   auto max_anisotropy = dev->properties.limits.maxSamplerAnisotropy;
-  auto sampler_info = vkinit::samplerCreateInfo(VK_FILTER_LINEAR);
-  sampler_info.anisotropyEnable        = VK_TRUE;
-  sampler_info.maxAnisotropy           = max_anisotropy;
-  sampler_info.borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  sampler_info.unnormalizedCoordinates = VK_FALSE;
-  sampler_info.compareEnable           = VK_FALSE;
-  sampler_info.compareOp               = VK_COMPARE_OP_ALWAYS;
+  auto sampler_info = vkinit::samplerCreateInfo(VK_FILTER_NEAREST);
   sampler_info.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
   sampler_info.mipLodBias              = 0.f;
+  sampler_info.anisotropyEnable        = VK_TRUE;
+  sampler_info.maxAnisotropy           = max_anisotropy;
+  sampler_info.compareEnable           = VK_TRUE;
+  sampler_info.compareOp               = VK_COMPARE_OP_NEVER;
   sampler_info.minLod                  = 0.f;
   sampler_info.maxLod                  = 0.f;
+  sampler_info.borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+  sampler_info.unnormalizedCoordinates = VK_FALSE;
 
   validation::checkVulkan(
     vkCreateSampler(device, &sampler_info, nullptr, &texture_sampler)

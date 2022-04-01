@@ -238,10 +238,10 @@ VkImageViewCreateInfo imageViewCreateInfo(VkImage image,
   info.viewType = view_type;
   info.format   = format;
   // Default mapping of all color channels
-  info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-  info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-  info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-  info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+  info.components.r = VK_COMPONENT_SWIZZLE_R;
+  info.components.g = VK_COMPONENT_SWIZZLE_G;
+  info.components.b = VK_COMPONENT_SWIZZLE_B;
+  info.components.a = VK_COMPONENT_SWIZZLE_A;
   // Describe image purpose and which part of it should be accesssed
   info.subresourceRange.baseMipLevel   = 0;
   info.subresourceRange.levelCount     = 1;

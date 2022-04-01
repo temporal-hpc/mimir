@@ -58,10 +58,16 @@ int main(int argc, char **argv){
     engine.registerStructuredMemory((void**)&d1, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32
     );
+    engine.registerStructuredMemory((void**)&d2, extent, sizeof(int),
+      DataDomain::Domain3D, DataFormat::Int32
+    );
     //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
-    gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
+    //gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);
+
+    engine.displayAsync();
+    engine.updateWindow();
 
     // ejecucion
     print_cube(n, original, "INPUT");
@@ -69,8 +75,6 @@ int main(int argc, char **argv){
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-
-    engine.displayAsync();
 
     // OJO: la cantidad total de threads tiene que ser Bx * By * Bz <= 1024
     dim3 block(B,B,B);

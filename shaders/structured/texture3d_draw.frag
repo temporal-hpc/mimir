@@ -1,6 +1,6 @@
 #version 450
 
-layout(binding = 3) uniform sampler3D tex_sampler;
+layout(binding = 3) uniform isampler3D tex_sampler;
 
 layout(location = 0) in vec3 tex_uv;
 
@@ -9,10 +9,9 @@ layout(location = 0) out vec4 frag_color;
 void main()
 {
   // Display texture coordinates as colors
-  //frag_color = vec4(tex_uv, 0.f, 1.f);
+  //frag_color = vec4(tex_uv, 1.f);
 
   // Display sampled texture
-  //frag_color = texture(tex_sampler, tex_uv);
-  float dist = texture(tex_sampler, tex_uv).x;
-  frag_color = vec4(vec3(dist), 1.f);
+  ivec4 color = texture(tex_sampler, tex_uv);
+  frag_color = vec4(vec3(color.r), 1.f);
 }

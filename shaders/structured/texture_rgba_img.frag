@@ -3,6 +3,7 @@
 layout(binding = 3) uniform sampler2D tex_sampler;
 
 layout(location = 0) in vec2 tex_uv;
+
 layout(location = 0) out vec4 frag_color;
 
 void main()
