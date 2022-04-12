@@ -50,9 +50,9 @@ struct VulkanDevice
   void transitionImageLayout(VkImage image, VkFormat format,
     VkImageLayout old_layout, VkImageLayout new_layout
   );
+  uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags mem_props);
 
 private:
-  uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags mem_props);
   VulkanBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags props, const void *extmem_info, const void *export_info
   );

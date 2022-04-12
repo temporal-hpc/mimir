@@ -1,5 +1,7 @@
 #include "internal/vk_pipeline.hpp"
 
+#include "internal/vk_initializers.hpp"
+
 VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
 {
   // Combine viewport and scissor rectangle into a viewport state
@@ -26,6 +28,8 @@ VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
   color_blend.blendConstants[2] = 0.f;
   color_blend.blendConstants[3] = 0.f;
 
+  auto depth_stencil = vkinit::depthStencilCreateInfo(true, true, VK_COMPARE_OP_LESS);
+
   // Build the pipeline
   VkGraphicsPipelineCreateInfo pipeline_info{};
   pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -37,7 +41,7 @@ VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
   pipeline_info.pViewportState      = &viewport_state;
   pipeline_info.pRasterizationState = &rasterizer;
   pipeline_info.pMultisampleState   = &multisampling;
-  pipeline_info.pDepthStencilState  = nullptr;
+  pipeline_info.pDepthStencilState  = &depth_stencil;
   pipeline_info.pColorBlendState    = &color_blend;
   pipeline_info.pDynamicState       = nullptr;
   pipeline_info.layout              = pipeline_layout;

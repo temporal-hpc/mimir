@@ -472,16 +472,57 @@ void VulkanEngine::initSwapchain()
   std::vector queue_indices{dev->graphics.family_index, dev->present.family_index};
   swap->create(width, height, queue_indices, dev->physical_device, dev->logical_device);
   command_buffers = dev->createCommandBuffers(swap->image_count);
-  render_pass = createRenderPass(device, swap->color_format);
+  render_pass = createRenderPass();
 
   auto images = swap->createImages(device);
+
+  auto depth_fmt = findDepthFormat();
+  VkExtent3D extent{ width, height, 1 };
+  auto type = VK_IMAGE_TYPE_2D;
+  auto usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+  auto image_info = vkinit::imageCreateInfo(type, depth_fmt, extent, usage);
+  image_info.pNext         = nullptr;
+  image_info.flags         = 0;
+  image_info.tiling        = VK_IMAGE_TILING_OPTIMAL;
+  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  validation::checkVulkan(
+    vkCreateImage(device, &image_info, nullptr, &depth_image)
+  );
+
+  VkMemoryRequirements mem_req;
+  vkGetImageMemoryRequirements(device, depth_image, &mem_req);
+  VkMemoryAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  alloc_info.pNext = nullptr;
+  alloc_info.allocationSize = mem_req.size;
+  alloc_info.memoryTypeIndex = dev->findMemoryType(
+    mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+  );
+  validation::checkVulkan(
+    vkAllocateMemory(device, &alloc_info, nullptr, &depth_memory)
+  );
+  vkBindImageMemory(device, depth_image, depth_memory, 0);
+
+  auto view_info = vkinit::imageViewCreateInfo(
+    depth_image, VK_IMAGE_VIEW_TYPE_2D, depth_fmt, VK_IMAGE_ASPECT_DEPTH_BIT
+  );
+  validation::checkVulkan(
+    vkCreateImageView(device, &view_info, nullptr, &depth_view)
+  );
+
+  deletors.pushFunction([=]{
+    vkDestroyImageView(device, depth_view, nullptr);
+    vkDestroyImage(device, depth_image, nullptr);
+    vkFreeMemory(device, depth_memory, nullptr);
+  });
 
   fbs.resize(swap->image_count);
   for (size_t i = 0; i < swap->image_count; ++i)
   {
     // Create a basic image view to be used as color target
     fbs[i].addAttachment(device, images[i], swap->color_format);
-    fbs[i].create(device, render_pass, swap->swapchain_extent);
+    fbs[i].create(device, render_pass, swap->swapchain_extent, depth_view);
   }
 
   createGraphicsPipelines();
@@ -750,10 +791,14 @@ void VulkanEngine::createBuffers()
 		{ {  1.f,  1.f, 1.f }, { 1.f, 1.f } },
 		{ { -1.f,  1.f, 1.f }, { 0.f, 1.f } },
 		{ { -1.f, -1.f, 1.f }, { 0.f, 0.f } },
-		{ {  1.f, -1.f, 1.f }, { 1.f, 0.f } }
+		{ {  1.f, -1.f, 1.f }, { 1.f, 0.f } }/*,
+    { {  1.f,  1.f, .5f }, { 1.f, 1.f } },
+    { { -1.f,  1.f, .5f }, { 0.f, 1.f } },
+    { { -1.f, -1.f, .5f }, { 0.f, 0.f } },
+    { {  1.f, -1.f, .5f }, { 1.f, 0.f } }*/
 	};
   // Indices for a single uv-mapped quad made from two triangles
-  const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0 };
+  const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0, /*4, 5, 6, 6, 7, 4*/ };
 
   auto vert_size = sizeof(Vertex) * vertices.size();
   vertex_buffer = dev->createBuffer(vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -974,10 +1019,11 @@ void VulkanEngine::renderFrame()
   auto render_pass_info = vkinit::renderPassBeginInfo(
     render_pass, swap->swapchain_extent, fbs[image_idx].framebuffer
   );
-  VkClearValue clear_color;
-  color::setColor(clear_color.color.float32, bg_color);
-  render_pass_info.clearValueCount = 1;
-  render_pass_info.pClearValues    = &clear_color;
+  std::array<VkClearValue, 2> clear_values{};
+  color::setColor(clear_values[0].color.float32, bg_color);
+  clear_values[1].depthStencil = {1.f, 0};
+  render_pass_info.clearValueCount = clear_values.size();
+  render_pass_info.pClearValues    = clear_values.data();
 
   vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -1063,7 +1109,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     VkDeviceSize offsets[1] = {0};
     vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets);
     vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
-    vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+    vkCmdDrawIndexed(cmd, 6 * 2, 1, 0, 0, 0);
   }
 
   for (const auto& buffer : unstructured_buffers)
@@ -1131,4 +1177,105 @@ void VulkanEngine::createTextureSampler()
   deletors.pushFunction([=]{
     vkDestroySampler(device, texture_sampler, nullptr);
   });
+}
+
+bool VulkanEngine::hasStencil(VkFormat format)
+{
+  return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+}
+
+VkFormat VulkanEngine::findDepthFormat()
+{
+  return findSupportedFormat(
+    {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+    VK_IMAGE_TILING_OPTIMAL,
+    VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+  );
+}
+
+VkFormat VulkanEngine::findSupportedFormat(const std::vector<VkFormat>& candidates,
+  VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+  for (auto format : candidates)
+  {
+    VkFormatProperties props;
+    vkGetPhysicalDeviceFormatProperties(dev->physical_device, format, &props);
+
+    if (tiling == VK_IMAGE_TILING_LINEAR &&
+      (props.linearTilingFeatures & features) == features)
+    {
+      return format;
+    }
+    else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
+      (props.optimalTilingFeatures & features) == features)
+    {
+      return format;
+    }
+  }
+  return VK_FORMAT_UNDEFINED;
+}
+
+VkRenderPass VulkanEngine::createRenderPass()
+{
+  VkAttachmentDescription depth_attachment{};
+  depth_attachment.format = findDepthFormat();
+  depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+  VkAttachmentReference depth_attachment_ref{};
+  depth_attachment_ref.attachment = 1;
+  depth_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+  VkAttachmentDescription color_attachment{};
+  color_attachment.format         = swap->color_format;
+  color_attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+  color_attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+  color_attachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  color_attachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+  color_attachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+  VkAttachmentReference color_attachment_ref{};
+  color_attachment_ref.attachment = 0;
+  color_attachment_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+  VkSubpassDescription subpass{};
+  subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass.colorAttachmentCount    = 1;
+  subpass.pColorAttachments       = &color_attachment_ref;
+  subpass.pDepthStencilAttachment = &depth_attachment_ref;
+
+  // Specify memory and execution dependencies between subpasses
+  VkSubpassDependency dependency{};
+  dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
+  dependency.dstSubpass    = 0;
+  dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependency.srcAccessMask = 0;
+  dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+  std::array<VkAttachmentDescription, 2> attachments{ color_attachment, depth_attachment };
+  VkRenderPassCreateInfo pass_info{};
+  pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  pass_info.attachmentCount = attachments.size();
+  pass_info.pAttachments    = attachments.data();
+  pass_info.subpassCount    = 1;
+  pass_info.pSubpasses      = &subpass;
+  pass_info.dependencyCount = 1;
+  pass_info.pDependencies   = &dependency;
+
+  VkRenderPass render_pass;
+  validation::checkVulkan(
+    vkCreateRenderPass(device, &pass_info, nullptr, &render_pass)
+  );
+  return render_pass;
 }

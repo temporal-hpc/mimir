@@ -82,6 +82,11 @@ private:
   VulkanBuffer index_buffer;
   DeletionQueue deletors;
 
+  // Depth buffer
+  VkImage depth_image;
+  VkDeviceMemory depth_memory;
+  VkImageView depth_view;
+
   // Synchronization structures
   std::vector<VkFence> images_inflight;
   VkSemaphore vk_wait_semaphore = VK_NULL_HANDLE;
@@ -177,4 +182,13 @@ private:
   void createDescriptorPool();
   void createDescriptorSets();
   void updateDescriptorSets();
+
+  // Depth buffering
+  bool hasStencil(VkFormat format);
+  VkFormat findDepthFormat();
+  VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates,
+    VkImageTiling tiling, VkFormatFeatureFlags features
+  );
+
+  VkRenderPass createRenderPass();
 };

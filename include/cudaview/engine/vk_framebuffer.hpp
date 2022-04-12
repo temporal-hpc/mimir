@@ -24,7 +24,9 @@ struct VulkanFramebuffer
 
   ~VulkanFramebuffer();
   void createSampler(VkDevice device);
-  void create(VkDevice device, VkRenderPass render_pass, VkExtent2D extent);
+  void create(VkDevice device, VkRenderPass render_pass, VkExtent2D extent,
+    VkImageView depth_view
+  );
   uint32_t addAttachment(VkDevice device, VkImage image, VkFormat format);
 };
 
