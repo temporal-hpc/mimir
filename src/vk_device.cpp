@@ -89,7 +89,7 @@ VkCommandPool VulkanDevice::createCommandPool(
   uint32_t queue_idx, VkCommandPoolCreateFlags flags)
 {
   VkCommandPool new_pool = VK_NULL_HANDLE;
-  auto pool_info = vkinit::commandPoolCreateInfo(queue_idx, flags);
+  auto pool_info = vkinit::commandPoolCreateInfo(flags, queue_idx);
   validation::checkVulkan(vkCreateCommandPool(
     logical_device, &pool_info, nullptr, &new_pool)
   );
@@ -103,7 +103,9 @@ VkCommandPool VulkanDevice::createCommandPool(
 std::vector<VkCommandBuffer> VulkanDevice::createCommandBuffers(uint32_t buffer_count)
 {
   std::vector<VkCommandBuffer> buffers(buffer_count, VK_NULL_HANDLE);
-  auto alloc_info = vkinit::commandBufferAllocateInfo(command_pool, buffer_count);
+  auto alloc_info = vkinit::commandBufferAllocateInfo(
+    command_pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, buffer_count
+  );
   validation::checkVulkan(vkAllocateCommandBuffers(
     logical_device, &alloc_info, buffers.data())
   );

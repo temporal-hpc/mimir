@@ -8,25 +8,6 @@ VulkanFramebuffer::~VulkanFramebuffer()
   deletors.flush();
 }
 
-void VulkanFramebuffer::createSampler(VkDevice device)
-{
-  auto sampler_info = vkinit::samplerCreateInfo(VK_FILTER_LINEAR);
-  sampler_info.anisotropyEnable        = VK_TRUE;
-  //sampler_info.maxAnisotropy           = max_anisotropy;
-  sampler_info.borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  sampler_info.unnormalizedCoordinates = VK_FALSE;
-  sampler_info.compareEnable           = VK_FALSE;
-  sampler_info.compareOp               = VK_COMPARE_OP_ALWAYS;
-  sampler_info.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  sampler_info.mipLodBias              = 0.f;
-  sampler_info.minLod                  = 0.f;
-  sampler_info.maxLod                  = 0.f;
-
-  validation::checkVulkan(
-    vkCreateSampler(device, &sampler_info, nullptr, &sampler)
-  );
-}
-
 uint32_t VulkanFramebuffer::addAttachment(VkDevice device,
   VkImage image, VkFormat format)
 {

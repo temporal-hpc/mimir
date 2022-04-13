@@ -5,10 +5,7 @@
 VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
 {
   // Combine viewport and scissor rectangle into a viewport state
-  // Only one viewport and scissor is supported at the moment
-  VkPipelineViewportStateCreateInfo viewport_state{};
-  viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-  viewport_state.pNext = nullptr;
+  auto viewport_state = vkinit::viewportCreateInfo();
   viewport_state.viewportCount = 1;
   viewport_state.pViewports    = &viewport;
   viewport_state.scissorCount  = 1;
@@ -16,24 +13,14 @@ VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
 
   // Setup dummy color blending with no transparency
   // Write to color attachment with no actual blending being done
-  VkPipelineColorBlendStateCreateInfo color_blend{};
-  color_blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-  color_blend.pNext = nullptr;
-  color_blend.logicOpEnable     = VK_FALSE;
-  color_blend.logicOp           = VK_LOGIC_OP_COPY;
-  color_blend.attachmentCount   = 1;
-  color_blend.pAttachments      = &color_blend_attachment;
-  color_blend.blendConstants[0] = 0.f;
-  color_blend.blendConstants[1] = 0.f;
-  color_blend.blendConstants[2] = 0.f;
-  color_blend.blendConstants[3] = 0.f;
+  auto color_blend = vkinit::colorBlendInfo();
+  color_blend.attachmentCount = 1;
+  color_blend.pAttachments    = &color_blend_attachment;
 
   auto depth_stencil = vkinit::depthStencilCreateInfo(true, true, VK_COMPARE_OP_LESS);
 
   // Build the pipeline
-  VkGraphicsPipelineCreateInfo pipeline_info{};
-  pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-  pipeline_info.pNext = nullptr;
+  auto pipeline_info = vkinit::pipelineCreateInfo(pipeline_layout, pass);
   pipeline_info.stageCount          = shader_stages.size();
   pipeline_info.pStages             = shader_stages.data();
   pipeline_info.pVertexInputState   = &vertex_input_info;
@@ -43,12 +30,6 @@ VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
   pipeline_info.pMultisampleState   = &multisampling;
   pipeline_info.pDepthStencilState  = &depth_stencil;
   pipeline_info.pColorBlendState    = &color_blend;
-  pipeline_info.pDynamicState       = nullptr;
-  pipeline_info.layout              = pipeline_layout;
-  pipeline_info.renderPass          = pass;
-  pipeline_info.subpass             = 0;
-  pipeline_info.basePipelineHandle  = VK_NULL_HANDLE;
-  pipeline_info.basePipelineIndex   = -1;
 
   VkPipeline new_pipeline;
   auto result = vkCreateGraphicsPipelines(

@@ -481,11 +481,6 @@ void VulkanEngine::initSwapchain()
   auto type = VK_IMAGE_TYPE_2D;
   auto usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
   auto image_info = vkinit::imageCreateInfo(type, depth_fmt, extent, usage);
-  image_info.pNext         = nullptr;
-  image_info.flags         = 0;
-  image_info.tiling        = VK_IMAGE_TILING_OPTIMAL;
-  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   validation::checkVulkan(
     vkCreateImage(device, &image_info, nullptr, &depth_image)
   );
@@ -596,7 +591,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.scissor.offset    = {0, 0};
   builder.scissor.extent    = swap->swapchain_extent;
   builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  builder.multisampling     = vkinit::multisamplingStateCreateInfo();
+  builder.multisampling     = vkinit::multisampleStateCreateInfo();
   builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.pipeline_layout   = pipeline_layout;
   point2d_pipeline = builder.buildPipeline(device, render_pass);
@@ -916,7 +911,7 @@ void VulkanEngine::updateDescriptorSets()
     mvp_info.range  = sizeof(ModelViewProjection);
 
     auto write_mvp = vkinit::writeDescriptorBuffer(
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &mvp_info, 0
+      descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &mvp_info
     );
     desc_writes.push_back(write_mvp);
 
@@ -926,7 +921,7 @@ void VulkanEngine::updateDescriptorSets()
     pcolor_info.range  = sizeof(ColorParams);
 
     auto write_pcolor = vkinit::writeDescriptorBuffer(
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &pcolor_info, 2
+      descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &pcolor_info
     );
     desc_writes.push_back(write_pcolor);
 
@@ -936,7 +931,7 @@ void VulkanEngine::updateDescriptorSets()
     extent_info.range  = sizeof(SceneParams);
 
     auto write_scene = vkinit::writeDescriptorBuffer(
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_sets[i], &extent_info, 1
+      descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &extent_info
     );
     desc_writes.push_back(write_scene);
 
@@ -948,7 +943,7 @@ void VulkanEngine::updateDescriptorSets()
       img_info.sampler     = texture_sampler;
 
       auto write_tex = vkinit::writeDescriptorImage(
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptor_sets[i], &img_info, 3
+        descriptor_sets[i], 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &img_info
       );
       desc_writes.push_back(write_tex);
     }
@@ -1017,7 +1012,7 @@ void VulkanEngine::renderFrame()
   validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
   auto render_pass_info = vkinit::renderPassBeginInfo(
-    render_pass, swap->swapchain_extent, fbs[image_idx].framebuffer
+    render_pass, fbs[image_idx].framebuffer, swap->swapchain_extent
   );
   std::array<VkClearValue, 2> clear_values{};
   color::setColor(clear_values[0].color.float32, bg_color);
@@ -1109,7 +1104,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     VkDeviceSize offsets[1] = {0};
     vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets);
     vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
-    vkCmdDrawIndexed(cmd, 6 * 2, 1, 0, 0, 0);
+    vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
   }
 
   for (const auto& buffer : unstructured_buffers)
@@ -1158,18 +1153,9 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
 
 void VulkanEngine::createTextureSampler()
 {
-  auto max_anisotropy = dev->properties.limits.maxSamplerAnisotropy;
   auto sampler_info = vkinit::samplerCreateInfo(VK_FILTER_NEAREST);
-  sampler_info.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  sampler_info.mipLodBias              = 0.f;
-  sampler_info.anisotropyEnable        = VK_TRUE;
-  sampler_info.maxAnisotropy           = max_anisotropy;
-  sampler_info.compareEnable           = VK_TRUE;
-  sampler_info.compareOp               = VK_COMPARE_OP_NEVER;
-  sampler_info.minLod                  = 0.f;
-  sampler_info.maxLod                  = 0.f;
-  sampler_info.borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-  sampler_info.unnormalizedCoordinates = VK_FALSE;
+  sampler_info.anisotropyEnable = VK_TRUE;
+  sampler_info.maxAnisotropy    = dev->properties.limits.maxSamplerAnisotropy;
 
   validation::checkVulkan(
     vkCreateSampler(device, &sampler_info, nullptr, &texture_sampler)
@@ -1217,55 +1203,42 @@ VkFormat VulkanEngine::findSupportedFormat(const std::vector<VkFormat>& candidat
 
 VkRenderPass VulkanEngine::createRenderPass()
 {
-  VkAttachmentDescription depth_attachment{};
-  depth_attachment.format = findDepthFormat();
-  depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  auto depth_attachment = vkinit::attachmentDescription(findDepthFormat());
+  depth_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
   depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
   VkAttachmentReference depth_attachment_ref{};
   depth_attachment_ref.attachment = 1;
   depth_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  VkAttachmentDescription color_attachment{};
-  color_attachment.format         = swap->color_format;
-  color_attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
-  color_attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  color_attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-  color_attachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  color_attachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-  color_attachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  auto color_attachment = vkinit::attachmentDescription(swap->color_format);
+  color_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_attachment.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+  color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
   VkAttachmentReference color_attachment_ref{};
   color_attachment_ref.attachment = 0;
   color_attachment_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-  VkSubpassDescription subpass{};
-  subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  auto subpass = vkinit::subpassDescription(VK_PIPELINE_BIND_POINT_GRAPHICS);
   subpass.colorAttachmentCount    = 1;
   subpass.pColorAttachments       = &color_attachment_ref;
   subpass.pDepthStencilAttachment = &depth_attachment_ref;
 
   // Specify memory and execution dependencies between subpasses
-  VkSubpassDependency dependency{};
+  auto dependency = vkinit::subpassDependency();
   dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
   dependency.dstSubpass    = 0;
   dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-  dependency.srcAccessMask = 0;
   dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependency.srcAccessMask = 0;
   dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
   std::array<VkAttachmentDescription, 2> attachments{ color_attachment, depth_attachment };
-  VkRenderPassCreateInfo pass_info{};
-  pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  auto pass_info = vkinit::renderPassCreateInfo();
   pass_info.attachmentCount = attachments.size();
   pass_info.pAttachments    = attachments.data();
   pass_info.subpassCount    = 1;

@@ -7,81 +7,83 @@
 namespace vkinit
 {
 
-VkCommandPoolCreateInfo commandPoolCreateInfo(uint32_t queue_family_idx,
-  VkCommandPoolCreateFlags flags = 0
+// Command-related functions
+VkCommandPoolCreateInfo commandPoolCreateInfo(VkCommandPoolCreateFlags flags,
+  uint32_t queue_family_idx
 );
-
 VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool,
-  uint32_t count = 1, VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY
+  VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, uint32_t count = 1
 );
-
 VkCommandBufferBeginInfo commandBufferBeginInfo(VkCommandBufferUsageFlags flags = 0);
-
-VkFramebufferCreateInfo framebufferCreateInfo(VkRenderPass pass, VkExtent2D extent);
-
-VkFenceCreateInfo fenceCreateInfo(VkFenceCreateFlags flags = 0);
-
-VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags = 0);
-
 VkSubmitInfo submitInfo(VkCommandBuffer *cmd);
 
-VkPresentInfoKHR presentInfo();
+// Synchronization-related functions
+VkFenceCreateInfo fenceCreateInfo(VkFenceCreateFlags flags = 0);
+VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags = 0);
 
+// Presentation-related functions
+VkPresentInfoKHR presentInfo();
 VkRenderPassBeginInfo renderPassBeginInfo(VkRenderPass pass,
-  VkExtent2D win_extent, VkFramebuffer framebuffer
+  VkFramebuffer framebuffer, VkExtent2D win_extent
 );
 
+// Pipeline-related functions
+VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
+  const std::vector<VkDescriptorSetLayout>& layouts
+);
 VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo(
   VkShaderStageFlagBits stage, VkShaderModule module
 );
-
 VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo(
   const std::vector<VkVertexInputBindingDescription>& bindings = {},
   const std::vector<VkVertexInputAttributeDescription>& attributes = {}
 );
-
+VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo(
+  bool depth_test, bool depth_write, VkCompareOp compare_op
+);
 VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo(VkPrimitiveTopology topology);
-
 VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo(VkPolygonMode mode);
-
-VkPipelineMultisampleStateCreateInfo multisamplingStateCreateInfo();
-
+VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo();
 VkPipelineColorBlendAttachmentState colorBlendAttachmentState();
-
-VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
-  const std::vector<VkDescriptorSetLayout>& layouts
+VkPipelineColorBlendStateCreateInfo colorBlendInfo();
+VkPipelineViewportStateCreateInfo viewportCreateInfo();
+VkGraphicsPipelineCreateInfo pipelineCreateInfo(VkPipelineLayout layout,
+  VkRenderPass render_pass
 );
 
+// Image-related functions
 VkImageCreateInfo imageCreateInfo(VkImageType type,
   VkFormat format, VkExtent3D extent, VkImageUsageFlags usage
 );
-
 VkImageViewCreateInfo imageViewCreateInfo(VkImage image,
   VkImageViewType view_type, VkFormat format, VkImageAspectFlags aspect_mask
 );
 
-VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo(
-  bool depth_test, bool depth_write, VkCompareOp compare_op
-);
-
+// Descriptor-related functions
 VkDescriptorSetLayoutBinding descriptorLayoutBinding(
   uint32_t binding, VkDescriptorType type, VkShaderStageFlags flags
 );
-
-VkWriteDescriptorSet writeDescriptorBuffer(VkDescriptorType type,
-  VkDescriptorSet dst_set, VkDescriptorBufferInfo *buffer_info, uint32_t binding
+VkWriteDescriptorSet writeDescriptorBuffer(VkDescriptorSet dst_set,
+  uint32_t binding, VkDescriptorType type, VkDescriptorBufferInfo *buffer_info
+);
+VkWriteDescriptorSet writeDescriptorImage(VkDescriptorSet dst_set,
+  uint32_t binding, VkDescriptorType type, VkDescriptorImageInfo *img_info
 );
 
-VkWriteDescriptorSet writeDescriptorImage(VkDescriptorType type,
-  VkDescriptorSet dst_set, VkDescriptorImageInfo *img_info, uint32_t binding
-);
+// Renderpass-related functions
+VkAttachmentDescription attachmentDescription(VkFormat format);
+VkSubpassDescription subpassDescription(VkPipelineBindPoint bind_point);
+VkSubpassDependency subpassDependency();
+VkRenderPassCreateInfo renderPassCreateInfo();
+VkFramebufferCreateInfo framebufferCreateInfo(VkRenderPass pass, VkExtent2D extent);
 
-VkSamplerCreateInfo samplerCreateInfo(VkFilter filters,
+// Other functions
+VkSamplerCreateInfo samplerCreateInfo(VkFilter filter,
   VkSamplerAddressMode mode = VK_SAMPLER_ADDRESS_MODE_REPEAT
 );
-
 VkVertexInputAttributeDescription vertexDescription(
   uint32_t location, uint32_t binding, VkFormat format, uint32_t offset
 );
+VkBufferCreateInfo bufferCreateInfo(VkDeviceSize size, VkBufferUsageFlags usage);
 
 } // namespace vkinit
