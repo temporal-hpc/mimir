@@ -36,11 +36,10 @@ public:
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
   void mainLoop();
-  void registerUnstructuredMemory(void **ptr_devmem,
-    size_t elem_count, size_t elem_size,
-    UnstructuredDataType type, DataDomain domain
+  void addViewUnstructured(void **ptr_devmem, size_t elem_count,
+    size_t elem_size, UnstructuredDataType type, DataDomain domain
   );
-  void registerStructuredMemory(void **ptr_devmem,
+  void addViewStructured(void **ptr_devmem,
     uint3 buffer_size, size_t elem_size, DataDomain domain, DataFormat format
   );
 
@@ -109,8 +108,8 @@ private:
   uint64_t current_frame = 0;
   std::string shader_path;
   std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
-  std::vector<CudaViewStructured> structured_buffers;
-  std::vector<CudaViewUnstructured> unstructured_buffers;
+  std::vector<CudaViewStructured> views_structured;
+  std::vector<CudaViewUnstructured> views_unstructured;
 
   FrameData& getCurrentFrame();
 

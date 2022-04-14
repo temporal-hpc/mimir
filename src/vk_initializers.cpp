@@ -126,6 +126,27 @@ VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo(
   return info;
 }
 
+VkVertexInputBindingDescription vertexBindingDescription(
+  uint32_t binding, uint32_t stride, VkVertexInputRate rate)
+{
+  VkVertexInputBindingDescription desc{};
+  desc.binding   = binding;
+  desc.stride    = stride;
+  desc.inputRate = rate;
+  return desc;
+}
+
+VkVertexInputAttributeDescription vertexAttributeDescription(
+  uint32_t binding, uint32_t location, VkFormat format, uint32_t offset)
+{
+  VkVertexInputAttributeDescription desc{};
+  desc.binding  = binding;
+  desc.location = location;
+  desc.format   = format;
+  desc.offset   = offset;
+  return desc;
+}
+
 VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo(
   const std::vector<VkVertexInputBindingDescription>& bindings,
   const std::vector<VkVertexInputAttributeDescription>& attributes)

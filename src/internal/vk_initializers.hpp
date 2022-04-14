@@ -28,6 +28,12 @@ VkRenderPassBeginInfo renderPassBeginInfo(VkRenderPass pass,
 );
 
 // Pipeline-related functions
+VkVertexInputBindingDescription vertexBindingDescription(
+  uint32_t binding, uint32_t stride, VkVertexInputRate rate
+);
+VkVertexInputAttributeDescription vertexAttributeDescription(
+  uint32_t binding, uint32_t location, VkFormat format, uint32_t offset
+);
 VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
   const std::vector<VkDescriptorSetLayout>& layouts
 );

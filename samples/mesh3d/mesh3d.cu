@@ -46,10 +46,10 @@ int main(int argc, char *argv[])
 
   VulkanEngine engine;
   engine.init(1600, 900);
-  engine.registerUnstructuredMemory((void**)&d_coords, point_count,
+  engine.addViewUnstructured((void**)&d_coords, point_count,
     sizeof(float3), UnstructuredDataType::Points, DataDomain::Domain3D
   );
-  engine.registerUnstructuredMemory((void**)&d_triangles, triangles.size(),
+  engine.addViewUnstructured((void**)&d_triangles, triangles.size(),
     sizeof(uint3), UnstructuredDataType::Edges, DataDomain::Domain3D
   );
 

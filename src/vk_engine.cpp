@@ -16,7 +16,6 @@
 #include "backends/imgui_impl_vulkan.h"
 
 #include <filesystem> // std::filesystem
-#include <set> // std::set
 #include <stdexcept> // std::throw
 
 VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
@@ -115,7 +114,7 @@ void VulkanEngine::prepareWindow()
 void VulkanEngine::updateWindow()
 {
   std::unique_lock<std::mutex> ul(mutex);
-  for (auto structured : structured_buffers)
+  for (auto structured : views_structured)
   {
     dev->updateStructuredBuffer(structured);
   }
@@ -140,7 +139,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     {
       // Advance the simulation
       func();
-      for (auto structured : structured_buffers)
+      for (auto structured : views_structured)
       {
         dev->updateStructuredBuffer(structured);
       }
@@ -152,20 +151,20 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
   vkDeviceWaitIdle(device);
 }
 
-void VulkanEngine::registerUnstructuredMemory(void **ptr_devmem, size_t elem_count,
+void VulkanEngine::addViewUnstructured(void **ptr_devmem, size_t elem_count,
   size_t elem_size, UnstructuredDataType type, DataDomain domain)
 {
   auto mapped = dev->createUnstructuredBuffer(elem_count, elem_size, domain, type);
-  unstructured_buffers.push_back(mapped);
+  views_unstructured.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
 }
 
-void VulkanEngine::registerStructuredMemory(void **ptr_devmem,
+void VulkanEngine::addViewStructured(void **ptr_devmem,
   uint3 buffer_size, size_t elem_size, DataDomain domain, DataFormat format)
 {
   auto mapped = dev->createStructuredBuffer(buffer_size, elem_size, domain, format);
-  structured_buffers.push_back(mapped);
+  views_structured.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
 }
@@ -710,15 +709,10 @@ void VulkanEngine::getVertexDescriptions2d(
   std::vector<VkVertexInputAttributeDescription>& attr_desc)
 {
   bind_desc.resize(1);
-  bind_desc[0].binding = 0;
-  bind_desc[0].stride = sizeof(float2);
-  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(float2), VK_VERTEX_INPUT_RATE_VERTEX);
 
   attr_desc.resize(1);
-  attr_desc[0].binding = 0;
-  attr_desc[0].location = 0;
-  attr_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
-  attr_desc[0].offset = 0;
+  attr_desc[0] = vkinit::vertexAttributeDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, 0);
 }
 
 void VulkanEngine::getVertexDescriptions3d(
@@ -726,15 +720,10 @@ void VulkanEngine::getVertexDescriptions3d(
   std::vector<VkVertexInputAttributeDescription>& attr_desc)
 {
   bind_desc.resize(1);
-  bind_desc[0].binding = 0;
-  bind_desc[0].stride = sizeof(float3);
-  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(float3), VK_VERTEX_INPUT_RATE_VERTEX);
 
   attr_desc.resize(1);
-  attr_desc[0].binding = 0;
-  attr_desc[0].location = 0;
-  attr_desc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-  attr_desc[0].offset = 0;
+  attr_desc[0] = vkinit::vertexAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
 }
 
 void VulkanEngine::getVertexDescriptionsVert(
@@ -742,20 +731,16 @@ void VulkanEngine::getVertexDescriptionsVert(
   std::vector<VkVertexInputAttributeDescription>& attr_desc)
 {
   bind_desc.resize(1);
-  bind_desc[0].binding = 0;
-  bind_desc[0].stride = sizeof(Vertex);
-  bind_desc[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
 
   attr_desc.resize(2);
-  attr_desc[0].binding = 0;
-  attr_desc[0].location = 0;
-  attr_desc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-  attr_desc[0].offset = offsetof(Vertex, pos);
+  attr_desc[0] = vkinit::vertexAttributeDescription(
+    0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
+  );
 
-  attr_desc[1].binding = 0;
-  attr_desc[1].location = 1;
-  attr_desc[1].format = VK_FORMAT_R32G32_SFLOAT;
-  attr_desc[1].offset = offsetof(Vertex, uv);
+  attr_desc[1] = vkinit::vertexAttributeDescription(
+    0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
+  );
 }
 
 size_t getAlignedUniformSize(size_t original_size, size_t min_alignment)
@@ -902,7 +887,7 @@ void VulkanEngine::updateDescriptorSets()
   {
     // Write MVP matrix, scene info and texture samplers
     std::vector<VkWriteDescriptorSet> desc_writes;
-    desc_writes.reserve(3 + structured_buffers.size());
+    desc_writes.reserve(3 + views_structured.size());
 
     VkDescriptorBufferInfo mvp_info{};
     mvp_info.buffer = ubo.buffer;
@@ -934,7 +919,7 @@ void VulkanEngine::updateDescriptorSets()
     );
     desc_writes.push_back(write_scene);
 
-    for (const auto& buffer : structured_buffers)
+    for (const auto& buffer : views_structured)
     {
       VkDescriptorImageInfo img_info{};
       img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1086,7 +1071,7 @@ void VulkanEngine::renderFrame()
 void VulkanEngine::drawObjects(uint32_t image_idx)
 {
   auto cmd = command_buffers[image_idx];
-  for (const auto& buffer : structured_buffers)
+  for (const auto& buffer : views_structured)
   {
     if (buffer.data_domain == DataDomain::Domain2D)
     {
@@ -1106,7 +1091,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
   }
 
-  for (const auto& buffer : unstructured_buffers)
+  for (const auto& buffer : views_unstructured)
   {
     if (buffer.data_type == UnstructuredDataType::Points)
     {
@@ -1141,7 +1126,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertexBuffers[] = { unstructured_buffers[0].buffer.buffer };
+      VkBuffer vertexBuffers[] = { views_unstructured[0].buffer.buffer };
       VkDeviceSize offsets[] = {0};
       vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
       vkCmdBindIndexBuffer(cmd, buffer.buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -1192,23 +1177,23 @@ VkRenderPass VulkanEngine::createRenderPass()
   depth_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
   depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  VkAttachmentReference depth_attachment_ref{};
-  depth_attachment_ref.attachment = 1;
-  depth_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  VkAttachmentReference depth_ref{};
+  depth_ref.attachment = 1;
+  depth_ref.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
   auto color_attachment = vkinit::attachmentDescription(swap->color_format);
   color_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
   color_attachment.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
   color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-  VkAttachmentReference color_attachment_ref{};
-  color_attachment_ref.attachment = 0;
-  color_attachment_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  VkAttachmentReference color_ref{};
+  color_ref.attachment = 0;
+  color_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
   auto subpass = vkinit::subpassDescription(VK_PIPELINE_BIND_POINT_GRAPHICS);
   subpass.colorAttachmentCount    = 1;
-  subpass.pColorAttachments       = &color_attachment_ref;
-  subpass.pDepthStencilAttachment = &depth_attachment_ref;
+  subpass.pColorAttachments       = &color_ref;
+  subpass.pDepthStencilAttachment = &depth_ref;
 
   // Specify memory and execution dependencies between subpasses
   auto dependency = vkinit::subpassDependency();

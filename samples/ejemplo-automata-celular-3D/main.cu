@@ -55,10 +55,10 @@ int main(int argc, char **argv){
     init_prob(n, original, seed, prob);
 
     uint3 extent{(unsigned)n, (unsigned)n, (unsigned)n};
-    engine.registerStructuredMemory((void**)&d1, extent, sizeof(int),
+    engine.addViewStructured((void**)&d1, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32
     );
-    /*engine.registerStructuredMemory((void**)&d2, extent, sizeof(int),
+    /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32
     );*/
     //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));

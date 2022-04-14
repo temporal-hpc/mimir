@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
     // Initialize engine
     VulkanEngine engine({200, 200, 1}, program.stream);
     engine.init(800, 600);
-    engine.registerUnstructuredMemory((void**)&program.d_coords,
+    engine.addViewUnstructured((void**)&program.d_coords,
       program.particle_count, sizeof(float2),
       UnstructuredDataType::Points, DataDomain::Domain2D
     );

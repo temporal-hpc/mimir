@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
 
   VulkanEngine engine(extent);
   engine.init(800, 600);
-  engine.registerUnstructuredMemory((void**)&d_coords, point_count,
+  engine.addViewUnstructured((void**)&d_coords, point_count,
     sizeof(float3), UnstructuredDataType::Points, DataDomain::Domain3D
   );
 

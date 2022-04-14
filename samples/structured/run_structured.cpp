@@ -22,11 +22,11 @@ int main(int argc, char *argv[])
     int3 extent{program.extent.x, program.extent.y, 1};
     VulkanEngine engine(extent, program.stream);
     engine.init(800, 600);
-    engine.registerUnstructuredMemory((void**)&program.d_coords,
+    engine.addViewUnstructured((void**)&program.d_coords,
       program.element_count, sizeof(float2), UnstructuredDataType::Points,
       DataDomain::Domain2D
     );
-    engine.registerStructuredMemory((void**)&program.d_distances,
+    engine.addViewStructured((void**)&program.d_distances,
       {(unsigned)program.extent.x, (unsigned)program.extent.y, 1}, sizeof(float),
       DataDomain::Domain2D, DataFormat::Float32
     );
