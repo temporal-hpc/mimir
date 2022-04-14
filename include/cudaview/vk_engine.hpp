@@ -61,7 +61,6 @@ private:
   VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
   VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE; // Vulkan debug output handle
   VkPhysicalDevice physical_device = VK_NULL_HANDLE; // GPU used for operations
-  VkDevice device = VK_NULL_HANDLE;
   VkRenderPass render_pass = VK_NULL_HANDLE;
   VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
   VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
@@ -72,7 +71,6 @@ private:
   VkPipeline mesh2d_pipeline = VK_NULL_HANDLE;
   VkPipeline mesh3d_pipeline = VK_NULL_HANDLE;
   VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
-  //std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
   VulkanBuffer ubo;

@@ -31,7 +31,7 @@ VulkanEngine::~VulkanEngine()
   {
     rendering_thread.join();
   }
-  vkDeviceWaitIdle(device);
+  vkDeviceWaitIdle(dev->logical_device);
 
   if (stream != nullptr)
   {
@@ -72,11 +72,10 @@ void VulkanEngine::init(int width, int height)
 
   camera->type = Camera::CameraType::LookAt;
   //camera->flipY = true;
-  camera->setPosition(glm::vec3(0.0f, 0.0f, -3.75f));
-  camera->setRotation(glm::vec3(15.0f, 0.0f, 0.0f));
+  camera->setPosition(glm::vec3(0.f, 0.f, -3.75f));
+  camera->setRotation(glm::vec3(15.f, 0.f, 0.f));
   camera->setRotationSpeed(0.5f);
-  camera->setPerspective(60.0f, (float)width / (float)height, 0.1f, 256.0f);
-                      //45.f, aspect_ratio, .1f, 10.f);
+  camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
 }
 
 void VulkanEngine::displayAsync()
@@ -93,7 +92,7 @@ void VulkanEngine::displayAsync()
       renderFrame();
       ul.unlock();
     }
-    vkDeviceWaitIdle(device);
+    vkDeviceWaitIdle(dev->logical_device);
   });
 }
 
@@ -143,7 +142,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     cudaSemaphoreSignal();
   }
   device_working = false;
-  vkDeviceWaitIdle(device);
+  vkDeviceWaitIdle(dev->logical_device);
 }
 
 void VulkanEngine::addViewUnstructured(void **ptr_devmem, size_t elem_count,
@@ -172,7 +171,6 @@ void VulkanEngine::initVulkan()
   pickPhysicalDevice();
   dev = std::make_unique<VulkanCudaDevice>(physical_device);
   dev->initLogicalDevice(swap->surface);
-  device = dev->logical_device;
   createDescriptorSetLayout();
   createDescriptorPool();
 
@@ -306,11 +304,11 @@ void VulkanEngine::createDescriptorPool()
   pool_info.poolSizeCount = std::size(pool_sizes);
   pool_info.pPoolSizes    = pool_sizes;
 
-  validation::checkVulkan(
-    vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool)
+  validation::checkVulkan(vkCreateDescriptorPool(
+    dev->logical_device, &pool_info, nullptr, &descriptor_pool)
   );
   deletors.pushFunction([=]{
-    vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
+    vkDestroyDescriptorPool(dev->logical_device, descriptor_pool, nullptr);
   });
 }
 
@@ -322,7 +320,7 @@ void VulkanEngine::initImgui()
   ImGui_ImplVulkan_InitInfo init_info{};
   init_info.Instance       = instance;
   init_info.PhysicalDevice = physical_device;
-  init_info.Device         = device;
+  init_info.Device         = dev->logical_device;
   init_info.Queue          = dev->graphics.queue;
   init_info.DescriptorPool = descriptor_pool;
   init_info.MinImageCount  = 3; // TODO: Check if this is true
@@ -365,18 +363,18 @@ void VulkanEngine::createSyncObjects()
   for (auto& frame : frames)
   {
     validation::checkVulkan(vkCreateSemaphore(
-      device, &semaphore_info, nullptr, &frame.present_semaphore)
+      dev->logical_device, &semaphore_info, nullptr, &frame.present_semaphore)
     );
     validation::checkVulkan(vkCreateSemaphore(
-      device, &semaphore_info, nullptr, &frame.render_semaphore)
+      dev->logical_device, &semaphore_info, nullptr, &frame.render_semaphore)
     );
     validation::checkVulkan(vkCreateFence(
-      device, &fence_info, nullptr, &frame.render_fence)
+      dev->logical_device, &fence_info, nullptr, &frame.render_fence)
     );
     deletors.pushFunction([=]{
-      vkDestroySemaphore(device, frame.present_semaphore, nullptr);
-      vkDestroySemaphore(device, frame.render_semaphore, nullptr);
-      vkDestroyFence(device, frame.render_fence, nullptr);
+      vkDestroySemaphore(dev->logical_device, frame.present_semaphore, nullptr);
+      vkDestroySemaphore(dev->logical_device, frame.render_semaphore, nullptr);
+      vkDestroyFence(dev->logical_device, frame.render_fence, nullptr);
     });
   }
 
@@ -402,7 +400,7 @@ void VulkanEngine::createSyncObjects()
   // Vulkan signal will be CUDA wait
   dev->importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
   deletors.pushFunction([=]{
-    vkDestroySemaphore(device, vk_wait_semaphore, nullptr);
+    vkDestroySemaphore(dev->logical_device, vk_wait_semaphore, nullptr);
     validation::checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
   });
 
@@ -410,7 +408,7 @@ void VulkanEngine::createSyncObjects()
   // CUDA signal will be vulkan wait
   dev->importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
   deletors.pushFunction([=]{
-    vkDestroySemaphore(device, vk_signal_semaphore, nullptr);
+    vkDestroySemaphore(dev->logical_device, vk_signal_semaphore, nullptr);
     validation::checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
   });
 }
@@ -440,18 +438,18 @@ void VulkanEngine::cudaSemaphoreSignal()
 
 void VulkanEngine::cleanupSwapchain()
 {
-  vkDestroyBuffer(device, ubo.buffer, nullptr);
-  vkFreeMemory(device, ubo.memory, nullptr);
-  vkDestroyPipeline(device, point2d_pipeline, nullptr);
-  vkDestroyPipeline(device, point3d_pipeline, nullptr);
-  vkDestroyPipeline(device, mesh2d_pipeline, nullptr);
-  vkDestroyPipeline(device, mesh3d_pipeline, nullptr);
-  vkDestroyPipeline(device, texture2d_pipeline, nullptr);
-  vkDestroyPipeline(device, texture3d_pipeline, nullptr);
-  vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
-  vkDestroyRenderPass(device, render_pass, nullptr);
-  vkFreeCommandBuffers(
-    device, dev->command_pool, command_buffers.size(), command_buffers.data()
+  vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
+  vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
+  vkDestroyPipeline(dev->logical_device, point2d_pipeline, nullptr);
+  vkDestroyPipeline(dev->logical_device, point3d_pipeline, nullptr);
+  vkDestroyPipeline(dev->logical_device, mesh2d_pipeline, nullptr);
+  vkDestroyPipeline(dev->logical_device, mesh3d_pipeline, nullptr);
+  vkDestroyPipeline(dev->logical_device, texture2d_pipeline, nullptr);
+  vkDestroyPipeline(dev->logical_device, texture3d_pipeline, nullptr);
+  vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
+  vkDestroyRenderPass(dev->logical_device, render_pass, nullptr);
+  vkFreeCommandBuffers(dev->logical_device, dev->command_pool,
+    command_buffers.size(), command_buffers.data()
   );
   swap->cleanup();
 }
@@ -467,7 +465,7 @@ void VulkanEngine::initSwapchain()
   command_buffers = dev->createCommandBuffers(swap->image_count);
   render_pass = createRenderPass();
 
-  auto images = swap->createImages(device);
+  auto images = swap->createImages(dev->logical_device);
 
   auto depth_fmt = findDepthFormat();
   VkExtent3D extent{ width, height, 1 };
@@ -475,11 +473,11 @@ void VulkanEngine::initSwapchain()
   auto usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
   auto image_info = vkinit::imageCreateInfo(type, depth_fmt, extent, usage);
   validation::checkVulkan(
-    vkCreateImage(device, &image_info, nullptr, &depth_image)
+    vkCreateImage(dev->logical_device, &image_info, nullptr, &depth_image)
   );
 
   VkMemoryRequirements mem_req;
-  vkGetImageMemoryRequirements(device, depth_image, &mem_req);
+  vkGetImageMemoryRequirements(dev->logical_device, depth_image, &mem_req);
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.pNext = nullptr;
@@ -488,29 +486,29 @@ void VulkanEngine::initSwapchain()
     mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
   );
   validation::checkVulkan(
-    vkAllocateMemory(device, &alloc_info, nullptr, &depth_memory)
+    vkAllocateMemory(dev->logical_device, &alloc_info, nullptr, &depth_memory)
   );
-  vkBindImageMemory(device, depth_image, depth_memory, 0);
+  vkBindImageMemory(dev->logical_device, depth_image, depth_memory, 0);
 
   auto view_info = vkinit::imageViewCreateInfo(
     depth_image, VK_IMAGE_VIEW_TYPE_2D, depth_fmt, VK_IMAGE_ASPECT_DEPTH_BIT
   );
   validation::checkVulkan(
-    vkCreateImageView(device, &view_info, nullptr, &depth_view)
+    vkCreateImageView(dev->logical_device, &view_info, nullptr, &depth_view)
   );
 
   deletors.pushFunction([=]{
-    vkDestroyImageView(device, depth_view, nullptr);
-    vkDestroyImage(device, depth_image, nullptr);
-    vkFreeMemory(device, depth_memory, nullptr);
+    vkDestroyImageView(dev->logical_device, depth_view, nullptr);
+    vkDestroyImage(dev->logical_device, depth_image, nullptr);
+    vkFreeMemory(dev->logical_device, depth_memory, nullptr);
   });
 
   fbs.resize(swap->image_count);
   for (size_t i = 0; i < swap->image_count; ++i)
   {
     // Create a basic image view to be used as color target
-    fbs[i].addAttachment(device, images[i], swap->color_format);
-    fbs[i].create(device, render_pass, swap->swapchain_extent, depth_view);
+    fbs[i].addAttachment(dev->logical_device, images[i], swap->color_format);
+    fbs[i].create(dev->logical_device, render_pass, swap->swapchain_extent, depth_view);
   }
 
   createGraphicsPipelines();
@@ -521,7 +519,7 @@ void VulkanEngine::initSwapchain()
 
 void VulkanEngine::recreateSwapchain()
 {
-  vkDeviceWaitIdle(device);
+  vkDeviceWaitIdle(dev->logical_device);
 
   cleanupSwapchain();
   initSwapchain();
@@ -536,7 +534,9 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
   create_info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
 
   VkShaderModule module;
-  validation::checkVulkan(vkCreateShaderModule(device, &create_info, nullptr, &module));
+  validation::checkVulkan(
+    vkCreateShaderModule(dev->logical_device, &create_info, nullptr, &module)
+  );
 
   return module;
 }
@@ -563,7 +563,7 @@ void VulkanEngine::createGraphicsPipelines()
   auto pipeline_layout_info = vkinit::pipelineLayoutCreateInfo(layouts);
 
   validation::checkVulkan(vkCreatePipelineLayout(
-    device, &pipeline_layout_info, nullptr, &pipeline_layout)
+    dev->logical_device, &pipeline_layout_info, nullptr, &pipeline_layout)
   );
 
   std::vector<VkVertexInputBindingDescription> bind_desc;
@@ -587,9 +587,9 @@ void VulkanEngine::createGraphicsPipelines()
   builder.multisampling     = vkinit::multisampleStateCreateInfo();
   builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.pipeline_layout   = pipeline_layout;
-  point2d_pipeline = builder.buildPipeline(device, render_pass);
+  point2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
 
-  vkDestroyShaderModule(device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
 
   vert_code   = io::readFile("shaders/unstructured/particle_pos_3d.spv");
   vert_module = createShaderModule(vert_code);
@@ -603,10 +603,10 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  point3d_pipeline = builder.buildPipeline(device, render_pass);
+  point3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
 
-  vkDestroyShaderModule(device, vert_module, nullptr);
-  vkDestroyShaderModule(device, frag_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
 
   vert_code   = io::readFile("shaders/structured/screen_triangle.spv");
   vert_module = createShaderModule(vert_code);
@@ -627,10 +627,10 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
   builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  texture2d_pipeline = builder.buildPipeline(device, render_pass);
+  texture2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
 
-  vkDestroyShaderModule(device, vert_module, nullptr);
-  vkDestroyShaderModule(device, frag_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
 
   vert_code   = io::readFile("shaders/structured/texture3d_quad.spv");
   vert_module = createShaderModule(vert_code);
@@ -651,10 +651,10 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
   builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  texture3d_pipeline = builder.buildPipeline(device, render_pass);
+  texture3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
 
-  vkDestroyShaderModule(device, vert_module, nullptr);
-  vkDestroyShaderModule(device, frag_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
 
   vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
   vert_module = createShaderModule(vert_code);
@@ -676,9 +676,9 @@ void VulkanEngine::createGraphicsPipelines()
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
   builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
-  mesh2d_pipeline = builder.buildPipeline(device, render_pass);
+  mesh2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
 
-  vkDestroyShaderModule(device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
 
   vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_3d.spv");
   vert_module = createShaderModule(vert_code);
@@ -690,10 +690,10 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.clear();
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
-  mesh3d_pipeline = builder.buildPipeline(device, render_pass);
+  mesh3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
 
-  vkDestroyShaderModule(device, vert_module, nullptr);
-  vkDestroyShaderModule(device, frag_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
 
   // Restore original working directory
   std::filesystem::current_path(orig_path);
@@ -785,11 +785,11 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   scene.depth = depth;
 
   char *data = nullptr;
-  vkMapMemory(device, ubo.memory, offset, size_ubo, 0, (void**)&data);
+  vkMapMemory(dev->logical_device, ubo.memory, offset, size_ubo, 0, (void**)&data);
   std::memcpy(data, &mvp, sizeof(mvp));
   std::memcpy(data + size_mvp, &colors, sizeof(colors));
   std::memcpy(data + size_mvp + size_colors, &scene, sizeof(scene));
-  vkUnmapMemory(device, ubo.memory);
+  vkUnmapMemory(dev->logical_device, ubo.memory);
 }
 
 void VulkanEngine::createDescriptorSets()
@@ -805,7 +805,7 @@ void VulkanEngine::createDescriptorSets()
   alloc_info.pSetLayouts        = layouts.data();
 
   validation::checkVulkan(
-    vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data())
+    vkAllocateDescriptorSets(dev->logical_device, &alloc_info, descriptor_sets.data())
   );
 }
 
@@ -832,10 +832,10 @@ void VulkanEngine::createDescriptorSetLayout()
   layout_info.pBindings    = bindings.data();
 
   validation::checkVulkan(vkCreateDescriptorSetLayout(
-    device, &layout_info, nullptr, &descriptor_layout)
+    dev->logical_device, &layout_info, nullptr, &descriptor_layout)
   );
 	deletors.pushFunction([=](){
-		vkDestroyDescriptorSetLayout(device, descriptor_layout, nullptr);
+		vkDestroyDescriptorSetLayout(dev->logical_device, descriptor_layout, nullptr);
 	});
 }
 
@@ -896,8 +896,8 @@ void VulkanEngine::updateDescriptorSets()
       desc_writes.push_back(write_tex);
     }
 
-    vkUpdateDescriptorSets(device, static_cast<uint32_t>(desc_writes.size()),
-      desc_writes.data(), 0, nullptr
+    vkUpdateDescriptorSets(dev->logical_device,
+      static_cast<uint32_t>(desc_writes.size()), desc_writes.data(), 0, nullptr
     );
   }
 }
@@ -930,13 +930,13 @@ void VulkanEngine::renderFrame()
   vkWaitSemaphores(device, &wait_info, timeout);*/
 
   auto frame = getCurrentFrame();
-  vkWaitForFences(device, 1, &frame.render_fence, VK_TRUE, timeout);
+  vkWaitForFences(dev->logical_device, 1, &frame.render_fence, VK_TRUE, timeout);
 
   // Acquire image from swap chain
   uint32_t image_idx;
   // TODO: vk_presentation_semaphore instead of frame.present_semaphore
-  auto result = vkAcquireNextImageKHR(device, swap->swapchain, timeout,
-    frame.present_semaphore, VK_NULL_HANDLE, &image_idx
+  auto result = vkAcquireNextImageKHR(dev->logical_device, swap->swapchain,
+    timeout, frame.present_semaphore, VK_NULL_HANDLE, &image_idx
   );
   if (result == VK_ERROR_OUT_OF_DATE_KHR)
   {
@@ -949,7 +949,7 @@ void VulkanEngine::renderFrame()
 
   if (images_inflight[image_idx] != VK_NULL_HANDLE)
   {
-    vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
+    vkWaitForFences(dev->logical_device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
   }
   images_inflight[image_idx] = frame.render_fence;
 
@@ -1004,7 +1004,7 @@ void VulkanEngine::renderFrame()
   timeline_info.pSignalSemaphoreValues = &signal_value;
   submit_info.pNext = &timeline_info;*/
 
-  vkResetFences(device, 1, &frame.render_fence);
+  vkResetFences(dev->logical_device, 1, &frame.render_fence);
 
   // Execute command buffer using image as attachment in framebuffer
   validation::checkVulkan(vkQueueSubmit(
@@ -1137,18 +1137,18 @@ VkFormat VulkanEngine::findSupportedFormat(const std::vector<VkFormat>& candidat
 
 VkRenderPass VulkanEngine::createRenderPass()
 {
-  auto depth_attachment = vkinit::attachmentDescription(findDepthFormat());
-  depth_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  auto depth = vkinit::attachmentDescription(findDepthFormat());
+  depth.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
   VkAttachmentReference depth_ref{};
   depth_ref.attachment = 1;
   depth_ref.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  auto color_attachment = vkinit::attachmentDescription(swap->color_format);
-  color_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  color_attachment.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-  color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  auto color = vkinit::attachmentDescription(swap->color_format);
+  color.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+  color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
   VkAttachmentReference color_ref{};
   color_ref.attachment = 0;
@@ -1171,7 +1171,7 @@ VkRenderPass VulkanEngine::createRenderPass()
   dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-  std::array<VkAttachmentDescription, 2> attachments{ color_attachment, depth_attachment };
+  std::array<VkAttachmentDescription, 2> attachments{ color, depth };
   auto pass_info = vkinit::renderPassCreateInfo();
   pass_info.attachmentCount = attachments.size();
   pass_info.pAttachments    = attachments.data();
@@ -1182,7 +1182,7 @@ VkRenderPass VulkanEngine::createRenderPass()
 
   VkRenderPass render_pass;
   validation::checkVulkan(
-    vkCreateRenderPass(device, &pass_info, nullptr, &render_pass)
+    vkCreateRenderPass(dev->logical_device, &pass_info, nullptr, &render_pass)
   );
   return render_pass;
 }
