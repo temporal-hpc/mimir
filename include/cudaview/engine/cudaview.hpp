@@ -78,7 +78,8 @@ struct CudaViewStructured : public CudaView
 {
   VulkanBuffer buffer;
   VulkanTexture texture;
-  VkImageView vk_view;
+  VkImageView vk_view  = VK_NULL_HANDLE;
+  VkSampler vk_sampler = VK_NULL_HANDLE;
 
   CudaViewStructured(VkExtent3D extent, size_t elem_size, DataDomain domain,
     DataFormat format):

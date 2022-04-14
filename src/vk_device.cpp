@@ -273,6 +273,20 @@ VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags us
   return new_buffer;
 }
 
+VkSampler VulkanDevice::createSampler()
+{
+  auto info = vkinit::samplerCreateInfo(VK_FILTER_NEAREST);
+  info.anisotropyEnable = VK_TRUE;
+  info.maxAnisotropy    = properties.limits.maxSamplerAnisotropy;
+
+  VkSampler sampler;
+  validation::checkVulkan(vkCreateSampler(logical_device, &info, nullptr, &sampler));
+  deletors.pushFunction([=]{
+    vkDestroySampler(logical_device, sampler, nullptr);
+  });
+  return sampler;
+}
+
 void VulkanDevice::transitionImageLayout(VkImage image, VkFormat format,
   VkImageLayout old_layout, VkImageLayout new_layout)
 {

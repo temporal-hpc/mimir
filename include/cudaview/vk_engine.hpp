@@ -73,7 +73,6 @@ private:
   VkPipeline mesh2d_pipeline = VK_NULL_HANDLE;
   VkPipeline mesh3d_pipeline = VK_NULL_HANDLE;
   VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
-  VkSampler texture_sampler = VK_NULL_HANDLE;
   //std::vector<VkFramebuffer> framebuffers;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
@@ -168,7 +167,6 @@ private:
   void createInstance();
   void pickPhysicalDevice();
   void createDescriptorSetLayout();
-  void createTextureSampler();
   void createSyncObjects();
 
   // Swapchain-related functions

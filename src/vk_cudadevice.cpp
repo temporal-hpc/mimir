@@ -69,6 +69,8 @@ CudaViewStructured VulkanCudaDevice::createStructuredBuffer(
     vkCreateImageView(logical_device, &info, nullptr, &mapped.vk_view)
   );
 
+  mapped.vk_sampler = createSampler();
+
   deletors.pushFunction([=]{
     validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
     vkDestroyBuffer(logical_device, mapped.buffer.buffer, nullptr);

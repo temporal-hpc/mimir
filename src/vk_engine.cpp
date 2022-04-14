@@ -181,7 +181,6 @@ void VulkanEngine::initVulkan()
   device = dev->logical_device;
   createDescriptorSetLayout();
   createDescriptorPool();
-  createTextureSampler();
 
   initSwapchain();
 
@@ -633,7 +632,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   texture2d_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
@@ -657,7 +656,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly    = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   texture3d_pipeline = builder.buildPipeline(device, render_pass);
 
   vkDestroyShaderModule(device, vert_module, nullptr);
@@ -940,10 +939,10 @@ void VulkanEngine::updateDescriptorSets()
       VkDescriptorImageInfo img_info{};
       img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       img_info.imageView   = buffer.vk_view;
-      img_info.sampler     = texture_sampler;
+      img_info.sampler     = buffer.vk_sampler;
 
-      auto write_tex = vkinit::writeDescriptorImage(
-        descriptor_sets[i], 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &img_info
+      auto write_tex = vkinit::writeDescriptorImage(descriptor_sets[i],
+        3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &img_info
       );
       desc_writes.push_back(write_tex);
     }
@@ -1149,20 +1148,6 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdDrawIndexed(cmd, 3 * buffer.element_count, 1, 0, 0, 0);
     }
   }
-}
-
-void VulkanEngine::createTextureSampler()
-{
-  auto sampler_info = vkinit::samplerCreateInfo(VK_FILTER_NEAREST);
-  sampler_info.anisotropyEnable = VK_TRUE;
-  sampler_info.maxAnisotropy    = dev->properties.limits.maxSamplerAnisotropy;
-
-  validation::checkVulkan(
-    vkCreateSampler(device, &sampler_info, nullptr, &texture_sampler)
-  );
-  deletors.pushFunction([=]{
-    vkDestroySampler(device, texture_sampler, nullptr);
-  });
 }
 
 bool VulkanEngine::hasStencil(VkFormat format)
