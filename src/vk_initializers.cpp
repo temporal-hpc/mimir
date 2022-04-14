@@ -228,8 +228,8 @@ VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
   const std::vector<VkDescriptorSetLayout>& layouts)
 {
   VkPipelineLayoutCreateInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  info.pNext = nullptr;
+  info.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  info.pNext                  = nullptr;
   info.flags                  = 0; // Currently unused
   info.setLayoutCount         = layouts.size();
   info.pSetLayouts            = layouts.data();

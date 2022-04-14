@@ -13,10 +13,10 @@
 
 #include "color/color.hpp"
 
+#include "cudaview/deletion_queue.hpp"
 #include "cudaview/engine/vk_buffer.hpp"
 #include "cudaview/engine/cudaview.hpp"
-#include "cudaview/frame.hpp"
-#include "cudaview/deletion_queue.hpp"
+#include "cudaview/engine/barrier.hpp"
 
 namespace
 {
@@ -34,7 +34,6 @@ public:
   VulkanEngine(int3 extent = {1, 1, 1}, cudaStream_t stream = 0);
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
-  void mainLoop();
   void addViewUnstructured(void **ptr_devmem, size_t elem_count,
     size_t elem_size, UnstructuredDataType type, DataDomain domain
   );
@@ -82,8 +81,8 @@ private:
 
   // Synchronization structures
   std::vector<VkFence> images_inflight;
-  VkSemaphore vk_wait_semaphore = VK_NULL_HANDLE;
-  VkSemaphore vk_signal_semaphore = VK_NULL_HANDLE;
+  std::array<FrameBarrier, MAX_FRAMES_IN_FLIGHT> frames;
+  InteropBarrier kernel_start, kernel_finish;
   //VkSemaphore vk_presentation_semaphore;
   //VkSemaphore vk_timeline_semaphore;
   //cudaExternalSemaphore_t cuda_timeline_semaphore;
@@ -97,16 +96,13 @@ private:
   // Cuda interop data
   int3 data_extent;
   cudaStream_t stream;
-  cudaExternalSemaphore_t cuda_wait_semaphore = nullptr;
-  cudaExternalSemaphore_t cuda_signal_semaphore = nullptr;
-
   uint64_t current_frame = 0;
   std::string shader_path;
-  std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
+
   std::vector<CudaViewStructured> views_structured;
   std::vector<CudaViewUnstructured> views_unstructured;
 
-  FrameData& getCurrentFrame();
+  FrameBarrier& getCurrentFrame();
 
   void getVertexDescriptions2d(
     std::vector<VkVertexInputBindingDescription>& bind_desc,
@@ -153,8 +149,8 @@ private:
   void renderFrame();
   void drawObjects(uint32_t image_idx);
   void drawGui();
-  void cudaSemaphoreSignal();
-  void cudaSemaphoreWait();
+  void signalKernelFinish();
+  void waitKernelStart();
 
   // Vulkan core-related functions
   void createInstance();

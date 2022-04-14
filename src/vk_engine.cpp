@@ -100,7 +100,7 @@ void VulkanEngine::prepareWindow()
 {
   device_working = true;
   std::unique_lock<std::mutex> ul(mutex);
-  cudaSemaphoreWait();
+  waitKernelStart();
   ul.unlock();
   cond.notify_one();
 }
@@ -113,7 +113,7 @@ void VulkanEngine::updateWindow()
     dev->updateStructuredBuffer(structured);
   }
   device_working = false;
-  cudaSemaphoreSignal();
+  signalKernelFinish();
   ul.unlock();
   cond.notify_one();
 }
@@ -128,7 +128,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     drawGui();
     renderFrame();
 
-    cudaSemaphoreWait();
+    waitKernelStart();
     if (iteration_idx < iter_count)
     {
       // Advance the simulation
@@ -139,7 +139,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
       }
       iteration_idx++;
     }
-    cudaSemaphoreSignal();
+    signalKernelFinish();
   }
   device_working = false;
   vkDeviceWaitIdle(dev->logical_device);
@@ -258,17 +258,6 @@ void VulkanEngine::createInstance()
   }
   validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
 
-  /*uint32_t extension_count = 0;
-  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
-  std::vector<VkExtensionProperties> available_exts(extension_count);
-  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_exts.data());
-
-  std::cout << "Available extensions:\n";
-  for (const auto& extension : available_exts)
-  {
-    std::cout << '\t' << extension.extensionName << '\n';
-  }*/
-
   if (validation::enable_layers)
   {
     // Details about the debug messenger and its callback
@@ -280,6 +269,17 @@ void VulkanEngine::createInstance()
       validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
     });
   }
+
+  /*uint32_t extension_count = 0;
+  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
+  std::vector<VkExtensionProperties> available_exts(extension_count);
+  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_exts.data());
+
+  std::cout << "Available extensions:\n";
+  for (const auto& extension : available_exts)
+  {
+    std::cout << '\t' << extension.extensionName << '\n';
+  }*/
 }
 
 void VulkanEngine::pickPhysicalDevice()
@@ -336,7 +336,7 @@ void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
   if (current_frame != 0 && device_working == true)
   {
     // Vulkan waits until Cuda is done with the display buffer before rendering
-    wait.push_back(vk_wait_semaphore);
+    wait.push_back(kernel_finish.vk_semaphore);
     // Cuda will wait until all pipeline commands are complete
     wait_stages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
   }
@@ -344,9 +344,31 @@ void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
 
 void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
 {
-  // Vulkan will signal to this semaphore once the device array is ready
-  // for Cuda to process
-  signal.push_back(vk_signal_semaphore);
+  // Vulkan signals this semaphore once the device array is ready for Cuda use
+  signal.push_back(kernel_start.vk_semaphore);
+}
+
+void VulkanEngine::waitKernelStart()
+{
+  cudaExternalSemaphoreWaitParams wait_params{};
+  wait_params.flags = 0;
+  wait_params.params.fence.value = 0;
+  // Wait for Vulkan to complete its work
+  validation::checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
+    &kernel_start.cuda_semaphore, &wait_params, 1, stream)
+  );
+}
+
+void VulkanEngine::signalKernelFinish()
+{
+  cudaExternalSemaphoreSignalParams signal_params{};
+  signal_params.flags = 0;
+  signal_params.params.fence.value = 0;
+
+  // Signal Vulkan to continue with the updated buffers
+  validation::checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
+    &kernel_finish.cuda_semaphore, &signal_params, 1, stream)
+  );
 }
 
 void VulkanEngine::createSyncObjects()
@@ -373,6 +395,11 @@ void VulkanEngine::createSyncObjects()
     });
   }
 
+  // Vulkan signal will be CUDA wait
+  kernel_start = dev->createInteropBarrier();
+  // CUDA signal will be Vulkan wait
+  kernel_finish = dev->createInteropBarrier();
+
   /*validation::checkVulkan(vkCreateSemaphore(
     device, &semaphore_info, nullptr, &vk_presentation_semaphore)
   );
@@ -390,45 +417,6 @@ void VulkanEngine::createSyncObjects()
   {
     vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
   }*/
-
-  vk_wait_semaphore = dev->createExternalSemaphore();
-  // Vulkan signal will be CUDA wait
-  dev->importCudaExternalSemaphore(cuda_signal_semaphore, vk_wait_semaphore);
-  deletors.pushFunction([=]{
-    vkDestroySemaphore(dev->logical_device, vk_wait_semaphore, nullptr);
-    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_signal_semaphore));
-  });
-
-  vk_signal_semaphore = dev->createExternalSemaphore();
-  // CUDA signal will be vulkan wait
-  dev->importCudaExternalSemaphore(cuda_wait_semaphore, vk_signal_semaphore);
-  deletors.pushFunction([=]{
-    vkDestroySemaphore(dev->logical_device, vk_signal_semaphore, nullptr);
-    validation::checkCuda(cudaDestroyExternalSemaphore(cuda_wait_semaphore));
-  });
-}
-
-void VulkanEngine::cudaSemaphoreWait()
-{
-  cudaExternalSemaphoreWaitParams wait_params{};
-  wait_params.flags = 0;
-  wait_params.params.fence.value = 0;
-  // Wait for Vulkan to complete its work
-  validation::checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
-    &cuda_wait_semaphore, &wait_params, 1, stream)
-  );
-}
-
-void VulkanEngine::cudaSemaphoreSignal()
-{
-  cudaExternalSemaphoreSignalParams signal_params{};
-  signal_params.flags = 0;
-  signal_params.params.fence.value = 0;
-
-  // Signal Vulkan to continue with the updated buffers
-  validation::checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
-    &cuda_signal_semaphore, &signal_params, 1, stream)
-  );
 }
 
 void VulkanEngine::cleanupSwapchain()
@@ -518,219 +506,6 @@ void VulkanEngine::recreateSwapchain()
 
   cleanupSwapchain();
   initSwapchain();
-}
-
-// Take buffer with shader bytecode and create a shader module from it
-VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
-{
-  VkShaderModuleCreateInfo create_info{};
-  create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  create_info.codeSize = code.size();
-  create_info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
-
-  VkShaderModule module;
-  validation::checkVulkan(
-    vkCreateShaderModule(dev->logical_device, &create_info, nullptr, &module)
-  );
-
-  return module;
-}
-
-void VulkanEngine::createGraphicsPipelines()
-{
-  auto orig_path = std::filesystem::current_path();
-  std::filesystem::current_path(shader_path);
-
-  auto vert_code   = io::readFile("shaders/unstructured/particle_pos_2d.spv");
-  auto vert_module = createShaderModule(vert_code);
-
-  auto frag_code   = io::readFile("shaders/unstructured/particle_draw.spv");
-  auto frag_module = createShaderModule(frag_code);
-
-  auto vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
-  );
-  auto frag_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
-  );
-
-  std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
-  auto pipeline_layout_info = vkinit::pipelineLayoutCreateInfo(layouts);
-
-  validation::checkVulkan(vkCreatePipelineLayout(
-    dev->logical_device, &pipeline_layout_info, nullptr, &pipeline_layout)
-  );
-
-  std::vector<VkVertexInputBindingDescription> bind_desc;
-  std::vector<VkVertexInputAttributeDescription> attr_desc;
-  getVertexDescriptions2d(bind_desc, attr_desc);
-
-  PipelineBuilder builder;
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-  builder.viewport.x        = 0.f;
-  builder.viewport.y        = 0.f;
-  builder.viewport.width    = static_cast<float>(swap->swapchain_extent.width);
-  builder.viewport.height   = static_cast<float>(swap->swapchain_extent.height);
-  builder.viewport.minDepth = 0.f;
-  builder.viewport.maxDepth = 1.f;
-  builder.scissor.offset    = {0, 0};
-  builder.scissor.extent    = swap->swapchain_extent;
-  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  builder.multisampling     = vkinit::multisampleStateCreateInfo();
-  builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.pipeline_layout   = pipeline_layout;
-  point2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
-
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-
-  vert_code   = io::readFile("shaders/unstructured/particle_pos_3d.spv");
-  vert_module = createShaderModule(vert_code);
-
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
-  );
-
-  getVertexDescriptions3d(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  point3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
-
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
-
-  vert_code   = io::readFile("shaders/structured/screen_triangle.spv");
-  vert_module = createShaderModule(vert_code);
-
-  frag_code   = io::readFile("shaders/structured/texture_greyscale.spv");
-  frag_module = createShaderModule(frag_code);
-
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
-  );
-  frag_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
-  );
-
-  getVertexDescriptionsVert(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  texture2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
-
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
-
-  vert_code   = io::readFile("shaders/structured/texture3d_quad.spv");
-  vert_module = createShaderModule(vert_code);
-
-  frag_code   = io::readFile("shaders/structured/texture3d_draw.spv");
-  frag_module = createShaderModule(frag_code);
-
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
-  );
-  frag_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
-  );
-
-  getVertexDescriptionsVert(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  texture3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
-
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
-
-  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
-  vert_module = createShaderModule(vert_code);
-
-  frag_code   = io::readFile("shaders/unstructured/wireframe_fragment.spv");
-  frag_module = createShaderModule(frag_code);
-
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
-  );
-  frag_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
-  );
-
-  getVertexDescriptions2d(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
-  mesh2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
-
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-
-  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_3d.spv");
-  vert_module = createShaderModule(vert_code);
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
-  );
-
-  getVertexDescriptions3d(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  mesh3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
-
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
-
-  // Restore original working directory
-  std::filesystem::current_path(orig_path);
-}
-
-void VulkanEngine::getVertexDescriptions2d(
-  std::vector<VkVertexInputBindingDescription>& bind_desc,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc)
-{
-  bind_desc.resize(1);
-  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(float2), VK_VERTEX_INPUT_RATE_VERTEX);
-
-  attr_desc.resize(1);
-  attr_desc[0] = vkinit::vertexAttributeDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, 0);
-}
-
-void VulkanEngine::getVertexDescriptions3d(
-  std::vector<VkVertexInputBindingDescription>& bind_desc,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc)
-{
-  bind_desc.resize(1);
-  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(float3), VK_VERTEX_INPUT_RATE_VERTEX);
-
-  attr_desc.resize(1);
-  attr_desc[0] = vkinit::vertexAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
-}
-
-void VulkanEngine::getVertexDescriptionsVert(
-  std::vector<VkVertexInputBindingDescription>& bind_desc,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc)
-{
-  bind_desc.resize(1);
-  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-
-  attr_desc.resize(2);
-  attr_desc[0] = vkinit::vertexAttributeDescription(
-    0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
-  );
-
-  attr_desc[1] = vkinit::vertexAttributeDescription(
-    0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
-  );
 }
 
 size_t getAlignedUniformSize(size_t original_size, size_t min_alignment)
@@ -876,7 +651,7 @@ void VulkanEngine::drawGui()
   ImGui::Render();
 }
 
-FrameData& VulkanEngine::getCurrentFrame()
+FrameBarrier& VulkanEngine::getCurrentFrame()
 {
   return frames[current_frame % frames.size()];
 }
@@ -1150,4 +925,218 @@ VkRenderPass VulkanEngine::createRenderPass()
     vkCreateRenderPass(dev->logical_device, &pass_info, nullptr, &render_pass)
   );
   return render_pass;
+}
+
+// Take buffer with shader bytecode and create a shader module from it
+VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
+{
+  VkShaderModuleCreateInfo info{};
+  info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  info.pNext    = nullptr;
+  info.flags    = 0; // Unused
+  info.codeSize = code.size();
+  info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
+
+  VkShaderModule module;
+  validation::checkVulkan(
+    vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
+  );
+  return module;
+}
+
+void VulkanEngine::createGraphicsPipelines()
+{
+  auto orig_path = std::filesystem::current_path();
+  std::filesystem::current_path(shader_path);
+
+  auto vert_code   = io::readFile("shaders/unstructured/particle_pos_2d.spv");
+  auto vert_module = createShaderModule(vert_code);
+
+  auto frag_code   = io::readFile("shaders/unstructured/particle_draw.spv");
+  auto frag_module = createShaderModule(frag_code);
+
+  auto vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  auto frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
+  auto pipeline_layout_info = vkinit::pipelineLayoutCreateInfo(layouts);
+
+  validation::checkVulkan(vkCreatePipelineLayout(
+    dev->logical_device, &pipeline_layout_info, nullptr, &pipeline_layout)
+  );
+
+  std::vector<VkVertexInputBindingDescription> bind_desc;
+  std::vector<VkVertexInputAttributeDescription> attr_desc;
+  getVertexDescriptions2d(bind_desc, attr_desc);
+
+  PipelineBuilder builder;
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+  builder.viewport.x        = 0.f;
+  builder.viewport.y        = 0.f;
+  builder.viewport.width    = static_cast<float>(swap->swapchain_extent.width);
+  builder.viewport.height   = static_cast<float>(swap->swapchain_extent.height);
+  builder.viewport.minDepth = 0.f;
+  builder.viewport.maxDepth = 1.f;
+  builder.scissor.offset    = {0, 0};
+  builder.scissor.extent    = swap->swapchain_extent;
+  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  builder.multisampling     = vkinit::multisampleStateCreateInfo();
+  builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.pipeline_layout   = pipeline_layout;
+  point2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/particle_pos_3d.spv");
+  vert_module = createShaderModule(vert_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+
+  getVertexDescriptions3d(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  point3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
+
+  vert_code   = io::readFile("shaders/structured/screen_triangle.spv");
+  vert_module = createShaderModule(vert_code);
+
+  frag_code   = io::readFile("shaders/structured/texture_greyscale.spv");
+  frag_module = createShaderModule(frag_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  getVertexDescriptionsVert(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  texture2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
+
+  vert_code   = io::readFile("shaders/structured/texture3d_quad.spv");
+  vert_module = createShaderModule(vert_code);
+
+  frag_code   = io::readFile("shaders/structured/texture3d_draw.spv");
+  frag_module = createShaderModule(frag_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  getVertexDescriptionsVert(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  texture3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
+  vert_module = createShaderModule(vert_code);
+
+  frag_code   = io::readFile("shaders/unstructured/wireframe_fragment.spv");
+  frag_module = createShaderModule(frag_code);
+
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+  frag_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  );
+
+  getVertexDescriptions2d(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
+  mesh2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+
+  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_3d.spv");
+  vert_module = createShaderModule(vert_code);
+  vert_info = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  );
+
+  getVertexDescriptions3d(bind_desc, attr_desc);
+  builder.shader_stages.clear();
+  builder.shader_stages.push_back(vert_info);
+  builder.shader_stages.push_back(frag_info);
+  mesh3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+
+  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
+
+  // Restore original working directory
+  std::filesystem::current_path(orig_path);
+}
+
+void VulkanEngine::getVertexDescriptions2d(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(float2), VK_VERTEX_INPUT_RATE_VERTEX);
+
+  attr_desc.resize(1);
+  attr_desc[0] = vkinit::vertexAttributeDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, 0);
+}
+
+void VulkanEngine::getVertexDescriptions3d(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(float3), VK_VERTEX_INPUT_RATE_VERTEX);
+
+  attr_desc.resize(1);
+  attr_desc[0] = vkinit::vertexAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
+}
+
+void VulkanEngine::getVertexDescriptionsVert(
+  std::vector<VkVertexInputBindingDescription>& bind_desc,
+  std::vector<VkVertexInputAttributeDescription>& attr_desc)
+{
+  bind_desc.resize(1);
+  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
+
+  attr_desc.resize(2);
+  attr_desc[0] = vkinit::vertexAttributeDescription(
+    0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
+  );
+
+  attr_desc[1] = vkinit::vertexAttributeDescription(
+    0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
+  );
 }

@@ -18,15 +18,14 @@ struct VulkanDevice
 {
   // GPU used for Vulkan operations
   VkPhysicalDevice physical_device = VK_NULL_HANDLE;
-  VkPhysicalDeviceProperties properties;
-  VkPhysicalDeviceFeatures features;
-  VkPhysicalDeviceMemoryProperties memory_properties;
+  VkPhysicalDeviceProperties properties = {};
+  VkPhysicalDeviceFeatures features = {};
+  VkPhysicalDeviceMemoryProperties memory_properties = {};
 
   VkDevice logical_device = VK_NULL_HANDLE;
   VkCommandPool command_pool = VK_NULL_HANDLE;
 
-  VulkanQueue graphics;
-  VulkanQueue present;
+  VulkanQueue graphics, present;
   DeletionQueue deletors;
 
   explicit VulkanDevice(VkPhysicalDevice gpu);
@@ -53,7 +52,6 @@ struct VulkanDevice
   VkDescriptorSetLayout createDescriptorSetLayout(
     const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings
   );
-  VkSemaphore createExternalSemaphore();
   void transitionImageLayout(VkImage image, VkFormat format,
     VkImageLayout old_layout, VkImageLayout new_layout
   );

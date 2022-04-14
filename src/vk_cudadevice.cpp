@@ -157,17 +157,41 @@ void *VulkanCudaDevice::getSemaphoreHandle(VkSemaphore semaphore,
   return (void*)(uintptr_t)fd;
 }
 
-void VulkanCudaDevice::importCudaExternalSemaphore(
-  cudaExternalSemaphore_t& cuda_sem, VkSemaphore& vk_sem)
+InteropBarrier VulkanCudaDevice::createInteropBarrier()
 {
-  cudaExternalSemaphoreHandleDesc sem_desc{};
-  //sem_desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-  sem_desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
-  sem_desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
-    vk_sem, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
+  /*VkSemaphoreTypeCreateInfo timeline_info{};
+  timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+  timeline_info.pNext = nullptr;
+  timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+  timeline_info.initialValue = 0;*/
+
+  VkExportSemaphoreCreateInfoKHR export_info{};
+  export_info.sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
+  export_info.pNext       = nullptr; // &timeline_info
+  export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  auto semaphore_info  = vkinit::semaphoreCreateInfo();
+  semaphore_info.pNext = &export_info;
+
+  InteropBarrier barrier;
+  validation::checkVulkan(vkCreateSemaphore(
+    logical_device, &semaphore_info, nullptr, &barrier.vk_semaphore)
   );
-  sem_desc.flags = 0;
-  validation::checkCuda(cudaImportExternalSemaphore(&cuda_sem, &sem_desc));
+
+  cudaExternalSemaphoreHandleDesc desc{};
+  //desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+  desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
+  desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
+    barrier.vk_semaphore, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
+  );
+  desc.flags = 0;
+  validation::checkCuda(cudaImportExternalSemaphore(&barrier.cuda_semaphore, &desc));
+
+  deletors.pushFunction([=]{
+    validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));
+    vkDestroySemaphore(logical_device, barrier.vk_semaphore, nullptr);
+  });
+  return barrier;
 }
 
 void VulkanCudaDevice::updateStructuredBuffer(CudaViewStructured mapped)
