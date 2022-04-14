@@ -213,11 +213,11 @@ VkSemaphore VulkanDevice::createExternalSemaphore()
   timeline_info.initialValue = 0;*/
 
   VkExportSemaphoreCreateInfoKHR export_info{};
-  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
+  export_info.sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
   export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-  export_info.pNext = nullptr; // &timeline_info
+  export_info.pNext       = nullptr; // &timeline_info
 
-  auto semaphore_info = vkinit::semaphoreCreateInfo();
+  auto semaphore_info  = vkinit::semaphoreCreateInfo();
   semaphore_info.pNext = &export_info;
 
   VkSemaphore semaphore;
@@ -273,10 +273,10 @@ VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags us
   return new_buffer;
 }
 
-VkSampler VulkanDevice::createSampler()
+VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)
 {
-  auto info = vkinit::samplerCreateInfo(VK_FILTER_NEAREST);
-  info.anisotropyEnable = VK_TRUE;
+  auto info = vkinit::samplerCreateInfo(filter);
+  info.anisotropyEnable = enable_anisotropy? VK_TRUE : VK_FALSE;
   info.maxAnisotropy    = properties.limits.maxSamplerAnisotropy;
 
   VkSampler sampler;
@@ -285,6 +285,44 @@ VkSampler VulkanDevice::createSampler()
     vkDestroySampler(logical_device, sampler, nullptr);
   });
   return sampler;
+}
+
+VkDescriptorPool VulkanDevice::createDescriptorPool(
+  const std::vector<VkDescriptorPoolSize>& pool_sizes)
+{
+  VkDescriptorPoolCreateInfo pool_info{};
+  pool_info.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets       = 1000;
+  pool_info.poolSizeCount = pool_sizes.size();
+  pool_info.pPoolSizes    = pool_sizes.data();
+
+  VkDescriptorPool pool;
+  validation::checkVulkan(
+    vkCreateDescriptorPool(logical_device, &pool_info, nullptr, &pool)
+  );
+  deletors.pushFunction([=]{
+    vkDestroyDescriptorPool(logical_device, pool, nullptr);
+  });
+  return pool;
+}
+
+VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
+  const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings)
+{
+  VkDescriptorSetLayoutCreateInfo info{};
+  info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  info.bindingCount = layout_bindings.size();
+  info.pBindings    = layout_bindings.data();
+
+  VkDescriptorSetLayout layout;
+  validation::checkVulkan(
+    vkCreateDescriptorSetLayout(logical_device, &info, nullptr, &layout)
+  );
+	deletors.pushFunction([=](){
+		vkDestroyDescriptorSetLayout(logical_device, layout, nullptr);
+	});
+  return layout;
 }
 
 void VulkanDevice::transitionImageLayout(VkImage image, VkFormat format,

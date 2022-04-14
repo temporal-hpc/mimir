@@ -6,7 +6,6 @@
 
 #include <condition_variable> // std::condition_variable
 #include <functional> // std::function
-#include <map> // std::map
 #include <memory> // std::unique_ptr
 #include <mutex> // std::mutex
 #include <thread> // std::thread
@@ -121,7 +120,6 @@ private:
     std::vector<VkVertexInputBindingDescription>& bind_desc,
     std::vector<VkVertexInputAttributeDescription>& attr_desc
   );
-  void updateUniformBuffer(uint32_t image_index);
 
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
@@ -161,20 +159,19 @@ private:
   // Vulkan core-related functions
   void createInstance();
   void pickPhysicalDevice();
-  void createDescriptorSetLayout();
   void createSyncObjects();
 
   // Swapchain-related functions
   void initSwapchain();
   void cleanupSwapchain();
   void recreateSwapchain();
-
-  // Swapchain subroutines
   void createGraphicsPipelines();
   void createBuffers();
-  void createDescriptorPool();
   void createDescriptorSets();
+
+  // Update functions
   void updateDescriptorSets();
+  void updateUniformBuffer(uint32_t image_index);
 
   // Depth buffering
   bool hasStencil(VkFormat format);

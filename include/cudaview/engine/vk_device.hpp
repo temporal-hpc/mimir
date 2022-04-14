@@ -46,7 +46,13 @@ struct VulkanDevice
   VulkanTexture createExternalImage(VkImageType type, VkFormat format, VkExtent3D extent,
     VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props
   );
-  VkSampler createSampler();
+  VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
+  VkDescriptorPool createDescriptorPool(
+    const std::vector<VkDescriptorPoolSize>& sizes
+  );
+  VkDescriptorSetLayout createDescriptorSetLayout(
+    const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings
+  );
   VkSemaphore createExternalSemaphore();
   void transitionImageLayout(VkImage image, VkFormat format,
     VkImageLayout old_layout, VkImageLayout new_layout

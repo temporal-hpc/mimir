@@ -171,8 +171,37 @@ void VulkanEngine::initVulkan()
   pickPhysicalDevice();
   dev = std::make_unique<VulkanCudaDevice>(physical_device);
   dev->initLogicalDevice(swap->surface);
-  createDescriptorSetLayout();
-  createDescriptorPool();
+
+  // Create descriptor set layout
+  descriptor_layout = dev->createDescriptorSetLayout({
+    vkinit::descriptorLayoutBinding(0, // binding
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+    ),
+    vkinit::descriptorLayoutBinding(1, // binding
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+    ),
+    vkinit::descriptorLayoutBinding(2, // binding
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT
+    ),
+    vkinit::descriptorLayoutBinding(3, // binding
+      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
+    )
+  });
+
+  // Create descriptor pool
+  descriptor_pool = dev->createDescriptorPool({
+    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+  });
 
   initSwapchain();
 
@@ -209,8 +238,12 @@ void VulkanEngine::createInstance()
   extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
 
   VkInstanceCreateInfo instance_info{};
-  instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-  instance_info.pApplicationInfo = &app_info;
+  instance_info.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+  instance_info.pNext                   = nullptr;
+  instance_info.flags                   = 0;
+  instance_info.pApplicationInfo        = &app_info;
+  instance_info.enabledLayerCount       = 0;
+  instance_info.ppEnabledLayerNames     = nullptr;
   instance_info.enabledExtensionCount   = extensions.size();
   instance_info.ppEnabledExtensionNames = extensions.data();
 
@@ -219,16 +252,11 @@ void VulkanEngine::createInstance()
   if (validation::enable_layers)
   {
     auto debug_create_info = validation::debugMessengerCreateInfo();
-    instance_info.pNext = &debug_create_info;
+    instance_info.pNext               = &debug_create_info;
     instance_info.enabledLayerCount   = validation::layers.size();
     instance_info.ppEnabledLayerNames = validation::layers.data();
   }
-  else
-  {
-    instance_info.pNext = nullptr;
-    instance_info.enabledLayerCount   = 0;
-    instance_info.ppEnabledLayerNames = nullptr;
-  }
+  validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
 
   /*uint32_t extension_count = 0;
   vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
@@ -240,7 +268,6 @@ void VulkanEngine::createInstance()
   {
     std::cout << '\t' << extension.extensionName << '\n';
   }*/
-  validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
 
   if (validation::enable_layers)
   {
@@ -278,38 +305,6 @@ void VulkanEngine::pickPhysicalDevice()
   {
     throw std::runtime_error("failed to find a suitable GPU!");
   }
-}
-
-void VulkanEngine::createDescriptorPool()
-{
-  VkDescriptorPoolSize pool_sizes[] =
-  {
-    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-  };
-
-  VkDescriptorPoolCreateInfo pool_info{};
-  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  pool_info.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets       = 1000;
-  pool_info.poolSizeCount = std::size(pool_sizes);
-  pool_info.pPoolSizes    = pool_sizes;
-
-  validation::checkVulkan(vkCreateDescriptorPool(
-    dev->logical_device, &pool_info, nullptr, &descriptor_pool)
-  );
-  deletors.pushFunction([=]{
-    vkDestroyDescriptorPool(dev->logical_device, descriptor_pool, nullptr);
-  });
 }
 
 void VulkanEngine::initImgui()
@@ -807,36 +802,6 @@ void VulkanEngine::createDescriptorSets()
   validation::checkVulkan(
     vkAllocateDescriptorSets(dev->logical_device, &alloc_info, descriptor_sets.data())
   );
-}
-
-void VulkanEngine::createDescriptorSetLayout()
-{
-  auto ubo_layout = vkinit::descriptorLayoutBinding(0, // binding
-    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
-  );
-  auto extent_layout = vkinit::descriptorLayoutBinding(1, // binding
-    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
-  );
-  auto point_color_layout = vkinit::descriptorLayoutBinding(2, // binding
-    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT
-  );
-  auto sampler_layout = vkinit::descriptorLayoutBinding(3, // binding
-    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
-  );
-
-  std::array bindings{ubo_layout, extent_layout, point_color_layout, sampler_layout};
-
-  VkDescriptorSetLayoutCreateInfo layout_info{};
-  layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  layout_info.bindingCount = bindings.size();
-  layout_info.pBindings    = bindings.data();
-
-  validation::checkVulkan(vkCreateDescriptorSetLayout(
-    dev->logical_device, &layout_info, nullptr, &descriptor_layout)
-  );
-	deletors.pushFunction([=](){
-		vkDestroyDescriptorSetLayout(dev->logical_device, descriptor_layout, nullptr);
-	});
 }
 
 void VulkanEngine::updateDescriptorSets()
