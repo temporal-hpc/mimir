@@ -15,7 +15,7 @@
 #include "color/color.hpp"
 
 #include "cudaview/engine/vk_buffer.hpp"
-#include "cudaview/engine/vk_cudamem.hpp"
+#include "cudaview/engine/cudaview.hpp"
 #include "cudaview/frame.hpp"
 #include "cudaview/deletion_queue.hpp"
 
@@ -110,8 +110,8 @@ private:
   uint64_t current_frame = 0;
   std::string shader_path;
   std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
-  std::vector<MappedStructuredMemory> structured_buffers;
-  std::vector<MappedUnstructuredMemory> unstructured_buffers;
+  std::vector<CudaViewStructured> structured_buffers;
+  std::vector<CudaViewUnstructured> unstructured_buffers;
 
   FrameData& getCurrentFrame();
 

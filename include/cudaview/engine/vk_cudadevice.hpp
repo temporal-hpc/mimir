@@ -2,16 +2,16 @@
 
 #include "cudaview/engine/vk_device.hpp"
 
-#include "cudaview/engine/vk_cudamem.hpp"
+#include "cudaview/engine/cudaview.hpp"
 
 struct VulkanCudaDevice : public VulkanDevice
 {
   using VulkanDevice::VulkanDevice;
 
-  MappedUnstructuredMemory createUnstructuredBuffer(size_t elem_count,
+  CudaViewUnstructured createUnstructuredBuffer(size_t elem_count,
     size_t elem_size, DataDomain domain, UnstructuredDataType type
   );
-  MappedStructuredMemory createStructuredBuffer(uint3 buffer_size,
+  CudaViewStructured createStructuredBuffer(uint3 buffer_size,
     size_t elem_size, DataDomain domain, DataFormat format
   );
 
@@ -28,5 +28,5 @@ struct VulkanCudaDevice : public VulkanDevice
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
-  void updateStructuredBuffer(MappedStructuredMemory mapped);
+  void updateStructuredBuffer(CudaViewStructured mapped);
 };

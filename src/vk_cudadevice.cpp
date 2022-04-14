@@ -3,10 +3,10 @@
 #include "internal/vk_initializers.hpp"
 #include "internal/validation.hpp"
 
-MappedUnstructuredMemory VulkanCudaDevice::createUnstructuredBuffer(
+CudaViewUnstructured VulkanCudaDevice::createUnstructuredBuffer(
   size_t elem_count, size_t elem_size, DataDomain domain, UnstructuredDataType type)
 {
-  MappedUnstructuredMemory mapped(elem_count, elem_size, domain, type);
+  CudaViewUnstructured mapped(elem_count, elem_size, domain, type);
 
   VkBufferUsageFlagBits usage;
   if (mapped.data_type == UnstructuredDataType::Points)
@@ -34,11 +34,11 @@ MappedUnstructuredMemory VulkanCudaDevice::createUnstructuredBuffer(
   return mapped;
 }
 
-MappedStructuredMemory VulkanCudaDevice::createStructuredBuffer(
+CudaViewStructured VulkanCudaDevice::createStructuredBuffer(
   uint3 buffer_size, size_t elem_size, DataDomain domain, DataFormat format)
 {
   VkExtent3D extent{buffer_size.x, buffer_size.y, buffer_size.z};
-  MappedStructuredMemory mapped(extent, elem_size, domain, format);
+  CudaViewStructured mapped(extent, elem_size, domain, format);
 
   // Init staging memory
   mapped.buffer = createExternalBuffer(mapped.element_size * mapped.element_count,
@@ -163,7 +163,7 @@ void VulkanCudaDevice::importCudaExternalSemaphore(
   validation::checkCuda(cudaImportExternalSemaphore(&cuda_sem, &sem_desc));
 }
 
-void VulkanCudaDevice::updateStructuredBuffer(MappedStructuredMemory mapped)
+void VulkanCudaDevice::updateStructuredBuffer(CudaViewStructured mapped)
 {
   auto src = mapped.buffer;
   auto dst = mapped.texture;

@@ -42,46 +42,46 @@ inline VkImageViewType getViewType(DataDomain domain)
   }
 }
 
-struct CudaMappedMemory
+struct CudaView
 {
+  DataDomain data_domain;
   size_t element_count = 0;
   size_t element_size  = 0;
   void *cuda_ptr = nullptr;
   cudaExternalMemory_t cuda_extmem = nullptr;
   VkFormat vk_format = VK_FORMAT_UNDEFINED;
-  DataDomain data_domain;
 
-  CudaMappedMemory();
-  CudaMappedMemory(size_t elem_count, size_t elem_size, DataDomain domain, DataFormat format):
+  CudaView();
+  CudaView(size_t elem_count, size_t elem_size, DataDomain domain, DataFormat format):
     element_count{elem_count}, element_size{elem_size}, data_domain{domain},
     vk_format{getVulkanFormat(format)}
   {}
 
-  CudaMappedMemory(size_t elem_count, size_t elem_size, DataDomain domain):
+  CudaView(size_t elem_count, size_t elem_size, DataDomain domain):
     element_count{elem_count}, element_size{elem_size}, data_domain{domain},
     vk_format{VK_FORMAT_UNDEFINED}
   {}
 };
 
-struct MappedUnstructuredMemory : public CudaMappedMemory
+struct CudaViewUnstructured : public CudaView
 {
   VulkanBuffer buffer;
   UnstructuredDataType data_type;
 
-  MappedUnstructuredMemory(size_t elem_count, size_t elem_size,
+  CudaViewUnstructured(size_t elem_count, size_t elem_size,
     DataDomain domain, UnstructuredDataType type):
-  CudaMappedMemory{elem_count, elem_size, domain}, data_type{type}
+  CudaView{elem_count, elem_size, domain}, data_type{type}
   {}
 };
 
-struct MappedStructuredMemory : public CudaMappedMemory
+struct CudaViewStructured : public CudaView
 {
   VulkanBuffer buffer;
   VulkanTexture texture;
   VkImageView vk_view;
 
-  MappedStructuredMemory(VkExtent3D extent, size_t elem_size, DataDomain domain,
+  CudaViewStructured(VkExtent3D extent, size_t elem_size, DataDomain domain,
     DataFormat format):
-    CudaMappedMemory{extent.width*extent.height*extent.depth, elem_size, domain, format}
+    CudaView{extent.width*extent.height*extent.depth, elem_size, domain, format}
   {}
 };
