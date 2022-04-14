@@ -1,6 +1,6 @@
 #include "cudaview/engine/vk_device.hpp"
 
-#include <set>
+#include <set> // std::set
 
 #include "internal/validation.hpp"
 #include "internal/vk_properties.hpp"

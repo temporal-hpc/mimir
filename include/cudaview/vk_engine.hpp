@@ -76,8 +76,6 @@ private:
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
   VulkanBuffer ubo;
-  VulkanBuffer vertex_buffer;
-  VulkanBuffer index_buffer;
   DeletionQueue deletors;
 
   // Depth buffer

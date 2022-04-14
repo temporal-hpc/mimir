@@ -50,6 +50,8 @@ struct CudaView
   void *cuda_ptr = nullptr;
   cudaExternalMemory_t cuda_extmem = nullptr;
   VkFormat vk_format = VK_FORMAT_UNDEFINED;
+  VulkanBuffer vertex_buffer;
+  VulkanBuffer index_buffer;
 
   CudaView();
   CudaView(size_t elem_count, size_t elem_size, DataDomain domain, DataFormat format):

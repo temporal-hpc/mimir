@@ -29,4 +29,6 @@ struct VulkanCudaDevice : public VulkanDevice
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
   void updateStructuredBuffer(CudaViewStructured mapped);
+
+  void initBuffers(VulkanBuffer& vertex_buffer, VulkanBuffer& index_buffer);
 };

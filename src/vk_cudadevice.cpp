@@ -1,5 +1,8 @@
 #include "cudaview/engine/vk_cudadevice.hpp"
 
+#include <cstring> // std::memcpy
+
+#include "cudaview/vk_types.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/validation.hpp"
 
@@ -7,6 +10,7 @@ CudaViewUnstructured VulkanCudaDevice::createUnstructuredBuffer(
   size_t elem_count, size_t elem_size, DataDomain domain, UnstructuredDataType type)
 {
   CudaViewUnstructured mapped(elem_count, elem_size, domain, type);
+  initBuffers(mapped.vertex_buffer, mapped.index_buffer);
 
   VkBufferUsageFlagBits usage;
   if (mapped.data_type == UnstructuredDataType::Points)
@@ -39,6 +43,7 @@ CudaViewStructured VulkanCudaDevice::createStructuredBuffer(
 {
   VkExtent3D extent{buffer_size.x, buffer_size.y, buffer_size.z};
   CudaViewStructured mapped(extent, elem_size, domain, format);
+  initBuffers(mapped.vertex_buffer, mapped.index_buffer);
 
   // Init staging memory
   mapped.buffer = createExternalBuffer(mapped.element_size * mapped.element_count,
@@ -196,4 +201,45 @@ void VulkanCudaDevice::updateStructuredBuffer(CudaViewStructured mapped)
   transitionImageLayout(dst.image, mapped.vk_format,
     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
+}
+
+void VulkanCudaDevice::initBuffers(VulkanBuffer& vertex_buffer, VulkanBuffer& index_buffer)
+{
+  const std::vector<Vertex> vertices{
+    { {  1.f,  1.f, 1.f }, { 1.f, 1.f } },
+    { { -1.f,  1.f, 1.f }, { 0.f, 1.f } },
+    { { -1.f, -1.f, 1.f }, { 0.f, 0.f } },
+    { {  1.f, -1.f, 1.f }, { 1.f, 0.f } }/*,
+    { {  1.f,  1.f, .5f }, { 1.f, 1.f } },
+    { { -1.f,  1.f, .5f }, { 0.f, 1.f } },
+    { { -1.f, -1.f, .5f }, { 0.f, 0.f } },
+    { {  1.f, -1.f, .5f }, { 1.f, 0.f } }*/
+  };
+  // Indices for a single uv-mapped quad made from two triangles
+  const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0, /*4, 5, 6, 6, 7, 4*/ };
+
+  auto vert_size = sizeof(Vertex) * vertices.size();
+  vertex_buffer = createBuffer(vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+  );
+  char *data = nullptr;
+  vkMapMemory(logical_device, vertex_buffer.memory, 0, vert_size, 0, (void**)&data);
+  std::memcpy(data, vertices.data(), vert_size);
+  vkUnmapMemory(logical_device, vertex_buffer.memory);
+
+  auto idx_size = sizeof(uint32_t) * indices.size();
+  index_buffer = createBuffer(idx_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+  );
+  data = nullptr;
+  vkMapMemory(logical_device, index_buffer.memory, 0, idx_size, 0, (void**)&data);
+  std::memcpy(data, indices.data(), idx_size);
+  vkUnmapMemory(logical_device, index_buffer.memory);
+
+  deletors.pushFunction([=]{
+    vkDestroyBuffer(logical_device, vertex_buffer.buffer, nullptr);
+    vkFreeMemory(logical_device, vertex_buffer.memory, nullptr);
+    vkDestroyBuffer(logical_device, index_buffer.buffer, nullptr);
+    vkFreeMemory(logical_device, index_buffer.memory, nullptr);
+  });
 }

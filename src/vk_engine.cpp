@@ -4,11 +4,11 @@
 #include "internal/camera.hpp"
 #include "internal/color.hpp"
 #include "internal/validation.hpp"
-#include "cudaview/engine/vk_cudadevice.hpp"
-#include "cudaview/engine/vk_framebuffer.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
+#include "cudaview/engine/vk_cudadevice.hpp"
+#include "cudaview/engine/vk_framebuffer.hpp"
 #include "cudaview/engine/vk_swapchain.hpp"
 
 #include "imgui.h"
@@ -39,11 +39,6 @@ VulkanEngine::~VulkanEngine()
   }
 
   cleanupSwapchain();
-
-  vkDestroyBuffer(device, vertex_buffer.buffer, nullptr);
-  vkFreeMemory(device, vertex_buffer.memory, nullptr);
-  vkDestroyBuffer(device, index_buffer.buffer, nullptr);
-  vkFreeMemory(device, index_buffer.memory, nullptr);
 
   ImGui_ImplVulkan_Shutdown();
   deletors.flush();
@@ -765,37 +760,6 @@ void VulkanEngine::createBuffers()
   ubo = dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
   );
-
-  const std::vector<Vertex> vertices{
-		{ {  1.f,  1.f, 1.f }, { 1.f, 1.f } },
-		{ { -1.f,  1.f, 1.f }, { 0.f, 1.f } },
-		{ { -1.f, -1.f, 1.f }, { 0.f, 0.f } },
-		{ {  1.f, -1.f, 1.f }, { 1.f, 0.f } }/*,
-    { {  1.f,  1.f, .5f }, { 1.f, 1.f } },
-    { { -1.f,  1.f, .5f }, { 0.f, 1.f } },
-    { { -1.f, -1.f, .5f }, { 0.f, 0.f } },
-    { {  1.f, -1.f, .5f }, { 1.f, 0.f } }*/
-	};
-  // Indices for a single uv-mapped quad made from two triangles
-  const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0, /*4, 5, 6, 6, 7, 4*/ };
-
-  auto vert_size = sizeof(Vertex) * vertices.size();
-  vertex_buffer = dev->createBuffer(vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-  );
-  char *data = nullptr;
-  vkMapMemory(device, vertex_buffer.memory, 0, vert_size, 0, (void**)&data);
-  std::memcpy(data, vertices.data(), vert_size);
-  vkUnmapMemory(device, vertex_buffer.memory);
-
-  auto idx_size = sizeof(uint32_t) * indices.size();
-  index_buffer = dev->createBuffer(idx_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-  );
-  data = nullptr;
-  vkMapMemory(device, index_buffer.memory, 0, idx_size, 0, (void**)&data);
-  std::memcpy(data, indices.data(), idx_size);
-  vkUnmapMemory(device, index_buffer.memory);
 }
 
 void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
@@ -1071,13 +1035,13 @@ void VulkanEngine::renderFrame()
 void VulkanEngine::drawObjects(uint32_t image_idx)
 {
   auto cmd = command_buffers[image_idx];
-  for (const auto& buffer : views_structured)
+  for (const auto& view : views_structured)
   {
-    if (buffer.data_domain == DataDomain::Domain2D)
+    if (view.data_domain == DataDomain::Domain2D)
     {
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texture2d_pipeline);
     }
-    else if (buffer.data_domain == DataDomain::Domain3D)
+    else if (view.data_domain == DataDomain::Domain3D)
     {
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texture3d_pipeline);
     }
@@ -1086,20 +1050,20 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     );
 
     VkDeviceSize offsets[1] = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets);
-    vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer.buffer, offsets);
+    vkCmdBindIndexBuffer(cmd, view.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
     vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
   }
 
-  for (const auto& buffer : views_unstructured)
+  for (const auto& view : views_unstructured)
   {
-    if (buffer.data_type == UnstructuredDataType::Points)
+    if (view.data_type == UnstructuredDataType::Points)
     {
-      if (buffer.data_domain == DataDomain::Domain2D)
+      if (view.data_domain == DataDomain::Domain2D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point2d_pipeline);
       }
-      else if (buffer.data_domain == DataDomain::Domain3D)
+      else if (view.data_domain == DataDomain::Domain3D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point3d_pipeline);
       }
@@ -1107,19 +1071,19 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertex_buffers[] = { buffer.buffer.buffer };
+      VkBuffer vertex_buffers[] = { view.buffer.buffer };
       VkDeviceSize offsets[] = { 0 };
       auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
       vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-      vkCmdDraw(cmd, buffer.element_count, 1, 0, 0);
+      vkCmdDraw(cmd, view.element_count, 1, 0, 0);
     }
-    else if (buffer.data_type == UnstructuredDataType::Edges)
+    else if (view.data_type == UnstructuredDataType::Edges)
     {
-      if (buffer.data_domain == DataDomain::Domain2D)
+      if (view.data_domain == DataDomain::Domain2D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh2d_pipeline);
       }
-      else if (buffer.data_domain == DataDomain::Domain3D)
+      else if (view.data_domain == DataDomain::Domain3D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh3d_pipeline);
       }
@@ -1129,8 +1093,8 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       VkBuffer vertexBuffers[] = { views_unstructured[0].buffer.buffer };
       VkDeviceSize offsets[] = {0};
       vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-      vkCmdBindIndexBuffer(cmd, buffer.buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-      vkCmdDrawIndexed(cmd, 3 * buffer.element_count, 1, 0, 0, 0);
+      vkCmdBindIndexBuffer(cmd, view.buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+      vkCmdDrawIndexed(cmd, 3 * view.element_count, 1, 0, 0, 0);
     }
   }
 }
