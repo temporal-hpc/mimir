@@ -2,6 +2,12 @@
 
 #include "internal/vk_initializers.hpp"
 
+PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
+  pipeline_layout{layout},
+  viewport{0.f, 0.f, (float)extent.width, (float)extent.height, 0.f, 1.f},
+  scissor{ {0, 0}, extent }
+{}
+
 VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
 {
   // Combine viewport and scissor rectangle into a viewport state

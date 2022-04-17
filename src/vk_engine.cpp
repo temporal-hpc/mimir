@@ -15,6 +15,7 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 
+#include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
 #include <stdexcept> // std::throw
 
@@ -172,6 +173,21 @@ void VulkanEngine::initVulkan()
   dev = std::make_unique<VulkanCudaDevice>(physical_device);
   dev->initLogicalDevice(swap->surface);
 
+  // Create descriptor pool
+  descriptor_pool = dev->createDescriptorPool({
+    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+  });
+
   // Create descriptor set layout
   descriptor_layout = dev->createDescriptorSetLayout({
     vkinit::descriptorLayoutBinding(0, // binding
@@ -188,20 +204,12 @@ void VulkanEngine::initVulkan()
     )
   });
 
-  // Create descriptor pool
-  descriptor_pool = dev->createDescriptorPool({
-    { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-  });
+  // Create pipeline layout
+  std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
+  auto pipeline_layout_info = vkinit::pipelineLayoutCreateInfo(layouts);
+  validation::checkVulkan(vkCreatePipelineLayout(
+    dev->logical_device, &pipeline_layout_info, nullptr, &pipeline_layout)
+  );
 
   initSwapchain();
 
@@ -927,7 +935,7 @@ VkRenderPass VulkanEngine::createRenderPass()
   return render_pass;
 }
 
-// Take buffer with shader bytecode and create a shader module from it
+// Read buffer with shader bytecode and create a shader module from it
 VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
 {
   VkShaderModuleCreateInfo info{};
@@ -946,6 +954,8 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
 
 void VulkanEngine::createGraphicsPipelines()
 {
+  auto start = std::chrono::steady_clock::now();
+
   auto orig_path = std::filesystem::current_path();
   std::filesystem::current_path(shader_path);
 
@@ -962,34 +972,18 @@ void VulkanEngine::createGraphicsPipelines()
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
   );
 
-  std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
-  auto pipeline_layout_info = vkinit::pipelineLayoutCreateInfo(layouts);
-
-  validation::checkVulkan(vkCreatePipelineLayout(
-    dev->logical_device, &pipeline_layout_info, nullptr, &pipeline_layout)
-  );
-
   std::vector<VkVertexInputBindingDescription> bind_desc;
   std::vector<VkVertexInputAttributeDescription> attr_desc;
   getVertexDescriptions2d(bind_desc, attr_desc);
 
-  PipelineBuilder builder;
+  PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
   builder.shader_stages.push_back(vert_info);
   builder.shader_stages.push_back(frag_info);
   builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
   builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-  builder.viewport.x        = 0.f;
-  builder.viewport.y        = 0.f;
-  builder.viewport.width    = static_cast<float>(swap->swapchain_extent.width);
-  builder.viewport.height   = static_cast<float>(swap->swapchain_extent.height);
-  builder.viewport.minDepth = 0.f;
-  builder.viewport.maxDepth = 1.f;
-  builder.scissor.offset    = {0, 0};
-  builder.scissor.extent    = swap->swapchain_extent;
   builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
   builder.multisampling     = vkinit::multisampleStateCreateInfo();
   builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.pipeline_layout   = pipeline_layout;
   point2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
 
   vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
@@ -1100,6 +1094,11 @@ void VulkanEngine::createGraphicsPipelines()
 
   // Restore original working directory
   std::filesystem::current_path(orig_path);
+
+  auto end = std::chrono::steady_clock::now();
+  std::cout << "Creation time for all pipelines: "
+    << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+    << " ms\n";
 }
 
 void VulkanEngine::getVertexDescriptions2d(
