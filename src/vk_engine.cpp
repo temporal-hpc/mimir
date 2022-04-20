@@ -785,7 +785,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   {
     if (view.data_domain == DataDomain::Domain2D)
     {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[2]);
     }
     else if (view.data_domain == DataDomain::Domain3D)
     {
@@ -961,6 +961,8 @@ void VulkanEngine::createGraphicsPipelines()
   auto orig_path = std::filesystem::current_path();
   std::filesystem::current_path(shader_path);
 
+  PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
+
   auto vert_points2d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_2d.spv"));
   auto vert_info_points2d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_VERTEX_BIT, vert_points2d
@@ -970,9 +972,7 @@ void VulkanEngine::createGraphicsPipelines()
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_points
   );
 
-  PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
-
-  /*PipelineInfo points2d;
+  PipelineInfo points2d;
   points2d.shader_stages.push_back(vert_info_points2d);
   points2d.shader_stages.push_back(frag_info_points);
   points2d.vertex_input_info = getVertexDescriptions2d();
@@ -995,7 +995,7 @@ void VulkanEngine::createGraphicsPipelines()
   points3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
   points3d.multisampling     = vkinit::multisampleStateCreateInfo();
   points3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(points3d);*/
+  builder.addPipelineInfo(points3d);
 
   auto vert_tex2d = createShaderModule(io::readFile("shaders/structured/screen_triangle.spv"));
   auto vert_info_tex2d = vkinit::pipelineShaderStageCreateInfo(
@@ -1016,72 +1016,61 @@ void VulkanEngine::createGraphicsPipelines()
   texture2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(texture2d);
 
-  /*vert_code   = io::readFile("shaders/structured/texture3d_quad.spv");
-  auto vert_tex3d = createShaderModule(vert_code);
-
-  frag_code   = io::readFile("shaders/structured/texture3d_draw.spv");
-  auto frag_tex3d = createShaderModule(frag_code);
-
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
+  auto vert_tex3d = createShaderModule(io::readFile("shaders/structured/texture3d_quad.spv"));
+  auto vert_info_tex3d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_VERTEX_BIT, vert_tex3d
   );
-  frag_info = vkinit::pipelineShaderStageCreateInfo(
+  auto frag_tex3d = createShaderModule(io::readFile("shaders/structured/texture3d_draw.spv"));
+  auto frag_info_tex3d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_tex3d
   );
 
-  getVertexDescriptionsVert(bind_desc, attr_desc);
   PipelineInfo texture3d;
-  texture3d.shader_stages.push_back(vert_info);
-  texture3d.shader_stages.push_back(frag_info);
-  texture3d.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  texture3d.shader_stages.push_back(vert_info_tex3d);
+  texture3d.shader_stages.push_back(frag_info_tex3d);
+  texture3d.vertex_input_info = getVertexDescriptionsVert();
   texture3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   texture3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
   texture3d.multisampling     = vkinit::multisampleStateCreateInfo();
   texture3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(texture3d);
 
-  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
-  auto vert_mesh2d = createShaderModule(vert_code);
-
-  frag_code   = io::readFile("shaders/unstructured/wireframe_fragment.spv");
-  auto frag_mesh = createShaderModule(frag_code);
-
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
+  auto vert_mesh2d = createShaderModule(io::readFile("shaders/unstructured/wireframe_vertex_2d.spv"));
+  auto vert_info_mesh2d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_VERTEX_BIT, vert_mesh2d
   );
-  frag_info = vkinit::pipelineShaderStageCreateInfo(
+  auto frag_mesh = createShaderModule(io::readFile("shaders/unstructured/wireframe_fragment.spv"));
+  auto frag_info_mesh = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_mesh
   );
 
-  getVertexDescriptions2d(bind_desc, attr_desc);
   PipelineInfo mesh2d;
-  mesh2d.shader_stages.push_back(vert_info);
-  mesh2d.shader_stages.push_back(frag_info);
-  mesh2d.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  mesh2d.shader_stages.push_back(vert_info_mesh2d);
+  mesh2d.shader_stages.push_back(frag_info_mesh);
+  mesh2d.vertex_input_info = getVertexDescriptions2d();
   mesh2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   mesh2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
   mesh2d.multisampling     = vkinit::multisampleStateCreateInfo();
   mesh2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(mesh2d);
 
-  vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_3d.spv");
-  auto vert_mesh3d = createShaderModule(vert_code);
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
+  auto vert_mesh3d = createShaderModule(io::readFile("shaders/unstructured/wireframe_vertex_3d.spv"));
+  auto vert_info = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_VERTEX_BIT, vert_mesh3d
   );
 
-  getVertexDescriptions3d(bind_desc, attr_desc);
   PipelineInfo mesh3d;
   mesh3d.shader_stages.push_back(vert_info);
-  mesh3d.shader_stages.push_back(frag_info);
-  mesh3d.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  mesh3d.shader_stages.push_back(frag_info_mesh);
+  mesh3d.vertex_input_info = getVertexDescriptions3d();
   mesh3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   mesh3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
   mesh3d.multisampling     = vkinit::multisampleStateCreateInfo();
   mesh3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(mesh3d);*/
+  builder.addPipelineInfo(mesh3d);
 
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
+  std::cout << pipelines.size() << " pipelines created\n";
 
   // Restore original working directory
   std::filesystem::current_path(orig_path);
