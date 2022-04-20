@@ -62,12 +62,13 @@ private:
   VkRenderPass render_pass = VK_NULL_HANDLE;
   VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
   VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-  VkPipeline texture2d_pipeline = VK_NULL_HANDLE;
-  VkPipeline texture3d_pipeline = VK_NULL_HANDLE;
-  VkPipeline point2d_pipeline = VK_NULL_HANDLE;
-  VkPipeline point3d_pipeline = VK_NULL_HANDLE;
-  VkPipeline mesh2d_pipeline = VK_NULL_HANDLE;
-  VkPipeline mesh3d_pipeline = VK_NULL_HANDLE;
+  std::vector<VkPipeline> pipelines;
+  // 0: points2d
+  // 1: points3d
+  // 2: texture2d
+  // 3: texture3d
+  // 4: mesh2d
+  // 5: mesh3d
   VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
@@ -103,19 +104,6 @@ private:
   std::vector<CudaViewUnstructured> views_unstructured;
 
   FrameBarrier& getCurrentFrame();
-
-  void getVertexDescriptions2d(
-    std::vector<VkVertexInputBindingDescription>& bind_desc,
-    std::vector<VkVertexInputAttributeDescription>& attr_desc
-  );
-  void getVertexDescriptions3d(
-    std::vector<VkVertexInputBindingDescription>& bind_desc,
-    std::vector<VkVertexInputAttributeDescription>& attr_desc
-  );
-  void getVertexDescriptionsVert(
-    std::vector<VkVertexInputBindingDescription>& bind_desc,
-    std::vector<VkVertexInputAttributeDescription>& attr_desc
-  );
 
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;

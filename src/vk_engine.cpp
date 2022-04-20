@@ -431,12 +431,10 @@ void VulkanEngine::cleanupSwapchain()
 {
   vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
   vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
-  vkDestroyPipeline(dev->logical_device, point2d_pipeline, nullptr);
-  vkDestroyPipeline(dev->logical_device, point3d_pipeline, nullptr);
-  vkDestroyPipeline(dev->logical_device, mesh2d_pipeline, nullptr);
-  vkDestroyPipeline(dev->logical_device, mesh3d_pipeline, nullptr);
-  vkDestroyPipeline(dev->logical_device, texture2d_pipeline, nullptr);
-  vkDestroyPipeline(dev->logical_device, texture3d_pipeline, nullptr);
+  for (auto pipeline : pipelines)
+  {
+    vkDestroyPipeline(dev->logical_device, pipeline, nullptr);
+  }
   vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
   vkDestroyRenderPass(dev->logical_device, render_pass, nullptr);
   vkFreeCommandBuffers(dev->logical_device, dev->command_pool,
@@ -787,11 +785,11 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   {
     if (view.data_domain == DataDomain::Domain2D)
     {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texture2d_pipeline);
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
     }
     else if (view.data_domain == DataDomain::Domain3D)
     {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texture3d_pipeline);
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[3]);
     }
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
       pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
@@ -809,11 +807,11 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     {
       if (view.data_domain == DataDomain::Domain2D)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point2d_pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
       }
       else if (view.data_domain == DataDomain::Domain3D)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, point3d_pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[1]);
       }
       // Note: Second parameter can be also used to bind a compute pipeline
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -829,11 +827,11 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     {
       if (view.data_domain == DataDomain::Domain2D)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh2d_pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[4]);
       }
       else if (view.data_domain == DataDomain::Domain3D)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh3d_pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[5]);
       }
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
@@ -949,6 +947,10 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
   validation::checkVulkan(
     vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
   );
+  // TODO: Move to vulkandevice deletor queue (likely a new one)
+  deletors.pushFunction([=]{
+    vkDestroyShaderModule(dev->logical_device, module, nullptr);
+  });
   return module;
 }
 
@@ -959,138 +961,127 @@ void VulkanEngine::createGraphicsPipelines()
   auto orig_path = std::filesystem::current_path();
   std::filesystem::current_path(shader_path);
 
-  auto vert_code   = io::readFile("shaders/unstructured/particle_pos_2d.spv");
-  auto vert_module = createShaderModule(vert_code);
-
-  auto frag_code   = io::readFile("shaders/unstructured/particle_draw.spv");
-  auto frag_module = createShaderModule(frag_code);
-
-  auto vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  auto vert_points2d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_2d.spv"));
+  auto vert_info_points2d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_points2d
   );
-  auto frag_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  auto frag_points = createShaderModule(io::readFile("shaders/unstructured/particle_draw.spv"));
+  auto frag_info_points = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_points
   );
-
-  std::vector<VkVertexInputBindingDescription> bind_desc;
-  std::vector<VkVertexInputAttributeDescription> attr_desc;
-  getVertexDescriptions2d(bind_desc, attr_desc);
 
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  builder.multisampling     = vkinit::multisampleStateCreateInfo();
-  builder.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  point2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
 
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  /*PipelineInfo points2d;
+  points2d.shader_stages.push_back(vert_info_points2d);
+  points2d.shader_stages.push_back(frag_info_points);
+  points2d.vertex_input_info = getVertexDescriptions2d();
+  points2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+  points2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  points2d.multisampling = vkinit::multisampleStateCreateInfo();
+  points2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(points2d);
 
-  vert_code   = io::readFile("shaders/unstructured/particle_pos_3d.spv");
-  vert_module = createShaderModule(vert_code);
-
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  auto vert_points3d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_3d.spv"));
+  auto vert_info_points3d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_points3d
   );
 
-  getVertexDescriptions3d(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  point3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+  PipelineInfo points3d;
+  points3d.shader_stages.push_back(vert_info_points3d);
+  points3d.shader_stages.push_back(frag_info_points);
+  points3d.vertex_input_info = getVertexDescriptions3d();
+  points3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+  points3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  points3d.multisampling     = vkinit::multisampleStateCreateInfo();
+  points3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(points3d);*/
 
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
-
-  vert_code   = io::readFile("shaders/structured/screen_triangle.spv");
-  vert_module = createShaderModule(vert_code);
-
-  frag_code   = io::readFile("shaders/structured/texture_greyscale.spv");
-  frag_module = createShaderModule(frag_code);
-
-  vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+  auto vert_tex2d = createShaderModule(io::readFile("shaders/structured/screen_triangle.spv"));
+  auto vert_info_tex2d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_tex2d
   );
-  frag_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+  auto frag_tex2d = createShaderModule(io::readFile("shaders/structured/texture_greyscale.spv"));
+  auto frag_info_tex2d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_tex2d
   );
 
-  getVertexDescriptionsVert(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  texture2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+  PipelineInfo texture2d;
+  texture2d.shader_stages.push_back(vert_info_tex2d);
+  texture2d.shader_stages.push_back(frag_info_tex2d);
+  texture2d.vertex_input_info = getVertexDescriptionsVert();
+  texture2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  texture2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  texture2d.multisampling     = vkinit::multisampleStateCreateInfo();
+  texture2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(texture2d);
 
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
-
-  vert_code   = io::readFile("shaders/structured/texture3d_quad.spv");
-  vert_module = createShaderModule(vert_code);
+  /*vert_code   = io::readFile("shaders/structured/texture3d_quad.spv");
+  auto vert_tex3d = createShaderModule(vert_code);
 
   frag_code   = io::readFile("shaders/structured/texture3d_draw.spv");
-  frag_module = createShaderModule(frag_code);
+  auto frag_tex3d = createShaderModule(frag_code);
 
   vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+    VK_SHADER_STAGE_VERTEX_BIT, vert_tex3d
   );
   frag_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_tex3d
   );
 
   getVertexDescriptionsVert(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  texture3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
-
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
+  PipelineInfo texture3d;
+  texture3d.shader_stages.push_back(vert_info);
+  texture3d.shader_stages.push_back(frag_info);
+  texture3d.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  texture3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  texture3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  texture3d.multisampling     = vkinit::multisampleStateCreateInfo();
+  texture3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(texture3d);
 
   vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_2d.spv");
-  vert_module = createShaderModule(vert_code);
+  auto vert_mesh2d = createShaderModule(vert_code);
 
   frag_code   = io::readFile("shaders/unstructured/wireframe_fragment.spv");
-  frag_module = createShaderModule(frag_code);
+  auto frag_mesh = createShaderModule(frag_code);
 
   vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+    VK_SHADER_STAGE_VERTEX_BIT, vert_mesh2d
   );
   frag_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_module
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_mesh
   );
 
   getVertexDescriptions2d(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  builder.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
-  builder.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  builder.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
-  mesh2d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
-
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
+  PipelineInfo mesh2d;
+  mesh2d.shader_stages.push_back(vert_info);
+  mesh2d.shader_stages.push_back(frag_info);
+  mesh2d.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  mesh2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  mesh2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
+  mesh2d.multisampling     = vkinit::multisampleStateCreateInfo();
+  mesh2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(mesh2d);
 
   vert_code   = io::readFile("shaders/unstructured/wireframe_vertex_3d.spv");
-  vert_module = createShaderModule(vert_code);
+  auto vert_mesh3d = createShaderModule(vert_code);
   vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_module
+    VK_SHADER_STAGE_VERTEX_BIT, vert_mesh3d
   );
 
   getVertexDescriptions3d(bind_desc, attr_desc);
-  builder.shader_stages.clear();
-  builder.shader_stages.push_back(vert_info);
-  builder.shader_stages.push_back(frag_info);
-  mesh3d_pipeline = builder.buildPipeline(dev->logical_device, render_pass);
+  PipelineInfo mesh3d;
+  mesh3d.shader_stages.push_back(vert_info);
+  mesh3d.shader_stages.push_back(frag_info);
+  mesh3d.vertex_input_info = vkinit::vertexInputStateCreateInfo(bind_desc, attr_desc);
+  mesh3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  mesh3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
+  mesh3d.multisampling     = vkinit::multisampleStateCreateInfo();
+  mesh3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(mesh3d);*/
 
-  vkDestroyShaderModule(dev->logical_device, vert_module, nullptr);
-  vkDestroyShaderModule(dev->logical_device, frag_module, nullptr);
+  pipelines = builder.createPipelines(dev->logical_device, render_pass);
 
   // Restore original working directory
   std::filesystem::current_path(orig_path);
@@ -1099,43 +1090,4 @@ void VulkanEngine::createGraphicsPipelines()
   std::cout << "Creation time for all pipelines: "
     << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
     << " ms\n";
-}
-
-void VulkanEngine::getVertexDescriptions2d(
-  std::vector<VkVertexInputBindingDescription>& bind_desc,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc)
-{
-  bind_desc.resize(1);
-  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(float2), VK_VERTEX_INPUT_RATE_VERTEX);
-
-  attr_desc.resize(1);
-  attr_desc[0] = vkinit::vertexAttributeDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, 0);
-}
-
-void VulkanEngine::getVertexDescriptions3d(
-  std::vector<VkVertexInputBindingDescription>& bind_desc,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc)
-{
-  bind_desc.resize(1);
-  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(float3), VK_VERTEX_INPUT_RATE_VERTEX);
-
-  attr_desc.resize(1);
-  attr_desc[0] = vkinit::vertexAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
-}
-
-void VulkanEngine::getVertexDescriptionsVert(
-  std::vector<VkVertexInputBindingDescription>& bind_desc,
-  std::vector<VkVertexInputAttributeDescription>& attr_desc)
-{
-  bind_desc.resize(1);
-  bind_desc[0] = vkinit::vertexBindingDescription(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-
-  attr_desc.resize(2);
-  attr_desc[0] = vkinit::vertexAttributeDescription(
-    0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
-  );
-
-  attr_desc[1] = vkinit::vertexAttributeDescription(
-    0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
-  );
 }

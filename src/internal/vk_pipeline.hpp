@@ -4,20 +4,35 @@
 
 #include <vector> // std::vector
 
-struct PipelineBuilder
+struct VertexDescription
 {
-  VkPipelineLayout pipeline_layout;
-  VkViewport viewport;
-  VkRect2D scissor;
-  
+  std::vector<VkVertexInputBindingDescription> binding;
+  std::vector<VkVertexInputAttributeDescription> attribute;
+};
+
+struct PipelineInfo
+{
   std::vector<VkPipelineShaderStageCreateInfo> shader_stages;
-  VkPipelineVertexInputStateCreateInfo vertex_input_info;
+  VertexDescription vertex_input_info;
   VkPipelineInputAssemblyStateCreateInfo input_assembly;
 
   VkPipelineRasterizationStateCreateInfo rasterizer;
   VkPipelineColorBlendAttachmentState color_blend_attachment;
   VkPipelineMultisampleStateCreateInfo multisampling;
+};
+
+struct PipelineBuilder
+{
+  std::vector<PipelineInfo> pipeline_infos;
+  VkPipelineLayout pipeline_layout;
+  VkViewport viewport;
+  VkRect2D scissor;
 
   PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent);
-  VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
+  uint32_t addPipelineInfo(PipelineInfo info);
+  std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
 };
+
+VertexDescription getVertexDescriptions2d();
+VertexDescription getVertexDescriptions3d();
+VertexDescription getVertexDescriptionsVert();
