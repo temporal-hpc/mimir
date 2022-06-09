@@ -5,7 +5,7 @@ ObjectList('shaders')
   .Compiler                = 'ShaderCompiler'
   .CompilerOptions         = '-o "%2" "%1" -c'
   .CompilerInputPath       = 'shaders/'
-  .CompilerInputPattern    = { '*.vert', '*.frag' }
+  .CompilerInputPattern    = { '*.vert', '*.frag', '*.geom' }
   .CompilerOutputPath      = .BuildPrefix + 'shaders/'
   .CompilerOutputExtension = '.spv'
 }

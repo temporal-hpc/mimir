@@ -8,7 +8,7 @@
 
 enum class DataFormat { Uint8, Int32, Float32, Rgba32 };
 enum class DataDomain { Domain2D, Domain3D };
-enum class UnstructuredDataType { Points, Edges };
+enum class UnstructuredDataType { Points, Edges, Voxels };
 
 inline VkFormat getVulkanFormat(DataFormat format)
 {

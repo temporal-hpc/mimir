@@ -201,6 +201,9 @@ void VulkanEngine::initVulkan()
     ),
     vkinit::descriptorLayoutBinding(3, // binding
       VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
+    ),
+    vkinit::descriptorLayoutBinding(4, // binding
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_GEOMETRY_BIT
     )
   });
 
@@ -532,7 +535,7 @@ void VulkanEngine::createBuffers()
   auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
 
   auto img_count = swap->image_count;
-  VkDeviceSize buffer_size = img_count * (size_mvp + size_colors + size_scene);
+  VkDeviceSize buffer_size = img_count * (2 * size_mvp + size_colors + size_scene);
   ubo = dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
   );
@@ -544,7 +547,7 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
   auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
   auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
-  auto size_ubo = size_mvp + size_colors + size_scene;
+  auto size_ubo = 2 * size_mvp + size_colors + size_scene;
   auto offset = image_idx * size_ubo;
 
   ModelViewProjection mvp{};
@@ -565,6 +568,7 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   std::memcpy(data, &mvp, sizeof(mvp));
   std::memcpy(data + size_mvp, &colors, sizeof(colors));
   std::memcpy(data + size_mvp + size_colors, &scene, sizeof(scene));
+  std::memcpy(data + size_mvp + size_colors + size_scene, &mvp, sizeof(mvp));
   vkUnmapMemory(dev->logical_device, ubo.memory);
 }
 
@@ -591,7 +595,7 @@ void VulkanEngine::updateDescriptorSets()
   auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
   auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
   auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
-  auto size_ubo = size_mvp + size_colors + size_scene;
+  auto size_ubo = 2 * size_mvp + size_colors + size_scene;
 
   for (size_t i = 0; i < descriptor_sets.size(); ++i)
   {
@@ -603,7 +607,6 @@ void VulkanEngine::updateDescriptorSets()
     mvp_info.buffer = ubo.buffer;
     mvp_info.offset = i * size_ubo;
     mvp_info.range  = sizeof(ModelViewProjection);
-
     auto write_mvp = vkinit::writeDescriptorBuffer(
       descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &mvp_info
     );
@@ -613,7 +616,6 @@ void VulkanEngine::updateDescriptorSets()
     pcolor_info.buffer = ubo.buffer;
     pcolor_info.offset = i * size_ubo + size_mvp;
     pcolor_info.range  = sizeof(ColorParams);
-
     auto write_pcolor = vkinit::writeDescriptorBuffer(
       descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &pcolor_info
     );
@@ -623,11 +625,19 @@ void VulkanEngine::updateDescriptorSets()
     extent_info.buffer = ubo.buffer;
     extent_info.offset = i * size_ubo + size_mvp + size_colors;
     extent_info.range  = sizeof(SceneParams);
-
     auto write_scene = vkinit::writeDescriptorBuffer(
       descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &extent_info
     );
     desc_writes.push_back(write_scene);
+
+    VkDescriptorBufferInfo geom_mvp_info{};
+    geom_mvp_info.buffer = ubo.buffer;
+    geom_mvp_info.offset = i * size_ubo + size_mvp + size_colors + size_scene;
+    geom_mvp_info.range  = sizeof(ModelViewProjection);
+    auto write_geom = vkinit::writeDescriptorBuffer(
+      descriptor_sets[i], 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &geom_mvp_info
+    );
+    desc_writes.push_back(write_geom);
 
     for (const auto& buffer : views_structured)
     {
@@ -841,6 +851,18 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
       vkCmdBindIndexBuffer(cmd, view.buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
       vkCmdDrawIndexed(cmd, 3 * view.element_count, 1, 0, 0, 0);
+    }
+    else if (view.data_type == UnstructuredDataType::Voxels)
+    {
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
+      VkBuffer vertex_buffers[] = { view.buffer.buffer };
+      VkDeviceSize offsets[] = { 0 };
+      auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+      vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+      vkCmdDraw(cmd, view.element_count, 1, 0, 0);
     }
   }
 }
@@ -1069,9 +1091,32 @@ void VulkanEngine::createGraphicsPipelines()
   mesh3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(mesh3d);
 
+  auto vert_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_vert.spv"));
+  auto vert_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_vox3d
+  );
+  auto frag_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_draw.spv"));
+  auto frag_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, frag_vox3d
+  );
+  auto geom_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_geometry.spv"));
+  auto geom_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_GEOMETRY_BIT, geom_vox3d
+  );
+
+  PipelineInfo voxel3d;
+  voxel3d.shader_stages.push_back(vert_info_vox3d);
+  voxel3d.shader_stages.push_back(frag_info_vox3d);
+  voxel3d.shader_stages.push_back(geom_info_vox3d);
+  voxel3d.vertex_input_info = getVertexDescriptions3d();
+  voxel3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+  voxel3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  voxel3d.multisampling     = vkinit::multisampleStateCreateInfo();
+  voxel3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(voxel3d);
+
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
   std::cout << pipelines.size() << " pipelines created\n";
-
   // Restore original working directory
   std::filesystem::current_path(orig_path);
 

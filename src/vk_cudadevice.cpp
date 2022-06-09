@@ -13,13 +13,16 @@ CudaViewUnstructured VulkanCudaDevice::createUnstructuredBuffer(
   initBuffers(mapped.vertex_buffer, mapped.index_buffer);
 
   VkBufferUsageFlagBits usage;
-  if (mapped.data_type == UnstructuredDataType::Points)
+  switch (mapped.data_type)
   {
-    usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-  }
-  else if (mapped.data_type == UnstructuredDataType::Edges)
-  {
-    usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    case UnstructuredDataType::Points: case UnstructuredDataType::Voxels:
+    {
+      usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT; break;
+    }
+    case UnstructuredDataType::Edges:
+    {
+      usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT; break;
+    }
   }
   // Init unstructured memory
   mapped.buffer = createExternalBuffer(mapped.element_size * mapped.element_count,
