@@ -55,15 +55,18 @@ int main(int argc, char **argv){
     init_prob(n, original, seed, prob);
 
     uint3 extent{(unsigned)n, (unsigned)n, (unsigned)n};
-    engine.addViewStructured((void**)&d1, extent, sizeof(int),
-      DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
-    );
-
     /*engine.addViewStructured((void**)&d1, extent, sizeof(int),
+      DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
+    );*/
+    /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
+      DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
+    );*/
+
+    engine.addViewStructured((void**)&d1, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
     );
     /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
-      DataDomain::Domain3D, DataFormat::Int32
+      DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
     );*/
     //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
     gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));

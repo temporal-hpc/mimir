@@ -1,7 +1,7 @@
 #version 450
 
 layout (points) in;
-layout (triangle_strip, max_vertices = 24/*12*/) out;
+layout (triangle_strip, max_vertices = 12) out;
 
 layout (location = 0) in vec3 in_pos[1];
 layout (location = 1) in vec3 in_color[1];
@@ -38,35 +38,43 @@ void add_face(vec4 center, vec4 shift, vec4 dy, vec4 dx, vec3 n)
   }
 
   // Emit a primitive only if the sign of the dot product is positive
-  vec4 normal = (mvp.proj * mvp.view * mvp.model * vec4(n, 0.f));
+  vec4 normal = (mvp.view * mvp.model * vec4(n, 0.f));
 
-  //if (dot(-center.xyz, normal.xyz) > 0.f)
-  //{
+  if (dot(-center.xyz, normal.xyz) > 0.f)
+  {
     out_normal = normal.xyz;
     out_color = in_color[0];
     out_alpha = in_alpha[0];
-
     gl_Position = mvp.proj * v1;
     EmitVertex();
 
+    out_normal = normal.xyz;
+    out_color = in_color[0];
+    out_alpha = in_alpha[0];
     gl_Position = mvp.proj * v2;
     EmitVertex();
 
+    out_normal = normal.xyz;
+    out_color = in_color[0];
+    out_alpha = in_alpha[0];
     gl_Position = mvp.proj * v3;
     EmitVertex();
 
+    out_normal = normal.xyz;
+    out_color = in_color[0];
+    out_alpha = in_alpha[0];
     gl_Position = mvp.proj * v4;
     EmitVertex();
 
     EndPrimitive();
-  //}
+  }
 }
 
 void main()
 {
   mat4 model_view = mvp.view * mvp.model;
   vec4 center = model_view * vec4(in_pos[0], 1.f);
-  vec3 half_block = .5f * vec3(.05f);//params.block_size;
+  vec3 half_block = .5f * vec3(.01f);//params.block_size;
 
   vec4 dx = model_view[0] * half_block.x;
   vec4 dy = model_view[1] * half_block.y;
