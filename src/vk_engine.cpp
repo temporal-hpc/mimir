@@ -109,9 +109,10 @@ void VulkanEngine::prepareWindow()
 void VulkanEngine::updateWindow()
 {
   std::unique_lock<std::mutex> ul(mutex);
-  for (auto structured : views_structured)
+  for (auto view : views_structured)
   {
-    dev->updateStructuredBuffer(structured);
+    if (view.data_type == StructuredDataType::Texture)
+      dev->updateStructuredBuffer(view);
   }
   device_working = false;
   signalKernelFinish();
@@ -134,9 +135,10 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     {
       // Advance the simulation
       func();
-      for (auto structured : views_structured)
+      for (auto view : views_structured)
       {
-        dev->updateStructuredBuffer(structured);
+        if (view.data_type == StructuredDataType::Texture)
+          dev->updateStructuredBuffer(view);
       }
       iteration_idx++;
     }
@@ -155,10 +157,10 @@ void VulkanEngine::addViewUnstructured(void **ptr_devmem, size_t elem_count,
   *ptr_devmem = mapped.cuda_ptr;
 }
 
-void VulkanEngine::addViewStructured(void **ptr_devmem,
-  uint3 buffer_size, size_t elem_size, DataDomain domain, DataFormat format)
+void VulkanEngine::addViewStructured(void **ptr_devmem, uint3 buffer_size,
+  size_t elem_size, DataDomain domain, DataFormat format, StructuredDataType type)
 {
-  auto mapped = dev->createStructuredBuffer(buffer_size, elem_size, domain, format);
+  auto mapped = dev->createStructuredBuffer(buffer_size, elem_size, domain, format, type);
   views_structured.push_back(mapped);
   updateDescriptorSets();
   *ptr_devmem = mapped.cuda_ptr;
@@ -639,17 +641,20 @@ void VulkanEngine::updateDescriptorSets()
     );
     desc_writes.push_back(write_geom);
 
-    for (const auto& buffer : views_structured)
+    for (const auto& view : views_structured)
     {
-      VkDescriptorImageInfo img_info{};
-      img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      img_info.imageView   = buffer.vk_view;
-      img_info.sampler     = buffer.vk_sampler;
+      if (view.data_type == StructuredDataType::Texture)
+      {
+        VkDescriptorImageInfo img_info{};
+        img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        img_info.imageView   = view.vk_view;
+        img_info.sampler     = view.vk_sampler;
 
-      auto write_tex = vkinit::writeDescriptorImage(descriptor_sets[i],
-        3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &img_info
-      );
-      desc_writes.push_back(write_tex);
+        auto write_tex = vkinit::writeDescriptorImage(descriptor_sets[i],
+          3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &img_info
+        );
+        desc_writes.push_back(write_tex);
+      }
     }
 
     vkUpdateDescriptorSets(dev->logical_device,
@@ -793,22 +798,37 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   auto cmd = command_buffers[image_idx];
   for (const auto& view : views_structured)
   {
-    if (view.data_domain == DataDomain::Domain2D)
+    if (view.data_type == StructuredDataType::Texture)
     {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[2]);
-    }
-    else if (view.data_domain == DataDomain::Domain3D)
-    {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[3]);
-    }
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-      pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-    );
+      if (view.data_domain == DataDomain::Domain2D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[2]);
+      }
+      else if (view.data_domain == DataDomain::Domain3D)
+      {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[3]);
+      }
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
 
-    VkDeviceSize offsets[1] = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer.buffer, offsets);
-    vkCmdBindIndexBuffer(cmd, view.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
-    vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+      VkDeviceSize offsets[1] = {0};
+      vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer.buffer, offsets);
+      vkCmdBindIndexBuffer(cmd, view.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+      vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+    }
+    else if (view.data_type == StructuredDataType::Voxels)
+    {
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[7]);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+      );
+      VkBuffer vertex_buffers[] = { view.implicit.buffer, view.buffer.buffer };
+      VkDeviceSize offsets[] = { 0, 0 };
+      auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+      vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+      vkCmdDraw(cmd, view.element_count, 1, 0, 0);
+    }
   }
 
   for (const auto& view : views_unstructured)
@@ -1114,6 +1134,22 @@ void VulkanEngine::createGraphicsPipelines()
   voxel3d.multisampling     = vkinit::multisampleStateCreateInfo();
   voxel3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(voxel3d);
+
+  auto vert_vox_implicit = createShaderModule(io::readFile("shaders/voxel/voxel_vert_implicit.spv"));
+  auto vert_info_implicit = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, vert_vox_implicit
+  );
+
+  PipelineInfo voxel_implicit;
+  voxel_implicit.shader_stages.push_back(vert_info_implicit);
+  voxel_implicit.shader_stages.push_back(frag_info_vox3d);
+  voxel_implicit.shader_stages.push_back(geom_info_vox3d);
+  voxel_implicit.vertex_input_info = getVoxelDescriptions();
+  voxel_implicit.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+  voxel_implicit.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  voxel_implicit.multisampling     = vkinit::multisampleStateCreateInfo();
+  voxel_implicit.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(voxel_implicit);
 
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
   std::cout << pipelines.size() << " pipelines created\n";

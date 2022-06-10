@@ -66,7 +66,7 @@ void main()
 {
   mat4 model_view = mvp.view * mvp.model;
   vec4 center = model_view * vec4(in_pos[0], 1.f);
-  vec3 half_block = .5f * vec3(.1f);//params.block_size;
+  vec3 half_block = .5f * vec3(.05f);//params.block_size;
 
   vec4 dx = model_view[0] * half_block.x;
   vec4 dy = model_view[1] * half_block.y;

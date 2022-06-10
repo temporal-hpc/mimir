@@ -12,8 +12,8 @@ struct VulkanCudaDevice : public VulkanDevice
   CudaViewUnstructured createUnstructuredBuffer(size_t elem_count,
     size_t elem_size, DataDomain domain, UnstructuredDataType type
   );
-  CudaViewStructured createStructuredBuffer(uint3 buffer_size,
-    size_t elem_size, DataDomain domain, DataFormat format
+  CudaViewStructured createStructuredBuffer(uint3 buffer_size, size_t elem_size,
+    DataDomain domain, DataFormat format, StructuredDataType type
   );
   void initBuffers(VulkanBuffer& vertex_buffer, VulkanBuffer& index_buffer);
   void updateStructuredBuffer(CudaViewStructured mapped);

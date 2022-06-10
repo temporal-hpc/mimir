@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
   engine.init(900, 900);
   engine.addViewStructured((void**)&d_pixels,
     {(unsigned)width, (unsigned)height, 1}, sizeof(uchar4),
-    DataDomain::Domain2D, DataFormat::Rgba32
+    DataDomain::Domain2D, DataFormat::Rgba32, StructuredDataType::Texture
   );
 
   auto tex_size = sizeof(uchar4) * width * height;

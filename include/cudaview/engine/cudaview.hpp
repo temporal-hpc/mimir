@@ -9,6 +9,7 @@
 enum class DataFormat { Uint8, Int32, Float32, Rgba32 };
 enum class DataDomain { Domain2D, Domain3D };
 enum class UnstructuredDataType { Points, Edges, Voxels };
+enum class StructuredDataType { Texture, Voxels };
 
 inline VkFormat getVulkanFormat(DataFormat format)
 {
@@ -79,12 +80,17 @@ struct CudaViewUnstructured : public CudaView
 struct CudaViewStructured : public CudaView
 {
   VulkanBuffer buffer;
+  StructuredDataType data_type = StructuredDataType::Texture;
+
+  VkExtent3D extent;
+  VulkanBuffer implicit;
   VulkanTexture texture;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;
 
   CudaViewStructured(VkExtent3D extent, size_t elem_size, DataDomain domain,
-    DataFormat format):
-    CudaView{extent.width*extent.height*extent.depth, elem_size, domain, format}
+    DataFormat format, StructuredDataType type):
+    CudaView{extent.width*extent.height*extent.depth,
+      elem_size, domain, format}, data_type{type}, extent{extent}
   {}
 };

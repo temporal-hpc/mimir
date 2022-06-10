@@ -36,3 +36,4 @@ struct PipelineBuilder
 VertexDescription getVertexDescriptions2d();
 VertexDescription getVertexDescriptions3d();
 VertexDescription getVertexDescriptionsVert();
+VertexDescription getVoxelDescriptions();

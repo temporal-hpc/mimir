@@ -111,3 +111,21 @@ VertexDescription getVertexDescriptionsVert()
   ));
   return desc;
 }
+
+VertexDescription getVoxelDescriptions()
+{
+  VertexDescription desc;
+  desc.binding.push_back(vkinit::vertexBindingDescription(
+    0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
+  ));
+  desc.attribute.push_back(vkinit::vertexAttributeDescription(
+    0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0
+  ));
+  desc.binding.push_back(vkinit::vertexBindingDescription(
+    1, sizeof(int), VK_VERTEX_INPUT_RATE_VERTEX
+  ));
+  desc.attribute.push_back(vkinit::vertexAttributeDescription(
+    1, 1, VK_FORMAT_R32_SINT, 0
+  ));
+  return desc;
+}

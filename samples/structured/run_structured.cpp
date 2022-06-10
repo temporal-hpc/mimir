@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
     );
     engine.addViewStructured((void**)&program.d_distances,
       {(unsigned)program.extent.x, (unsigned)program.extent.y, 1}, sizeof(float),
-      DataDomain::Domain2D, DataFormat::Float32
+      DataDomain::Domain2D, DataFormat::Float32, StructuredDataType::Texture
     );
 
     program.setInitialState();

@@ -20,7 +20,7 @@
 
 namespace
 {
-  static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
+  static constexpr size_t MAX_FRAMES_IN_FLIGHT = 1;
 }
 
 struct Camera;
@@ -37,8 +37,8 @@ public:
   void addViewUnstructured(void **ptr_devmem, size_t elem_count,
     size_t elem_size, UnstructuredDataType type, DataDomain domain
   );
-  void addViewStructured(void **ptr_devmem,
-    uint3 buffer_size, size_t elem_size, DataDomain domain, DataFormat format
+  void addViewStructured(void **ptr_devmem, uint3 buffer_size, size_t elem_size,
+    DataDomain domain, DataFormat format, StructuredDataType data_type
   );
 
   void display(std::function<void(void)> func, size_t iter_count);
