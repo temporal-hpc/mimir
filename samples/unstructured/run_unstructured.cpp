@@ -23,10 +23,14 @@ int main(int argc, char *argv[])
     // Initialize engine
     VulkanEngine engine({200, 200, 1}, program.stream);
     engine.init(800, 600);
-    engine.addViewUnstructured((void**)&program.d_coords,
-      program.particle_count, sizeof(float2),
-      UnstructuredDataType::Points, DataDomain::Domain2D
-    );
+    ViewParams params;
+    params.element_count = program.particle_count;
+    params.element_size = sizeof(float2);
+    params.extent = {200, 200, 1};
+    params.data_domain = DataDomain::Domain2D;
+    params.resource_type = ResourceType::Buffer;
+    params.primitive_type = PrimitiveType::Points;
+    engine.addView((void**)&program.d_coords, params);
 
     // Cannot make CUDA calls that use the target device memory before
     // registering it on the engine

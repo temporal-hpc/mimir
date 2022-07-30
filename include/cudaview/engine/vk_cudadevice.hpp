@@ -9,14 +9,10 @@ struct VulkanCudaDevice : public VulkanDevice
 {
   using VulkanDevice::VulkanDevice;
 
-  CudaViewUnstructured createUnstructuredBuffer(size_t elem_count,
-    size_t elem_size, DataDomain domain, UnstructuredDataType type
-  );
-  CudaViewStructured createStructuredBuffer(uint3 buffer_size, size_t elem_size,
-    DataDomain domain, DataFormat format, StructuredDataType type
-  );
+  CudaView createUnstructuredView(ViewParams params);
+  CudaView createStructuredView(ViewParams params);
   void initBuffers(VulkanBuffer& vertex_buffer, VulkanBuffer& index_buffer);
-  void updateStructuredBuffer(CudaViewStructured mapped);
+  void updateStructuredView(CudaView mapped);
   InteropBarrier createInteropBarrier();
   void importCudaExternalMemory(void **cuda_ptr,
     cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size

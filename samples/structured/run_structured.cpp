@@ -22,14 +22,20 @@ int main(int argc, char *argv[])
     int3 extent{program.extent.x, program.extent.y, 1};
     VulkanEngine engine(extent, program.stream);
     engine.init(800, 600);
-    engine.addViewUnstructured((void**)&program.d_coords,
-      program.element_count, sizeof(float2), UnstructuredDataType::Points,
-      DataDomain::Domain2D
-    );
-    engine.addViewStructured((void**)&program.d_distances,
-      {(unsigned)program.extent.x, (unsigned)program.extent.y, 1}, sizeof(float),
-      DataDomain::Domain2D, DataFormat::Float32, StructuredDataType::Texture
-    );
+    ViewParams params;
+    params.element_count = program.element_count;
+    params.element_size = sizeof(float2);
+    params.extent = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
+    params.data_domain = DataDomain::Domain2D;
+    params.resource_type = ResourceType::Buffer;
+    params.primitive_type = PrimitiveType::Points;
+    engine.addView((void**)&program.d_coords, params);
+
+    params.element_count = program.extent.x * program.extent.y;
+    params.element_size = sizeof(float);
+    params.resource_type = ResourceType::Texture;
+    params.texture_format = TextureFormat::Float32;
+    engine.addView((void**)&program.d_distances, params);
 
     program.setInitialState();
 

@@ -85,9 +85,12 @@ int main(int argc, char *argv[]) {
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    engine.addViewUnstructured((void**)&dPoints, n, sizeof(float2),
-      UnstructuredDataType::Points, DataDomain::Domain2D
-    );
+    ViewParams params;
+    params.element_count = n;
+    params.element_size = sizeof(float2);
+    params.data_domain = DataDomain::Domain2D;
+    params.primitive_type = PrimitiveType::Points,
+    engine.addView((void**)&dPoints, params);
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);

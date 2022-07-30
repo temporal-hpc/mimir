@@ -54,7 +54,6 @@ int main(int argc, char **argv){
     t1 = omp_get_wtime();
     init_prob(n, original, seed, prob);
 
-    uint3 extent{(unsigned)n, (unsigned)n, (unsigned)n};
     /*engine.addViewStructured((void**)&d1, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
     );*/
@@ -62,9 +61,14 @@ int main(int argc, char **argv){
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
     );*/
 
-    engine.addViewStructured((void**)&d1, extent, sizeof(int),
-      DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
-    );
+    ViewParams params;
+    params.element_count = n*n*n;
+    params.element_size = sizeof(int);
+    params.extent = {(unsigned)n, (unsigned)n, (unsigned)n};
+    params.data_domain = DataDomain::Domain3D;
+    params.resource_type = ResourceType::Texture;
+    params.texture_format = TextureFormat::Int32;
+    engine.addView((void**)&d1, params);
     /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
     );*/

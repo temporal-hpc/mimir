@@ -111,8 +111,8 @@ void VulkanEngine::updateWindow()
   std::unique_lock<std::mutex> ul(mutex);
   for (auto view : views_structured)
   {
-    if (view.data_type == StructuredDataType::Texture)
-      dev->updateStructuredBuffer(view);
+    if (view.params.resource_type == ResourceType::Texture)
+      dev->updateStructuredView(view);
   }
   device_working = false;
   signalKernelFinish();
@@ -137,8 +137,8 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
       func();
       for (auto view : views_structured)
       {
-        if (view.data_type == StructuredDataType::Texture)
-          dev->updateStructuredBuffer(view);
+        if (view.params.resource_type == ResourceType::Texture)
+          dev->updateStructuredView(view);
       }
       iteration_idx++;
     }
@@ -148,22 +148,21 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
   vkDeviceWaitIdle(dev->logical_device);
 }
 
-void VulkanEngine::addViewUnstructured(void **ptr_devmem, size_t elem_count,
-  size_t elem_size, UnstructuredDataType type, DataDomain domain)
+void VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
 {
-  auto mapped = dev->createUnstructuredBuffer(elem_count, elem_size, domain, type);
-  views_unstructured.push_back(mapped);
+  if (params.resource_type == ResourceType::Buffer)
+  {
+    auto mapped = dev->createUnstructuredView(params);
+    views_unstructured.push_back(mapped);
+    *ptr_devmem = mapped.cuda_ptr;
+  }
+  else if (params.resource_type == ResourceType::Texture)
+  {
+    auto mapped = dev->createStructuredView(params);
+    views_structured.push_back(mapped);
+    *ptr_devmem = mapped.cuda_ptr;
+  }
   updateDescriptorSets();
-  *ptr_devmem = mapped.cuda_ptr;
-}
-
-void VulkanEngine::addViewStructured(void **ptr_devmem, uint3 buffer_size,
-  size_t elem_size, DataDomain domain, DataFormat format, StructuredDataType type)
-{
-  auto mapped = dev->createStructuredBuffer(buffer_size, elem_size, domain, format, type);
-  views_structured.push_back(mapped);
-  updateDescriptorSets();
-  *ptr_devmem = mapped.cuda_ptr;
 }
 
 void VulkanEngine::initVulkan()
@@ -643,7 +642,7 @@ void VulkanEngine::updateDescriptorSets()
 
     for (const auto& view : views_structured)
     {
-      if (view.data_type == StructuredDataType::Texture)
+      if (view.params.resource_type == ResourceType::Texture)
       {
         VkDescriptorImageInfo img_info{};
         img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -798,13 +797,13 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   auto cmd = command_buffers[image_idx];
   for (const auto& view : views_structured)
   {
-    if (view.data_type == StructuredDataType::Texture)
+    if (view.params.resource_type == ResourceType::Texture)
     {
-      if (view.data_domain == DataDomain::Domain2D)
+      if (view.params.data_domain == DataDomain::Domain2D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[2]);
       }
-      else if (view.data_domain == DataDomain::Domain3D)
+      else if (view.params.data_domain == DataDomain::Domain3D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[3]);
       }
@@ -817,29 +816,29 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindIndexBuffer(cmd, view.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
       vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
     }
-    else if (view.data_type == StructuredDataType::Voxels)
+    if (view.params.primitive_type == PrimitiveType::Voxels)
     {
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[7]);
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertex_buffers[] = { view.implicit.buffer, view.buffer.buffer };
+      VkBuffer vertex_buffers[] = { view.implicit.buffer, view.data_buffer.buffer };
       VkDeviceSize offsets[] = { 0, 0 };
       auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
       vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-      vkCmdDraw(cmd, view.element_count, 1, 0, 0);
+      vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
     }
   }
 
   for (const auto& view : views_unstructured)
   {
-    if (view.data_type == UnstructuredDataType::Points)
+    if (view.params.primitive_type == PrimitiveType::Points)
     {
-      if (view.data_domain == DataDomain::Domain2D)
+      if (view.params.data_domain == DataDomain::Domain2D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
       }
-      else if (view.data_domain == DataDomain::Domain3D)
+      else if (view.params.data_domain == DataDomain::Domain3D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[1]);
       }
@@ -847,42 +846,42 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertex_buffers[] = { view.buffer.buffer };
+      VkBuffer vertex_buffers[] = { view.data_buffer.buffer };
       VkDeviceSize offsets[] = { 0 };
       auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
       vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-      vkCmdDraw(cmd, view.element_count, 1, 0, 0);
+      vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
     }
-    else if (view.data_type == UnstructuredDataType::Edges)
+    else if (view.params.primitive_type == PrimitiveType::Edges)
     {
-      if (view.data_domain == DataDomain::Domain2D)
+      if (view.params.data_domain == DataDomain::Domain2D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[4]);
       }
-      else if (view.data_domain == DataDomain::Domain3D)
+      else if (view.params.data_domain == DataDomain::Domain3D)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[5]);
       }
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertexBuffers[] = { views_unstructured[0].buffer.buffer };
+      VkBuffer vertexBuffers[] = { views_unstructured[0].data_buffer.buffer };
       VkDeviceSize offsets[] = {0};
       vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-      vkCmdBindIndexBuffer(cmd, view.buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-      vkCmdDrawIndexed(cmd, 3 * view.element_count, 1, 0, 0, 0);
+      vkCmdBindIndexBuffer(cmd, view.data_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+      vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
     }
-    else if (view.data_type == UnstructuredDataType::Voxels)
+    else if (view.params.primitive_type == PrimitiveType::Voxels)
     {
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertex_buffers[] = { view.buffer.buffer };
+      VkBuffer vertex_buffers[] = { view.data_buffer.buffer };
       VkDeviceSize offsets[] = { 0 };
       auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
       vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-      vkCmdDraw(cmd, view.element_count, 1, 0, 0);
+      vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
     }
   }
 }

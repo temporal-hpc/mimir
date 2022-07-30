@@ -80,9 +80,13 @@ int main(int argc, char *argv[])
 
   VulkanEngine engine(extent);
   engine.init(800, 600);
-  engine.addViewUnstructured((void**)&d_coords, point_count,
-    sizeof(float3), UnstructuredDataType::Points, DataDomain::Domain3D
-  );
+  ViewParams params;
+  params.element_count = point_count;
+  params.element_size = sizeof(float3);
+  params.data_domain = DataDomain::Domain3D;
+  params.resource_type = ResourceType::Buffer;
+  params.primitive_type = PrimitiveType::Points;
+  engine.addView((void**)&d_coords, params);
 
   checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
   unsigned grid_size = (point_count + block_size - 1) / block_size;

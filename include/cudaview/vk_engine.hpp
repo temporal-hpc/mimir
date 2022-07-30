@@ -34,12 +34,7 @@ public:
   VulkanEngine(int3 extent = {1, 1, 1}, cudaStream_t stream = 0);
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
-  void addViewUnstructured(void **ptr_devmem, size_t elem_count,
-    size_t elem_size, UnstructuredDataType type, DataDomain domain
-  );
-  void addViewStructured(void **ptr_devmem, uint3 buffer_size, size_t elem_size,
-    DataDomain domain, DataFormat format, StructuredDataType data_type
-  );
+  void addView(void **ptr_devmem, const ViewParams params);
 
   void display(std::function<void(void)> func, size_t iter_count);
   void displayAsync();
@@ -100,8 +95,8 @@ private:
   uint64_t current_frame = 0;
   std::string shader_path;
 
-  std::vector<CudaViewStructured> views_structured;
-  std::vector<CudaViewUnstructured> views_unstructured;
+  std::vector<CudaView> views_structured;
+  std::vector<CudaView> views_unstructured;
 
   FrameBarrier& getCurrentFrame();
 
