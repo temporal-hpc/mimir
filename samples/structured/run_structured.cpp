@@ -19,9 +19,9 @@ int main(int argc, char *argv[])
   JumpFloodProgram program(point_count, 512, 512);
   try
   {
-    int3 extent{program.extent.x, program.extent.y, 1};
-    VulkanEngine engine(extent, program.stream);
+    VulkanEngine engine(program.stream);
     engine.init(800, 600);
+
     ViewParams params;
     params.element_count = program.element_count;
     params.element_size = sizeof(float2);

@@ -19,10 +19,9 @@
 #include <filesystem> // std::filesystem
 #include <stdexcept> // std::throw
 
-VulkanEngine::VulkanEngine(int3 extent, cudaStream_t cuda_stream):
+VulkanEngine::VulkanEngine(cudaStream_t cuda_stream):
   shader_path(io::getDefaultShaderPath()),
   camera(std::make_unique<Camera>()),
-  data_extent(extent),
   stream(cuda_stream)
 {}
 

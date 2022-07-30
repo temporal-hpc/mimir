@@ -89,7 +89,8 @@ int main(int argc, char *argv[]) {
     params.element_count = n;
     params.element_size = sizeof(float2);
     params.data_domain = DataDomain::Domain2D;
-    params.primitive_type = PrimitiveType::Points,
+    params.resource_type = ResourceType::Buffer;
+    params.primitive_type = PrimitiveType::Points;
     engine.addView((void**)&dPoints, params);
 
     /* SIMULATION */

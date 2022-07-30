@@ -31,7 +31,7 @@ struct VulkanFramebuffer;
 class VulkanEngine
 {
 public:
-  VulkanEngine(int3 extent = {1, 1, 1}, cudaStream_t stream = 0);
+  VulkanEngine(cudaStream_t stream = 0);
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
   void addView(void **ptr_devmem, const ViewParams params);
@@ -90,7 +90,7 @@ private:
   std::condition_variable cond;
 
   // Cuda interop data
-  int3 data_extent;
+  uint3 data_extent = {1, 1, 1};
   cudaStream_t stream;
   uint64_t current_frame = 0;
   std::string shader_path;

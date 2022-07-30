@@ -20,7 +20,7 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
 }
 
 __global__ void initSystem(float *coords, size_t point_count,
-  curandState *global_states, int3 extent, unsigned seed)
+  curandState *global_states, uint3 extent, unsigned seed)
 {
   auto points = reinterpret_cast<float3*>(coords);
   auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -37,7 +37,7 @@ __global__ void initSystem(float *coords, size_t point_count,
 }
 
 __global__ void integrate3d(float *coords, size_t point_count,
-  curandState *global_states, int3 extent)
+  curandState *global_states, uint3 extent)
 {
   auto points = reinterpret_cast<float3*>(coords);
   auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
   curandState *d_states = nullptr;
   unsigned block_size   = 256;
   unsigned seed         = 123456;
-  int3 extent           = {200, 200, 200};
+  uint3 extent          = {200, 200, 200};
 
   size_t point_count = 100;
   size_t iter_count  = 10000;
@@ -78,11 +78,12 @@ int main(int argc, char *argv[])
     iter_count = std::stoul(argv[2]);
   }
 
-  VulkanEngine engine(extent);
+  VulkanEngine engine;
   engine.init(800, 600);
   ViewParams params;
   params.element_count = point_count;
   params.element_size = sizeof(float3);
+  params.extent = extent;
   params.data_domain = DataDomain::Domain3D;
   params.resource_type = ResourceType::Buffer;
   params.primitive_type = PrimitiveType::Points;

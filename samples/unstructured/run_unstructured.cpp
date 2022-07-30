@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
   try
   {
     // Initialize engine
-    VulkanEngine engine({200, 200, 1}, program.stream);
+    VulkanEngine engine(program.stream);
     engine.init(800, 600);
     ViewParams params;
     params.element_count = program.particle_count;
