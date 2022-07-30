@@ -149,7 +149,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 
 void VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
 {
-  if (params.resource_type == ResourceType::UnstructuredBuffer)
+  if (params.resource_type != ResourceType::Texture)
   {
     auto mapped = dev->createUnstructuredView(params);
     views_unstructured.push_back(mapped);
@@ -157,6 +157,7 @@ void VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
     data_extent.x = std::max(data_extent.x, params.extent.x);
     data_extent.y = std::max(data_extent.y, params.extent.y);
     data_extent.z = std::max(data_extent.z, params.extent.z);
+    printf("asdf\n");
   }
   else
   {
@@ -823,15 +824,15 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     }
     if (view.params.primitive_type == PrimitiveType::Voxels)
     {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[7]);
+      /*vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertex_buffers[] = { view.implicit.buffer, view.interop_buffer };
-      VkDeviceSize offsets[] = { 0, 0 };
+      VkBuffer vertex_buffers[] = { view.interop_buffer };
+      VkDeviceSize offsets[] = { 0 };
       auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
       vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-      vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+      vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);*/
     }
   }
 
@@ -882,12 +883,12 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       }
       case PrimitiveType::Voxels:
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[7]);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
-        VkBuffer vertex_buffers[] = { view.interop_buffer };
-        VkDeviceSize offsets[] = { 0 };
+        VkBuffer vertex_buffers[] = { view.implicit.buffer, view.interop_buffer };
+        VkDeviceSize offsets[] = { 0, 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
         vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);

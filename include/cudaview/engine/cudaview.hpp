@@ -36,7 +36,6 @@ struct CudaView
   VulkanBuffer index_buffer;
 
   TextureFormat tex_format;
-  VulkanBuffer data_buffer;
   VulkanBuffer implicit;
   VulkanTexture texture;
   VkImageView vk_view  = VK_NULL_HANDLE;
