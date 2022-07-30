@@ -134,10 +134,10 @@ void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fu
   vkFreeCommandBuffers(logical_device, command_pool, 1, &cmd);
 }
 
-VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+VulkanBuffer VulkanDevice::createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryPropertyFlags properties)
 {
-  return createBuffer(size, usage, properties, nullptr, nullptr);
+  return createBuffer2(size, usage, properties, nullptr, nullptr);
 }
 
 VulkanBuffer VulkanDevice::createExternalBuffer(VkDeviceSize size,
@@ -153,7 +153,7 @@ VulkanBuffer VulkanDevice::createExternalBuffer(VkDeviceSize size,
   export_info.pNext = nullptr;
   export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
-  return createBuffer(size, usage, properties, &extmem_info, &export_info);
+  return createBuffer2(size, usage, properties, &extmem_info, &export_info);
 }
 
 VulkanTexture VulkanDevice::createExternalImage(VkImageType type,
@@ -219,7 +219,39 @@ uint32_t VulkanDevice::findMemoryType(
   return ~0;
 }
 
-VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+VkBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+  const void *extmem_info)
+{
+  VkBufferCreateInfo info{};
+  info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  info.size  = size;
+  info.usage = usage;
+  info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  info.pNext = extmem_info;
+
+  VkBuffer buffer = VK_NULL_HANDLE;
+  validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
+  return buffer;
+}
+
+VkDeviceMemory VulkanDevice::allocateMemory(const VkBuffer buffer,
+  VkMemoryPropertyFlags properties, const void *export_info)
+{
+  VkMemoryRequirements requirements;
+  vkGetBufferMemoryRequirements(logical_device, buffer, &requirements);
+  VkMemoryAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  alloc_info.pNext = export_info;
+  alloc_info.allocationSize = requirements.size;
+  auto type = findMemoryType(requirements.memoryTypeBits, properties);
+  alloc_info.memoryTypeIndex = type;
+
+  VkDeviceMemory memory = VK_NULL_HANDLE;
+  validation::checkVulkan(vkAllocateMemory(logical_device, &alloc_info, nullptr, &memory));
+  return memory;
+}
+
+VulkanBuffer VulkanDevice::createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
   VkMemoryPropertyFlags mem_props, const void *extmem_info, const void *export_info)
 {
   VkBufferCreateInfo buffer_info{};

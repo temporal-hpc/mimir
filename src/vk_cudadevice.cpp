@@ -56,19 +56,32 @@ CudaView VulkanCudaDevice::createUnstructuredView(ViewParams params)
       usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT; break;
     }
   }
-  // Init unstructured memory
-  mapped.data_buffer = createExternalBuffer(params.element_size * params.element_count,
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+
+  VkDeviceSize memsize = params.element_size * params.element_count;
+
+  VkExternalMemoryBufferCreateInfo extmem_info{};
+  extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
+  extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+  mapped.interop_buffer = createBuffer(
+    memsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, &extmem_info
   );
-  importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
-    mapped.data_buffer.memory, params.element_size * params.element_count
+
+  VkExportMemoryAllocateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+  export_info.pNext = nullptr;
+  export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+  mapped.interop_memory = allocateMemory(mapped.interop_buffer,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
+  );
+
+  vkBindBufferMemory(logical_device, mapped.interop_buffer, mapped.interop_memory, 0);
+  importCudaExternalMemory(
+    &mapped.cuda_ptr, mapped.cuda_extmem, mapped.interop_memory, memsize
   );
   deletors.pushFunction([=]{
     validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
-    vkDestroyBuffer(logical_device, mapped.data_buffer.buffer, nullptr);
-    vkFreeMemory(logical_device, mapped.data_buffer.memory, nullptr);
+    vkDestroyBuffer(logical_device, mapped.interop_buffer, nullptr);
+    vkFreeMemory(logical_device, mapped.interop_memory, nullptr);
   });
   return mapped;
 }
@@ -124,17 +137,43 @@ CudaView VulkanCudaDevice::createStructuredView(ViewParams params)
   }
   else if (params.resource_type == ResourceType::StructuredBuffer)
   {
-    mapped.data_buffer = createExternalBuffer(params.element_size * params.element_count,
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-      VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    VkBufferUsageFlagBits usage;
+    switch (params.primitive_type)
+    {
+      case PrimitiveType::Points: case PrimitiveType::Voxels:
+      {
+        usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT; break;
+      }
+      case PrimitiveType::Edges:
+      {
+        usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT; break;
+      }
+    }
+
+    VkDeviceSize memsize = params.element_size * params.element_count;
+
+    VkExternalMemoryBufferCreateInfo extmem_info{};
+    extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
+    extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    mapped.interop_buffer = createBuffer(
+      memsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, &extmem_info
     );
-    importCudaExternalMemory(&mapped.cuda_ptr, mapped.cuda_extmem,
-      mapped.data_buffer.memory, params.element_size * params.element_count
+
+    VkExportMemoryAllocateInfoKHR export_info{};
+    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+    export_info.pNext = nullptr;
+    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    mapped.interop_memory = allocateMemory(mapped.interop_buffer,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
+    );
+
+    vkBindBufferMemory(logical_device, mapped.interop_buffer, mapped.interop_memory, 0);
+    importCudaExternalMemory(
+      &mapped.cuda_ptr, mapped.cuda_extmem, mapped.interop_memory, memsize
     );
 
     auto buffer_size = sizeof(float3) * params.element_count;
-    mapped.implicit = createBuffer(buffer_size,
+    mapped.implicit = createBuffer2(buffer_size,
       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );
@@ -159,8 +198,8 @@ CudaView VulkanCudaDevice::createStructuredView(ViewParams params)
 
     deletors.pushFunction([=]{
       validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
-      vkDestroyBuffer(logical_device, mapped.data_buffer.buffer, nullptr);
-      vkFreeMemory(logical_device, mapped.data_buffer.memory, nullptr);
+      vkDestroyBuffer(logical_device, mapped.interop_buffer, nullptr);
+      vkFreeMemory(logical_device, mapped.interop_memory, nullptr);
       vkDestroyBuffer(logical_device, mapped.implicit.buffer, nullptr);
       vkFreeMemory(logical_device, mapped.implicit.memory, nullptr);
     });
@@ -324,7 +363,7 @@ void VulkanCudaDevice::initBuffers(VulkanBuffer& vertex_buffer, VulkanBuffer& in
   const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0, /*4, 5, 6, 6, 7, 4*/ };
 
   auto vert_size = sizeof(Vertex) * vertices.size();
-  vertex_buffer = createBuffer(vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+  vertex_buffer = createBuffer2(vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
   );
   char *data = nullptr;
@@ -333,7 +372,7 @@ void VulkanCudaDevice::initBuffers(VulkanBuffer& vertex_buffer, VulkanBuffer& in
   vkUnmapMemory(logical_device, vertex_buffer.memory);
 
   auto idx_size = sizeof(uint32_t) * indices.size();
-  index_buffer = createBuffer(idx_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+  index_buffer = createBuffer2(idx_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
   );
   data = nullptr;

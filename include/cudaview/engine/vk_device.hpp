@@ -36,7 +36,14 @@ struct VulkanDevice
   std::vector<VkCommandBuffer> createCommandBuffers(uint32_t buffer_count);
   void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
-  VulkanBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+  VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+    const void *extmem_info
+  );
+  VkDeviceMemory allocateMemory(const VkBuffer buffer,
+    VkMemoryPropertyFlags properties, const void *export_info
+  );
+
+  VulkanBuffer createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties
   );
   VulkanBuffer createExternalBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -58,7 +65,7 @@ struct VulkanDevice
   uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags mem_props);
 
 private:
-  VulkanBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+  VulkanBuffer createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags props, const void *extmem_info, const void *export_info
   );
 };

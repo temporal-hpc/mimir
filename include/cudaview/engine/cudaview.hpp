@@ -27,6 +27,9 @@ struct CudaView
   ViewParams params;
   void *cuda_ptr = nullptr;
   cudaExternalMemory_t cuda_extmem = nullptr;
+  VkBuffer interop_buffer = VK_NULL_HANDLE;
+  VkDeviceMemory interop_memory = VK_NULL_HANDLE;
+
   VkFormat vk_format = VK_FORMAT_UNDEFINED;
   VkExtent3D vk_extent = {0, 0, 0};
   VulkanBuffer vertex_buffer;

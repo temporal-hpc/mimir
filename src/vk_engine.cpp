@@ -154,12 +154,18 @@ void VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
     auto mapped = dev->createUnstructuredView(params);
     views_unstructured.push_back(mapped);
     *ptr_devmem = mapped.cuda_ptr;
+    data_extent.x = std::max(data_extent.x, params.extent.x);
+    data_extent.y = std::max(data_extent.y, params.extent.y);
+    data_extent.z = std::max(data_extent.z, params.extent.z);
   }
   else
   {
     auto mapped = dev->createStructuredView(params);
     views_structured.push_back(mapped);
     *ptr_devmem = mapped.cuda_ptr;
+    data_extent.x = std::max(data_extent.x, params.extent.x);
+    data_extent.y = std::max(data_extent.y, params.extent.y);
+    data_extent.z = std::max(data_extent.z, params.extent.z);
   }
   updateDescriptorSets();
 }
@@ -536,7 +542,7 @@ void VulkanEngine::createBuffers()
 
   auto img_count = swap->image_count;
   VkDeviceSize buffer_size = img_count * (2 * size_mvp + size_colors + size_scene);
-  ubo = dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+  ubo = dev->createBuffer2(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
   );
 }
@@ -821,7 +827,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
       );
-      VkBuffer vertex_buffers[] = { view.implicit.buffer, view.data_buffer.buffer };
+      VkBuffer vertex_buffers[] = { view.implicit.buffer, view.interop_buffer };
       VkDeviceSize offsets[] = { 0, 0 };
       auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
       vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
@@ -847,11 +853,12 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
-        VkBuffer vertex_buffers[] = { view.data_buffer.buffer };
+        VkBuffer vertex_buffers[] = { view.interop_buffer };
         VkDeviceSize offsets[] = { 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
         vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+        break;
       }
       case PrimitiveType::Edges:
       {
@@ -866,11 +873,12 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
-        VkBuffer vertexBuffers[] = { views_unstructured[0].data_buffer.buffer };
+        VkBuffer vertexBuffers[] = { views_unstructured[0].interop_buffer };
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(cmd, view.data_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindIndexBuffer(cmd, view.interop_buffer, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
+        break;
       }
       case PrimitiveType::Voxels:
       {
@@ -878,11 +886,12 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
-        VkBuffer vertex_buffers[] = { view.data_buffer.buffer };
+        VkBuffer vertex_buffers[] = { view.interop_buffer };
         VkDeviceSize offsets[] = { 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
         vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+        break;
       }
     }
   }
