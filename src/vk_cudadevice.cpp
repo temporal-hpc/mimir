@@ -38,33 +38,38 @@ VkImageViewType getViewType(DataDomain domain)
   }
 }
 
-CudaView VulkanCudaDevice::createUnstructuredView(ViewParams params)
+VkBufferUsageFlags getUsageFlags(PrimitiveType p, ResourceType r)
 {
-  CudaView mapped;
-  mapped.params = params;
-  initBuffers(mapped.vertex_buffer, mapped.index_buffer);
-
-  VkBufferUsageFlagBits usage;
-  switch (params.primitive_type)
+  if (r == ResourceType::Texture) return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  switch (p)
   {
     case PrimitiveType::Points: case PrimitiveType::Voxels:
     {
-      usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT; break;
+      return usage | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     }
     case PrimitiveType::Edges:
     {
-      usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT; break;
+      return usage | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     }
   }
+}
 
+CudaView VulkanCudaDevice::createView(ViewParams params)
+{
+  CudaView mapped;
+  mapped.params = params;
+  mapped.vk_format = getVulkanFormat(params.texture_format);
+  mapped.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
+  initBuffers(mapped.vertex_buffer, mapped.index_buffer);
+
+  auto usage = getUsageFlags(params.primitive_type, params.resource_type);
   VkDeviceSize memsize = params.element_size * params.element_count;
 
   VkExternalMemoryBufferCreateInfo extmem_info{};
   extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
   extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-  mapped.interop_buffer = createBuffer(
-    memsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, &extmem_info
-  );
+  mapped.interop_buffer = createBuffer(memsize, usage, &extmem_info);
 
   VkExportMemoryAllocateInfoKHR export_info{};
   export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
@@ -84,74 +89,8 @@ CudaView VulkanCudaDevice::createUnstructuredView(ViewParams params)
     vkFreeMemory(logical_device, mapped.interop_memory, nullptr);
   });
 
-  if (params.resource_type == ResourceType::StructuredBuffer)
-  {
-    mapped.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
-    auto buffer_size = sizeof(float3) * params.element_count;
-    mapped.implicit = createBuffer2(buffer_size,
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    float3 *data = nullptr;
-    vkMapMemory(logical_device, mapped.implicit.memory, 0, buffer_size, 0, (void**)&data);
-    auto slice_size = mapped.vk_extent.width * mapped.vk_extent.height;
-    for (int z = 0; z < mapped.vk_extent.depth; ++z)
-    {
-      auto rz = static_cast<float>(z) / mapped.vk_extent.depth;
-      for (int y = 0; y < mapped.vk_extent.height; ++y)
-      {
-        auto ry = static_cast<float>(y) / mapped.vk_extent.height;
-        for (int x = 0; x < mapped.vk_extent.width; ++x)
-        {
-          auto rx = static_cast<float>(x) / mapped.vk_extent.width;
-          data[slice_size * z + mapped.vk_extent.width * y + x] = float3{rx, ry, rz};
-        }
-      }
-    }
-    vkUnmapMemory(logical_device, mapped.implicit.memory);
-
-    deletors.pushFunction([=]{
-      vkDestroyBuffer(logical_device, mapped.implicit.buffer, nullptr);
-      vkFreeMemory(logical_device, mapped.implicit.memory, nullptr);
-    });
-  }
-  return mapped;
-}
-
-CudaView VulkanCudaDevice::createStructuredView(ViewParams params)
-{
-  CudaView mapped;
-  mapped.params = params;
-  mapped.vk_format = getVulkanFormat(params.texture_format);
-  mapped.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
-  initBuffers(mapped.vertex_buffer, mapped.index_buffer);
-
   if (params.resource_type == ResourceType::Texture)
   {
-    // Init staging memory
-    VkDeviceSize memsize = params.element_size * params.element_count;
-
-    VkExternalMemoryBufferCreateInfo extmem_info{};
-    extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
-    extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-    mapped.interop_buffer = createBuffer(
-      memsize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, &extmem_info
-    );
-
-    VkExportMemoryAllocateInfoKHR export_info{};
-    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
-    export_info.pNext = nullptr;
-    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-    mapped.interop_memory = allocateMemory(mapped.interop_buffer,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
-    );
-
-    vkBindBufferMemory(logical_device, mapped.interop_buffer, mapped.interop_memory, 0);
-    importCudaExternalMemory(
-      &mapped.cuda_ptr, mapped.cuda_extmem, mapped.interop_memory, memsize
-    );
-
     // Init texture memory
     auto img_type = getImageType(params.data_domain);
     mapped.texture = createExternalImage(img_type, mapped.vk_format, mapped.vk_extent,
@@ -179,6 +118,37 @@ CudaView VulkanCudaDevice::createStructuredView(ViewParams params)
       vkDestroyImageView(logical_device, mapped.vk_view, nullptr);
       vkDestroyImage(logical_device, mapped.texture.image, nullptr);
       vkFreeMemory(logical_device, mapped.texture.memory, nullptr);
+    });
+  }
+  else if (params.resource_type == ResourceType::StructuredBuffer)
+  {
+    auto buffer_size = sizeof(float3) * params.element_count;
+    mapped.implicit = createBuffer2(buffer_size,
+      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    float3 *data = nullptr;
+    vkMapMemory(logical_device, mapped.implicit.memory, 0, buffer_size, 0, (void**)&data);
+    auto slice_size = mapped.vk_extent.width * mapped.vk_extent.height;
+    for (int z = 0; z < mapped.vk_extent.depth; ++z)
+    {
+      auto rz = static_cast<float>(z) / mapped.vk_extent.depth;
+      for (int y = 0; y < mapped.vk_extent.height; ++y)
+      {
+        auto ry = static_cast<float>(y) / mapped.vk_extent.height;
+        for (int x = 0; x < mapped.vk_extent.width; ++x)
+        {
+          auto rx = static_cast<float>(x) / mapped.vk_extent.width;
+          data[slice_size * z + mapped.vk_extent.width * y + x] = float3{rx, ry, rz};
+        }
+      }
+    }
+    vkUnmapMemory(logical_device, mapped.implicit.memory);
+
+    deletors.pushFunction([=]{
+      vkDestroyBuffer(logical_device, mapped.implicit.buffer, nullptr);
+      vkFreeMemory(logical_device, mapped.implicit.memory, nullptr);
     });
   }
   return mapped;

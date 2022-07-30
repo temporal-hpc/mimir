@@ -108,7 +108,7 @@ void VulkanEngine::prepareWindow()
 void VulkanEngine::updateWindow()
 {
   std::unique_lock<std::mutex> ul(mutex);
-  for (auto view : views_structured)
+  for (auto view : views)
   {
     if (view.params.resource_type == ResourceType::Texture)
       dev->updateStructuredView(view);
@@ -134,7 +134,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     {
       // Advance the simulation
       func();
-      for (auto view : views_structured)
+      for (auto view : views)
       {
         if (view.params.resource_type == ResourceType::Texture)
           dev->updateStructuredView(view);
@@ -149,26 +149,13 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 
 void VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
 {
-  if (params.resource_type != ResourceType::Texture)
-  {
-    auto mapped = dev->createUnstructuredView(params);
-    views_unstructured.push_back(mapped);
-    *ptr_devmem = mapped.cuda_ptr;
-    data_extent.x = std::max(data_extent.x, params.extent.x);
-    data_extent.y = std::max(data_extent.y, params.extent.y);
-    data_extent.z = std::max(data_extent.z, params.extent.z);
-    printf("asdf\n");
-  }
-  else
-  {
-    auto mapped = dev->createStructuredView(params);
-    views_structured.push_back(mapped);
-    *ptr_devmem = mapped.cuda_ptr;
-    data_extent.x = std::max(data_extent.x, params.extent.x);
-    data_extent.y = std::max(data_extent.y, params.extent.y);
-    data_extent.z = std::max(data_extent.z, params.extent.z);
-  }
+  auto mapped = dev->createView(params);
+  views.push_back(mapped);
+  data_extent.x = std::max(data_extent.x, params.extent.x);
+  data_extent.y = std::max(data_extent.y, params.extent.y);
+  data_extent.z = std::max(data_extent.z, params.extent.z);
   updateDescriptorSets();
+  *ptr_devmem = mapped.cuda_ptr;
 }
 
 void VulkanEngine::initVulkan()
@@ -608,7 +595,7 @@ void VulkanEngine::updateDescriptorSets()
   {
     // Write MVP matrix, scene info and texture samplers
     std::vector<VkWriteDescriptorSet> desc_writes;
-    desc_writes.reserve(3 + views_structured.size());
+    //desc_writes.reserve(3 + views_structured.size());
 
     VkDescriptorBufferInfo mvp_info{};
     mvp_info.buffer = ubo.buffer;
@@ -646,7 +633,7 @@ void VulkanEngine::updateDescriptorSets()
     );
     desc_writes.push_back(write_geom);
 
-    for (const auto& view : views_structured)
+    for (const auto& view : views)
     {
       if (view.params.resource_type == ResourceType::Texture)
       {
@@ -801,56 +788,13 @@ void VulkanEngine::renderFrame()
 void VulkanEngine::drawObjects(uint32_t image_idx)
 {
   auto cmd = command_buffers[image_idx];
-  for (const auto& view : views_structured)
+  for (const auto& view : views)
   {
     if (view.params.resource_type == ResourceType::Texture)
     {
-      if (view.params.data_domain == DataDomain::Domain2D)
+      if (view.params.primitive_type == PrimitiveType::Voxels)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[2]);
-      }
-      else if (view.params.data_domain == DataDomain::Domain3D)
-      {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[3]);
-      }
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-      );
-
-      VkDeviceSize offsets[1] = {0};
-      vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer.buffer, offsets);
-      vkCmdBindIndexBuffer(cmd, view.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
-      vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-    }
-    if (view.params.primitive_type == PrimitiveType::Voxels)
-    {
-      /*vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-      );
-      VkBuffer vertex_buffers[] = { view.interop_buffer };
-      VkDeviceSize offsets[] = { 0 };
-      auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-      vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-      vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);*/
-    }
-  }
-
-  for (const auto& view : views_unstructured)
-  {
-    switch (view.params.primitive_type)
-    {
-      case PrimitiveType::Points:
-      {
-        if (view.params.data_domain == DataDomain::Domain2D)
-        {
-          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
-        }
-        else if (view.params.data_domain == DataDomain::Domain3D)
-        {
-          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[1]);
-        }
-        // NOTE: Second parameter can be also used to bind a compute pipeline
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
@@ -859,29 +803,30 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
         vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
-        break;
       }
-      case PrimitiveType::Edges:
+      else
       {
         if (view.params.data_domain == DataDomain::Domain2D)
         {
-          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[4]);
+          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[2]);
         }
         else if (view.params.data_domain == DataDomain::Domain3D)
         {
-          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[5]);
+          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[3]);
         }
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
-        VkBuffer vertexBuffers[] = { views_unstructured[0].interop_buffer };
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(cmd, view.interop_buffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
-        break;
+
+        VkDeviceSize offsets[1] = {0};
+        vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer.buffer, offsets);
+        vkCmdBindIndexBuffer(cmd, view.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
       }
-      case PrimitiveType::Voxels:
+    }
+    else if (view.params.resource_type == ResourceType::StructuredBuffer)
+    {
+      if (view.params.primitive_type == PrimitiveType::Voxels)
       {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[7]);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -892,7 +837,53 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
         vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
-        break;
+      }
+    }
+    else if (view.params.resource_type == ResourceType::UnstructuredBuffer)
+    {
+      switch (view.params.primitive_type)
+      {
+        case PrimitiveType::Points:
+        {
+          if (view.params.data_domain == DataDomain::Domain2D)
+          {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
+          }
+          else if (view.params.data_domain == DataDomain::Domain3D)
+          {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[1]);
+          }
+          // NOTE: Second parameter can be also used to bind a compute pipeline
+          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+          );
+          VkBuffer vertex_buffers[] = { view.interop_buffer };
+          VkDeviceSize offsets[] = { 0 };
+          auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+          vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+          vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+          break;
+        }
+        case PrimitiveType::Edges:
+        {
+          if (view.params.data_domain == DataDomain::Domain2D)
+          {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[4]);
+          }
+          else if (view.params.data_domain == DataDomain::Domain3D)
+          {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[5]);
+          }
+          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+          );
+          VkBuffer vertexBuffers[] = { views[0].interop_buffer };
+          VkDeviceSize offsets[] = {0};
+          vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+          vkCmdBindIndexBuffer(cmd, view.interop_buffer, 0, VK_INDEX_TYPE_UINT32);
+          vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
+          break;
+        }
       }
     }
   }

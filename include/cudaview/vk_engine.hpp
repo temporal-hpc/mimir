@@ -95,8 +95,7 @@ private:
   uint64_t current_frame = 0;
   std::string shader_path;
 
-  std::vector<CudaView> views_structured;
-  std::vector<CudaView> views_unstructured;
+  std::vector<CudaView> views;
 
   FrameBarrier& getCurrentFrame();
 

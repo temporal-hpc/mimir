@@ -9,8 +9,7 @@ struct VulkanCudaDevice : public VulkanDevice
 {
   using VulkanDevice::VulkanDevice;
 
-  CudaView createUnstructuredView(ViewParams params);
-  CudaView createStructuredView(ViewParams params);
+  CudaView createView(ViewParams params);
   void initBuffers(VulkanBuffer& vertex_buffer, VulkanBuffer& index_buffer);
   void updateStructuredView(CudaView mapped);
   InteropBarrier createInteropBarrier();
