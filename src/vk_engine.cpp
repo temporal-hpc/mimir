@@ -149,13 +149,13 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 
 void VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
 {
-  if (params.resource_type == ResourceType::Buffer)
+  if (params.resource_type == ResourceType::UnstructuredBuffer)
   {
     auto mapped = dev->createUnstructuredView(params);
     views_unstructured.push_back(mapped);
     *ptr_devmem = mapped.cuda_ptr;
   }
-  else if (params.resource_type == ResourceType::Texture)
+  else
   {
     auto mapped = dev->createStructuredView(params);
     views_structured.push_back(mapped);

@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
     params.element_size = sizeof(float2);
     params.extent = {200, 200, 1};
     params.data_domain = DataDomain::Domain2D;
-    params.resource_type = ResourceType::Buffer;
+    params.resource_type = ResourceType::UnstructuredBuffer;
     params.primitive_type = PrimitiveType::Points;
     engine.addView((void**)&program.d_coords, params);
 

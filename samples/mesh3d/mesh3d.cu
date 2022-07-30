@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
   params.element_count = point_count;
   params.element_size = sizeof(float3);
   params.data_domain = DataDomain::Domain3D;
-  params.resource_type = ResourceType::Buffer;
+  params.resource_type = ResourceType::UnstructuredBuffer;
   params.primitive_type = PrimitiveType::Points;
   engine.addView((void**)&d_coords, params);
 

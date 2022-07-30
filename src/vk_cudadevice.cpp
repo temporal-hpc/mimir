@@ -6,7 +6,7 @@
 #include "internal/vk_initializers.hpp"
 #include "internal/validation.hpp"
 
-inline VkFormat getVulkanFormat(TextureFormat format)
+VkFormat getVulkanFormat(TextureFormat format)
 {
   switch (format)
   {
@@ -18,7 +18,7 @@ inline VkFormat getVulkanFormat(TextureFormat format)
   }
 }
 
-inline VkImageType getImageType(DataDomain domain)
+VkImageType getImageType(DataDomain domain)
 {
   switch (domain)
   {
@@ -28,7 +28,7 @@ inline VkImageType getImageType(DataDomain domain)
   }
 }
 
-inline VkImageViewType getViewType(DataDomain domain)
+VkImageViewType getViewType(DataDomain domain)
 {
   switch (domain)
   {
@@ -122,7 +122,7 @@ CudaView VulkanCudaDevice::createStructuredView(ViewParams params)
       vkFreeMemory(logical_device, mapped.texture.memory, nullptr);
     });
   }
-  if (params.primitive_type == PrimitiveType::Voxels)
+  else if (params.resource_type == ResourceType::StructuredBuffer)
   {
     mapped.data_buffer = createExternalBuffer(params.element_size * params.element_count,
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,

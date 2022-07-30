@@ -15,14 +15,14 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 void print_array(int n, long *array, const char *msg){
     if(n > 32){
-       return; 
+       return;
     }
     printf("%s[", msg);
     for(int i=0; i<n-1; ++i){
-        printf("%i, ", array[i]);
+        printf("%ld, ", array[i]);
     }
     if(n>0){
-        printf("%i", array[n-1]);
+        printf("%ld", array[n-1]);
     }
     printf("]\n");
 }
@@ -50,11 +50,11 @@ void print_cube(int n, int *m, const char* msg){
     }
     const char *map[2] = {" ", "*"};
     printf("%s\n", msg); fflush(stdout);
-    for(int z=0; z<n; ++z){ 
+    for(int z=0; z<n; ++z){
         printf("\n Layer Z=%i\n", z);
         for(int y=0; y<n; ++y){
             for(int x=0; x<n; ++x){
-               printf("%s ", map[m[z*n*n + y*n + x]]); 
+               printf("%s ", map[m[z*n*n + y*n + x]]);
             }
             printf("\n");
         }
@@ -74,7 +74,7 @@ void init_prob(int n, int *m, int seed, float prob){
         std::uniform_real_distribution<float>  dist(0, 1);
         for(int k=start; k<elems && k<end; ++k){
             float val = dist(mt);
-            m[k] = val <= prob? 1 : 0; 
+            m[k] = val <= prob? 1 : 0;
         }
     }
 }

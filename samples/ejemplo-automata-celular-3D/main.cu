@@ -37,7 +37,7 @@ int main(int argc, char **argv){
     // SETEO DE OPENMP THREADS (solo relevante para inicializar datos y solucion CPU)
 
     omp_set_num_threads(nt);
-    printf("modo: %s     n=%i (%.3f GiBytes / cubo)    nt=%i   B=%i  steps=%i\n", map[modo], n, sizeof(int)*n*n*n/(1024*1024*1024.0), nt, B, steps);
+    printf("modo: %s     n=%ld (%.3f GiBytes / cubo)    nt=%i   B=%i  steps=%i\n", map[modo], n, sizeof(int)*n*n*n/(1024*1024*1024.0), nt, B, steps);
 
     // original (3D)
     int *original = new int[n*n*n];
@@ -66,8 +66,10 @@ int main(int argc, char **argv){
     params.element_size = sizeof(int);
     params.extent = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain = DataDomain::Domain3D;
-    params.resource_type = ResourceType::Texture;
-    params.texture_format = TextureFormat::Int32;
+    params.resource_type = ResourceType::StructuredBuffer;
+    params.primitive_type = PrimitiveType::Voxels;
+    //params.resource_type = ResourceType::Texture;
+    //params.texture_format = TextureFormat::Int32;
     engine.addView((void**)&d1, params);
     /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture

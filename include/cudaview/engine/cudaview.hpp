@@ -7,7 +7,7 @@
 #include "cudaview/engine/vk_texture.hpp"
 
 enum class DataDomain    { Domain2D, Domain3D };
-enum class ResourceType  { Buffer, Texture };
+enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture };
 enum class PrimitiveType { Points, Edges, Voxels };
 enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
 
