@@ -831,56 +831,59 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
 
   for (const auto& view : views_unstructured)
   {
-    if (view.params.primitive_type == PrimitiveType::Points)
+    switch (view.params.primitive_type)
     {
-      if (view.params.data_domain == DataDomain::Domain2D)
+      case PrimitiveType::Points:
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
+        if (view.params.data_domain == DataDomain::Domain2D)
+        {
+          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
+        }
+        else if (view.params.data_domain == DataDomain::Domain3D)
+        {
+          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[1]);
+        }
+        // NOTE: Second parameter can be also used to bind a compute pipeline
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+          pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+        );
+        VkBuffer vertex_buffers[] = { view.data_buffer.buffer };
+        VkDeviceSize offsets[] = { 0 };
+        auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+        vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+        vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
       }
-      else if (view.params.data_domain == DataDomain::Domain3D)
+      case PrimitiveType::Edges:
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[1]);
+        if (view.params.data_domain == DataDomain::Domain2D)
+        {
+          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[4]);
+        }
+        else if (view.params.data_domain == DataDomain::Domain3D)
+        {
+          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[5]);
+        }
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+          pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+        );
+        VkBuffer vertexBuffers[] = { views_unstructured[0].data_buffer.buffer };
+        VkDeviceSize offsets[] = {0};
+        vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(cmd, view.data_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
       }
-      // Note: Second parameter can be also used to bind a compute pipeline
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-      );
-      VkBuffer vertex_buffers[] = { view.data_buffer.buffer };
-      VkDeviceSize offsets[] = { 0 };
-      auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-      vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-      vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
-    }
-    else if (view.params.primitive_type == PrimitiveType::Edges)
-    {
-      if (view.params.data_domain == DataDomain::Domain2D)
+      case PrimitiveType::Voxels:
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[4]);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+          pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+        );
+        VkBuffer vertex_buffers[] = { view.data_buffer.buffer };
+        VkDeviceSize offsets[] = { 0 };
+        auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+        vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+        vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
       }
-      else if (view.params.data_domain == DataDomain::Domain3D)
-      {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[5]);
-      }
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-      );
-      VkBuffer vertexBuffers[] = { views_unstructured[0].data_buffer.buffer };
-      VkDeviceSize offsets[] = {0};
-      vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-      vkCmdBindIndexBuffer(cmd, view.data_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-      vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
-    }
-    else if (view.params.primitive_type == PrimitiveType::Voxels)
-    {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-      );
-      VkBuffer vertex_buffers[] = { view.data_buffer.buffer };
-      VkDeviceSize offsets[] = { 0 };
-      auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-      vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-      vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
     }
   }
 }
