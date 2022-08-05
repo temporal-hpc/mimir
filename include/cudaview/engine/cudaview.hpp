@@ -39,7 +39,6 @@ struct CudaView
   VkFormat vk_format = VK_FORMAT_UNDEFINED;
   VkExtent3D vk_extent = {0, 0, 0};
 
-  VulkanBuffer implicit;
   VulkanTexture texture;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;

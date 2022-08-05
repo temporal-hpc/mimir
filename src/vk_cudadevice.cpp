@@ -174,13 +174,24 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
   else if (params.resource_type == ResourceType::StructuredBuffer)
   {
     auto buffer_size = sizeof(float3) * params.element_count;
-    mapped.implicit = createBuffer2(buffer_size,
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+
+    // Test buffer for asking about its memory properties
+    // TODO: Encapsulate
+    auto test_buffer = createBuffer(1, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    vkGetBufferMemoryRequirements(logical_device, test_buffer, &requirements);
+    auto vert_size_align = getAlignedSize(buffer_size, requirements.alignment);
+    requirements.size = vert_size_align;
+    vkDestroyBuffer(logical_device, test_buffer, nullptr);
+
+    // Allocate memory and bind it to buffers
+    mapped.aux_memory = allocateMemory(requirements,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );
+    mapped.vertex_buffer = createBuffer(buffer_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    vkBindBufferMemory(logical_device, mapped.vertex_buffer, mapped.aux_memory, 0);
 
     float3 *data = nullptr;
-    vkMapMemory(logical_device, mapped.implicit.memory, 0, buffer_size, 0, (void**)&data);
+    vkMapMemory(logical_device, mapped.aux_memory, 0, buffer_size, 0, (void**)&data);
     auto slice_size = mapped.vk_extent.width * mapped.vk_extent.height;
     for (int z = 0; z < mapped.vk_extent.depth; ++z)
     {
@@ -195,11 +206,11 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
         }
       }
     }
-    vkUnmapMemory(logical_device, mapped.implicit.memory);
+    vkUnmapMemory(logical_device, mapped.aux_memory);
 
     deletors.pushFunction([=]{
-      vkDestroyBuffer(logical_device, mapped.implicit.buffer, nullptr);
-      vkFreeMemory(logical_device, mapped.implicit.memory, nullptr);
+      vkDestroyBuffer(logical_device, mapped.vertex_buffer, nullptr);
+      vkFreeMemory(logical_device, mapped.aux_memory, nullptr);
     });
   }
   return mapped;

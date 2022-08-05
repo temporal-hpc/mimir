@@ -823,7 +823,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
-        VkBuffer vertex_buffers[] = { view.implicit.buffer, view.interop_buffer };
+        VkBuffer vertex_buffers[] = { view.vertex_buffer, view.interop_buffer };
         VkDeviceSize offsets[] = { 0, 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
