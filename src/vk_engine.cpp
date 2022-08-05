@@ -427,8 +427,8 @@ void VulkanEngine::createSyncObjects()
 
 void VulkanEngine::cleanupSwapchain()
 {
-  vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
-  vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
+  vkDestroyBuffer(dev->logical_device, ubo_buffer, nullptr);
+  vkFreeMemory(dev->logical_device, ubo_memory, nullptr);
   for (auto pipeline : pipelines)
   {
     vkDestroyPipeline(dev->logical_device, pipeline, nullptr);
@@ -521,9 +521,20 @@ void VulkanEngine::createBuffers()
 
   auto img_count = swap->image_count;
   VkDeviceSize buffer_size = img_count * (2 * size_mvp + size_colors + size_scene);
-  ubo = dev->createBuffer2(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+
+  auto test_buffer = dev->createBuffer(1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+  VkMemoryRequirements requirements;
+  vkGetBufferMemoryRequirements(dev->logical_device, test_buffer, &requirements);
+  auto vert_size_align = getAlignedSize(buffer_size, requirements.alignment);
+  requirements.size = buffer_size;
+  vkDestroyBuffer(dev->logical_device, test_buffer, nullptr);
+
+  // Allocate memory and bind it to buffers
+  ubo_memory = dev->allocateMemory(requirements,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
   );
+  ubo_buffer = dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+  vkBindBufferMemory(dev->logical_device, ubo_buffer, ubo_memory, 0);
 }
 
 void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
@@ -549,12 +560,12 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   scene.depth = depth;
 
   char *data = nullptr;
-  vkMapMemory(dev->logical_device, ubo.memory, offset, size_ubo, 0, (void**)&data);
+  vkMapMemory(dev->logical_device, ubo_memory, offset, size_ubo, 0, (void**)&data);
   std::memcpy(data, &mvp, sizeof(mvp));
   std::memcpy(data + size_mvp, &colors, sizeof(colors));
   std::memcpy(data + size_mvp + size_colors, &scene, sizeof(scene));
   std::memcpy(data + size_mvp + size_colors + size_scene, &mvp, sizeof(mvp));
-  vkUnmapMemory(dev->logical_device, ubo.memory);
+  vkUnmapMemory(dev->logical_device, ubo_memory);
 }
 
 void VulkanEngine::createDescriptorSets()
@@ -589,7 +600,7 @@ void VulkanEngine::updateDescriptorSets()
     //desc_writes.reserve(3 + views_structured.size());
 
     VkDescriptorBufferInfo mvp_info{};
-    mvp_info.buffer = ubo.buffer;
+    mvp_info.buffer = ubo_buffer;
     mvp_info.offset = i * size_ubo;
     mvp_info.range  = sizeof(ModelViewProjection);
     auto write_mvp = vkinit::writeDescriptorBuffer(
@@ -598,7 +609,7 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.push_back(write_mvp);
 
     VkDescriptorBufferInfo pcolor_info{};
-    pcolor_info.buffer = ubo.buffer;
+    pcolor_info.buffer = ubo_buffer;
     pcolor_info.offset = i * size_ubo + size_mvp;
     pcolor_info.range  = sizeof(ColorParams);
     auto write_pcolor = vkinit::writeDescriptorBuffer(
@@ -607,7 +618,7 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.push_back(write_pcolor);
 
     VkDescriptorBufferInfo extent_info{};
-    extent_info.buffer = ubo.buffer;
+    extent_info.buffer = ubo_buffer;
     extent_info.offset = i * size_ubo + size_mvp + size_colors;
     extent_info.range  = sizeof(SceneParams);
     auto write_scene = vkinit::writeDescriptorBuffer(
@@ -616,7 +627,7 @@ void VulkanEngine::updateDescriptorSets()
     desc_writes.push_back(write_scene);
 
     VkDescriptorBufferInfo geom_mvp_info{};
-    geom_mvp_info.buffer = ubo.buffer;
+    geom_mvp_info.buffer = ubo_buffer;
     geom_mvp_info.offset = i * size_ubo + size_mvp + size_colors + size_scene;
     geom_mvp_info.range  = sizeof(ModelViewProjection);
     auto write_geom = vkinit::writeDescriptorBuffer(

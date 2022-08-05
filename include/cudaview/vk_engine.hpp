@@ -14,7 +14,6 @@
 #include "color/color.hpp"
 
 #include "cudaview/deletion_queue.hpp"
-#include "cudaview/engine/vk_buffer.hpp"
 #include "cudaview/engine/cudaview.hpp"
 #include "cudaview/engine/barrier.hpp"
 
@@ -67,7 +66,8 @@ private:
   VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
-  VulkanBuffer ubo;
+  VkBuffer ubo_buffer = VK_NULL_HANDLE;
+  VkDeviceMemory ubo_memory = VK_NULL_HANDLE;
   DeletionQueue deletors;
 
   // Depth buffer

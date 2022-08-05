@@ -134,10 +134,48 @@ void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fu
   vkFreeCommandBuffers(logical_device, command_pool, 1, &cmd);
 }
 
-VulkanBuffer VulkanDevice::createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
-  VkMemoryPropertyFlags properties)
+uint32_t VulkanDevice::findMemoryType(
+  uint32_t type_filter, VkMemoryPropertyFlags properties)
 {
-  return createBuffer2(size, usage, properties, nullptr, nullptr);
+  for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
+  {
+    auto flags = memory_properties.memoryTypes[i].propertyFlags;
+    if ((type_filter & (1 << i)) && (flags & properties) == properties)
+    {
+      return i;
+    }
+  }
+  return ~0;
+}
+
+VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
+  VkMemoryPropertyFlags properties, const void *export_info)
+{
+  VkMemoryAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  alloc_info.pNext = export_info;
+  alloc_info.allocationSize = requirements.size;
+  auto type = findMemoryType(requirements.memoryTypeBits, properties);
+  alloc_info.memoryTypeIndex = type;
+
+  VkDeviceMemory memory = VK_NULL_HANDLE;
+  validation::checkVulkan(vkAllocateMemory(logical_device, &alloc_info, nullptr, &memory));
+  return memory;
+}
+
+VkBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+  const void *extmem_info)
+{
+  VkBufferCreateInfo info{};
+  info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  info.size  = size;
+  info.usage = usage;
+  info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  info.pNext = extmem_info;
+
+  VkBuffer buffer = VK_NULL_HANDLE;
+  validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
+  return buffer;
 }
 
 VkImage VulkanDevice::createImage(VkImageType type, VkFormat format,
@@ -157,82 +195,6 @@ VkImage VulkanDevice::createImage(VkImageType type, VkFormat format,
   VkImage image = VK_NULL_HANDLE;
   validation::checkVulkan(vkCreateImage(logical_device, &info, nullptr, &image));
   return image;
-}
-
-uint32_t VulkanDevice::findMemoryType(
-  uint32_t type_filter, VkMemoryPropertyFlags properties)
-{
-  for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
-  {
-    auto flags = memory_properties.memoryTypes[i].propertyFlags;
-    if ((type_filter & (1 << i)) && (flags & properties) == properties)
-    {
-      return i;
-    }
-  }
-  return ~0;
-}
-
-VkBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-  const void *extmem_info)
-{
-  VkBufferCreateInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  info.size  = size;
-  info.usage = usage;
-  info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  info.pNext = extmem_info;
-
-  VkBuffer buffer = VK_NULL_HANDLE;
-  validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
-  return buffer;
-}
-
-VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
-  VkMemoryPropertyFlags properties, const void *export_info)
-{
-  VkMemoryAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.pNext = export_info;
-  alloc_info.allocationSize = requirements.size;
-  auto type = findMemoryType(requirements.memoryTypeBits, properties);
-  alloc_info.memoryTypeIndex = type;
-
-  VkDeviceMemory memory = VK_NULL_HANDLE;
-  validation::checkVulkan(vkAllocateMemory(logical_device, &alloc_info, nullptr, &memory));
-  return memory;
-}
-
-VulkanBuffer VulkanDevice::createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
-  VkMemoryPropertyFlags mem_props, const void *extmem_info, const void *export_info)
-{
-  VkBufferCreateInfo buffer_info{};
-  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_info.size  = size;
-  buffer_info.usage = usage;
-  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  buffer_info.pNext = extmem_info;
-
-  VulkanBuffer new_buffer;
-  new_buffer.size = size;
-  validation::checkVulkan(
-    vkCreateBuffer(logical_device, &buffer_info, nullptr, &new_buffer.buffer)
-  );
-
-  VkMemoryRequirements mem_reqs;
-  vkGetBufferMemoryRequirements(logical_device, new_buffer.buffer, &mem_reqs);
-  VkMemoryAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.pNext = export_info;
-  alloc_info.allocationSize = mem_reqs.size;
-  auto type = findMemoryType(mem_reqs.memoryTypeBits, mem_props);
-  alloc_info.memoryTypeIndex = type;
-
-  validation::checkVulkan(vkAllocateMemory(
-    logical_device, &alloc_info, nullptr, &new_buffer.memory)
-  );
-  vkBindBufferMemory(logical_device, new_buffer.buffer, new_buffer.memory, 0);
-  return new_buffer;
 }
 
 VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)

@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "cudaview/deletion_queue.hpp"
-#include "vk_buffer.hpp"
 
 struct VulkanQueue
 {
@@ -35,6 +34,7 @@ struct VulkanDevice
   std::vector<VkCommandBuffer> createCommandBuffers(uint32_t buffer_count);
   void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
+  uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags mem_props);
   VkDeviceMemory allocateMemory(VkMemoryRequirements requirements,
     VkMemoryPropertyFlags properties, const void *export_info = nullptr
   );
@@ -43,10 +43,6 @@ struct VulkanDevice
   );
   VkImage createImage(VkImageType type, VkFormat format, VkExtent3D extent,
     VkImageTiling tiling, VkImageUsageFlags usage, const void *extmem_info = nullptr
-  );
-
-  VulkanBuffer createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties
   );
   VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
   VkDescriptorPool createDescriptorPool(
@@ -57,11 +53,5 @@ struct VulkanDevice
   );
   void transitionImageLayout(VkImage image, VkFormat format,
     VkImageLayout old_layout, VkImageLayout new_layout
-  );
-  uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags mem_props);
-
-private:
-  VulkanBuffer createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags props, const void *extmem_info, const void *export_info
   );
 };
