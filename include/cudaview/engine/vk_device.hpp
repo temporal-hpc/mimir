@@ -37,17 +37,14 @@ struct VulkanDevice
   void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
   VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-    const void *extmem_info
+    const void *extmem_info = nullptr
   );
-  VkDeviceMemory allocateMemory(const VkBuffer buffer,
-    VkMemoryPropertyFlags properties, const void *export_info
+  VkDeviceMemory allocateMemory(VkMemoryRequirements requirements,
+    VkMemoryPropertyFlags properties, const void *export_info = nullptr
   );
 
   VulkanBuffer createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties
-  );
-  VulkanBuffer createExternalBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-    VkMemoryPropertyFlags properties, VkExternalMemoryHandleTypeFlagsKHR handle_type
   );
   VulkanTexture createExternalImage(VkImageType type, VkFormat format, VkExtent3D extent,
     VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props

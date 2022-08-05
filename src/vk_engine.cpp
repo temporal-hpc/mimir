@@ -3,6 +3,7 @@
 
 #include "internal/camera.hpp"
 #include "internal/color.hpp"
+#include "internal/utils.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
@@ -511,22 +512,12 @@ void VulkanEngine::recreateSwapchain()
   initSwapchain();
 }
 
-size_t getAlignedUniformSize(size_t original_size, size_t min_alignment)
-{
-	// Calculate required alignment based on minimum device offset alignment
-	size_t aligned_size = original_size;
-	if (min_alignment > 0) {
-		aligned_size = (aligned_size + min_alignment - 1) & ~(min_alignment - 1);
-	}
-	return aligned_size;
-}
-
 void VulkanEngine::createBuffers()
 {
   auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
-  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
-  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
-  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedSize(sizeof(ColorParams), min_alignment);
+  auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
 
   auto img_count = swap->image_count;
   VkDeviceSize buffer_size = img_count * (2 * size_mvp + size_colors + size_scene);
@@ -538,9 +529,9 @@ void VulkanEngine::createBuffers()
 void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
 {
   auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
-  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
-  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
-  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedSize(sizeof(ColorParams), min_alignment);
+  auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
   auto size_ubo = 2 * size_mvp + size_colors + size_scene;
   auto offset = image_idx * size_ubo;
 
@@ -586,9 +577,9 @@ void VulkanEngine::createDescriptorSets()
 void VulkanEngine::updateDescriptorSets()
 {
   auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
-  auto size_mvp = getAlignedUniformSize(sizeof(ModelViewProjection), min_alignment);
-  auto size_colors = getAlignedUniformSize(sizeof(ColorParams), min_alignment);
-  auto size_scene = getAlignedUniformSize(sizeof(SceneParams), min_alignment);
+  auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
+  auto size_colors = getAlignedSize(sizeof(ColorParams), min_alignment);
+  auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
   auto size_ubo = 2 * size_mvp + size_colors + size_scene;
 
   for (size_t i = 0; i < descriptor_sets.size(); ++i)
@@ -819,8 +810,8 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         );
 
         VkDeviceSize offsets[1] = {0};
-        vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer.buffer, offsets);
-        vkCmdBindIndexBuffer(cmd, view.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer, offsets);
+        vkCmdBindIndexBuffer(cmd, view.index_buffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
       }
     }

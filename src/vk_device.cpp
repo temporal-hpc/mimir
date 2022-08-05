@@ -140,22 +140,6 @@ VulkanBuffer VulkanDevice::createBuffer2(VkDeviceSize size, VkBufferUsageFlags u
   return createBuffer2(size, usage, properties, nullptr, nullptr);
 }
 
-VulkanBuffer VulkanDevice::createExternalBuffer(VkDeviceSize size,
-  VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
-  VkExternalMemoryHandleTypeFlagsKHR handle_type)
-{
-  VkExternalMemoryBufferCreateInfo extmem_info{};
-  extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
-  extmem_info.handleTypes = handle_type;
-
-  VkExportMemoryAllocateInfoKHR export_info{};
-  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
-  export_info.pNext = nullptr;
-  export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
-  return createBuffer2(size, usage, properties, &extmem_info, &export_info);
-}
-
 VulkanTexture VulkanDevice::createExternalImage(VkImageType type,
   VkFormat format, VkExtent3D extent, VkImageTiling tiling,
   VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props)
@@ -234,11 +218,9 @@ VkBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
   return buffer;
 }
 
-VkDeviceMemory VulkanDevice::allocateMemory(const VkBuffer buffer,
+VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
   VkMemoryPropertyFlags properties, const void *export_info)
 {
-  VkMemoryRequirements requirements;
-  vkGetBufferMemoryRequirements(logical_device, buffer, &requirements);
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.pNext = export_info;

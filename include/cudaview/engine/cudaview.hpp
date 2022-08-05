@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map> // std::map
+
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
 
@@ -30,12 +32,13 @@ struct CudaView
   VkBuffer interop_buffer = VK_NULL_HANDLE;
   VkDeviceMemory interop_memory = VK_NULL_HANDLE;
 
+  VkBuffer vertex_buffer = VK_NULL_HANDLE;
+  VkBuffer index_buffer = VK_NULL_HANDLE;
+  VkDeviceMemory aux_memory = VK_NULL_HANDLE;
+
   VkFormat vk_format = VK_FORMAT_UNDEFINED;
   VkExtent3D vk_extent = {0, 0, 0};
-  VulkanBuffer vertex_buffer;
-  VulkanBuffer index_buffer;
 
-  TextureFormat tex_format;
   VulkanBuffer implicit;
   VulkanTexture texture;
   VkImageView vk_view  = VK_NULL_HANDLE;

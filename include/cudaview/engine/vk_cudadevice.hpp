@@ -10,7 +10,6 @@ struct VulkanCudaDevice : public VulkanDevice
   using VulkanDevice::VulkanDevice;
 
   CudaView createView(ViewParams params);
-  void initBuffers(VulkanBuffer& vertex_buffer, VulkanBuffer& index_buffer);
   void updateStructuredView(CudaView mapped);
   InteropBarrier createInteropBarrier();
   void importCudaExternalMemory(void **cuda_ptr,
