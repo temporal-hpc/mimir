@@ -166,9 +166,6 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
     mapped.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
 
     deletors.pushFunction([=]{
-      validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
-      vkDestroyBuffer(logical_device, mapped.interop_buffer, nullptr);
-      vkFreeMemory(logical_device, mapped.interop_memory, nullptr);
       vkDestroyImageView(logical_device, mapped.vk_view, nullptr);
       vkDestroyImage(logical_device, mapped.texture.image, nullptr);
       vkFreeMemory(logical_device, mapped.texture.memory, nullptr);
