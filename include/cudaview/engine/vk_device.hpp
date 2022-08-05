@@ -6,7 +6,6 @@
 
 #include "cudaview/deletion_queue.hpp"
 #include "vk_buffer.hpp"
-#include "vk_texture.hpp"
 
 struct VulkanQueue
 {
@@ -36,18 +35,18 @@ struct VulkanDevice
   std::vector<VkCommandBuffer> createCommandBuffers(uint32_t buffer_count);
   void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
+  VkDeviceMemory allocateMemory(VkMemoryRequirements requirements,
+    VkMemoryPropertyFlags properties, const void *export_info = nullptr
+  );
   VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     const void *extmem_info = nullptr
   );
-  VkDeviceMemory allocateMemory(VkMemoryRequirements requirements,
-    VkMemoryPropertyFlags properties, const void *export_info = nullptr
+  VkImage createImage(VkImageType type, VkFormat format, VkExtent3D extent,
+    VkImageTiling tiling, VkImageUsageFlags usage, const void *extmem_info = nullptr
   );
 
   VulkanBuffer createBuffer2(VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties
-  );
-  VulkanTexture createExternalImage(VkImageType type, VkFormat format, VkExtent3D extent,
-    VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props
   );
   VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
   VkDescriptorPool createDescriptorPool(

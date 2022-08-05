@@ -147,17 +147,43 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
 
     // Init texture memory
     auto img_type = getImageType(params.data_domain);
-    mapped.texture = createExternalImage(img_type, mapped.vk_format, mapped.vk_extent,
+    VkExternalMemoryImageCreateInfo ext_info{};
+    ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    ext_info.pNext = nullptr;
+    ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+    mapped.image = createImage(img_type, mapped.vk_format, mapped.vk_extent,
       VK_IMAGE_TILING_OPTIMAL,
       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+      &ext_info
     );
-    transitionImageLayout(mapped.texture.image, mapped.vk_format,
+
+    VkMemoryRequirements mem_req;
+    vkGetImageMemoryRequirements(logical_device, mapped.image, &mem_req);
+
+    VkExportMemoryAllocateInfoKHR export_info{};
+    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+    export_info.pNext = nullptr;
+    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+    VkMemoryAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.pNext = &export_info;
+    alloc_info.allocationSize = mem_req.size;
+    auto mem_props = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    alloc_info.memoryTypeIndex = findMemoryType(mem_req.memoryTypeBits, mem_props);
+
+    validation::checkVulkan(
+      vkAllocateMemory(logical_device, &alloc_info, nullptr, &mapped.img_memory)
+    );
+    vkBindImageMemory(logical_device, mapped.image, mapped.img_memory, 0);
+
+    transitionImageLayout(mapped.image, mapped.vk_format,
       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
 
     auto view_type = getViewType(params.data_domain);
-    auto info = vkinit::imageViewCreateInfo(mapped.texture.image,
+    auto info = vkinit::imageViewCreateInfo(mapped.image,
       view_type, mapped.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
     );
     validation::checkVulkan(
@@ -167,8 +193,8 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
 
     deletors.pushFunction([=]{
       vkDestroyImageView(logical_device, mapped.vk_view, nullptr);
-      vkDestroyImage(logical_device, mapped.texture.image, nullptr);
-      vkFreeMemory(logical_device, mapped.texture.memory, nullptr);
+      vkDestroyImage(logical_device, mapped.image, nullptr);
+      vkFreeMemory(logical_device, mapped.img_memory, nullptr);
     });
   }
   else if (params.resource_type == ResourceType::StructuredBuffer)
@@ -324,9 +350,7 @@ InteropBarrier VulkanCudaDevice::createInteropBarrier()
 
 void VulkanCudaDevice::updateStructuredView(CudaView mapped)
 {
-  auto src = mapped.interop_buffer;
-  auto dst = mapped.texture;
-  transitionImageLayout(dst.image, mapped.vk_format,
+  transitionImageLayout(mapped.image, mapped.vk_format,
     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
   );
 
@@ -342,15 +366,15 @@ void VulkanCudaDevice::updateStructuredView(CudaView mapped)
   region.bufferImageHeight = 0;
   region.imageSubresource = subres;
   region.imageOffset = {0, 0, 0};
-  region.imageExtent = {dst.width, dst.height, dst.depth};
+  region.imageExtent = mapped.vk_extent;
   immediateSubmit([=](VkCommandBuffer cmd)
   {
-    vkCmdCopyBufferToImage(cmd, src, dst.image,
+    vkCmdCopyBufferToImage(cmd, mapped.interop_buffer, mapped.image,
       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
     );
   });
 
-  transitionImageLayout(dst.image, mapped.vk_format,
+  transitionImageLayout(mapped.image, mapped.vk_format,
     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
 }

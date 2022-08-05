@@ -1,12 +1,7 @@
 #pragma once
 
-#include <map> // std::map
-
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
-
-#include "cudaview/engine/vk_buffer.hpp"
-#include "cudaview/engine/vk_texture.hpp"
 
 enum class DataDomain    { Domain2D, Domain3D };
 enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture };
@@ -39,7 +34,8 @@ struct CudaView
   VkFormat vk_format = VK_FORMAT_UNDEFINED;
   VkExtent3D vk_extent = {0, 0, 0};
 
-  VulkanTexture texture;
+  VkImage image = VK_NULL_HANDLE;
+  VkDeviceMemory img_memory = VK_NULL_HANDLE;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;
 };

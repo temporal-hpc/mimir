@@ -140,53 +140,23 @@ VulkanBuffer VulkanDevice::createBuffer2(VkDeviceSize size, VkBufferUsageFlags u
   return createBuffer2(size, usage, properties, nullptr, nullptr);
 }
 
-VulkanTexture VulkanDevice::createExternalImage(VkImageType type,
-  VkFormat format, VkExtent3D extent, VkImageTiling tiling,
-  VkImageUsageFlags usage, VkMemoryPropertyFlags mem_props)
+VkImage VulkanDevice::createImage(VkImageType type, VkFormat format,
+  VkExtent3D extent, VkImageTiling tiling, VkImageUsageFlags usage,
+  const void *extmem_info)
 {
-  VkExternalMemoryImageCreateInfo ext_info{};
-  ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-  ext_info.pNext = nullptr;
-  ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
   // TODO: Check if texture is within bounds
   //auto max_img_dim = properties.limits.maxImageDimension3D;
 
-  auto image_info = vkinit::imageCreateInfo(type, format, extent, usage);
-  image_info.pNext         = &ext_info;
-  image_info.flags         = 0;
-  image_info.tiling        = tiling;
-  image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  auto info = vkinit::imageCreateInfo(type, format, extent, usage);
+  info.pNext         = extmem_info;
+  info.flags         = 0;
+  info.tiling        = tiling;
+  info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+  info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  VulkanTexture tex;
-  tex.width  = extent.width;
-  tex.height = extent.height;
-  tex.depth  = extent.depth;
-  validation::checkVulkan(
-    vkCreateImage(logical_device, &image_info, nullptr, &tex.image)
-  );
-
-  VkMemoryRequirements mem_req;
-  vkGetImageMemoryRequirements(logical_device, tex.image, &mem_req);
-
-  VkExportMemoryAllocateInfoKHR export_info{};
-  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
-  export_info.pNext = nullptr;
-  export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
-  VkMemoryAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.pNext = &export_info;
-  alloc_info.allocationSize = mem_req.size;
-  alloc_info.memoryTypeIndex = findMemoryType(mem_req.memoryTypeBits, mem_props);
-
-  validation::checkVulkan(
-    vkAllocateMemory(logical_device, &alloc_info, nullptr, &tex.memory)
-  );
-  vkBindImageMemory(logical_device, tex.image, tex.memory, 0);
-
-  return tex;
+  VkImage image = VK_NULL_HANDLE;
+  validation::checkVulkan(vkCreateImage(logical_device, &info, nullptr, &image));
+  return image;
 }
 
 uint32_t VulkanDevice::findMemoryType(
