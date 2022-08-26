@@ -23,7 +23,8 @@ ObjectList('cudaview')
 {
   .Compiler           = 'CppCompiler'
   .CompilerOptions    = ' -o "%2" "%1" -c'
-                      + ' -Iinclude -Icontrib/imgui -I$CudaIncludePath$'
+                      + ' -Iinclude -Icontrib/imgui -Icontrib/slang/include -I$CudaIncludePath$'
+                      + ' -Lcontrib/slang/lib -llibslang-glslang'
                       + ' -std=c++17 -fPIC'
                       + .'Flags$BuildType$'
   .CompilerOutputPath = .BuildPrefix + 'temp/cudaview'
@@ -81,6 +82,7 @@ ObjectList('cuda-structured')
   .CompilerOptions      = '-o "%2" "%1" -c'
                         + ' -std=c++17 -g -G'
                         + ' -Isamples/include -Iinclude'
+                        + ' -Lcontrib/slang/lib'
   .CompilerInputPath    = 'samples/structured'
   .CompilerInputPattern = { '*.cu', '*.cpp' }
   .CompilerOutputPath   = .BuildPrefix + 'temp/cuda-structured'

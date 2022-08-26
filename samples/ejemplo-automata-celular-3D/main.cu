@@ -66,10 +66,10 @@ int main(int argc, char **argv){
     params.element_size = sizeof(int);
     params.extent = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain = DataDomain::Domain3D;
-    params.resource_type = ResourceType::StructuredBuffer;
-    params.primitive_type = PrimitiveType::Voxels;
-    //params.resource_type = ResourceType::Texture;
-    //params.texture_format = TextureFormat::Int32;
+    //params.resource_type = ResourceType::StructuredBuffer;
+    //params.primitive_type = PrimitiveType::Voxels;
+    params.resource_type = ResourceType::Texture;
+    params.texture_format = TextureFormat::Int32;
     engine.addView((void**)&d1, params);
     /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture

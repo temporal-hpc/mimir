@@ -2,8 +2,7 @@
 
 #include "cudaview/vk_types.hpp"
 #include "internal/vk_initializers.hpp"
-
-#include <iostream>
+#include "internal/validation.hpp"
 
 PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
   pipeline_layout{layout},
@@ -67,8 +66,9 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
   }
 
   std::vector<VkPipeline> pipelines(create_infos.size(), VK_NULL_HANDLE);
-  vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, // pipeline cache
-    create_infos.size(), create_infos.data(), nullptr, pipelines.data()
+  // NOTE: 2nd parameter is pipeline cache
+  validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE,
+    create_infos.size(), create_infos.data(), nullptr, pipelines.data())
   );
   return pipelines;
 }

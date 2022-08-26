@@ -22,20 +22,23 @@ struct ViewParams
 struct CudaView
 {
   ViewParams params;
+
+  // Interop members
   void *cuda_ptr = nullptr;
   cudaExternalMemory_t cuda_extmem = nullptr;
   VkBuffer interop_buffer = VK_NULL_HANDLE;
   VkDeviceMemory interop_memory = VK_NULL_HANDLE;
 
+  // Auxiliary memory members
   VkBuffer vertex_buffer = VK_NULL_HANDLE;
   VkBuffer index_buffer = VK_NULL_HANDLE;
   VkDeviceMemory aux_memory = VK_NULL_HANDLE;
 
+  // Image members
   VkFormat vk_format = VK_FORMAT_UNDEFINED;
   VkExtent3D vk_extent = {0, 0, 0};
-
-  VkImage image = VK_NULL_HANDLE;
   VkDeviceMemory img_memory = VK_NULL_HANDLE;
+  VkImage image = VK_NULL_HANDLE;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;
 };

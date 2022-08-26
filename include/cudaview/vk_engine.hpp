@@ -2,6 +2,7 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <slang-com-ptr.h>
 #include <cuda_runtime_api.h>
 
 #include <condition_variable> // std::condition_variable
@@ -103,6 +104,10 @@ private:
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
   VkShaderModule createShaderModule(const std::vector<char>& code);
+  std::vector<VkShaderModule> createShaderModuleSlang(
+    const std::vector<std::string>& entrypoints,
+    Slang::ComPtr<slang::ISession> session
+  );
 
   color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};
   color::rgba<float> point_color{0.f, 0.f, 1.f, 1.f};

@@ -219,13 +219,13 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
     float3 *data = nullptr;
     vkMapMemory(logical_device, mapped.aux_memory, 0, buffer_size, 0, (void**)&data);
     auto slice_size = mapped.vk_extent.width * mapped.vk_extent.height;
-    for (int z = 0; z < mapped.vk_extent.depth; ++z)
+    for (uint32_t z = 0; z < mapped.vk_extent.depth; ++z)
     {
       auto rz = static_cast<float>(z) / mapped.vk_extent.depth;
-      for (int y = 0; y < mapped.vk_extent.height; ++y)
+      for (uint32_t y = 0; y < mapped.vk_extent.height; ++y)
       {
         auto ry = static_cast<float>(y) / mapped.vk_extent.height;
-        for (int x = 0; x < mapped.vk_extent.width; ++x)
+        for (uint32_t x = 0; x < mapped.vk_extent.width; ++x)
         {
           auto rx = static_cast<float>(x) / mapped.vk_extent.width;
           data[slice_size * z + mapped.vk_extent.width * y + x] = float3{rx, ry, rz};

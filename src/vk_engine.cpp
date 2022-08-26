@@ -12,13 +12,13 @@
 #include "cudaview/engine/vk_framebuffer.hpp"
 #include "cudaview/engine/vk_swapchain.hpp"
 
-#include "imgui.h"
-#include "backends/imgui_impl_glfw.h"
-#include "backends/imgui_impl_vulkan.h"
+#include <imgui.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
 
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
-#include <stdexcept> // std::throw
+#include <glm/gtx/string_cast.hpp>
 
 VulkanEngine::VulkanEngine(cudaStream_t cuda_stream):
   shader_path(io::getDefaultShaderPath()),
@@ -41,7 +41,7 @@ VulkanEngine::~VulkanEngine()
 
   cleanupSwapchain();
 
-  ImGui_ImplVulkan_Shutdown();
+  //ImGui_ImplVulkan_Shutdown();
   deletors.flush();
   fbs.clear();
   swap.reset();
@@ -86,7 +86,7 @@ void VulkanEngine::displayAsync()
     while(!glfwWindowShouldClose(window))
     {
       glfwPollEvents(); // TODO: Move to main thread
-      drawGui();
+      //drawGui();
 
       std::unique_lock<std::mutex> ul(mutex);
       cond.wait(ul, [&]{ return device_working == false; });
@@ -127,7 +127,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
   while(!glfwWindowShouldClose(window))
   {
     glfwPollEvents();
-    drawGui();
+    //drawGui();
     renderFrame();
 
     waitKernelStart();
@@ -211,7 +211,7 @@ void VulkanEngine::initVulkan()
 
   initSwapchain();
 
-  initImgui(); // After command pool and render pass are created
+  //initImgui(); // After command pool and render pass are created
   createSyncObjects();
 }
 
@@ -229,7 +229,7 @@ void VulkanEngine::createInstance()
   app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   app_info.pEngineName        = "No engine";
   app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
-  app_info.apiVersion         = VK_API_VERSION_1_2;
+  app_info.apiVersion         = VK_API_VERSION_1_3;
 
   uint32_t glfw_ext_count = 0;
   // List required GLFW extensions and additional required validation layers
@@ -525,7 +525,6 @@ void VulkanEngine::createBuffers()
   auto test_buffer = dev->createBuffer(1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
   VkMemoryRequirements requirements;
   vkGetBufferMemoryRequirements(dev->logical_device, test_buffer, &requirements);
-  auto vert_size_align = getAlignedSize(buffer_size, requirements.alignment);
   requirements.size = buffer_size;
   vkDestroyBuffer(dev->logical_device, test_buffer, nullptr);
 
@@ -550,6 +549,9 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   mvp.model = glm::mat4(1.f);
   mvp.view  = camera->matrices.view; // glm::mat4(1.f);
   mvp.proj  = camera->matrices.perspective; //glm::mat4(1.f);
+
+  glm::mat4 mul = glm::transpose(mvp.proj * mvp.view * mvp.model);
+  mvp.model = mul;
 
   ColorParams colors{};
   colors.point_color = color::getColor(point_color);
@@ -726,7 +728,7 @@ void VulkanEngine::renderFrame()
   vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
   drawObjects(image_idx);
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+  //ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 
   vkCmdEndRenderPass(cmd);
   // Finalize command buffer recording, so it can be executed
@@ -886,6 +888,10 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
           vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
           break;
         }
+        case PrimitiveType::Voxels:
+        {
+          // TODO: Check what to do here
+        }
       }
     }
   }
@@ -1000,20 +1006,135 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
   return module;
 }
 
+void diagnose(slang::IBlob *diag_blob)
+{
+  if (diag_blob != nullptr)
+  {
+    printf("%s", (const char*) diag_blob->getBufferPointer());
+  }
+}
+
+
 void VulkanEngine::createGraphicsPipelines()
 {
   auto start = std::chrono::steady_clock::now();
 
-  auto orig_path = std::filesystem::current_path();
-  std::filesystem::current_path(shader_path);
+  // Create global session to work with the Slang API
+  /*Slang::ComPtr<slang::IGlobalSession> global_session;
+  slang::createGlobalSession(global_session.writeRef());
+  auto profile_id = global_session->findProfile("glsl440");
+
+  Slang::ComPtr<slang::ICompileRequest> request;
+  checkSlang(global_session->createCompileRequest(request.writeRef()));
+  request->setCodeGenTarget(SLANG_SPIRV);
+  //request->addSearchPath("path/to/include");
+  //request->addPreprocessorDefine("ENABLE_FOO", "1");
+  int trans_idx = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_SLANG, "");
+  request->addTranslationUnitSourceFile(trans_idx, "shaders/markers.slang");
+
+  auto entry_point_idx = request->addEntryPoint(trans_idx, "main", profile_id);
+  request->compile();
+  auto diagnostics = request->getDiagnosticOutput();
+  std::cout << diagnostics << std::endl;
+  auto code = request->getEntryPointSource(entry_point_idx);
+  std::cout << code << std::endl;*/
+
+  // Create compilation session to generate SPIRV code from Slang source
+  /*slang::TargetDesc target_desc{};
+  target_desc.format = SLANG_SPIRV;
+  target_desc.profile = global_session->findProfile("glsl440");
+  slang::SessionDesc session_desc{};
+  session_desc.targets = &target_desc;
+  session_desc.targetCount = 1;
+
+  Slang::ComPtr<slang::ISession> session;
+  global_session->createSession(session_desc, session.writeRef());
+
+  // Start loading code into session
+  slang::IModule* module = nullptr;
+
+  Slang::ComPtr<slang::IBlob> diag_blob;
+  module = session->loadModule("shaders/markers", diag_blob.writeRef());
+  diagnose(diag_blob);
+
+  Slang::ComPtr<slang::IEntryPoint> vertex_entry_point;
+  checkSlang(module->findEntryPointByName(
+    "vertexMain", vertex_entry_point.writeRef())
+  );
+
+  Slang::ComPtr<slang::IEntryPoint> fragment_entry_point;
+  checkSlang(module->findEntryPointByName(
+    "fragmentMain", fragment_entry_point.writeRef())
+  );
+
+  std::vector<slang::IComponentType*> component_types;
+  component_types.push_back(module);
+
+  int entry_point_count = 0;
+  int vertex_entry_idx = entry_point_count++;
+  component_types.push_back(vertex_entry_point);
+  int fragment_entry_idx = entry_point_count++;
+  component_types.push_back(fragment_entry_point);
+
+  Slang::ComPtr<slang::IComponentType> program;
+  checkSlang(session->createCompositeComponentType(
+    component_types.data(), component_types.size(),
+    program.writeRef(), diag_blob.writeRef())
+  );
+  diagnose(diag_blob);
+
+  Slang::ComPtr<slang::IBlob> spirv_vertex;
+  {
+    Slang::ComPtr<slang::IBlob> diag_blob;
+    checkSlang(program->getEntryPointCode(
+      vertex_entry_idx, 0, spirv_vertex.writeRef(), diag_blob.writeRef())
+    );
+    diagnose(diag_blob);
+    auto code = spGetEntryPointSource(vertex_entry_idx);
+    std::cout << code << std::endl;
+  }
+  Slang::ComPtr<slang::IBlob> spirv_fragment;
+  {
+    Slang::ComPtr<slang::IBlob> diag_blob;
+    checkSlang(program->getEntryPointCode(
+      fragment_entry_idx, 0, spirv_fragment.writeRef(), diag_blob.writeRef())
+    );
+    diagnose(diag_blob);
+  }*/
+
+  /*VkShaderModuleCreateInfo info{};
+  info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  info.pNext    = nullptr;
+  info.flags    = 0; // Unused
+  info.codeSize = spirv_vertex->getBufferSize();
+  info.pCode    = static_cast<const uint32_t*>(spirv_vertex->getBufferPointer());
+  VkShaderModule points2d_vert, points2d_frag;
+  validation::checkVulkan(
+    vkCreateShaderModule(dev->logical_device, &info, nullptr, &points2d_vert)
+  );
+  info.codeSize = spirv_fragment->getBufferSize();
+  info.pCode    = static_cast<const uint32_t*>(spirv_fragment->getBufferPointer());
+  validation::checkVulkan(
+    vkCreateShaderModule(dev->logical_device, &info, nullptr, &points2d_frag)
+  );
+  // TODO: Move to vulkandevice deletor queue (likely a new one)
+  deletors.pushFunction([=]{
+    vkDestroyShaderModule(dev->logical_device, points2d_vert, nullptr);
+    vkDestroyShaderModule(dev->logical_device, points2d_frag, nullptr);
+  });*/
+
+  //auto orig_path = std::filesystem::current_path();
+  //std::filesystem::current_path(shader_path);
 
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
 
-  auto vert_points2d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_2d.spv"));
+  //auto vert_points2d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_2d.spv"));
+  auto vert_points2d = createShaderModule(io::readFile("shaders/particle_pos2d.spv"));
   auto vert_info_points2d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_VERTEX_BIT, vert_points2d
   );
-  auto frag_points = createShaderModule(io::readFile("shaders/unstructured/particle_draw.spv"));
+  //auto frag_points = createShaderModule(io::readFile("shaders/unstructured/particle_draw.spv"));
+  auto frag_points = createShaderModule(io::readFile("shaders/particle_draw.spv"));
   auto frag_info_points = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_points
   );
@@ -1028,7 +1149,7 @@ void VulkanEngine::createGraphicsPipelines()
   points2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(points2d);
 
-  auto vert_points3d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_3d.spv"));
+  /*auto vert_points3d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_3d.spv"));
   auto vert_info_points3d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_VERTEX_BIT, vert_points3d
   );
@@ -1153,12 +1274,12 @@ void VulkanEngine::createGraphicsPipelines()
   voxel_implicit.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
   voxel_implicit.multisampling     = vkinit::multisampleStateCreateInfo();
   voxel_implicit.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(voxel_implicit);
+  builder.addPipelineInfo(voxel_implicit);*/
 
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
   std::cout << pipelines.size() << " pipelines created\n";
   // Restore original working directory
-  std::filesystem::current_path(orig_path);
+  //std::filesystem::current_path(orig_path);
 
   auto end = std::chrono::steady_clock::now();
   std::cout << "Creation time for all pipelines: "
