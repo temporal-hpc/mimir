@@ -98,11 +98,11 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
       { {  1.f,  1.f, 1.f }, { 1.f, 1.f } },
       { { -1.f,  1.f, 1.f }, { 0.f, 1.f } },
       { { -1.f, -1.f, 1.f }, { 0.f, 0.f } },
-      { {  1.f, -1.f, 1.f }, { 1.f, 0.f } },
+      { {  1.f, -1.f, 1.f }, { 1.f, 0.f } }/*,
       { {  1.f,  1.f, .5f }, { 1.f, 1.f } },
       { { -1.f,  1.f, .5f }, { 0.f, 1.f } },
       { { -1.f, -1.f, .5f }, { 0.f, 0.f } },
-      { {  1.f, -1.f, .5f }, { 1.f, 0.f } }
+      { {  1.f, -1.f, .5f }, { 1.f, 0.f } }*/
     };
     // Indices for a single uv-mapped quad made from two triangles
     const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0};//, 4, 5, 6, 6, 7, 4 };

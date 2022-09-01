@@ -186,7 +186,7 @@ void VulkanEngine::initVulkan()
   // Create descriptor set layout
   descriptor_layout = dev->createDescriptorSetLayout({
     vkinit::descriptorLayoutBinding(0, // binding
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
     ),
     vkinit::descriptorLayoutBinding(1, // binding
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT
@@ -1014,134 +1014,78 @@ void diagnose(slang::IBlob *diag_blob)
   }
 }
 
+VkShaderModule compileSlang(const std::string& shader_path, SlangStage stage,
+  VkDevice device, Slang::ComPtr<slang::IGlobalSession> global_session)
+{
+  Slang::ComPtr<slang::ICompileRequest> request;
+  validation::checkSlang(global_session->createCompileRequest(request.writeRef()));
+  request->setCodeGenTarget(SLANG_SPIRV);
+  //request->addSearchPath("shaders/include");
+  //request->addPreprocessorDefine("ENABLE_FOO", "1");
+  // NOTE: 2nd argument is name of translation unit, but remains unused by slang
+  int trans_idx = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_HLSL, "hlsl");
+  request->addTranslationUnitSourceFile(trans_idx, shader_path.c_str());
+
+  auto entry_point_idx = request->addEntryPoint(trans_idx, "main", stage);
+  request->compile();
+  auto diagnostics = request->getDiagnosticOutput();
+  std::cout << diagnostics << std::endl;
+  size_t data_size = 0;
+  auto data = request->getEntryPointCode(entry_point_idx, &data_size);
+  //auto code = request->getEntryPointSource(entry_point_idx);
+  //std::cout << code << std::endl;
+  VkShaderModuleCreateInfo info{};
+  info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  info.pNext    = nullptr;
+  info.flags    = 0; // Unused
+  info.codeSize = data_size;
+  info.pCode    = static_cast<const uint32_t*>(data);
+  VkShaderModule module;
+  validation::checkVulkan(vkCreateShaderModule(device, &info, nullptr, &module));
+  return module;
+  // TODO: Make compileSlang a member function
+  /*deletors.pushFunction([=]{
+    vkDestroyShaderModule(device, slang_vert, nullptr);
+  });*/
+}
 
 void VulkanEngine::createGraphicsPipelines()
 {
   auto start = std::chrono::steady_clock::now();
 
   // Create global session to work with the Slang API
-  /*Slang::ComPtr<slang::IGlobalSession> global_session;
+  Slang::ComPtr<slang::IGlobalSession> global_session;
   slang::createGlobalSession(global_session.writeRef());
-  auto profile_id = global_session->findProfile("glsl440");
 
-  Slang::ComPtr<slang::ICompileRequest> request;
-  checkSlang(global_session->createCompileRequest(request.writeRef()));
-  request->setCodeGenTarget(SLANG_SPIRV);
-  //request->addSearchPath("path/to/include");
-  //request->addPreprocessorDefine("ENABLE_FOO", "1");
-  int trans_idx = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_SLANG, "");
-  request->addTranslationUnitSourceFile(trans_idx, "shaders/markers.slang");
-
-  auto entry_point_idx = request->addEntryPoint(trans_idx, "main", profile_id);
-  request->compile();
-  auto diagnostics = request->getDiagnosticOutput();
-  std::cout << diagnostics << std::endl;
-  auto code = request->getEntryPointSource(entry_point_idx);
-  std::cout << code << std::endl;*/
-
-  // Create compilation session to generate SPIRV code from Slang source
-  /*slang::TargetDesc target_desc{};
-  target_desc.format = SLANG_SPIRV;
-  target_desc.profile = global_session->findProfile("glsl440");
-  slang::SessionDesc session_desc{};
-  session_desc.targets = &target_desc;
-  session_desc.targetCount = 1;
-
-  Slang::ComPtr<slang::ISession> session;
-  global_session->createSession(session_desc, session.writeRef());
-
-  // Start loading code into session
-  slang::IModule* module = nullptr;
-
-  Slang::ComPtr<slang::IBlob> diag_blob;
-  module = session->loadModule("shaders/markers", diag_blob.writeRef());
-  diagnose(diag_blob);
-
-  Slang::ComPtr<slang::IEntryPoint> vertex_entry_point;
-  checkSlang(module->findEntryPointByName(
-    "vertexMain", vertex_entry_point.writeRef())
+  auto slang_vert = compileSlang("shaders/unstructured/sprite2d_vertex.vert",
+    SLANG_STAGE_VERTEX, dev->logical_device, global_session
   );
-
-  Slang::ComPtr<slang::IEntryPoint> fragment_entry_point;
-  checkSlang(module->findEntryPointByName(
-    "fragmentMain", fragment_entry_point.writeRef())
+  auto slang_geom = compileSlang("shaders/unstructured/sprite2d_geometry.geom",
+    SLANG_STAGE_GEOMETRY, dev->logical_device, global_session
   );
-
-  std::vector<slang::IComponentType*> component_types;
-  component_types.push_back(module);
-
-  int entry_point_count = 0;
-  int vertex_entry_idx = entry_point_count++;
-  component_types.push_back(vertex_entry_point);
-  int fragment_entry_idx = entry_point_count++;
-  component_types.push_back(fragment_entry_point);
-
-  Slang::ComPtr<slang::IComponentType> program;
-  checkSlang(session->createCompositeComponentType(
-    component_types.data(), component_types.size(),
-    program.writeRef(), diag_blob.writeRef())
+  auto slang_frag = compileSlang("shaders/unstructured/sprite2d_fragment.frag",
+    SLANG_STAGE_FRAGMENT, dev->logical_device, global_session
   );
-  diagnose(diag_blob);
-
-  Slang::ComPtr<slang::IBlob> spirv_vertex;
-  {
-    Slang::ComPtr<slang::IBlob> diag_blob;
-    checkSlang(program->getEntryPointCode(
-      vertex_entry_idx, 0, spirv_vertex.writeRef(), diag_blob.writeRef())
-    );
-    diagnose(diag_blob);
-    auto code = spGetEntryPointSource(vertex_entry_idx);
-    std::cout << code << std::endl;
-  }
-  Slang::ComPtr<slang::IBlob> spirv_fragment;
-  {
-    Slang::ComPtr<slang::IBlob> diag_blob;
-    checkSlang(program->getEntryPointCode(
-      fragment_entry_idx, 0, spirv_fragment.writeRef(), diag_blob.writeRef())
-    );
-    diagnose(diag_blob);
-  }*/
-
-  /*VkShaderModuleCreateInfo info{};
-  info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  info.pNext    = nullptr;
-  info.flags    = 0; // Unused
-  info.codeSize = spirv_vertex->getBufferSize();
-  info.pCode    = static_cast<const uint32_t*>(spirv_vertex->getBufferPointer());
-  VkShaderModule points2d_vert, points2d_frag;
-  validation::checkVulkan(
-    vkCreateShaderModule(dev->logical_device, &info, nullptr, &points2d_vert)
-  );
-  info.codeSize = spirv_fragment->getBufferSize();
-  info.pCode    = static_cast<const uint32_t*>(spirv_fragment->getBufferPointer());
-  validation::checkVulkan(
-    vkCreateShaderModule(dev->logical_device, &info, nullptr, &points2d_frag)
-  );
-  // TODO: Move to vulkandevice deletor queue (likely a new one)
-  deletors.pushFunction([=]{
-    vkDestroyShaderModule(dev->logical_device, points2d_vert, nullptr);
-    vkDestroyShaderModule(dev->logical_device, points2d_frag, nullptr);
-  });*/
 
   //auto orig_path = std::filesystem::current_path();
   //std::filesystem::current_path(shader_path);
 
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
 
-  //auto vert_points2d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_2d.spv"));
-  auto vert_points2d = createShaderModule(io::readFile("shaders/particle_pos2d.spv"));
   auto vert_info_points2d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_points2d
+    VK_SHADER_STAGE_VERTEX_BIT, slang_vert
   );
-  //auto frag_points = createShaderModule(io::readFile("shaders/unstructured/particle_draw.spv"));
-  auto frag_points = createShaderModule(io::readFile("shaders/particle_draw.spv"));
+  auto geom_info_points = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_GEOMETRY_BIT, slang_geom
+  );
   auto frag_info_points = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_points
+    VK_SHADER_STAGE_FRAGMENT_BIT, slang_frag
   );
 
   PipelineInfo points2d;
   points2d.shader_stages.push_back(vert_info_points2d);
   points2d.shader_stages.push_back(frag_info_points);
+  points2d.shader_stages.push_back(geom_info_points);
   points2d.vertex_input_info = getVertexDescriptions2d();
   points2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   points2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);

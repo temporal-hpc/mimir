@@ -1,4 +1,3 @@
-
 struct ModelViewProjection
 {
   float4x4 model;
@@ -6,14 +5,14 @@ struct ModelViewProjection
   float4x4 proj;
 };
 
-struct UniformDataParams
-{
-  int3 extent;
-};
-
 cbuffer ModelViewProjectionUBO : register(b0)
 {
   ModelViewProjection mvp;
+};
+
+struct UniformDataParams
+{
+  int3 extent;
 };
 
 cbuffer UniformDataParamsUBO : register(b1)

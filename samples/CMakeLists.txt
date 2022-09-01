@@ -34,28 +34,27 @@ find_program(GLSLC_EXE NAMES glslc HINTS Vulkan::glslc)
 file(GLOB_RECURSE SHADER_SOURCES ${PROJECT_SOURCE_DIR}/shaders/*)
 foreach(HLSL ${SHADER_SOURCES})
   get_filename_component(FILE_NAME ${HLSL} NAME_WE)
-  message(${HLSL})
-  set(SPIRV "${PROJECT_BINARY_DIR}/samples/shaders/${FILE_NAME}.spv")
+  set(SPIRV ${PROJECT_BINARY_DIR}/samples/shaders/${FILE_NAME}.spv)
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_BINARY_DIR}/samples/shaders/"
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_BINARY_DIR}/samples/shaders/
     COMMAND ${GLSLC_EXE} -xhlsl ${HLSL} -o ${SPIRV}
     DEPENDS ${HLSL})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(HLSL)
 
-add_custom_target(shaders DEPENDS ${SPIRV_BINARY_FILES})
+add_custom_target(shaders ALL DEPENDS ${SPIRV_BINARY_FILES})
 #add_custom_command(TARGET run_automata3d POST_BUILD
 #  COMMAND ${CMAKE_COMMAND} -E copy_directory
 #          ${PROJECT_SOURCE_DIR}/shaders
 #          ${CMAKE_CURRENT_BINARY_DIR}/shaders
 #)
 
-#add_custom_target(copy_shaders ALL
-#  COMMAND ${CMAKE_COMMAND} -E copy_directory
-#          ${PROJECT_SOURCE_DIR}/shaders
-#          ${CMAKE_CURRENT_BINARY_DIR}/shaders
-#  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-#  COMMENT "Copying test files..."
-#  VERBATIM
-#)
+add_custom_target(copy_shaders ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${PROJECT_SOURCE_DIR}/shaders
+          ${PROJECT_BINARY_DIR}/samples/shaders/
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+  COMMENT "Copying test files..."
+  VERBATIM
+)
