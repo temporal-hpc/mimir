@@ -58,19 +58,19 @@ void main(point GeometryInput input[1], inout TriangleStream<GeometryOutput> str
   // Add point coordinates
   float4 pos = input[0].pos;
 
-  output.pos = pos + float4(-.05, -.05, 0, 1); //mvp.proj * v1;
+  output.pos = pos + float4(-.03, -.03, 0, 0); //mvp.proj * v1;
   output.uv = float2(0.f, 0.f);
   stream.Append(output);
 
-  output.pos = pos + float4(-.05, .05, 0, 1); //mvp.proj * v2;
+  output.pos = pos + float4(-.03, .03, 0, 0); //mvp.proj * v2;
   output.uv = float2(0.f, 1.f);
   stream.Append(output);
 
-  output.pos = pos + float4(.05, -.05, 0, 1); //mvp.proj * v3;
+  output.pos = pos + float4(.03, -.03, 0, 0); //mvp.proj * v3;
   output.uv = float2(1.f, 0.f);
   stream.Append(output);
 
-  output.pos = pos + float4(.05, .05, 0, 1); //mvp.proj * v4;
+  output.pos = pos + float4(.03, .03, 0, 0); //mvp.proj * v4;
   output.uv = float2(1.f, 1.f);
   stream.Append(output);
 }

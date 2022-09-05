@@ -199,6 +199,12 @@ void VulkanEngine::initVulkan()
     ),
     vkinit::descriptorLayoutBinding(4, // binding
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_GEOMETRY_BIT
+    ),
+    vkinit::descriptorLayoutBinding(5, // binding
+      VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT
+    ),
+    vkinit::descriptorLayoutBinding(6, // binding
+      VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
     )
   });
 
@@ -650,6 +656,26 @@ void VulkanEngine::updateDescriptorSets()
           3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &img_info
         );
         desc_writes.push_back(write_tex);
+
+        VkDescriptorImageInfo samp_img_info{};
+        samp_img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        samp_img_info.imageView   = view.vk_view;
+        samp_img_info.sampler     = view.vk_sampler;
+
+        auto write_samp_img = vkinit::writeDescriptorImage(descriptor_sets[i],
+          5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &samp_img_info
+        );
+        desc_writes.push_back(write_samp_img);
+
+        VkDescriptorImageInfo samp_info{};
+        samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        samp_info.imageView   = view.vk_view;
+        samp_info.sampler     = view.vk_sampler;
+
+        auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
+          6, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
+        );
+        desc_writes.push_back(write_samp);
       }
     }
 
@@ -1014,8 +1040,8 @@ void diagnose(slang::IBlob *diag_blob)
   }
 }
 
-VkShaderModule compileSlang(const std::string& shader_path, SlangStage stage,
-  VkDevice device, Slang::ComPtr<slang::IGlobalSession> global_session)
+VkShaderModule VulkanEngine::compileSlang(const std::string& shader_path,
+  SlangStage stage, Slang::ComPtr<slang::IGlobalSession> global_session)
 {
   Slang::ComPtr<slang::ICompileRequest> request;
   validation::checkSlang(global_session->createCompileRequest(request.writeRef()));
@@ -1023,7 +1049,7 @@ VkShaderModule compileSlang(const std::string& shader_path, SlangStage stage,
   //request->addSearchPath("shaders/include");
   //request->addPreprocessorDefine("ENABLE_FOO", "1");
   // NOTE: 2nd argument is name of translation unit, but remains unused by slang
-  int trans_idx = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_HLSL, "hlsl");
+  int trans_idx = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_SLANG, "slang");
   request->addTranslationUnitSourceFile(trans_idx, shader_path.c_str());
 
   auto entry_point_idx = request->addEntryPoint(trans_idx, "main", stage);
@@ -1041,12 +1067,13 @@ VkShaderModule compileSlang(const std::string& shader_path, SlangStage stage,
   info.codeSize = data_size;
   info.pCode    = static_cast<const uint32_t*>(data);
   VkShaderModule module;
-  validation::checkVulkan(vkCreateShaderModule(device, &info, nullptr, &module));
+  validation::checkVulkan(
+    vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
+  );
+  deletors.pushFunction([=]{
+    vkDestroyShaderModule(dev->logical_device, module, nullptr);
+  });
   return module;
-  // TODO: Make compileSlang a member function
-  /*deletors.pushFunction([=]{
-    vkDestroyShaderModule(device, slang_vert, nullptr);
-  });*/
 }
 
 void VulkanEngine::createGraphicsPipelines()
@@ -1057,14 +1084,14 @@ void VulkanEngine::createGraphicsPipelines()
   Slang::ComPtr<slang::IGlobalSession> global_session;
   slang::createGlobalSession(global_session.writeRef());
 
-  auto slang_vert = compileSlang("shaders/unstructured/sprite2d_vertex.vert",
-    SLANG_STAGE_VERTEX, dev->logical_device, global_session
+  auto sprite2d_vert = compileSlang("shaders/sprite_vert2d.slang",
+    SLANG_STAGE_VERTEX, global_session
   );
-  auto slang_geom = compileSlang("shaders/unstructured/sprite2d_geometry.geom",
-    SLANG_STAGE_GEOMETRY, dev->logical_device, global_session
+  auto sprite2d_geom = compileSlang("shaders/sprite_geom.slang",
+    SLANG_STAGE_GEOMETRY, global_session
   );
-  auto slang_frag = compileSlang("shaders/unstructured/sprite2d_fragment.frag",
-    SLANG_STAGE_FRAGMENT, dev->logical_device, global_session
+  auto sprite2d_frag = compileSlang("shaders/sprite_frag.slang",
+    SLANG_STAGE_FRAGMENT, global_session
   );
 
   //auto orig_path = std::filesystem::current_path();
@@ -1073,13 +1100,13 @@ void VulkanEngine::createGraphicsPipelines()
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
 
   auto vert_info_points2d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, slang_vert
+    VK_SHADER_STAGE_VERTEX_BIT, sprite2d_vert
   );
   auto geom_info_points = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_GEOMETRY_BIT, slang_geom
+    VK_SHADER_STAGE_GEOMETRY_BIT, sprite2d_geom
   );
   auto frag_info_points = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, slang_frag
+    VK_SHADER_STAGE_FRAGMENT_BIT, sprite2d_frag
   );
 
   PipelineInfo points2d;
@@ -1093,13 +1120,16 @@ void VulkanEngine::createGraphicsPipelines()
   points2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(points2d);
 
-  /*auto vert_points3d = createShaderModule(io::readFile("shaders/unstructured/particle_pos_3d.spv"));
+  auto sprite3d_vert = compileSlang("shaders/sprite_vert3d.slang",
+    SLANG_STAGE_VERTEX, global_session
+  );
   auto vert_info_points3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_points3d
+    VK_SHADER_STAGE_VERTEX_BIT, sprite3d_vert
   );
 
   PipelineInfo points3d;
   points3d.shader_stages.push_back(vert_info_points3d);
+  points3d.shader_stages.push_back(geom_info_points);
   points3d.shader_stages.push_back(frag_info_points);
   points3d.vertex_input_info = getVertexDescriptions3d();
   points3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
@@ -1108,11 +1138,15 @@ void VulkanEngine::createGraphicsPipelines()
   points3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(points3d);
 
-  auto vert_tex2d = createShaderModule(io::readFile("shaders/structured/screen_triangle.spv"));
+  /*auto vert_tex2d = compileSlang("shaders/tex_vert2d.slang",
+    SLANG_STAGE_VERTEX, global_session
+  );
   auto vert_info_tex2d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_VERTEX_BIT, vert_tex2d
   );
-  auto frag_tex2d = createShaderModule(io::readFile("shaders/structured/texture_greyscale.spv"));
+  auto frag_tex2d = compileSlang("shaders/tex_frag2d.slang",
+    SLANG_STAGE_FRAGMENT, global_session
+  );
   auto frag_info_tex2d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_tex2d
   );
@@ -1127,11 +1161,15 @@ void VulkanEngine::createGraphicsPipelines()
   texture2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(texture2d);
 
-  auto vert_tex3d = createShaderModule(io::readFile("shaders/structured/texture3d_quad.spv"));
+  auto vert_tex3d = compileSlang("shaders/tex_vert3d.slang",
+    SLANG_STAGE_VERTEX, global_session
+  );
   auto vert_info_tex3d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_VERTEX_BIT, vert_tex3d
   );
-  auto frag_tex3d = createShaderModule(io::readFile("shaders/structured/texture3d_draw.spv"));
+  auto frag_tex3d = compileSlang("shaders/tex_frag3d.slang",
+    SLANG_STAGE_FRAGMENT, global_session
+  );
   auto frag_info_tex3d = vkinit::pipelineShaderStageCreateInfo(
     VK_SHADER_STAGE_FRAGMENT_BIT, frag_tex3d
   );
@@ -1146,13 +1184,17 @@ void VulkanEngine::createGraphicsPipelines()
   texture3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(texture3d);
 
-  auto vert_mesh2d = createShaderModule(io::readFile("shaders/unstructured/wireframe_vertex_2d.spv"));
-  auto vert_info_mesh2d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_mesh2d
+  auto mesh_vert2d = compileSlang("shaders/mesh_vert2d.slang",
+    SLANG_STAGE_VERTEX, global_session
   );
-  auto frag_mesh = createShaderModule(io::readFile("shaders/unstructured/wireframe_fragment.spv"));
+  auto vert_info_mesh2d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, mesh_vert2d
+  );
+  auto mesh_frag = compileSlang("shaders/mesh_frag.slang",
+    SLANG_STAGE_FRAGMENT, global_session
+  );
   auto frag_info_mesh = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_mesh
+    VK_SHADER_STAGE_FRAGMENT_BIT, mesh_frag
   );
 
   PipelineInfo mesh2d;
@@ -1165,9 +1207,12 @@ void VulkanEngine::createGraphicsPipelines()
   mesh2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(mesh2d);
 
-  auto vert_mesh3d = createShaderModule(io::readFile("shaders/unstructured/wireframe_vertex_3d.spv"));
+  //auto vert_mesh3d = createShaderModule(io::readFile("shaders/wireframe_vertex_3d.spv"));
+  auto mesh_vert3d = compileSlang("shaders/mesh_vert3d.slang",
+    SLANG_STAGE_VERTEX, global_session
+  );
   auto vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_mesh3d
+    VK_SHADER_STAGE_VERTEX_BIT, mesh_vert3d
   );
 
   PipelineInfo mesh3d;
@@ -1180,23 +1225,32 @@ void VulkanEngine::createGraphicsPipelines()
   mesh3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(mesh3d);
 
-  auto vert_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_vert.spv"));
+  //auto vert_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_vert.spv"));
+  auto voxel_vert = compileSlang("shaders/voxel_vert.slang",
+    SLANG_STAGE_VERTEX, global_session
+  );
   auto vert_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_vox3d
+    VK_SHADER_STAGE_VERTEX_BIT, voxel_vert
   );
-  auto frag_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_draw.spv"));
-  auto frag_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_vox3d
+  //auto geom_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_geometry.spv"));
+  auto voxel_geom = compileSlang("shaders/voxel_geom.slang",
+  SLANG_STAGE_GEOMETRY, global_session
   );
-  auto geom_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_geometry.spv"));
   auto geom_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_GEOMETRY_BIT, geom_vox3d
+    VK_SHADER_STAGE_GEOMETRY_BIT, voxel_geom
+  );
+  //auto frag_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_draw.spv"));
+  auto voxel_frag = compileSlang("shaders/voxel_frag.slang",
+    SLANG_STAGE_FRAGMENT, global_session
+  );
+  auto frag_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_FRAGMENT_BIT, voxel_frag
   );
 
   PipelineInfo voxel3d;
   voxel3d.shader_stages.push_back(vert_info_vox3d);
-  voxel3d.shader_stages.push_back(frag_info_vox3d);
   voxel3d.shader_stages.push_back(geom_info_vox3d);
+  voxel3d.shader_stages.push_back(frag_info_vox3d);
   voxel3d.vertex_input_info = getVertexDescriptions3d();
   voxel3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   voxel3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
@@ -1204,9 +1258,12 @@ void VulkanEngine::createGraphicsPipelines()
   voxel3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(voxel3d);
 
-  auto vert_vox_implicit = createShaderModule(io::readFile("shaders/voxel/voxel_vert_implicit.spv"));
+  //auto vert_vox_implicit = createShaderModule(io::readFile("shaders/voxel/voxel_vert_implicit.spv"));
+  auto voxel_implicit_vert = compileSlang("shaders/voxel_vert_implicit.slang",
+    SLANG_STAGE_VERTEX, global_session
+  );
   auto vert_info_implicit = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_vox_implicit
+    VK_SHADER_STAGE_VERTEX_BIT, voxel_implicit_vert
   );
 
   PipelineInfo voxel_implicit;

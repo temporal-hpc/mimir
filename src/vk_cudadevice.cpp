@@ -95,10 +95,10 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
   if (params.resource_type == ResourceType::Texture)
   {
     const std::vector<Vertex> vertices{
-      { {  1.f,  1.f, 1.f }, { 1.f, 1.f } },
-      { { -1.f,  1.f, 1.f }, { 0.f, 1.f } },
-      { { -1.f, -1.f, 1.f }, { 0.f, 0.f } },
-      { {  1.f, -1.f, 1.f }, { 1.f, 0.f } }/*,
+      { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
+      { { -1.f,  1.f, 0.f }, { 0.f, 1.f } },
+      { { -1.f, -1.f, 0.f }, { 0.f, 0.f } },
+      { {  1.f, -1.f, 0.f }, { 1.f, 0.f } }/*,
       { {  1.f,  1.f, .5f }, { 1.f, 1.f } },
       { { -1.f,  1.f, .5f }, { 0.f, 1.f } },
       { { -1.f, -1.f, .5f }, { 0.f, 0.f } },
