@@ -27,18 +27,19 @@ struct VertexInput
 
 struct VertexOutput
 {
-  float4 pos        : SV_Position;
-  float4 color      : COLOR;
+  float4 pos    : SV_Position;
+  float4 center : POSITION;
+  float4 color  : COLOR;
   //float marker_size;
 };
 
 VertexOutput main(VertexInput input)
 {
-  //float4x4 mat = transpose(mvp.proj * mvp.view * mvp.model);
+  float4x4 view_proj = mul(mvp.proj, mvp.view);
 
   VertexOutput output;
-  float4 pos = float4(2.0 * (input.pos / params.extent) - 1.0, 1.0);
-  output.pos = mul(pos, mvp.model);
+  output.center = float4(2 * (input.pos / params.extent) - 1, 1);
+  output.pos = mul(view_proj, output.center);
   output.color = float4(0, 0, 1, 1);
   //output.marker_size = 10.f;
 

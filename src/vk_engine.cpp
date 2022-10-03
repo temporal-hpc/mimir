@@ -553,11 +553,11 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
 
   ModelViewProjection mvp{};
   mvp.model = glm::mat4(1.f);
-  mvp.view  = camera->matrices.view; // glm::mat4(1.f);
-  mvp.proj  = camera->matrices.perspective; //glm::mat4(1.f);
+  mvp.view  = glm::transpose(camera->matrices.view);
+  mvp.proj  = glm::transpose(camera->matrices.perspective);
 
-  glm::mat4 mul = glm::transpose(mvp.proj * mvp.view * mvp.model);
-  mvp.model = mul;
+  //glm::mat4 mul = glm::transpose(mvp.proj * mvp.view * mvp.model);
+  //mvp.model = mul;
 
   ColorParams colors{};
   colors.point_color = color::getColor(point_color);
@@ -824,7 +824,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     {
       if (view.params.primitive_type == PrimitiveType::Voxels)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[7]);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
@@ -858,7 +858,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     {
       if (view.params.primitive_type == PrimitiveType::Voxels)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[7]);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
           pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
         );
@@ -1046,6 +1046,7 @@ VkShaderModule VulkanEngine::compileSlang(const std::string& shader_path,
   Slang::ComPtr<slang::ICompileRequest> request;
   validation::checkSlang(global_session->createCompileRequest(request.writeRef()));
   request->setCodeGenTarget(SLANG_SPIRV);
+  //request->setMatrixLayoutMode(SLANG_MATRIX_LAYOUT_COLUMN_MAJOR);
   //request->addSearchPath("shaders/include");
   //request->addPreprocessorDefine("ENABLE_FOO", "1");
   // NOTE: 2nd argument is name of translation unit, but remains unused by slang
@@ -1138,7 +1139,7 @@ void VulkanEngine::createGraphicsPipelines()
   points3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(points3d);
 
-  /*auto vert_tex2d = compileSlang("shaders/tex_vert2d.slang",
+  auto vert_tex2d = compileSlang("shaders/tex_vert2d.slang",
     SLANG_STAGE_VERTEX, global_session
   );
   auto vert_info_tex2d = vkinit::pipelineShaderStageCreateInfo(
@@ -1225,12 +1226,12 @@ void VulkanEngine::createGraphicsPipelines()
   mesh3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(mesh3d);
 
-  //auto vert_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_vert.spv"));
-  auto voxel_vert = compileSlang("shaders/voxel_vert.slang",
+  //auto vert_vox_implicit = createShaderModule(io::readFile("shaders/voxel/voxel_vert_implicit.spv"));
+  auto voxel_implicit_vert = compileSlang("shaders/voxel_vert_implicit.slang",
     SLANG_STAGE_VERTEX, global_session
   );
-  auto vert_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, voxel_vert
+  auto vert_info_implicit = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, voxel_implicit_vert
   );
   //auto geom_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_geometry.spv"));
   auto voxel_geom = compileSlang("shaders/voxel_geom.slang",
@@ -1247,25 +1248,6 @@ void VulkanEngine::createGraphicsPipelines()
     VK_SHADER_STAGE_FRAGMENT_BIT, voxel_frag
   );
 
-  PipelineInfo voxel3d;
-  voxel3d.shader_stages.push_back(vert_info_vox3d);
-  voxel3d.shader_stages.push_back(geom_info_vox3d);
-  voxel3d.shader_stages.push_back(frag_info_vox3d);
-  voxel3d.vertex_input_info = getVertexDescriptions3d();
-  voxel3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-  voxel3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  voxel3d.multisampling     = vkinit::multisampleStateCreateInfo();
-  voxel3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(voxel3d);
-
-  //auto vert_vox_implicit = createShaderModule(io::readFile("shaders/voxel/voxel_vert_implicit.spv"));
-  auto voxel_implicit_vert = compileSlang("shaders/voxel_vert_implicit.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto vert_info_implicit = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, voxel_implicit_vert
-  );
-
   PipelineInfo voxel_implicit;
   voxel_implicit.shader_stages.push_back(vert_info_implicit);
   voxel_implicit.shader_stages.push_back(frag_info_vox3d);
@@ -1275,7 +1257,26 @@ void VulkanEngine::createGraphicsPipelines()
   voxel_implicit.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
   voxel_implicit.multisampling     = vkinit::multisampleStateCreateInfo();
   voxel_implicit.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(voxel_implicit);*/
+  builder.addPipelineInfo(voxel_implicit);
+
+  //auto vert_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_vert.spv"));
+  /*auto voxel_vert = compileSlang("shaders/voxel_vert.slang",
+    SLANG_STAGE_VERTEX, global_session
+  );
+  auto vert_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
+    VK_SHADER_STAGE_VERTEX_BIT, voxel_vert
+  );
+
+  PipelineInfo voxel3d;
+  voxel3d.shader_stages.push_back(vert_info_vox3d);
+  voxel3d.shader_stages.push_back(geom_info_vox3d);
+  voxel3d.shader_stages.push_back(frag_info_vox3d);
+  voxel3d.vertex_input_info = getVertexDescriptions3d();
+  voxel3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+  voxel3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+  voxel3d.multisampling     = vkinit::multisampleStateCreateInfo();
+  voxel3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  builder.addPipelineInfo(voxel3d);*/
 
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
   std::cout << pipelines.size() << " pipelines created\n";

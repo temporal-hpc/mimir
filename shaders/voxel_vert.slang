@@ -17,15 +17,18 @@ struct VertexInput
 
 struct VertexOutput
 {
-  float3 center : POSITION;
+  float4 pos    : SV_Position;
+  float4 center : POSITION;
   float4 color  : COLOR;
 };
 
 VertexOutput main(VertexInput input)
 {
+  float4x4 view_proj = mul(mvp.view, mvp.proj);
+
   VertexOutput output;
-  output.center = 2.0 * (input.pos / float3(200.0)) - 1.0;
-  //output.pos = mul(float4(output.center, 1.0), mvp.model);
+  output.center = float4(2 * (input.pos / float3(200)) - 1, 1);
+  output.pos = mul(output.center, view_proj);
   output.color = float4(.5, .5, .5, 1);
 
   return output;

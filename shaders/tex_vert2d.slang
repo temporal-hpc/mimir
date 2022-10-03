@@ -24,10 +24,11 @@ struct VertexOutput
 
 VertexOutput main(VertexInput input)
 {
+  float4x4 view_proj = mul(mvp.proj, mvp.view);
   float4 pos = float4(input.pos, 1.0);
 
   VertexOutput output;
-  output.pos = mul(pos, mvp.model);
+  output.pos = mul(view_proj, pos);
   output.uv = input.uv;
 
   return output;
