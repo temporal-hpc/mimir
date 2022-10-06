@@ -1,19 +1,8 @@
-struct ModelViewProjection
-{
-  float4x4 model;
-  float4x4 view;
-  float4x4 proj;
-};
+import uniform;
 
 [[vk::binding(0)]] cbuffer ModelViewProjectionUBO
 {
   ModelViewProjection mvp;
-};
-
-struct SceneParams
-{
-  int3 extent;
-  float depth;
 };
 
 [[vk::binding(1)]] cbuffer SceneParamsUBO

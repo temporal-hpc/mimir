@@ -552,12 +552,11 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   auto offset = image_idx * size_ubo;
 
   ModelViewProjection mvp{};
+  // Since shaders are using row-major format, matrices must be transposed
+  // before copying them to device memory
   mvp.model = glm::mat4(1.f);
   mvp.view  = glm::transpose(camera->matrices.view);
   mvp.proj  = glm::transpose(camera->matrices.perspective);
-
-  //glm::mat4 mul = glm::transpose(mvp.proj * mvp.view * mvp.model);
-  //mvp.model = mul;
 
   ColorParams colors{};
   colors.point_color = color::getColor(point_color);
@@ -1046,8 +1045,8 @@ VkShaderModule VulkanEngine::compileSlang(const std::string& shader_path,
   Slang::ComPtr<slang::ICompileRequest> request;
   validation::checkSlang(global_session->createCompileRequest(request.writeRef()));
   request->setCodeGenTarget(SLANG_SPIRV);
+  request->addSearchPath("shaders/include");
   //request->setMatrixLayoutMode(SLANG_MATRIX_LAYOUT_COLUMN_MAJOR);
-  //request->addSearchPath("shaders/include");
   //request->addPreprocessorDefine("ENABLE_FOO", "1");
   // NOTE: 2nd argument is name of translation unit, but remains unused by slang
   int trans_idx = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_SLANG, "slang");

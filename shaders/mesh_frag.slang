@@ -1,8 +1,4 @@
-struct ColorParams
-{
-  float4 point_color;
-  float4 edge_color;
-};
+import uniform;
 
 [[vk::binding(2)]] cbuffer ColorParamsUBO
 {
