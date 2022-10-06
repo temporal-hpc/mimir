@@ -980,6 +980,15 @@ extern "C"
     };
     #define SLANG_UUID_ISlangBlob ISlangBlob::getTypeGuid()
 
+    /* Can be requested from ISlangCastable cast to indicate the contained chars are null terminated.  
+    */
+    struct SlangTerminatedChars
+    {
+        SLANG_CLASS_GUID(0xbe0db1a8, 0x3594, 0x4603, { 0xa7, 0x8b, 0xc4, 0x86, 0x84, 0x30, 0xdf, 0xbb });
+        operator const char*() const { return chars; }
+        char chars[1];
+    };
+
     /** A (real or virtual) file system.
 
     Slang can make use of this interface whenever it would otherwise try to load files
@@ -991,7 +1000,7 @@ extern "C"
     longer used (using 'release').
     */
 
-    struct ISlangFileSystem : public ISlangUnknown
+    struct ISlangFileSystem : public ISlangCastable
     {
         SLANG_COM_INTERFACE(0x003A09FC, 0x3A4D, 0x4BA0, { 0xAD, 0x60, 0x1F, 0xD8, 0x63, 0xA9, 0x15, 0xAB })
 
@@ -1076,6 +1085,46 @@ extern "C"
     The name is the name of a file system object (directory/file) in the specified path (ie it is without a path) */
     typedef void (*FileSystemContentsCallBack)(SlangPathType pathType, const char* name, void* userData);
 
+    /* Determines how paths map to files on the OS file system */
+    enum class OSPathKind : uint8_t
+    {
+        None,                ///< Paths do not map to the file system
+        Direct,              ///< Paths map directly to the file system
+        OperatingSystem,     ///< Only paths gained via PathKind::OperatingSystem map to the operating system file system
+    };
+
+    /* Used to determine what kind of path is required from an input path */
+    enum class PathKind
+    {
+            /// Given a path, returns a simplified version of that path.  
+            /// This typically means removing '..' and/or '.' from the path.
+            /// A simplified path must point to the same object as the original.
+        Simplified,             
+
+            /// Given a path, returns a 'canonical path' to the item. 
+            /// This may be the operating system 'canonical path' that is the unique path to the item.
+            /// 
+            /// If the item exists the returned canonical path should always be usable to access the item.
+            /// 
+            /// If the item the path specifies doesn't exist, the canonical path may not be returnable
+            /// or be a path simplification.             
+            /// Not all file systems support canonical paths.
+        Canonical,
+
+            /// Given a path returns a path such that it is suitable to be displayed to the user.
+            /// 
+            /// For example if the file system is a zip file - it might include the path to the zip
+            /// container as well as the path to the specific file.
+            /// 
+            /// NOTE! The display path won't necessarily work on the file system to access the item
+        Display,
+
+            /// Get the path to the item on the *operating system* file system, if available.
+        OperatingSystem,
+
+        CountOf,
+    };
+
     /** An extended file system abstraction.
     
     Implementing and using this interface over ISlangFileSystem gives much more control over how paths
@@ -1144,36 +1193,17 @@ extern "C"
             const char* path, 
             SlangPathType* pathTypeOut) = 0;
 
-        /** Get a simplified path. 
-        Given a path, returns a simplified version of that path - typically removing '..' and/or '.'. A simplified
-        path must point to the same object as the original. 
-       
-        This method is optional, if not implemented return SLANG_E_NOT_IMPLEMENTED.
+        /** Get a path based on the kind.
 
-        @param path
-        @param outSimplifiedPath
+        @param kind The kind of path wanted
+        @param path The input path
+        @param outPath The output path held in a blob
         @returns SLANG_OK if successfully simplified the path (SLANG_E_NOT_IMPLEMENTED if not implemented, or some other error code)
         */
-        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getSimplifiedPath(
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getPath(
+            PathKind kind,
             const char* path,
-            ISlangBlob** outSimplifiedPath) = 0;
-
-        /** Get a canonical path identifies an object of the file system.
-
-        Given a path, returns a 'canonicalPath' to the file. This may be a file system 'canonical path' to
-        show where a file was read from. If the file system is say a zip file - it might include the path to the zip
-        container as well as the absolute path to the specific file. The main purpose of the method is to be able
-        to display to uses unambiguously where a file was read from.
-
-        This method is optional, if not implemented return SLANG_E_NOT_IMPLEMENTED.
-
-        @param path
-        @param outCanonicalPath
-        @returns SLANG_OK if successfully canonicalized the path (SLANG_E_NOT_IMPLEMENTED if not implemented, or some other error code)
-        */
-        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getCanonicalPath(
-            const char* path,
-            ISlangBlob** outCanonicalPath) = 0;
+            ISlangBlob** outPath) = 0;
 
         /** Clears any cached information */
         virtual SLANG_NO_THROW void SLANG_MCALL clearCache() = 0;
@@ -1191,6 +1221,12 @@ extern "C"
             const char* path,
             FileSystemContentsCallBack callback,
             void* userData) = 0;
+
+        /** Returns how paths map to the OS file system
+        
+        @returns OSPathKind that describes how paths map to the Operating System file system
+        */
+        virtual SLANG_NO_THROW OSPathKind SLANG_MCALL getOSPathKind() = 0;
     };
 
     #define SLANG_UUID_ISlangFileSystemExt ISlangFileSystemExt::getTypeGuid()
@@ -1199,17 +1235,33 @@ extern "C"
     {
         SLANG_COM_INTERFACE(0xa058675c, 0x1d65, 0x452a, { 0x84, 0x58, 0xcc, 0xde, 0xd1, 0x42, 0x71, 0x5 })
 
-        /** Write the data specified with data and size to the specified path.
+        /** Write data to the specified path.
 
         @param path The path for data to be saved to
         @param data The data to be saved
-        @param size The size of the data
+        @param size The size of the data in bytes
         @returns SLANG_OK if successful (SLANG_E_NOT_IMPLEMENTED if not implemented, or some other error code)
         */
         virtual SLANG_NO_THROW SlangResult SLANG_MCALL saveFile(
             const char* path,
             const void* data,
             size_t size) = 0;
+
+        /** Write data in the form of a blob to the specified path.
+
+        Depending on the implementation writing a blob might be faster/use less memory. It is assumed the 
+        blob is *immutable* and that an implementation can reference count it.
+
+        It is not guaranteed loading the same file will return the *same* blob - just a blob with same 
+        contents.
+
+        @param path The path for data to be saved to
+        @param dataBlob The data to be saved
+        @returns SLANG_OK if successful (SLANG_E_NOT_IMPLEMENTED if not implemented, or some other error code)
+        */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL saveFileBlob(
+            const char* path,
+            ISlangBlob* dataBlob) = 0;
 
         /** Remove the entry in the path (directory of file). Will only delete an empty directory, if not empty
         will return an error.
@@ -1838,6 +1890,8 @@ extern "C"
         SLANG_SCALAR_TYPE_UINT8,
         SLANG_SCALAR_TYPE_INT16,
         SLANG_SCALAR_TYPE_UINT16,
+        SLANG_SCALAR_TYPE_INTPTR,
+        SLANG_SCALAR_TYPE_UINTPTR
     };
 
 #ifndef SLANG_RESOURCE_SHAPE

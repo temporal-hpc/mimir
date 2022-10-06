@@ -552,11 +552,9 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   auto offset = image_idx * size_ubo;
 
   ModelViewProjection mvp{};
-  // Since shaders are using row-major format, matrices must be transposed
-  // before copying them to device memory
   mvp.model = glm::mat4(1.f);
-  mvp.view  = glm::transpose(camera->matrices.view);
-  mvp.proj  = glm::transpose(camera->matrices.perspective);
+  mvp.view  = camera->matrices.view;
+  mvp.proj  = camera->matrices.perspective;
 
   ColorParams colors{};
   colors.point_color = color::getColor(point_color);
@@ -1039,78 +1037,68 @@ void diagnose(slang::IBlob *diag_blob)
   }
 }
 
-std::string getEntryPointName(SlangStage stage)
-{
-  switch (stage)
-  {
-    case SLANG_STAGE_VERTEX: return "vertexMain";
-    case SLANG_STAGE_GEOMETRY: return "geometryMain";
-    case SLANG_STAGE_FRAGMENT: return "fragmentMain";
-    default: return "main";
-  }
-}
-
 VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
 {
   switch (stage)
   {
-    case SLANG_STAGE_VERTEX: return VK_SHADER_STAGE_VERTEX_BIT;
+    case SLANG_STAGE_VERTEX:   return VK_SHADER_STAGE_VERTEX_BIT;
     case SLANG_STAGE_GEOMETRY: return VK_SHADER_STAGE_GEOMETRY_BIT;
     case SLANG_STAGE_FRAGMENT: return VK_SHADER_STAGE_FRAGMENT_BIT;
-    default: return VK_SHADER_STAGE_ALL_GRAPHICS;
+    default:                   return VK_SHADER_STAGE_ALL_GRAPHICS;
   }
 }
 
-
 std::vector<VkPipelineShaderStageCreateInfo> VulkanEngine::compileSlang(
-  Slang::ComPtr<slang::IGlobalSession> global_session,
-  const std::string& shader_path, const std::vector<SlangStage>& stages)
+  Slang::ComPtr<slang::ISession> session, const std::string& shader_path,
+  const std::vector<std::string>& entry_names)
 {
-  Slang::ComPtr<slang::ICompileRequest> request;
-  validation::checkSlang(global_session->createCompileRequest(request.writeRef()));
-  request->setCodeGenTarget(SLANG_SPIRV);
-  request->addSearchPath("shaders/include");
-  //request->setMatrixLayoutMode(SLANG_MATRIX_LAYOUT_COLUMN_MAJOR);
-  //request->addPreprocessorDefine("ENABLE_FOO", "1");
-  // NOTE: 2nd argument is name of translation unit, but remains unused by slang
-  int trans_idx = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_SLANG, "slang");
-  request->addTranslationUnitSourceFile(trans_idx, shader_path.c_str());
+  slang::IModule* slang_module = nullptr;
+  Slang::ComPtr<slang::IBlob> diag = nullptr;
+  slang_module = session->loadModule(shader_path.c_str(), diag.writeRef());
+  diagnose(diag);
 
-  std::vector<int> entrypoints;
-  entrypoints.reserve(stages.size());
-  for (const auto& stage : stages)
+  std::vector<slang::IComponentType*> components;
+  components.reserve(entry_names.size() + 1);
+  components.push_back(slang_module);
+  for (const auto& name : entry_names)
   {
-    auto name = getEntryPointName(stage);
-    entrypoints.push_back(request->addEntryPoint(trans_idx, name.c_str(), stage));
+    Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
+    slang_module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
+    if (entrypoint != nullptr) components.push_back(entrypoint);
   }
-  request->compile();
-  auto diagnostics = request->getDiagnosticOutput();
-  std::cout << diagnostics << std::endl;
+  Slang::ComPtr<slang::IComponentType> program = nullptr;
+  session->createCompositeComponentType(
+    components.data(), components.size(), program.writeRef(), diag.writeRef()
+  );
+  diagnose(diag);
+  auto layout = program->getLayout();
 
   std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
-  compiled_stages.reserve(entrypoints.size());
-  for (size_t i = 0; i < entrypoints.size(); ++i)
+  compiled_stages.reserve(layout->getEntryPointCount());
+  for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)
   {
-    size_t data_size = 0;
-    auto data = request->getEntryPointCode(entrypoints[i], &data_size);
-    //auto code = request->getEntryPointSource(entry_point_idx);
-    //std::cout << code << std::endl;
+    auto entrypoint = layout->getEntryPointByIndex(idx);
+    auto stage = getVulkanShaderFlag(entrypoint->getStage());
+
+    diag = nullptr;
+    Slang::ComPtr<slang::IBlob> kernel = nullptr;
+    program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
+    diagnose(diag);
+
     VkShaderModuleCreateInfo info{};
     info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     info.pNext    = nullptr;
     info.flags    = 0; // Unused by Vulkan API
-    info.codeSize = data_size;
-    info.pCode    = static_cast<const uint32_t*>(data);
-    VkShaderModule module;
+    info.codeSize = kernel->getBufferSize();
+    info.pCode    = static_cast<const uint32_t*>(kernel->getBufferPointer());
+    VkShaderModule shader_module;
     validation::checkVulkan(
-      vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
+      vkCreateShaderModule(dev->logical_device, &info, nullptr, &shader_module)
     );
     deletors.pushFunction([=]{
-      vkDestroyShaderModule(dev->logical_device, module, nullptr);
+      vkDestroyShaderModule(dev->logical_device, shader_module, nullptr);
     });
-    auto shader_info = vkinit::pipelineShaderStageCreateInfo(
-      getVulkanShaderFlag(stages[i]), module
-    );
+    auto shader_info = vkinit::pipelineShaderStageCreateInfo(stage, shader_module);
     compiled_stages.push_back(shader_info);
   }
   return compiled_stages;
@@ -1126,10 +1114,23 @@ void VulkanEngine::createGraphicsPipelines()
   Slang::ComPtr<slang::IGlobalSession> global_session;
   slang::createGlobalSession(global_session.writeRef());
 
+  slang::TargetDesc target_desc{};
+  target_desc.format = SLANG_SPIRV;
+  target_desc.profile = global_session->findProfile("sm_6_6");
+  const char* search_paths[] = { "shaders/include" };
+  slang::SessionDesc session_desc{};
+  session_desc.targets = &target_desc;
+  session_desc.targetCount = 1;
+  session_desc.searchPaths = search_paths;
+  session_desc.searchPathCount = 1;
+
+  Slang::ComPtr<slang::ISession> session;
+  global_session->createSession(session_desc, session.writeRef());
+
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
 
-  auto marker2d = compileSlang(global_session, "shaders/marker2d.slang",
-    {SLANG_STAGE_VERTEX, SLANG_STAGE_GEOMETRY, SLANG_STAGE_FRAGMENT});
+  auto marker2d = compileSlang(session, "shaders/marker2d.slang",
+    {"vertexMain", "geometryMain", "fragmentMain"});
 
   PipelineInfo points2d;
   points2d.shader_stages = marker2d;
