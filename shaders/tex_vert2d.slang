@@ -19,11 +19,12 @@ struct VertexOutput
 
 VertexOutput main(VertexInput input)
 {
-  float4x4 view_proj = mul(mvp.proj, mvp.view);
-  float4 pos = float4(input.pos, 1.0);
+  float4x4 view_proj = mul(mvp.view, mvp.proj);
+  float4 pos = float4(input.pos, 1);
+  pos.z = 0.99; // Temp hack to avoid z-fighting
 
   VertexOutput output;
-  output.pos = mul(view_proj, pos);
+  output.pos = mul(pos, view_proj);
   output.uv = input.uv;
 
   return output;
