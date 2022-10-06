@@ -1039,8 +1039,32 @@ void diagnose(slang::IBlob *diag_blob)
   }
 }
 
-VkShaderModule VulkanEngine::compileSlang(const std::string& shader_path,
-  SlangStage stage, Slang::ComPtr<slang::IGlobalSession> global_session)
+std::string getEntryPointName(SlangStage stage)
+{
+  switch (stage)
+  {
+    case SLANG_STAGE_VERTEX: return "vertexMain";
+    case SLANG_STAGE_GEOMETRY: return "geometryMain";
+    case SLANG_STAGE_FRAGMENT: return "fragmentMain";
+    default: return "main";
+  }
+}
+
+VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
+{
+  switch (stage)
+  {
+    case SLANG_STAGE_VERTEX: return VK_SHADER_STAGE_VERTEX_BIT;
+    case SLANG_STAGE_GEOMETRY: return VK_SHADER_STAGE_GEOMETRY_BIT;
+    case SLANG_STAGE_FRAGMENT: return VK_SHADER_STAGE_FRAGMENT_BIT;
+    default: return VK_SHADER_STAGE_ALL_GRAPHICS;
+  }
+}
+
+
+std::vector<VkPipelineShaderStageCreateInfo> VulkanEngine::compileSlang(
+  Slang::ComPtr<slang::IGlobalSession> global_session,
+  const std::string& shader_path, const std::vector<SlangStage>& stages)
 {
   Slang::ComPtr<slang::ICompileRequest> request;
   validation::checkSlang(global_session->createCompileRequest(request.writeRef()));
@@ -1052,67 +1076,63 @@ VkShaderModule VulkanEngine::compileSlang(const std::string& shader_path,
   int trans_idx = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_SLANG, "slang");
   request->addTranslationUnitSourceFile(trans_idx, shader_path.c_str());
 
-  auto entry_point_idx = request->addEntryPoint(trans_idx, "main", stage);
+  std::vector<int> entrypoints;
+  entrypoints.reserve(stages.size());
+  for (const auto& stage : stages)
+  {
+    auto name = getEntryPointName(stage);
+    entrypoints.push_back(request->addEntryPoint(trans_idx, name.c_str(), stage));
+  }
   request->compile();
   auto diagnostics = request->getDiagnosticOutput();
   std::cout << diagnostics << std::endl;
-  size_t data_size = 0;
-  auto data = request->getEntryPointCode(entry_point_idx, &data_size);
-  //auto code = request->getEntryPointSource(entry_point_idx);
-  //std::cout << code << std::endl;
-  VkShaderModuleCreateInfo info{};
-  info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  info.pNext    = nullptr;
-  info.flags    = 0; // Unused
-  info.codeSize = data_size;
-  info.pCode    = static_cast<const uint32_t*>(data);
-  VkShaderModule module;
-  validation::checkVulkan(
-    vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
-  );
-  deletors.pushFunction([=]{
-    vkDestroyShaderModule(dev->logical_device, module, nullptr);
-  });
-  return module;
+
+  std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
+  compiled_stages.reserve(entrypoints.size());
+  for (size_t i = 0; i < entrypoints.size(); ++i)
+  {
+    size_t data_size = 0;
+    auto data = request->getEntryPointCode(entrypoints[i], &data_size);
+    //auto code = request->getEntryPointSource(entry_point_idx);
+    //std::cout << code << std::endl;
+    VkShaderModuleCreateInfo info{};
+    info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    info.pNext    = nullptr;
+    info.flags    = 0; // Unused by Vulkan API
+    info.codeSize = data_size;
+    info.pCode    = static_cast<const uint32_t*>(data);
+    VkShaderModule module;
+    validation::checkVulkan(
+      vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
+    );
+    deletors.pushFunction([=]{
+      vkDestroyShaderModule(dev->logical_device, module, nullptr);
+    });
+    auto shader_info = vkinit::pipelineShaderStageCreateInfo(
+      getVulkanShaderFlag(stages[i]), module
+    );
+    compiled_stages.push_back(shader_info);
+  }
+  return compiled_stages;
 }
 
 void VulkanEngine::createGraphicsPipelines()
 {
   auto start = std::chrono::steady_clock::now();
+  //auto orig_path = std::filesystem::current_path();
+  //std::filesystem::current_path(shader_path);
 
   // Create global session to work with the Slang API
   Slang::ComPtr<slang::IGlobalSession> global_session;
   slang::createGlobalSession(global_session.writeRef());
 
-  auto sprite2d_vert = compileSlang("shaders/sprite_vert2d.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto sprite2d_geom = compileSlang("shaders/sprite_geom.slang",
-    SLANG_STAGE_GEOMETRY, global_session
-  );
-  auto sprite2d_frag = compileSlang("shaders/sprite_frag.slang",
-    SLANG_STAGE_FRAGMENT, global_session
-  );
-
-  //auto orig_path = std::filesystem::current_path();
-  //std::filesystem::current_path(shader_path);
-
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
 
-  auto vert_info_points2d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, sprite2d_vert
-  );
-  auto geom_info_points = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_GEOMETRY_BIT, sprite2d_geom
-  );
-  auto frag_info_points = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, sprite2d_frag
-  );
+  auto marker2d = compileSlang(global_session, "shaders/marker2d.slang",
+    {SLANG_STAGE_VERTEX, SLANG_STAGE_GEOMETRY, SLANG_STAGE_FRAGMENT});
 
   PipelineInfo points2d;
-  points2d.shader_stages.push_back(vert_info_points2d);
-  points2d.shader_stages.push_back(frag_info_points);
-  points2d.shader_stages.push_back(geom_info_points);
+  points2d.shader_stages = marker2d;
   points2d.vertex_input_info = getVertexDescriptions2d();
   points2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   points2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
@@ -1120,7 +1140,7 @@ void VulkanEngine::createGraphicsPipelines()
   points2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(points2d);
 
-  auto sprite3d_vert = compileSlang("shaders/sprite_vert3d.slang",
+  /*auto sprite3d_vert = compileSlang("shaders/sprite_vert3d.slang",
     SLANG_STAGE_VERTEX, global_session
   );
   auto vert_info_points3d = vkinit::pipelineShaderStageCreateInfo(
@@ -1278,7 +1298,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.addPipelineInfo(voxel3d);*/
 
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
-  std::cout << pipelines.size() << " pipelines created\n";
+  std::cout << pipelines.size() << " pipeline(s) created\n";
   // Restore original working directory
   //std::filesystem::current_path(orig_path);
 
