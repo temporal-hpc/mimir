@@ -1,52 +1,61 @@
 import uniform;
 
-[[vk::binding(0)]] cbuffer ModelViewProjectionUBO
+[[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
+
+struct VertexInput
 {
-  ModelViewProjection mvp;
+  [[vk::location(0)]] float3 pos : POSITION;
 };
 
-struct GeometryInput
+struct VertexData
 {
   float4 pos    : SV_Position;
   float4 center : POSITION;
   float4 color  : COLOR;
 };
 
-struct GeometryOutput
+[shader("vertex")]
+VertexData vertexMain(VertexInput input)
+{
+  float4x4 view_proj = mul(mvp.view, mvp.proj);
+
+  VertexData output;
+  output.center = float4(2 * (input.pos / float3(200)) - 1, 1);
+  output.pos = mul(output.center, view_proj);
+  output.color = float4(.5, .5, .5, 1);
+
+  return output;
+}
+
+struct VertexInputImplicit
+{
+  [[vk::location(0)]] float3 pos : POSITION;
+  [[vk::location(1)]] int color  : COLOR;
+};
+
+[shader("vertex")]
+VertexData vertexImplicitMain(VertexInputImplicit input)
+{
+  float4x4 view_proj = mul(mvp.view, mvp.proj);
+
+  VertexData output;
+  output.center = float4(input.pos, 1);
+  output.pos    = mul(output.center, view_proj);
+  output.color  = float4(float1(input.color).xxx, 1);
+
+  return output;
+}
+
+struct VoxelData
 {
   float4 pos    : SV_Position;
   float4 color  : COLOR;
   float3 normal : NORMAL;
 };
 
-void addFace(inout TriangleStream<GeometryOutput> stream, float4 color,
-  float4 center, float4 shift, float4 dy, float4 dx, float3 n)
-{
-  float4x4 model_view = mul(mvp.model, mvp.view);
-  float4 normal = mul(float4(n, 0), model_view);
-  // Emit a primitive only if the sign of the dot product is positive
-  if (dot(-center.xyz, normal.xyz) > 0)
-  {
-    GeometryOutput output;
-    output.color = color;
-    output.normal = normal.xyz;
-
-    output.pos = (center + shift) + (dx - dy);
-    stream.Append(output);
-
-    output.pos = (center + shift) + (-dx - dy);
-    stream.Append(output);
-
-    output.pos = (center + shift) + (dx + dy);
-    stream.Append(output);
-
-    output.pos = (center + shift) + (-dx + dy);
-    stream.Append(output);
-  }
-}
-
+[shader("geometry")]
 [maxvertexcount(12)]
-void main(point GeometryInput input[1], inout TriangleStream<GeometryOutput> stream)
+void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> stream)
 {
   float4 pos = input[0].pos;
   float4 color = input[0].color;
@@ -67,7 +76,7 @@ void main(point GeometryInput input[1], inout TriangleStream<GeometryOutput> str
   float4 bz = model_view[2] * half_block.z;
 
   float4 v, shift, dx, dy, normal;
-  GeometryOutput output;
+  VoxelData output;
   output.color = color;
 
   normal = mul(float4(1, 0, 0, 0), model_view);
@@ -156,13 +165,24 @@ void main(point GeometryInput input[1], inout TriangleStream<GeometryOutput> str
   v = (center + shift) + (-dx + dy);
   output.pos = mul(v, mvp.proj);
   stream.Append(output);
+}
 
+float3 lambert(float3 normal, float3 light, float3 color)
+{
+  return color * max(dot(normalize(normal), normalize(light)), 0);
+}
 
+[shader("fragment")]
+float4 fragmentMain(VoxelData input) : SV_Target
+{
+  float3 light_front = float3(0, 0, 1);
+  float3 light_up = float3(0, 1, 0);
+  float3 light_color = input.color.xyz;
 
-  /*addFace(stream, color, center, +dx, dy, dz, float3( 1.0,  0.0,  0.0)); // Right
-  addFace(stream, color, center, -dx, dz, dy, float3(-1.0,  0.0,  0.0)); // Left
-  addFace(stream, color, center, +dy, dz, dx, float3( 0.0,  1.0,  0.0)); // Top
-  addFace(stream, color, center, -dy, dx, dz, float3( 0.0, -1.0,  0.0)); // Bottom
-  addFace(stream, color, center, +dz, dx, dy, float3( 0.0,  0.0,  1.0)); // Front
-  addFace(stream, color, center, -dz, dy, dx, float3( 0.0,  0.0, -1.0)); // Back*/
+  float front_bias = .9;
+  float3 ambient_light = float3(.1);
+  float3 color_front = front_bias * lambert(input.normal, light_front, light_color);
+  float3 color_up = (1 - front_bias) * lambert(input.normal, light_up, light_color);
+
+  return float4(ambient_light + color_front + color_up, input.color.w);
 }

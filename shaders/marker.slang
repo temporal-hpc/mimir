@@ -1,14 +1,7 @@
 import uniform;
 
-[[vk::binding(0)]] cbuffer ModelViewProjectionUBO
-{
-  ModelViewProjection mvp;
-};
-
-[[vk::binding(1)]] cbuffer UniformDataParamsUBO
-{
-  UniformDataParams params;
-};
+[[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
+[[vk::binding(1)]] ConstantBuffer<UniformDataParams> params;
 
 struct VertexInput
 {
@@ -24,12 +17,31 @@ struct VertexData
 };
 
 [shader("vertex")]
-VertexData vertexMain(VertexInput input)
+VertexData vertex2dMain(VertexInput input)
 {
   float4x4 view_proj = mul(mvp.view, mvp.proj);
 
   VertexData output;
   output.center = float4(2 * (float3(input.pos, 1) / params.extent) - 1, 1);
+  output.pos    = mul(output.center, view_proj);
+  output.color  = float4(0, 0, 1, 1);
+  //output.marker_size = 10.f;
+
+  return output;
+}
+
+struct VertexInput3d
+{
+  [[vk::location(0)]] float3 pos : POSITION;
+};
+
+[shader("vertex")]
+VertexData vertex3dMain(VertexInput3d input)
+{
+  float4x4 view_proj = mul(mvp.view, mvp.proj);
+
+  VertexData output;
+  output.center = float4(2 * (input.pos / params.extent) - 1, 1);
   output.pos    = mul(output.center, view_proj);
   output.color  = float4(0, 0, 1, 1);
   //output.marker_size = 10.f;

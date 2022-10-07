@@ -1052,26 +1052,28 @@ std::vector<VkPipelineShaderStageCreateInfo> VulkanEngine::compileSlang(
   Slang::ComPtr<slang::ISession> session, const std::string& shader_path,
   const std::vector<std::string>& entry_names)
 {
-  slang::IModule* slang_module = nullptr;
   Slang::ComPtr<slang::IBlob> diag = nullptr;
+  // Load code from [shader_path].slang as a module
+  slang::IModule* slang_module = nullptr;
   slang_module = session->loadModule(shader_path.c_str(), diag.writeRef());
   diagnose(diag);
 
   std::vector<slang::IComponentType*> components;
   components.reserve(entry_names.size() + 1);
   components.push_back(slang_module);
+  // Lookup entry points by their names
   for (const auto& name : entry_names)
   {
     Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
     slang_module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
     if (entrypoint != nullptr) components.push_back(entrypoint);
   }
-  Slang::ComPtr<slang::IComponentType> program = nullptr;
-  session->createCompositeComponentType(
-    components.data(), components.size(), program.writeRef(), diag.writeRef()
+  Slang::ComPtr<slang::IComponentType> composed_program = nullptr;
+  session->createCompositeComponentType(components.data(), components.size(),
+    composed_program.writeRef(), diag.writeRef()
   );
   diagnose(diag);
-  auto layout = program->getLayout();
+  auto layout = composed_program->getLayout();
 
   std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
   compiled_stages.reserve(layout->getEntryPointCount());
@@ -1082,7 +1084,7 @@ std::vector<VkPipelineShaderStageCreateInfo> VulkanEngine::compileSlang(
 
     diag = nullptr;
     Slang::ComPtr<slang::IBlob> kernel = nullptr;
-    program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
+    composed_program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
     diagnose(diag);
 
     VkShaderModuleCreateInfo info{};
@@ -1124,16 +1126,18 @@ void VulkanEngine::createGraphicsPipelines()
   session_desc.searchPaths = search_paths;
   session_desc.searchPathCount = 1;
 
+  // Obtain a compilation session that scopes compilation and code loading
   Slang::ComPtr<slang::ISession> session;
   global_session->createSession(session_desc, session.writeRef());
 
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
 
-  auto marker2d = compileSlang(session, "shaders/marker2d.slang",
-    {"vertexMain", "geometryMain", "fragmentMain"});
+  auto marker2d_slang = compileSlang(session, "shaders/marker.slang",
+    {"vertex2dMain", "geometryMain", "fragmentMain"}
+  );
 
   PipelineInfo points2d;
-  points2d.shader_stages = marker2d;
+  points2d.shader_stages = marker2d_slang;
   points2d.vertex_input_info = getVertexDescriptions2d();
   points2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   points2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
@@ -1141,104 +1145,64 @@ void VulkanEngine::createGraphicsPipelines()
   points2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(points2d);
 
-  /*auto sprite3d_vert = compileSlang("shaders/sprite_vert3d.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto vert_info_points3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, sprite3d_vert
+  auto marker3d_slang = compileSlang(session, "shaders/marker.slang",
+    {"vertex3dMain", "geometryMain", "fragmentMain"}
   );
 
   PipelineInfo points3d;
-  points3d.shader_stages.push_back(vert_info_points3d);
-  points3d.shader_stages.push_back(geom_info_points);
-  points3d.shader_stages.push_back(frag_info_points);
+  points3d.shader_stages = marker3d_slang;
   points3d.vertex_input_info = getVertexDescriptions3d();
   points3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   points3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  points3d.multisampling     = vkinit::multisampleStateCreateInfo();
+  points3d.multisampling = vkinit::multisampleStateCreateInfo();
   points3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(points3d);
 
-  auto vert_tex2d = compileSlang("shaders/tex_vert2d.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto vert_info_tex2d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_tex2d
-  );
-  auto frag_tex2d = compileSlang("shaders/tex_frag2d.slang",
-    SLANG_STAGE_FRAGMENT, global_session
-  );
-  auto frag_info_tex2d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_tex2d
+  auto tex2d_slang = compileSlang(session, "shaders/texture.slang",
+    {"vertex2dMain", "fragment2dMain"}
   );
 
   PipelineInfo texture2d;
-  texture2d.shader_stages.push_back(vert_info_tex2d);
-  texture2d.shader_stages.push_back(frag_info_tex2d);
+  texture2d.shader_stages = tex2d_slang;
   texture2d.vertex_input_info = getVertexDescriptionsVert();
   texture2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   texture2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  texture2d.multisampling     = vkinit::multisampleStateCreateInfo();
+  texture2d.multisampling = vkinit::multisampleStateCreateInfo();
   texture2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(texture2d);
 
-  auto vert_tex3d = compileSlang("shaders/tex_vert3d.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto vert_info_tex3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, vert_tex3d
-  );
-  auto frag_tex3d = compileSlang("shaders/tex_frag3d.slang",
-    SLANG_STAGE_FRAGMENT, global_session
-  );
-  auto frag_info_tex3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, frag_tex3d
+  auto tex3d_slang = compileSlang(session, "shaders/texture.slang",
+    {"vertex3dMain", "fragment3dMain"}
   );
 
   PipelineInfo texture3d;
-  texture3d.shader_stages.push_back(vert_info_tex3d);
-  texture3d.shader_stages.push_back(frag_info_tex3d);
+  texture3d.shader_stages = tex3d_slang;
   texture3d.vertex_input_info = getVertexDescriptionsVert();
   texture3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   texture3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  texture3d.multisampling     = vkinit::multisampleStateCreateInfo();
+  texture3d.multisampling = vkinit::multisampleStateCreateInfo();
   texture3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(texture3d);
 
-  auto mesh_vert2d = compileSlang("shaders/mesh_vert2d.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto vert_info_mesh2d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, mesh_vert2d
-  );
-  auto mesh_frag = compileSlang("shaders/mesh_frag.slang",
-    SLANG_STAGE_FRAGMENT, global_session
-  );
-  auto frag_info_mesh = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, mesh_frag
+  auto mesh2d_slang = compileSlang(session, "shaders/mesh.slang",
+    {"vertex2dMain", "fragmentMain"}
   );
 
   PipelineInfo mesh2d;
-  mesh2d.shader_stages.push_back(vert_info_mesh2d);
-  mesh2d.shader_stages.push_back(frag_info_mesh);
+  mesh2d.shader_stages = mesh2d_slang;
   mesh2d.vertex_input_info = getVertexDescriptions2d();
   mesh2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   mesh2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
-  mesh2d.multisampling     = vkinit::multisampleStateCreateInfo();
+  mesh2d.multisampling = vkinit::multisampleStateCreateInfo();
   mesh2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(mesh2d);
 
-  //auto vert_mesh3d = createShaderModule(io::readFile("shaders/wireframe_vertex_3d.spv"));
-  auto mesh_vert3d = compileSlang("shaders/mesh_vert3d.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto vert_info = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, mesh_vert3d
+  auto mesh3d_slang = compileSlang(session, "shaders/mesh.slang",
+    {"vertex3dMain", "fragmentMain"}
   );
 
   PipelineInfo mesh3d;
-  mesh3d.shader_stages.push_back(vert_info);
-  mesh3d.shader_stages.push_back(frag_info_mesh);
+  mesh3d.shader_stages = mesh3d_slang;
   mesh3d.vertex_input_info = getVertexDescriptions3d();
   mesh3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   mesh3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
@@ -1246,63 +1210,37 @@ void VulkanEngine::createGraphicsPipelines()
   mesh3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(mesh3d);
 
-  //auto vert_vox_implicit = createShaderModule(io::readFile("shaders/voxel/voxel_vert_implicit.spv"));
-  auto voxel_implicit_vert = compileSlang("shaders/voxel_vert_implicit.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto vert_info_implicit = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, voxel_implicit_vert
-  );
-  //auto geom_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_geometry.spv"));
-  auto voxel_geom = compileSlang("shaders/voxel_geom.slang",
-  SLANG_STAGE_GEOMETRY, global_session
-  );
-  auto geom_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_GEOMETRY_BIT, voxel_geom
-  );
-  //auto frag_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_draw.spv"));
-  auto voxel_frag = compileSlang("shaders/voxel_frag.slang",
-    SLANG_STAGE_FRAGMENT, global_session
-  );
-  auto frag_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_FRAGMENT_BIT, voxel_frag
+  auto voxel_implicit_slang = compileSlang(session, "shaders/voxel.slang",
+    {"vertexImplicitMain", "geometryMain", "fragmentMain"}
   );
 
   PipelineInfo voxel_implicit;
-  voxel_implicit.shader_stages.push_back(vert_info_implicit);
-  voxel_implicit.shader_stages.push_back(frag_info_vox3d);
-  voxel_implicit.shader_stages.push_back(geom_info_vox3d);
+  voxel_implicit.shader_stages = voxel_implicit_slang;
   voxel_implicit.vertex_input_info = getVoxelDescriptions();
   voxel_implicit.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   voxel_implicit.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  voxel_implicit.multisampling     = vkinit::multisampleStateCreateInfo();
+  voxel_implicit.multisampling = vkinit::multisampleStateCreateInfo();
   voxel_implicit.color_blend_attachment = vkinit::colorBlendAttachmentState();
   builder.addPipelineInfo(voxel_implicit);
 
-  //auto vert_vox3d = createShaderModule(io::readFile("shaders/voxel/voxel_vert.spv"));
-  /*auto voxel_vert = compileSlang("shaders/voxel_vert.slang",
-    SLANG_STAGE_VERTEX, global_session
-  );
-  auto vert_info_vox3d = vkinit::pipelineShaderStageCreateInfo(
-    VK_SHADER_STAGE_VERTEX_BIT, voxel_vert
+  auto voxel_slang = compileSlang(session, "shaders/voxel.slang",
+    {"vertexMain", "geometryMain", "fragmentMain"}
   );
 
   PipelineInfo voxel3d;
-  voxel3d.shader_stages.push_back(vert_info_vox3d);
-  voxel3d.shader_stages.push_back(geom_info_vox3d);
-  voxel3d.shader_stages.push_back(frag_info_vox3d);
+  voxel3d.shader_stages = voxel_slang;
   voxel3d.vertex_input_info = getVertexDescriptions3d();
   voxel3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   voxel3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  voxel3d.multisampling     = vkinit::multisampleStateCreateInfo();
+  voxel3d.multisampling = vkinit::multisampleStateCreateInfo();
   voxel3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(voxel3d);*/
+  builder.addPipelineInfo(voxel3d);
 
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
   std::cout << pipelines.size() << " pipeline(s) created\n";
+
   // Restore original working directory
   //std::filesystem::current_path(orig_path);
-
   auto end = std::chrono::steady_clock::now();
   std::cout << "Creation time for all pipelines: "
     << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
