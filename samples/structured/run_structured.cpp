@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 
     params.element_count = program.extent.x * program.extent.y;
     params.element_size = sizeof(float);
-    params.resource_type = ResourceType::Texture;
+    params.resource_type = ResourceType::TextureLinear;
     params.texture_format = TextureFormat::Float32;
     engine.addView((void**)&program.d_distances, params);
 

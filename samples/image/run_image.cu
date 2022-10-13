@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
   params.element_size = sizeof(uchar4);
   params.extent = {(unsigned)width, (unsigned)height, 1};
   params.data_domain = DataDomain::Domain2D;
-  params.resource_type = ResourceType::Texture;
+  params.resource_type = ResourceType::TextureLinear;
   params.texture_format = TextureFormat::Rgba32;
   engine.addView((void**)&d_pixels, params);
 

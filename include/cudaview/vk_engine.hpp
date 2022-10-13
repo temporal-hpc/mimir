@@ -34,7 +34,7 @@ public:
   VulkanEngine(cudaStream_t stream = 0);
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
-  void addView(void **ptr_devmem, const ViewParams params);
+  CudaView addView(void **ptr_devmem, const ViewParams params);
 
   void display(std::function<void(void)> func, size_t iter_count);
   void displayAsync();

@@ -29,6 +29,9 @@ add_executable(run_unstructured
 target_include_directories(run_unstructured PRIVATE include)
 target_link_libraries(run_unstructured PRIVATE cudaview)
 
+add_executable(run_texture texture_cudaarray/main.cu)
+target_link_libraries(run_texture PRIVATE cudaview)
+
 find_program(GLSLC_EXE NAMES glslc HINTS Vulkan::glslc)
 
 # file(GLOB_RECURSE SHADER_SOURCES ${PROJECT_SOURCE_DIR}/shaders/*)

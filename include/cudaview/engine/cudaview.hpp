@@ -4,7 +4,7 @@
 #include <vulkan/vulkan.h>
 
 enum class DataDomain    { Domain2D, Domain3D };
-enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture };
+enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture, TextureLinear };
 enum class PrimitiveType { Points, Edges, Voxels };
 enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
 
@@ -41,4 +41,13 @@ struct CudaView
   VkImage image = VK_NULL_HANDLE;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;
+
+  // Cudaarrays (TODO: Move)
+  cudaMipmappedArray_t cudaMipmappedImageArray = 0;
+  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = 0;
+  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = 0;
+  std::vector<cudaSurfaceObject_t> surfaceObjectList, surfaceObjectListTemp;
+  cudaSurfaceObject_t *d_surfaceObjectList = nullptr;
+  cudaSurfaceObject_t *d_surfaceObjectListTemp = nullptr;
+  cudaTextureObject_t textureObjMipMapInput = 0;
 };

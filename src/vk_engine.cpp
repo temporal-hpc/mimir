@@ -111,7 +111,7 @@ void VulkanEngine::updateWindow()
   std::unique_lock<std::mutex> ul(mutex);
   for (auto view : views)
   {
-    if (view.params.resource_type == ResourceType::Texture)
+    if (view.params.resource_type == ResourceType::TextureLinear)
       dev->updateStructuredView(view);
   }
   device_working = false;
@@ -137,7 +137,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
       func();
       for (auto view : views)
       {
-        if (view.params.resource_type == ResourceType::Texture)
+        if (view.params.resource_type == ResourceType::TextureLinear)
           dev->updateStructuredView(view);
       }
       iteration_idx++;
@@ -148,15 +148,16 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
   vkDeviceWaitIdle(dev->logical_device);
 }
 
-void VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
+CudaView VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
 {
-  auto mapped = dev->createView(params);
-  views.push_back(mapped);
+  auto view = dev->createView(params);
+  views.push_back(view);
   data_extent.x = std::max(data_extent.x, params.extent.x);
   data_extent.y = std::max(data_extent.y, params.extent.y);
   data_extent.z = std::max(data_extent.z, params.extent.z);
   updateDescriptorSets();
-  *ptr_devmem = mapped.cuda_ptr;
+  *ptr_devmem = view.cuda_ptr;
+  return view;
 }
 
 void VulkanEngine::initVulkan()
@@ -642,7 +643,7 @@ void VulkanEngine::updateDescriptorSets()
 
     for (const auto& view : views)
     {
-      if (view.params.resource_type == ResourceType::Texture)
+      if (view.params.resource_type == ResourceType::TextureLinear)
       {
         VkDescriptorImageInfo img_info{};
         img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -817,7 +818,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   auto cmd = command_buffers[image_idx];
   for (const auto& view : views)
   {
-    if (view.params.resource_type == ResourceType::Texture)
+    if (view.params.resource_type == ResourceType::TextureLinear)
     {
       if (view.params.primitive_type == PrimitiveType::Voxels)
       {

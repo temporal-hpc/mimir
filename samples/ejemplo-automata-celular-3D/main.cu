@@ -68,7 +68,7 @@ int main(int argc, char **argv){
     params.data_domain = DataDomain::Domain3D;
     params.resource_type = ResourceType::StructuredBuffer;
     params.primitive_type = PrimitiveType::Voxels;
-    //params.resource_type = ResourceType::Texture;
+    //params.resource_type = ResourceType::TextureLinear;
     //params.texture_format = TextureFormat::Int32;
     engine.addView((void**)&d1, params);
     /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
