@@ -10,7 +10,7 @@ struct VulkanCudaDevice : public VulkanDevice
   using VulkanDevice::VulkanDevice;
 
   CudaView createView(ViewParams params);
-  void updateStructuredView(CudaView mapped);
+  void updateTexture(CudaView mapped);
   InteropBarrier createInteropBarrier();
   void importCudaExternalMemory(void **cuda_ptr,
     cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size
@@ -20,5 +20,8 @@ struct VulkanCudaDevice : public VulkanDevice
   );
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
+  );
+  void generateMipmaps(VkImage image, VkFormat img_format,
+    int img_width, int img_height, int mip_levels
   );
 };

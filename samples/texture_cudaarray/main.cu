@@ -4,6 +4,7 @@
 #include <cuda.h>
 #include <curand_kernel.h>
 
+#include <experimental/source_location> // std::experimental::source_location
 #include <chrono> // std::chrono
 #include <thread> // std::thread
 
@@ -11,9 +12,19 @@
 #include "helper_math.h"
 #include "cudaview/vk_engine.hpp"
 
-#define CUDA_CALL(x) do { if((x) != cudaSuccess) { \
-    printf("Error at %s:%d\n",__FILE__,__LINE__); \
-    return EXIT_FAILURE;}} while(0)
+using source_location = std::experimental::source_location;
+
+constexpr void checkCuda(cudaError_t code, bool panic = true,
+  source_location src = source_location::current())
+{
+  if (code != cudaSuccess)
+  {
+    fprintf(stderr, "CUDA assertion: %s on function %s at %s(%d)\n",
+      cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
+    );
+    if (panic) exit(code);
+  }
+}
 
 // convert floating point rgba color to 32-bit integer
 __device__ unsigned int rgbaFloatToInt(float4 rgba) {
@@ -172,30 +183,31 @@ int main(int argc, char *argv[])
   VulkanEngine engine;
   engine.init(width, height);
 
-  // TODO: Load image
+  // Load image
   std::string filename = "teapot1024.ppm";
   unsigned *img_data  = nullptr;
   unsigned img_width  = 0;
   unsigned img_height = 0;
   sdkLoadPPM4(filename.c_str(), (unsigned char**)&img_data, &img_width, &img_height);
   printf("Loaded '%s', '%d'x'%d pixels \n", filename.c_str(), img_width, img_height);
-
-  uchar4 *d_dummy = nullptr;
+  uchar4 *d_image = nullptr;
+  checkCuda(cudaMalloc(&d_image, sizeof(uchar4) * img_width * img_height));
 
   ViewParams params;
   params.element_count  = img_width * img_height;
   params.element_size   = sizeof(uchar4);
+  params.extent         = {img_width, img_height, 1};
   params.data_domain    = DataDomain::Domain2D;
   params.resource_type  = ResourceType::Texture;
   params.texture_format = TextureFormat::Rgba32;
-  auto view = engine.addView((void**)&d_dummy, params);
+  auto view = engine.addView((void**)&d_image, params);
 
   engine.displayAsync();
 
   int nthreads = 128;
   for (int i = 0; i < 999999; i++)
   {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     engine.prepareWindow();
 
     // Perform 2D box filter on image using CUDA
@@ -212,9 +224,7 @@ int main(int argc, char *argv[])
     engine.updateWindow();
   }
 
-  /*CUDA_CALL(cudaFree(dStates));
-  CUDA_CALL(cudaFree(dPoints));
-  free(hPoints);*/
+  checkCuda(cudaFree(d_image));
 
   return EXIT_SUCCESS;
 }

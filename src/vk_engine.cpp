@@ -112,7 +112,7 @@ void VulkanEngine::updateWindow()
   for (auto view : views)
   {
     if (view.params.resource_type == ResourceType::TextureLinear)
-      dev->updateStructuredView(view);
+      dev->updateTexture(view);
   }
   device_working = false;
   signalKernelFinish();
@@ -138,7 +138,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
       for (auto view : views)
       {
         if (view.params.resource_type == ResourceType::TextureLinear)
-          dev->updateStructuredView(view);
+          dev->updateTexture(view);
       }
       iteration_idx++;
     }
@@ -643,7 +643,8 @@ void VulkanEngine::updateDescriptorSets()
 
     for (const auto& view : views)
     {
-      if (view.params.resource_type == ResourceType::TextureLinear)
+      if (view.params.resource_type == ResourceType::TextureLinear ||
+          view.params.resource_type == ResourceType::Texture)
       {
         VkDescriptorImageInfo img_info{};
         img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -818,7 +819,8 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   auto cmd = command_buffers[image_idx];
   for (const auto& view : views)
   {
-    if (view.params.resource_type == ResourceType::TextureLinear)
+    if (view.params.resource_type == ResourceType::TextureLinear ||
+        view.params.resource_type == ResourceType::Texture)
     {
       if (view.params.primitive_type == PrimitiveType::Voxels)
       {
