@@ -195,9 +195,6 @@ void VulkanEngine::initVulkan()
     vkinit::descriptorLayoutBinding(2, // binding
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT
     ),
-    vkinit::descriptorLayoutBinding(4, // binding
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_GEOMETRY_BIT
-    ),
     vkinit::descriptorLayoutBinding(5, // binding
       VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT
     ),
@@ -628,15 +625,6 @@ void VulkanEngine::updateDescriptorSets()
       descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &extent_info
     );
     desc_writes.push_back(write_scene);
-
-    VkDescriptorBufferInfo geom_mvp_info{};
-    geom_mvp_info.buffer = ubo_buffer;
-    geom_mvp_info.offset = i * size_ubo + size_mvp + size_colors + size_scene;
-    geom_mvp_info.range  = sizeof(ModelViewProjection);
-    auto write_geom = vkinit::writeDescriptorBuffer(
-      descriptor_sets[i], 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &geom_mvp_info
-    );
-    desc_writes.push_back(write_geom);
 
     for (const auto& view : views)
     {
