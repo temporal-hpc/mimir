@@ -54,7 +54,7 @@ struct VulkanDevice
   VkDescriptorSetLayout createDescriptorSetLayout(
     const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings
   );
-  void transitionImageLayout(VkImage image, VkFormat format,
+  void transitionImageLayout(VkImage image,
     VkImageLayout old_layout, VkImageLayout new_layout
   );
 };

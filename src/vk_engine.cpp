@@ -21,9 +21,9 @@
 #include <glm/gtx/string_cast.hpp>
 
 VulkanEngine::VulkanEngine(cudaStream_t cuda_stream):
+  stream(cuda_stream),
   shader_path(io::getDefaultShaderPath()),
-  camera(std::make_unique<Camera>()),
-  stream(cuda_stream)
+  camera(std::make_unique<Camera>())
 {}
 
 VulkanEngine::~VulkanEngine()
@@ -258,7 +258,7 @@ void VulkanEngine::createInstance()
   // Include validation layer names if they are enabled
   if (validation::enable_layers)
   {
-    auto debug_create_info = validation::debugMessengerCreateInfo();
+    debug_create_info = validation::debugMessengerCreateInfo();
     instance_info.pNext               = &debug_create_info;
     instance_info.enabledLayerCount   = validation::layers.size();
     instance_info.ppEnabledLayerNames = validation::layers.data();
@@ -268,9 +268,8 @@ void VulkanEngine::createInstance()
   if (validation::enable_layers)
   {
     // Details about the debug messenger and its callback
-    auto debug_info = validation::debugMessengerCreateInfo();
     validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
-      instance, &debug_info, nullptr, &debug_messenger)
+      instance, &debug_create_info, nullptr, &debug_messenger)
     );
     deletors.pushFunction([=]{
       validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);

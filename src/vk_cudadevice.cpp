@@ -90,7 +90,7 @@ void VulkanCudaDevice::generateMipmaps(VkImage image, VkFormat img_format,
     int32_t mip_width  = img_width;
     int32_t mip_height = img_height;
 
-    for (uint32_t i = 1; i < mip_levels; i++)
+    for (int i = 1; i < mip_levels; i++)
     {
       barrier.subresourceRange.baseMipLevel = i - 1;
       barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -307,7 +307,7 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
     memcpy(data, img_data, static_cast<size_t>(mem_req.size));
     vkUnmapMemory(logical_device, staging_memory);
 
-    transitionImageLayout(view.image, view.vk_format,
+    transitionImageLayout(view.image,
       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     );
 
@@ -535,7 +535,7 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
     );
     vkBindImageMemory(logical_device, view.image, view.img_memory, 0);
 
-    transitionImageLayout(view.image, view.vk_format,
+    transitionImageLayout(view.image,
       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
 
@@ -706,7 +706,7 @@ InteropBarrier VulkanCudaDevice::createInteropBarrier()
 
 void VulkanCudaDevice::updateTexture(CudaView view)
 {
-  transitionImageLayout(view.image, view.vk_format,
+  transitionImageLayout(view.image,
     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
   );
 
@@ -730,7 +730,7 @@ void VulkanCudaDevice::updateTexture(CudaView view)
     );
   });
 
-  transitionImageLayout(view.image, view.vk_format,
+  transitionImageLayout(view.image,
     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
 }

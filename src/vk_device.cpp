@@ -266,7 +266,7 @@ VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
   return layout;
 }
 
-void VulkanDevice::transitionImageLayout(VkImage image, VkFormat format,
+void VulkanDevice::transitionImageLayout(VkImage image,
   VkImageLayout old_layout, VkImageLayout new_layout)
 {
   VkImageMemoryBarrier barrier{};
