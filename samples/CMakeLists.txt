@@ -6,7 +6,7 @@ add_executable(run_sync GPU-visual-tool-example/main.cu)
 target_link_libraries(run_sync PRIVATE cudaview)
 
 add_executable(image image/run_image.cu)
-target_include_directories(image PRIVATE include)
+target_include_directories(image SYSTEM PRIVATE include)
 target_link_libraries(image PRIVATE cudaview)
 
 add_executable(mesh3d mesh3d/mesh3d.cu)
@@ -32,8 +32,10 @@ target_link_libraries(run_unstructured PRIVATE cudaview)
 add_executable(run_texture texture_cudaarray/main.cu)
 target_link_libraries(run_texture PRIVATE cudaview)
 
-find_program(GLSLC_EXE NAMES glslc HINTS Vulkan::glslc)
-
+# NOTE: Legacy code for shader compilation target
+# Made obsolete by slang, but kept here just in case
+# ------------------------------------------------------------------------------
+# find_program(GLSLC_EXE NAMES glslc HINTS Vulkan::glslc)
 # file(GLOB_RECURSE SHADER_SOURCES ${PROJECT_SOURCE_DIR}/shaders/*)
 # foreach(HLSL ${SHADER_SOURCES})
 #   get_filename_component(FILE_NAME ${HLSL} NAME_WE)

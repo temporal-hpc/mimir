@@ -2,7 +2,7 @@
 
 #include <vulkan/vulkan.h>
 
-#include <vector>
+#include <vector> // std::vector
 
 #include "cudaview/deletion_queue.hpp"
 
@@ -47,6 +47,9 @@ struct VulkanDevice
   VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
   VkDescriptorPool createDescriptorPool(
     const std::vector<VkDescriptorPoolSize>& sizes
+  );
+  std::vector<VkDescriptorSet> createDescriptorSets(
+    VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count
   );
   VkDescriptorSetLayout createDescriptorSetLayout(
     const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings

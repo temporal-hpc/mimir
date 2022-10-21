@@ -150,7 +150,6 @@ private:
   void recreateSwapchain();
   void createGraphicsPipelines();
   void createBuffers();
-  void createDescriptorSets();
 
   // Update functions
   void updateDescriptorSets();

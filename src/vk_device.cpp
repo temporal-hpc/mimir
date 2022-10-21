@@ -101,6 +101,23 @@ VkCommandPool VulkanDevice::createCommandPool(
   return new_pool;
 }
 
+std::vector<VkDescriptorSet> VulkanDevice::createDescriptorSets(
+  VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count)
+{
+  std::vector<VkDescriptorSetLayout> layouts(set_count, layout);
+  VkDescriptorSetAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  alloc_info.descriptorPool     = pool;
+  alloc_info.descriptorSetCount = set_count;
+  alloc_info.pSetLayouts        = layouts.data();
+
+  std::vector<VkDescriptorSet> sets(set_count, VK_NULL_HANDLE);
+  validation::checkVulkan(
+    vkAllocateDescriptorSets(logical_device, &alloc_info, sets.data())
+  );
+  return sets;
+}
+
 std::vector<VkCommandBuffer> VulkanDevice::createCommandBuffers(uint32_t buffer_count)
 {
   std::vector<VkCommandBuffer> buffers(buffer_count, VK_NULL_HANDLE);

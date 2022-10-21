@@ -501,7 +501,9 @@ void VulkanEngine::initSwapchain()
 
   createGraphicsPipelines();
   createBuffers();
-  createDescriptorSets();
+  descriptor_sets = dev->createDescriptorSets(
+    descriptor_pool, descriptor_layout, swap->image_count
+  );
   updateDescriptorSets();
 }
 
@@ -566,23 +568,6 @@ void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
   std::memcpy(data + size_mvp + size_colors, &scene, sizeof(scene));
   std::memcpy(data + size_mvp + size_colors + size_scene, &mvp, sizeof(mvp));
   vkUnmapMemory(dev->logical_device, ubo_memory);
-}
-
-void VulkanEngine::createDescriptorSets()
-{
-  auto img_count = swap->image_count;
-  descriptor_sets.resize(img_count);
-
-  std::vector<VkDescriptorSetLayout> layouts(img_count, descriptor_layout);
-  VkDescriptorSetAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  alloc_info.descriptorPool     = descriptor_pool;
-  alloc_info.descriptorSetCount = static_cast<uint32_t>(img_count);
-  alloc_info.pSetLayouts        = layouts.data();
-
-  validation::checkVulkan(
-    vkAllocateDescriptorSets(dev->logical_device, &alloc_info, descriptor_sets.data())
-  );
 }
 
 void VulkanEngine::updateDescriptorSets()
