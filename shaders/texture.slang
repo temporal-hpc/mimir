@@ -52,11 +52,34 @@ VertexData3d vertex3dMain(VertexInput input)
 [[vk::binding(5)]] Texture2D<float3> TextureFlt;
 [[vk::binding(6)]] SamplerState Sampler;
 
-[shader("fragment")]
-float4 fragment2dMain(VertexData input) : SV_Target
+interface IColorable
 {
-  var dist = TextureFlt.Sample(Sampler, input.uv);
-  return float4(dist, 1);
+  float3 getColor(float3 rgb);
+}
+
+struct RawColor : IColorable
+{
+  float3 getColor(float3 rgb)
+  {
+    return rgb;
+  }
+}
+
+struct Grayscale : IColorable
+{
+  float3 getColor(float3 rgb)
+  {
+    return float3(0.299*rgb.r + 0.587*rgb.g + 0.114*rgb.b);
+  }
+}
+
+[shader("fragment")]
+float4 fragment2dMain<T : IColorable>(VertexData input) : SV_Target
+{
+  var sample = TextureFlt.Sample(Sampler, input.uv);
+  T colorable;
+  var color = colorable.getColor(sample);
+  return float4(color, 1);
 }
 
 [[vk::binding(5)]] Texture3D<int4> TextureRGBA;

@@ -105,8 +105,8 @@ private:
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
   VkShaderModule createShaderModule(const std::vector<char>& code);
   std::vector<VkPipelineShaderStageCreateInfo> compileSlang(
-    Slang::ComPtr<slang::ISession> session, const std::string& shader_path,
-    const std::vector<std::string>& entry_names
+    Slang::ComPtr<slang::ISession> session, const std::string& module_path,
+    const std::vector<std::string>& entry_names, const std::string& specialization=""
   );
 
   color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};

@@ -1012,32 +1012,48 @@ VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
 }
 
 std::vector<VkPipelineShaderStageCreateInfo> VulkanEngine::compileSlang(
-  Slang::ComPtr<slang::ISession> session, const std::string& shader_path,
-  const std::vector<std::string>& entry_names)
+  Slang::ComPtr<slang::ISession> session, const std::string& module_path,
+  const std::vector<std::string>& entry_names, const std::string& specialization)
 {
   Slang::ComPtr<slang::IBlob> diag = nullptr;
-  // Load code from [shader_path].slang as a module
-  slang::IModule* slang_module = nullptr;
-  slang_module = session->loadModule(shader_path.c_str(), diag.writeRef());
+  // Load code from [module_path].slang as a module
+  auto module = session->loadModule(module_path.c_str(), diag.writeRef());
   diagnose(diag);
 
   std::vector<slang::IComponentType*> components;
   components.reserve(entry_names.size() + 1);
-  components.push_back(slang_module);
+  components.push_back(module);
   // Lookup entry points by their names
   for (const auto& name : entry_names)
   {
     Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
-    slang_module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
+    module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
     if (entrypoint != nullptr) components.push_back(entrypoint);
   }
-  Slang::ComPtr<slang::IComponentType> composed_program = nullptr;
-  session->createCompositeComponentType(components.data(), components.size(),
-    composed_program.writeRef(), diag.writeRef()
+  Slang::ComPtr<slang::IComponentType> program = nullptr;
+  validation::checkSlang(session->createCompositeComponentType(
+    components.data(), components.size(), program.writeRef(), diag.writeRef())
   );
   diagnose(diag);
-  auto layout = composed_program->getLayout();
 
+  if (!specialization.empty())
+  {
+    auto spec_type = module->getLayout()->findTypeByName(specialization.c_str());
+    std::vector<slang::SpecializationArg> args;
+    slang::SpecializationArg arg;
+    arg.kind = slang::SpecializationArg::Kind::Type;
+    arg.type = spec_type;
+    args.push_back(arg);
+
+    Slang::ComPtr<slang::IComponentType> spec_program;
+    validation::checkSlang(program->specialize(
+      args.data(), args.size(), spec_program.writeRef(), diag.writeRef())
+    );
+    diagnose(diag);
+    program = spec_program;
+  }
+
+  auto layout = program->getLayout();
   std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
   compiled_stages.reserve(layout->getEntryPointCount());
   for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)
@@ -1047,7 +1063,9 @@ std::vector<VkPipelineShaderStageCreateInfo> VulkanEngine::compileSlang(
 
     diag = nullptr;
     Slang::ComPtr<slang::IBlob> kernel = nullptr;
-    composed_program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
+    validation::checkSlang(
+      program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef())
+    );
     diagnose(diag);
 
     VkShaderModuleCreateInfo info{};
@@ -1077,7 +1095,7 @@ void VulkanEngine::createGraphicsPipelines()
 
   // Create global session to work with the Slang API
   Slang::ComPtr<slang::IGlobalSession> global_session;
-  slang::createGlobalSession(global_session.writeRef());
+  validation::checkSlang(slang::createGlobalSession(global_session.writeRef()));
 
   slang::TargetDesc target_desc{};
   target_desc.format = SLANG_SPIRV;
@@ -1091,7 +1109,9 @@ void VulkanEngine::createGraphicsPipelines()
 
   // Obtain a compilation session that scopes compilation and code loading
   Slang::ComPtr<slang::ISession> session;
-  global_session->createSession(session_desc, session.writeRef());
+  validation::checkSlang(
+    global_session->createSession(session_desc, session.writeRef())
+  );
 
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
 
@@ -1122,7 +1142,7 @@ void VulkanEngine::createGraphicsPipelines()
   builder.addPipelineInfo(points3d);
 
   auto tex2d_slang = compileSlang(session, "shaders/texture.slang",
-    {"vertex2dMain", "fragment2dMain"}
+    {"vertex2dMain", "fragment2dMain"}, "RawColor"
   );
 
   PipelineInfo texture2d;
