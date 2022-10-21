@@ -195,9 +195,6 @@ void VulkanEngine::initVulkan()
     vkinit::descriptorLayoutBinding(2, // binding
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT
     ),
-    vkinit::descriptorLayoutBinding(3, // binding
-      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
-    ),
     vkinit::descriptorLayoutBinding(4, // binding
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_GEOMETRY_BIT
     ),
@@ -646,16 +643,6 @@ void VulkanEngine::updateDescriptorSets()
       if (view.params.resource_type == ResourceType::TextureLinear ||
           view.params.resource_type == ResourceType::Texture)
       {
-        VkDescriptorImageInfo img_info{};
-        img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        img_info.imageView   = view.vk_view;
-        img_info.sampler     = view.vk_sampler;
-
-        auto write_tex = vkinit::writeDescriptorImage(descriptor_sets[i],
-          3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &img_info
-        );
-        desc_writes.push_back(write_tex);
-
         VkDescriptorImageInfo samp_img_info{};
         samp_img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         samp_img_info.imageView   = view.vk_view;

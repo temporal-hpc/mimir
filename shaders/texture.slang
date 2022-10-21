@@ -49,14 +49,14 @@ VertexData3d vertex3dMain(VertexInput input)
   return output;
 }
 
-[[vk::binding(5)]] Texture2D<float> TextureFlt;
+[[vk::binding(5)]] Texture2D<float3> TextureFlt;
 [[vk::binding(6)]] SamplerState Sampler;
 
 [shader("fragment")]
 float4 fragment2dMain(VertexData input) : SV_Target
 {
-  float dist = TextureFlt.Sample(Sampler, input.uv);
-  return float4(float3(dist), 1);
+  var dist = TextureFlt.Sample(Sampler, input.uv);
+  return float4(dist, 1);
 }
 
 [[vk::binding(5)]] Texture3D<int4> TextureRGBA;
@@ -64,6 +64,6 @@ float4 fragment2dMain(VertexData input) : SV_Target
 [shader("fragment")]
 float4 fragment3dMain(VertexData3d input) : SV_Target
 {
-  int4 color = TextureRGBA.Sample(Sampler, input.uv);
+  var color = TextureRGBA.Sample(Sampler, input.uv);
   return float4(color.rrr, 1.0);
 }

@@ -23,9 +23,8 @@ int main(int argc, char *argv[])
 
   uchar4 *d_pixels = nullptr;
 
-  int channels, width, height;
-  auto h_pixels = stbi_load(filepath.c_str(), &width, &height, &channels,
-    STBI_rgb_alpha);
+  int width, height, chans;
+  auto h_pixels = stbi_load(filepath.c_str(), &width, &height, &chans, STBI_rgb_alpha);
   if (!h_pixels)
   {
     printf("failed to load texture image");
@@ -47,6 +46,7 @@ int main(int argc, char *argv[])
   checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));
   stbi_image_free(h_pixels);
 
+  engine.updateWindow();
   engine.displayAsync();
   checkCuda(cudaFree(d_pixels));
 
