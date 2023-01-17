@@ -1,5 +1,7 @@
 #include "cudaview/engine/vk_swapchain.hpp"
 
+#include <limits> // std::numeric_limits
+
 #include "internal/validation.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_properties.hpp"
