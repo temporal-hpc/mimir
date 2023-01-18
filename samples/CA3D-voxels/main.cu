@@ -37,9 +37,11 @@ int main(int argc, char **argv){
     // SETEO DE OPENMP THREADS (solo relevante para inicializar datos y solucion CPU)
 
     omp_set_num_threads(nt);
+    // TODO CAMBIAR A 2D
     printf("modo: %s     n=%ld (%.3f GiBytes / cubo)    nt=%i   B=%i  steps=%i\n", map[modo], n, sizeof(int)*n*n*n/(1024*1024*1024.0), nt, B, steps);
 
     // original (3D)
+    // TODO CAMBIAR A 2D
     int *original = new int[n*n*n];
 
     // punteros GPU (3D)
@@ -62,12 +64,18 @@ int main(int argc, char **argv){
     );*/
 
     ViewParams params;
+    // TODO CAMBIAR A 2D
     params.element_count = n*n*n;
+
     params.element_size = sizeof(int);
+
+    // TODO: 2D --> {n, n, 1}
     params.extent = {(unsigned)n, (unsigned)n, (unsigned)n};
+    // TODO: CAMBIAR A DOMAIN 2D
     params.data_domain = DataDomain::Domain3D;
     params.resource_type = ResourceType::StructuredBuffer;
     params.primitive_type = PrimitiveType::Voxels;
+
     //params.resource_type = ResourceType::TextureLinear;
     //params.texture_format = TextureFormat::Int32;
     engine.addView((void**)&d1, params);
@@ -75,7 +83,9 @@ int main(int argc, char **argv){
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
     );*/
     //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
+    // TODO CAMBIAR A 2D
     gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
+    // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);
 
@@ -90,7 +100,9 @@ int main(int argc, char **argv){
     cudaEventCreate(&stop);
 
     // OJO: la cantidad total de threads tiene que ser Bx * By * Bz <= 1024
+    // TODO CAMBIAR A 2D
     dim3 block(B,B,B);
+    // TODO CAMBIAR A 2D
     dim3 grid((n+block.x-1)/block.x, (n+block.y-1)/block.y, (n+block.z-1)/block.z);
     if(modo==1){
         // modo GPU
@@ -113,6 +125,7 @@ int main(int argc, char **argv){
             cudaEventSynchronize(stop);
             cudaEventElapsedTime(&timems, start, stop);
             printf("done: %f\n", timems/1000.0);
+            // TODO CAMBIAR A 2D
             gpuErrchk(cudaMemcpy(original, d2, sizeof(int)*n*n*n, cudaMemcpyDeviceToHost));
             print_cube(n, original, "[GPU] Automata celular");
             printf("Press Enter...\n"); fflush(stdout); getchar();
@@ -121,6 +134,7 @@ int main(int argc, char **argv){
     }
     else{
         // secundario CPU (3D)
+        // TODO CAMBIAR A 2D
         int *CPUd2 = new int[n*n*n];
 
         // modo CPU (multicore segun nt escogido)
