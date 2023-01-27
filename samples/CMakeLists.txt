@@ -1,4 +1,4 @@
-add_executable(run_automata3d ejemplo-automata-celular-3D/main.cu)
+add_executable(run_automata3d CA3D-voxels/main.cu)
 find_package(OpenMP)
 target_link_libraries(run_automata3d PRIVATE cudaview OpenMP::OpenMP_CXX)
 
