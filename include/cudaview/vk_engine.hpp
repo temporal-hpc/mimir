@@ -122,7 +122,7 @@ private:
   bool view_updated = false;
   float2 mouse_pos;
   void handleMouseMove(float x, float y);
-  void handleMouseButton(int button, int action);
+  void handleMouseButton(int button, int action, int mods);
   void handleScroll(float xoffset, float yoffset);
   static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
   static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);

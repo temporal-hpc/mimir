@@ -45,7 +45,7 @@ void VulkanEngine::cursorPositionCallback(GLFWwindow *window, double xpos, doubl
   app->handleMouseMove(static_cast<float>(xpos), static_cast<float>(ypos));
 }
 
-void VulkanEngine::handleMouseButton(int button, int action)
+void VulkanEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
 {
   switch (action)
   {
@@ -89,10 +89,10 @@ void VulkanEngine::handleMouseButton(int button, int action)
 void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
   auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
-  app->handleMouseButton(button, action);
+  app->handleMouseButton(button, action, mods);
 }
 
-void VulkanEngine::handleScroll(float xoffset, float yoffset)
+void VulkanEngine::handleScroll([[maybe_unused]] float xoffset, float yoffset)
 {
   depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
   printf("depth= %f, offset= %f\n", depth, yoffset);
@@ -104,7 +104,7 @@ void VulkanEngine::scrollCallback(GLFWwindow *window, double xoffset, double yof
   app->handleScroll(static_cast<float>(xoffset), static_cast<float>(yoffset));
 }
 
-void VulkanEngine::framebufferResizeCallback(GLFWwindow *window, int width, int height)
+void VulkanEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
 {
   auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
   app->should_resize = true;

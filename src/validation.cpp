@@ -5,17 +5,53 @@
 namespace validation
 {
 
-// Setup debug messenger callback
-static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-  VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
-  VkDebugUtilsMessageTypeFlagsEXT message_type,
-  const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data,
-  void *p_user_data)
+// Converts Vulkan message severity flags into a string for logging
+const char* getVulkanSeverityString(VkDebugUtilsMessageSeverityFlagBitsEXT flag)
 {
-  fprintf(stderr, "Validation layer: %s\n", p_callback_data->pMessage);
+  switch (flag)
+  {
+#define STR(r) case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ ## r ## _BIT_EXT: return #r
+    STR(VERBOSE);
+    STR(INFO);
+    STR(WARNING);
+    STR(ERROR);
+#undef STR
+    default: return "UNKNOWN";
+  }
+}
+
+// Converts Vulkan message type flags into a string for logging
+const char* getVulkanMessageType(VkDebugUtilsMessageTypeFlagsEXT type)
+{
+  switch (type)
+  {
+#define STR(r) case VK_DEBUG_UTILS_MESSAGE_TYPE_ ## r ## _BIT_EXT: return #r
+  STR(DEVICE_ADDRESS_BINDING);
+  STR(PERFORMANCE);
+  STR(VALIDATION);
+  STR(GENERAL);
+#undef STR
+    default: return "UNKNOWN";
+  }  
+}
+
+// Setup debug messenger callback.
+// Currently it just converts debug data into a string for logging
+// TODO: Maybe do something with p_user_data, like passing a pointer
+// to the engine class in order to get access to its fields
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+  VkDebugUtilsMessageSeverityFlagBitsEXT msg_severity,
+  VkDebugUtilsMessageTypeFlagsEXT msg_type,
+  const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data,
+  [[maybe_unused]] void *p_user_data)
+{
+  auto severity = getVulkanSeverityString(msg_severity);
+  auto type = getVulkanMessageType(msg_type);
+  fprintf(stderr, "[%s] %s: %s\n", severity, type, p_callback_data->pMessage);
   return VK_FALSE;
 }
 
+// Converts Vulkan result codes into strings
 std::string getVulkanErrorString(VkResult code)
 {
   switch (code)
@@ -45,8 +81,7 @@ std::string getVulkanErrorString(VkResult code)
 		STR(ERROR_VALIDATION_FAILED_EXT);
 		STR(ERROR_INVALID_SHADER_NV);
 #undef STR
-		default:
-			return "UNKNOWN_ERROR";
+		default: return "UNKNOWN_ERROR";
   }
 }
 

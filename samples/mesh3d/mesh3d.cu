@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
   float *d_coords       = nullptr;
   int3 *d_triangles     = nullptr;
   curandState *d_states = nullptr;
-  unsigned block_size   = 256;
+  //unsigned block_size   = 256;
 
   if (argc == 2)
   {
