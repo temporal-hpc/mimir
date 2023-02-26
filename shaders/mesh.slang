@@ -2,7 +2,7 @@ import uniform;
 
 [[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
 [[vk::binding(1)]] ConstantBuffer<UniformDataParams> params;
-[[vk::binding(2)]] ConstantBuffer<ColorParams> colors;
+[[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
 
 struct VertexInput
 {
@@ -53,5 +53,5 @@ VertexData vertex3dMain(VertexInput3d input)
 [shader("fragment")]
 float4 fragmentMain(VertexData input) : SV_Target
 {
-  return colors.edge_color;
+  return primitive.color;
 }

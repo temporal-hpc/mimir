@@ -15,10 +15,11 @@ enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
 // In the future, it should only have the fields the view actually supports
 struct ViewOptions
 {
-  uint3 data_extent = {1, 1, 1};
-  color::rgba<float> point_color{0.f, 0.f, 1.f, 1.f};
-  color::rgba<float> edge_color{0.f, 1.f, 0.f, 1.f};
+  color::rgba<float> color{0.f,0.f,1.f,1.f};
+  //color::rgba<float> point_color{0.f, 0.f, 1.f, 1.f};
+  //color::rgba<float> edge_color{0.f, 1.f, 0.f, 1.f};
   float depth = 0.01f;
+  float size = 1.f;
 };
 
 struct ViewParams

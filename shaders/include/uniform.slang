@@ -16,8 +16,8 @@ struct SceneParams
   float depth;
 };
 
-struct ColorParams
+struct PrimitiveParams
 {
-  float4 point_color;
-  float4 edge_color;
+  float4 color;
+  float size;
 };

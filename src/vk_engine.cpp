@@ -521,7 +521,7 @@ void VulkanEngine::updateDescriptorSets()
 {
   auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
   auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-  auto size_colors = getAlignedSize(sizeof(ColorParams), min_alignment);
+  auto size_colors = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
   auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
   auto size_ubo = 2 * size_mvp + size_colors + size_scene;
 
@@ -544,7 +544,7 @@ void VulkanEngine::updateDescriptorSets()
       VkDescriptorBufferInfo pcolor_info{};
       pcolor_info.buffer = view.ubo_buffer;
       pcolor_info.offset = i * size_ubo + size_mvp;
-      pcolor_info.range  = sizeof(ColorParams);
+      pcolor_info.range  = sizeof(PrimitiveParams);
       auto write_pcolor = vkinit::writeDescriptorBuffer(
         descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &pcolor_info
       );
@@ -1041,8 +1041,8 @@ std::vector<VkPipelineShaderStageCreateInfo> VulkanEngine::compileSlang(
 void VulkanEngine::createGraphicsPipelines()
 {
   auto start = std::chrono::steady_clock::now();
-  //auto orig_path = std::filesystem::current_path();
-  //std::filesystem::current_path(shader_path);
+  auto orig_path = std::filesystem::current_path();
+  std::filesystem::current_path(shader_path);
 
   // Create global session to work with the Slang API
   Slang::ComPtr<slang::IGlobalSession> global_session;
@@ -1174,7 +1174,7 @@ void VulkanEngine::createGraphicsPipelines()
   std::cout << pipelines.size() << " pipeline(s) created\n";
 
   // Restore original working directory
-  //std::filesystem::current_path(orig_path);
+  std::filesystem::current_path(orig_path);
   auto end = std::chrono::steady_clock::now();
   std::cout << "Creation time for all pipelines: "
     << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
