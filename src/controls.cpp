@@ -8,7 +8,7 @@ void VulkanEngine::setBackgroundColor(color::rgba<float> color)
   bg_color = color;
 }
 
-void VulkanEngine::setPointColor(color::rgba<float> color)
+/*void VulkanEngine::setPointColor(color::rgba<float> color)
 {
   point_color = color;
 }
@@ -16,7 +16,7 @@ void VulkanEngine::setPointColor(color::rgba<float> color)
 void VulkanEngine::setEdgeColor(color::rgba<float> color)
 {
   edge_color = color;
-}
+}*/
 
 // Translates GLFW mouse movement into Viewer flags for detecting camera movement
 void VulkanEngine::handleMouseMove(float x, float y)
@@ -91,8 +91,8 @@ void VulkanEngine::handleMouseButton(int button, int action, [[maybe_unused]] in
 // Translates GLFW mouse scroll into values for detecting camera zoom in/out 
 void VulkanEngine::handleScroll([[maybe_unused]] float xoffset, float yoffset)
 {
-  depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
-  printf("depth= %f, offset= %f\n", depth, yoffset);
+  // depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
+  // printf("depth= %f, offset= %f\n", depth, yoffset);
 }
 
 void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)

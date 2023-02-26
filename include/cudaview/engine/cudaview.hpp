@@ -3,10 +3,23 @@
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
 
+#include "color/color.hpp"
+
 enum class DataDomain    { Domain2D, Domain3D };
 enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture, TextureLinear };
 enum class PrimitiveType { Points, Edges, Voxels };
 enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
+
+// Holds customization options for the view it is associated to, for example:
+// Point color, point size, edge color, etc.
+// In the future, it should only have the fields the view actually supports
+struct ViewOptions
+{
+  uint3 data_extent = {1, 1, 1};
+  color::rgba<float> point_color{0.f, 0.f, 1.f, 1.f};
+  color::rgba<float> edge_color{0.f, 1.f, 0.f, 1.f};
+  float depth = 0.01f;
+};
 
 struct ViewParams
 {
@@ -17,6 +30,7 @@ struct ViewParams
   ResourceType resource_type;
   PrimitiveType primitive_type;
   TextureFormat texture_format;
+  ViewOptions options;
 };
 
 struct CudaView
@@ -33,6 +47,8 @@ struct CudaView
   VkBuffer vertex_buffer = VK_NULL_HANDLE;
   VkBuffer index_buffer = VK_NULL_HANDLE;
   VkDeviceMemory aux_memory = VK_NULL_HANDLE;
+  VkBuffer ubo_buffer = VK_NULL_HANDLE;
+  VkDeviceMemory ubo_memory = VK_NULL_HANDLE;
 
   // Image members
   VkFormat vk_format = VK_FORMAT_UNDEFINED;

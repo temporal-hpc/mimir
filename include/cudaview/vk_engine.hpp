@@ -67,8 +67,6 @@ private:
   VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
-  VkBuffer ubo_buffer = VK_NULL_HANDLE;
-  VkDeviceMemory ubo_memory = VK_NULL_HANDLE;
   DeletionQueue deletors;
 
   // Depth buffer
@@ -91,7 +89,6 @@ private:
   std::condition_variable cond;
 
   // Cuda interop data
-  uint3 data_extent = {1, 1, 1};
   cudaStream_t stream;
   uint64_t current_frame = 0;
   std::string shader_path;
@@ -110,8 +107,6 @@ private:
   );
 
   color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};
-  color::rgba<float> point_color{0.f, 0.f, 1.f, 1.f};
-  color::rgba<float> edge_color{0.f, 1.f, 0.f, 1.f};
 
   // Camera functions
   struct {
@@ -128,7 +123,6 @@ private:
   static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
   static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
   static void scrollCallback(GLFWwindow *window, double xoffset, double yoffset);
-  float depth = 0.01f;
   std::unique_ptr<Camera> camera;
 
   void initVulkan();
@@ -149,11 +143,9 @@ private:
   void cleanupSwapchain();
   void recreateSwapchain();
   void createGraphicsPipelines();
-  void createBuffers();
 
   // Update functions
   void updateDescriptorSets();
-  void updateUniformBuffer(uint32_t image_index);
 
   // Depth buffering
   bool hasStencil(VkFormat format);

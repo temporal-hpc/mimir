@@ -151,10 +151,11 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 CudaView VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
 {
   auto view = dev->createView(params);
-  views.push_back(view);
-  data_extent.x = std::max(data_extent.x, params.extent.x);
+  /*data_extent.x = std::max(data_extent.x, params.extent.x);
   data_extent.y = std::max(data_extent.y, params.extent.y);
-  data_extent.z = std::max(data_extent.z, params.extent.z);
+  data_extent.z = std::max(data_extent.z, params.extent.z);*/
+  dev->createUniformBuffers(view, swap->image_count);
+  views.push_back(view);
   updateDescriptorSets();
   *ptr_devmem = view.cuda_ptr;
   return view;
@@ -427,8 +428,11 @@ void VulkanEngine::createSyncObjects()
 
 void VulkanEngine::cleanupSwapchain()
 {
-  vkDestroyBuffer(dev->logical_device, ubo_buffer, nullptr);
-  vkFreeMemory(dev->logical_device, ubo_memory, nullptr);
+  for (auto& view : views)
+  {
+    vkDestroyBuffer(dev->logical_device, view.ubo_buffer, nullptr);
+    vkFreeMemory(dev->logical_device, view.ubo_memory, nullptr);
+  }
   for (auto pipeline : pipelines)
   {
     vkDestroyPipeline(dev->logical_device, pipeline, nullptr);
@@ -499,11 +503,10 @@ void VulkanEngine::initSwapchain()
   }
 
   createGraphicsPipelines();
-  createBuffers();
   descriptor_sets = dev->createDescriptorSets(
     descriptor_pool, descriptor_layout, swap->image_count
   );
-  updateDescriptorSets();
+  //updateDescriptorSets();
 }
 
 void VulkanEngine::recreateSwapchain()
@@ -512,61 +515,6 @@ void VulkanEngine::recreateSwapchain()
 
   cleanupSwapchain();
   initSwapchain();
-}
-
-void VulkanEngine::createBuffers()
-{
-  auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
-  auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-  auto size_colors = getAlignedSize(sizeof(ColorParams), min_alignment);
-  auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-
-  auto img_count = swap->image_count;
-  VkDeviceSize buffer_size = img_count * (2 * size_mvp + size_colors + size_scene);
-
-  auto test_buffer = dev->createBuffer(1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-  VkMemoryRequirements requirements;
-  vkGetBufferMemoryRequirements(dev->logical_device, test_buffer, &requirements);
-  requirements.size = buffer_size;
-  vkDestroyBuffer(dev->logical_device, test_buffer, nullptr);
-
-  // Allocate memory and bind it to buffers
-  ubo_memory = dev->allocateMemory(requirements,
-    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-  );
-  ubo_buffer = dev->createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-  vkBindBufferMemory(dev->logical_device, ubo_buffer, ubo_memory, 0);
-}
-
-void VulkanEngine::updateUniformBuffer(uint32_t image_idx)
-{
-  auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
-  auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-  auto size_colors = getAlignedSize(sizeof(ColorParams), min_alignment);
-  auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-  auto size_ubo = 2 * size_mvp + size_colors + size_scene;
-  auto offset = image_idx * size_ubo;
-
-  ModelViewProjection mvp{};
-  mvp.model = glm::mat4(1.f);
-  mvp.view  = camera->matrices.view;
-  mvp.proj  = camera->matrices.perspective;
-
-  ColorParams colors{};
-  colors.point_color = color::getColor(point_color);
-  colors.edge_color  = color::getColor(edge_color);
-
-  SceneParams scene{};
-  scene.extent = glm::ivec3{data_extent.x, data_extent.y, data_extent.z};
-  scene.depth = depth;
-
-  char *data = nullptr;
-  vkMapMemory(dev->logical_device, ubo_memory, offset, size_ubo, 0, (void**)&data);
-  std::memcpy(data, &mvp, sizeof(mvp));
-  std::memcpy(data + size_mvp, &colors, sizeof(colors));
-  std::memcpy(data + size_mvp + size_colors, &scene, sizeof(scene));
-  std::memcpy(data + size_mvp + size_colors + size_scene, &mvp, sizeof(mvp));
-  vkUnmapMemory(dev->logical_device, ubo_memory);
 }
 
 void VulkanEngine::updateDescriptorSets()
@@ -582,36 +530,35 @@ void VulkanEngine::updateDescriptorSets()
     // Write MVP matrix, scene info and texture samplers
     std::vector<VkWriteDescriptorSet> desc_writes;
     //desc_writes.reserve(3 + views_structured.size());
-
-    VkDescriptorBufferInfo mvp_info{};
-    mvp_info.buffer = ubo_buffer;
-    mvp_info.offset = i * size_ubo;
-    mvp_info.range  = sizeof(ModelViewProjection);
-    auto write_mvp = vkinit::writeDescriptorBuffer(
-      descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &mvp_info
-    );
-    desc_writes.push_back(write_mvp);
-
-    VkDescriptorBufferInfo pcolor_info{};
-    pcolor_info.buffer = ubo_buffer;
-    pcolor_info.offset = i * size_ubo + size_mvp;
-    pcolor_info.range  = sizeof(ColorParams);
-    auto write_pcolor = vkinit::writeDescriptorBuffer(
-      descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &pcolor_info
-    );
-    desc_writes.push_back(write_pcolor);
-
-    VkDescriptorBufferInfo extent_info{};
-    extent_info.buffer = ubo_buffer;
-    extent_info.offset = i * size_ubo + size_mvp + size_colors;
-    extent_info.range  = sizeof(SceneParams);
-    auto write_scene = vkinit::writeDescriptorBuffer(
-      descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &extent_info
-    );
-    desc_writes.push_back(write_scene);
-
     for (const auto& view : views)
     {
+      VkDescriptorBufferInfo mvp_info{};
+      mvp_info.buffer = view.ubo_buffer;
+      mvp_info.offset = i * size_ubo;
+      mvp_info.range  = sizeof(ModelViewProjection);
+      auto write_mvp = vkinit::writeDescriptorBuffer(
+        descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &mvp_info
+      );
+      desc_writes.push_back(write_mvp);
+
+      VkDescriptorBufferInfo pcolor_info{};
+      pcolor_info.buffer = view.ubo_buffer;
+      pcolor_info.offset = i * size_ubo + size_mvp;
+      pcolor_info.range  = sizeof(ColorParams);
+      auto write_pcolor = vkinit::writeDescriptorBuffer(
+        descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &pcolor_info
+      );
+      desc_writes.push_back(write_pcolor);
+
+      VkDescriptorBufferInfo extent_info{};
+      extent_info.buffer = view.ubo_buffer;
+      extent_info.offset = i * size_ubo + size_mvp + size_colors;
+      extent_info.range  = sizeof(SceneParams);
+      auto write_scene = vkinit::writeDescriptorBuffer(
+        descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &extent_info
+      );
+      desc_writes.push_back(write_scene);
+      
       if (view.params.resource_type == ResourceType::TextureLinear ||
           view.params.resource_type == ResourceType::Texture)
       {
@@ -718,7 +665,12 @@ void VulkanEngine::renderFrame()
   // Finalize command buffer recording, so it can be executed
   validation::checkVulkan(vkEndCommandBuffer(cmd));
 
-  updateUniformBuffer(image_idx);
+  for (auto& view : views)
+  {
+    dev->updateUniformBuffers(view, 
+      image_idx, camera->matrices.view, camera->matrices.perspective
+    );
+  }
 
   std::vector<VkSemaphore> wait_semaphores;
   std::vector<VkPipelineStageFlags> wait_stages;
