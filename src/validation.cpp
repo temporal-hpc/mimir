@@ -35,8 +35,7 @@ const char* getVulkanMessageType(VkDebugUtilsMessageTypeFlagsEXT type)
   }  
 }
 
-// Setup debug messenger callback.
-// Currently it just converts debug data into a string for logging
+// Setup debug messenger callback. Currently it just converts debug data into a string for logging
 // TODO: Maybe do something with p_user_data, like passing a pointer
 // to the engine class in order to get access to its fields
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(

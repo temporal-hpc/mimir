@@ -18,6 +18,7 @@ void VulkanEngine::setEdgeColor(color::rgba<float> color)
   edge_color = color;
 }
 
+// Translates GLFW mouse movement into Viewer flags for detecting camera movement
 void VulkanEngine::handleMouseMove(float x, float y)
 {
   auto dx = mouse_pos.x - x;
@@ -45,6 +46,7 @@ void VulkanEngine::cursorPositionCallback(GLFWwindow *window, double xpos, doubl
   app->handleMouseMove(static_cast<float>(xpos), static_cast<float>(ypos));
 }
 
+// Translates GLFW mouse actions into Viewer flags for detecting camera actions 
 void VulkanEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
 {
   switch (action)
@@ -86,26 +88,27 @@ void VulkanEngine::handleMouseButton(int button, int action, [[maybe_unused]] in
   }
 }
 
-void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
-{
-  auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
-  app->handleMouseButton(button, action, mods);
-}
-
+// Translates GLFW mouse scroll into values for detecting camera zoom in/out 
 void VulkanEngine::handleScroll([[maybe_unused]] float xoffset, float yoffset)
 {
   depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
   printf("depth= %f, offset= %f\n", depth, yoffset);
 }
 
-void VulkanEngine::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
   auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
-  app->handleScroll(static_cast<float>(xoffset), static_cast<float>(yoffset));
+  app->handleMouseButton(button, action, mods);
 }
 
 void VulkanEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
 {
   auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
   app->should_resize = true;
+}
+
+void VulkanEngine::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+{
+  auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+  app->handleScroll(static_cast<float>(xoffset), static_cast<float>(yoffset));
 }

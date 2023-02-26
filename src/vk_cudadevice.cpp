@@ -11,6 +11,7 @@
 
 #include "helper_image.h" // TODO: Remove
 
+// Converts a CudaView texture type to its Vulkan equivalent
 VkFormat getVulkanFormat(TextureFormat format)
 {
   switch (format)
@@ -23,6 +24,7 @@ VkFormat getVulkanFormat(TextureFormat format)
   }
 }
 
+// Converts a CudaView image type to its Vulkan equivalent
 VkImageType getImageType(DataDomain domain)
 {
   switch (domain)
@@ -33,6 +35,7 @@ VkImageType getImageType(DataDomain domain)
   }
 }
 
+// Converts a CudaView domain type to its Vulkan equivalent
 VkImageViewType getViewType(DataDomain domain)
 {
   switch (domain)

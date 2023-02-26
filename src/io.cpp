@@ -8,6 +8,8 @@
 namespace io
 {
 
+// DEPRECATED: Loads a file and returns its data buffer
+// Was used for loading compiled shader files, but slang made this obsolete
 std::vector<char> readFile(const std::string& filename)
 {
   std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -26,6 +28,7 @@ std::vector<char> readFile(const std::string& filename)
   return buffer;
 }
 
+// Reads an .off file and only loads the points and triangles
 void loadTriangleMesh(const std::string& filename,
   std::vector<float3>& points, std::vector<uint3>& triangles)
 {
@@ -64,6 +67,8 @@ void loadTriangleMesh(const std::string& filename,
   }
 }
 
+// Setup the shader path so that the library can actually load them
+// Hack-ish, but works for now
 std::string getDefaultShaderPath()
 {
   // If shaders are installed in library path, set working directory there

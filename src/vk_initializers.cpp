@@ -1,5 +1,8 @@
 #include "internal/vk_initializers.hpp"
 
+// Convenience functions for building Vulkan info structures with default and/or 
+// reasonable values. It also helps look the code using these a little more tidy
+
 namespace vkinit
 {
 
