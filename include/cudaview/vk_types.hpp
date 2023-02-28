@@ -22,6 +22,7 @@ struct PrimitiveParams
 struct SceneParams
 {
   glm::ivec3 extent;
+  glm::vec4 bg_color;
   float depth;
 };
 

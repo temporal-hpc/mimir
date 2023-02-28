@@ -1,7 +1,7 @@
 import uniform;
 
 [[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
-[[vk::binding(1)]] ConstantBuffer<UniformDataParams> params;
+[[vk::binding(1)]] ConstantBuffer<SceneParams> params;
 [[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
 
 struct VertexInput

@@ -174,7 +174,7 @@ void VulkanCudaDevice::createUniformBuffers(CudaView& view, uint32_t img_count)
 }
 
 void VulkanCudaDevice::updateUniformBuffers(CudaView& view, uint32_t image_idx,
-  glm::mat4 viewmat, glm::mat4 perspective)
+  glm::mat4 viewmat, glm::mat4 perspective, color::rgba<float> bg_color)
 {
   auto min_alignment = properties.limits.minUniformBufferOffsetAlignment;
   auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -195,6 +195,7 @@ void VulkanCudaDevice::updateUniformBuffers(CudaView& view, uint32_t image_idx,
   SceneParams scene{};
   auto extent = view.params.extent;
   scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
+  scene.bg_color = color::getColor(bg_color);
   scene.depth = view.params.options.depth;
 
   char *data = nullptr;

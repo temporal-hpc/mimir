@@ -541,14 +541,14 @@ void VulkanEngine::updateDescriptorSets()
       );
       desc_writes.push_back(write_mvp);
 
-      VkDescriptorBufferInfo pcolor_info{};
-      pcolor_info.buffer = view.ubo_buffer;
-      pcolor_info.offset = i * size_ubo + size_mvp;
-      pcolor_info.range  = sizeof(PrimitiveParams);
-      auto write_pcolor = vkinit::writeDescriptorBuffer(
-        descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &pcolor_info
+      VkDescriptorBufferInfo primitive_info{};
+      primitive_info.buffer = view.ubo_buffer;
+      primitive_info.offset = i * size_ubo + size_mvp;
+      primitive_info.range  = sizeof(PrimitiveParams);
+      auto write_primitive = vkinit::writeDescriptorBuffer(
+        descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &primitive_info
       );
-      desc_writes.push_back(write_pcolor);
+      desc_writes.push_back(write_primitive);
 
       VkDescriptorBufferInfo extent_info{};
       extent_info.buffer = view.ubo_buffer;
@@ -668,7 +668,7 @@ void VulkanEngine::renderFrame()
   for (auto& view : views)
   {
     dev->updateUniformBuffers(view, 
-      image_idx, camera->matrices.view, camera->matrices.perspective
+      image_idx, camera->matrices.view, camera->matrices.perspective, bg_color
     );
   }
 

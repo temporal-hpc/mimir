@@ -43,8 +43,6 @@ public:
   bool should_resize = false;
 
   void setBackgroundColor(color::rgba<float> color);
-  void setPointColor(color::rgba<float> color);
-  void setEdgeColor(color::rgba<float> color);
 
 private:
   std::unique_ptr<VulkanCudaDevice> dev;

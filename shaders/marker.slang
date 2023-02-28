@@ -1,7 +1,8 @@
 import uniform;
 
 [[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
-[[vk::binding(1)]] ConstantBuffer<UniformDataParams> params;
+[[vk::binding(1)]] ConstantBuffer<SceneParams> params;
+[[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
 
 struct VertexInput
 {
@@ -12,7 +13,7 @@ struct VertexData
 {
   float4 pos    : SV_Position;
   float4 center : POSITION;
-  float4 color  : COLOR;
+  //float4 color  : COLOR;
   //float marker_size;
 };
 
@@ -24,7 +25,7 @@ VertexData vertex2dMain(VertexInput input)
   VertexData output;
   output.center = float4(2 * (float3(input.pos, 1) / params.extent) - 1, 1);
   output.pos    = mul(output.center, view_proj);
-  output.color  = float4(0, 0, 1, 1);
+  //output.color  = float4(0, 0, 1, 1);
   //output.marker_size = 10.f;
 
   return output;
@@ -43,7 +44,7 @@ VertexData vertex3dMain(VertexInput3d input)
   VertexData output;
   output.center = float4(2 * (input.pos / params.extent) - 1, 1);
   output.pos    = mul(output.center, view_proj);
-  output.color  = float4(0, 0, 1, 1);
+  //output.color  = float4(0, 0, 1, 1);
   //output.marker_size = 10.f;
 
   return output;
@@ -52,8 +53,8 @@ VertexData vertex3dMain(VertexInput3d input)
 struct MarkerData
 {
   float4 pos   : SV_Position;
-  float4 color : COLOR;
   float2 uv    : TEXCOORD;
+  //float4 color : COLOR;
   //float3 normal : NORMAL;
 };
 
@@ -80,7 +81,7 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
   float4 normal = mul(float4(n, 0), model_view);
 
   MarkerData output;
-  output.color = input[0].color;
+  //output.color = input[0].color;
   //output.normal = normal.xyz;
 
   // Add point coordinates
@@ -140,7 +141,7 @@ float4 fragmentMain(MarkerData input) : SV_Target
 {
   float2 center_coords = 2 * input.uv - 1;
   if (dot(center_coords, center_coords) > 1) discard;
-  return input.color;
+  return primitive.color;
   /*float2 p = point_coord - float2(0.5);
   //p = float2(v_rotation.x*p.x - v_rotation.y*p.y,
   //           v_rotation.y*p.x + v_rotation.x*p.y);

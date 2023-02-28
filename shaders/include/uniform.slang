@@ -5,14 +5,10 @@ struct ModelViewProjection
   float4x4 proj;
 };
 
-struct UniformDataParams
-{
-  int3 extent;
-};
-
 struct SceneParams
 {
   int3 extent;
+  float4 bg_color;
   float depth;
 };
 

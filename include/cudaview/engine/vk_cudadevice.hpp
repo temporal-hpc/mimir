@@ -13,7 +13,7 @@ struct VulkanCudaDevice : public VulkanDevice
   CudaView createView(ViewParams params);
   void createUniformBuffers(CudaView& view, uint32_t img_count);
   void updateUniformBuffers(CudaView& view, uint32_t image_idx,
-    glm::mat4 viewmat, glm::mat4 perspective
+    glm::mat4 viewmat, glm::mat4 perspective, color::rgba<float> bg_color
   );
   void updateTexture(CudaView mapped);
   InteropBarrier createInteropBarrier();
