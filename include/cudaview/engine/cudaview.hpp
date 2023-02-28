@@ -16,7 +16,7 @@ enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
 struct ViewOptions
 {
   color::rgba<float> color{0.f,0.f,0.f,1.f};
-  float size = 1.f;
+  float size = 10.f;
   float depth = 0.01f;
 };
 

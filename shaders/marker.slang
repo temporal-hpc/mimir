@@ -1,7 +1,7 @@
 import uniform;
 
 [[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
-[[vk::binding(1)]] ConstantBuffer<SceneParams> params;
+[[vk::binding(1)]] ConstantBuffer<SceneParams> scene;
 [[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
 
 struct VertexInput
@@ -23,7 +23,7 @@ VertexData vertex2dMain(VertexInput input)
   float4x4 view_proj = mul(mvp.view, mvp.proj);
 
   VertexData output;
-  output.center = float4(2 * (float3(input.pos, 1) / params.extent) - 1, 1);
+  output.center = float4(2 * (float3(input.pos, 1) / scene.extent) - 1, 1);
   output.pos    = mul(output.center, view_proj);
   //output.color  = float4(0, 0, 1, 1);
   //output.marker_size = 10.f;
@@ -42,7 +42,7 @@ VertexData vertex3dMain(VertexInput3d input)
   float4x4 view_proj = mul(mvp.view, mvp.proj);
 
   VertexData output;
-  output.center = float4(2 * (input.pos / params.extent) - 1, 1);
+  output.center = float4(2 * (input.pos / scene.extent) - 1, 1);
   output.pos    = mul(output.center, view_proj);
   //output.color  = float4(0, 0, 1, 1);
   //output.marker_size = 10.f;
@@ -106,10 +106,10 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
   stream.Append(output);
 }
 
-/*
+
 static const float SQRT_2 = 1.4142135623730951;
 static const float u_antialias = 1;
-static const float4 v_bg_color = float4(1, 1, 1, 1);
+static const float v_linewidth = 1;
 
 float4 outline(
   float distance, // Signed distance to line
@@ -134,7 +134,7 @@ float4 outline(
 float disc(float2 p, float size)
 {
   return length(p) - size/2;
-}*/
+}
 
 [shader("fragment")]
 float4 fragmentMain(MarkerData input) : SV_Target
@@ -142,10 +142,10 @@ float4 fragmentMain(MarkerData input) : SV_Target
   float2 center_coords = 2 * input.uv - 1;
   if (dot(center_coords, center_coords) > 1) discard;
   return primitive.color;
-  /*float2 p = point_coord - float2(0.5);
+  /*float2 p = input.uv - float2(0.5);
   //p = float2(v_rotation.x*p.x - v_rotation.y*p.y,
   //           v_rotation.y*p.x + v_rotation.x*p.y);
-  float point_size = SQRT_2*v_size  + 2 * (v_linewidth + 1.5*u_antialias);
-  float distance = disc(p*point_size, v_size);
-  return outline(distance, v_linewidth, u_antialias, input.color, v_bg_color);*/
+  float point_size = SQRT_2*primitive.size  + 2 * (v_linewidth + 1.5*u_antialias);
+  float distance = disc(p*point_size, primitive.size);
+  return outline(distance, v_linewidth, u_antialias, scene.bg_color, primitive.color);*/
 }

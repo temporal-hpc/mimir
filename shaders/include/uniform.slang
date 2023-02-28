@@ -7,8 +7,8 @@ struct ModelViewProjection
 
 struct SceneParams
 {
-  int3 extent;
   float4 bg_color;
+  int3 extent;
   float depth;
 };
 
