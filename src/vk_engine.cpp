@@ -20,10 +20,9 @@
 #include <filesystem> // std::filesystem
 #include <glm/gtx/string_cast.hpp>
 
-VulkanEngine::VulkanEngine(cudaStream_t cuda_stream):
-  stream(cuda_stream),
-  shader_path(io::getDefaultShaderPath()),
-  camera(std::make_unique<Camera>())
+VulkanEngine::VulkanEngine():
+  shader_path{ io::getDefaultShaderPath() },
+  camera{ std::make_unique<Camera>() }
 {}
 
 VulkanEngine::~VulkanEngine()
@@ -229,7 +228,7 @@ void VulkanEngine::createInstance()
 
   VkApplicationInfo app_info{};
   app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-  app_info.pApplicationName   = "Vulkan test";
+  app_info.pApplicationName   = "CudaView";
   app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   app_info.pEngineName        = "No engine";
   app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);

@@ -65,7 +65,6 @@ VkBufferUsageFlags getUsageFlags(PrimitiveType p, ResourceType r)
   }
 }
 
-
 void VulkanCudaDevice::generateMipmaps(VkImage image, VkFormat img_format,
   int img_width, int img_height, int mip_levels)
 {

@@ -30,7 +30,7 @@ struct VulkanFramebuffer;
 class VulkanEngine
 {
 public:
-  VulkanEngine(cudaStream_t stream = 0);
+  VulkanEngine();
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
   CudaView addView(void **ptr_devmem, const ViewParams params);
@@ -90,7 +90,6 @@ private:
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
-  VkShaderModule createShaderModule(const std::vector<char>& code);
 
   color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};
 

@@ -25,14 +25,15 @@ struct ViewOptions
   color::rgba<float> color{0.f,0.f,0.f,1.f};
   // Default primitive size if no per-instance size is set
   float size = 10.f;
-  // For moving through the different slices in a 3D texture
-  float depth = 0.01f;
   // For specializing slang shaders associated to this view
   std::vector<std::string> specializations;
+  // For moving through the different slices in a 3D texture
+  float depth = 0.01f;
 };
 
 struct ViewParams
 {
+  cudaStream_t cuda_stream = 0;
   size_t element_count = 0;
   size_t element_size = 0;
   uint3 extent = {1, 1, 1};

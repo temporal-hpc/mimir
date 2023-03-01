@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
   try
   {
     // Initialize engine
-    VulkanEngine engine(program.stream);
+    VulkanEngine engine;
     engine.init(800, 600);
     ViewParams params;
     params.element_count = program.particle_count;
@@ -30,6 +30,7 @@ int main(int argc, char *argv[])
     params.data_domain = DataDomain::Domain2D;
     params.resource_type = ResourceType::UnstructuredBuffer;
     params.primitive_type = PrimitiveType::Points;
+    params.cuda_stream = program.stream;
     engine.addView((void**)&program.d_coords, params);
 
     // Cannot make CUDA calls that use the target device memory before

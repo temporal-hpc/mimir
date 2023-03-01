@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
   JumpFloodProgram program(point_count, 512, 512);
   try
   {
-    VulkanEngine engine(program.stream);
+    VulkanEngine engine;
     engine.init(800, 600);
 
     ViewParams params;
@@ -29,6 +29,7 @@ int main(int argc, char *argv[])
     params.data_domain = DataDomain::Domain2D;
     params.resource_type = ResourceType::UnstructuredBuffer;
     params.primitive_type = PrimitiveType::Points;
+    params.cuda_stream = program.stream;
     engine.addView((void**)&program.d_coords, params);
 
     params.element_count = program.extent.x * program.extent.y;
