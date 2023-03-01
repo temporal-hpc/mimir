@@ -1,8 +1,12 @@
 #pragma once
 
+#include <slang-com-ptr.h>
 #include <vulkan/vulkan.h>
 
 #include <vector> // std::vector
+
+#include "cudaview/engine/cudaview.hpp"
+#include "cudaview/engine/vk_cudadevice.hpp"
 
 struct VertexDescription
 {
@@ -21,6 +25,13 @@ struct PipelineInfo
   VkPipelineMultisampleStateCreateInfo multisampling;
 };
 
+struct ShaderCompileParameters
+{
+  std::string source_path;
+  std::vector<std::string> entrypoints;
+  std::vector<std::string> specializations;
+};
+
 struct PipelineBuilder
 {
   std::vector<PipelineInfo> pipeline_infos;
@@ -28,12 +39,14 @@ struct PipelineBuilder
   VkViewport viewport;
   VkRect2D scissor;
 
-  PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent);
-  uint32_t addPipelineInfo(PipelineInfo info);
-  std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
-};
+  Slang::ComPtr<slang::IGlobalSession> global_session;
+  Slang::ComPtr<slang::ISession> session;
 
-VertexDescription getVertexDescriptions2d();
-VertexDescription getVertexDescriptions3d();
-VertexDescription getVertexDescriptionsVert();
-VertexDescription getVoxelDescriptions();
+  PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent);
+  uint32_t addPipeline(const ViewParams params, VulkanCudaDevice *dev);
+  std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
+  std::vector<VkPipelineShaderStageCreateInfo> compileSlang(
+    VulkanCudaDevice *dev, const ShaderCompileParameters& params
+  );
+  VkShaderModule createShaderModule(const std::vector<char>& code, VulkanCudaDevice *dev);
+};

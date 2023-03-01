@@ -81,6 +81,7 @@ void VulkanEngine::init(int width, int height)
 
 void VulkanEngine::displayAsync()
 {
+  createGraphicsPipelines();
   rendering_thread = std::thread([this]()
   {
     while(!glfwWindowShouldClose(window))
@@ -122,6 +123,7 @@ void VulkanEngine::updateWindow()
 
 void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 {
+  createGraphicsPipelines();
   size_t iteration_idx = 0;
   device_working = true;
   while(!glfwWindowShouldClose(window))
@@ -502,7 +504,6 @@ void VulkanEngine::initSwapchain()
     fbs[i].create(dev->logical_device, render_pass, swap->swapchain_extent, depth_view);
   }
 
-  createGraphicsPipelines();
   descriptor_sets = dev->createDescriptorSets(
     descriptor_pool, descriptor_layout, swap->image_count
   );
@@ -728,17 +729,18 @@ void VulkanEngine::renderFrame()
 void VulkanEngine::drawObjects(uint32_t image_idx)
 {
   auto cmd = command_buffers[image_idx];
+  // NOTE: Second parameter can be also used to bind a compute pipeline
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+    pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
+  );
   for (const auto& view : views)
   {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[view.pipeline_index]);
     if (view.params.resource_type == ResourceType::TextureLinear ||
         view.params.resource_type == ResourceType::Texture)
     {
       if (view.params.primitive_type == PrimitiveType::Voxels)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[7]);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-          pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-        );
         VkBuffer vertex_buffers[] = { view.interop_buffer };
         VkDeviceSize offsets[] = { 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
@@ -747,18 +749,6 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       }
       else
       {
-        if (view.params.data_domain == DataDomain::Domain2D)
-        {
-          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[2]);
-        }
-        else if (view.params.data_domain == DataDomain::Domain3D)
-        {
-          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[3]);
-        }
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-          pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-        );
-
         VkDeviceSize offsets[1] = {0};
         vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer, offsets);
         vkCmdBindIndexBuffer(cmd, view.index_buffer, 0, VK_INDEX_TYPE_UINT16);
@@ -769,10 +759,6 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     {
       if (view.params.primitive_type == PrimitiveType::Voxels)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[6]);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-          pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-        );
         VkBuffer vertex_buffers[] = { view.vertex_buffer, view.interop_buffer };
         VkDeviceSize offsets[] = { 0, 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
@@ -786,18 +772,6 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       {
         case PrimitiveType::Points:
         {
-          if (view.params.data_domain == DataDomain::Domain2D)
-          {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[0]);
-          }
-          else if (view.params.data_domain == DataDomain::Domain3D)
-          {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[1]);
-          }
-          // NOTE: Second parameter can be also used to bind a compute pipeline
-          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-          );
           VkBuffer vertex_buffers[] = { view.interop_buffer };
           VkDeviceSize offsets[] = { 0 };
           auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
@@ -807,17 +781,6 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         }
         case PrimitiveType::Edges:
         {
-          if (view.params.data_domain == DataDomain::Domain2D)
-          {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[4]);
-          }
-          else if (view.params.data_domain == DataDomain::Domain3D)
-          {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[5]);
-          }
-          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-          );
           VkBuffer vertexBuffers[] = { views[0].interop_buffer };
           VkDeviceSize offsets[] = {0};
           vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
@@ -922,254 +885,20 @@ VkRenderPass VulkanEngine::createRenderPass()
   return render_pass;
 }
 
-// Read buffer with shader bytecode and create a shader module from it
-VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code)
-{
-  VkShaderModuleCreateInfo info{};
-  info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  info.pNext    = nullptr;
-  info.flags    = 0; // Unused
-  info.codeSize = code.size();
-  info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
-
-  VkShaderModule module;
-  validation::checkVulkan(
-    vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
-  );
-  // TODO: Move to vulkandevice deletor queue (likely a new one)
-  deletors.pushFunction([=]{
-    vkDestroyShaderModule(dev->logical_device, module, nullptr);
-  });
-  return module;
-}
-
-void diagnose(slang::IBlob *diag_blob)
-{
-  if (diag_blob != nullptr)
-  {
-    printf("%s", (const char*) diag_blob->getBufferPointer());
-  }
-}
-
-VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
-{
-  switch (stage)
-  {
-    case SLANG_STAGE_VERTEX:   return VK_SHADER_STAGE_VERTEX_BIT;
-    case SLANG_STAGE_GEOMETRY: return VK_SHADER_STAGE_GEOMETRY_BIT;
-    case SLANG_STAGE_FRAGMENT: return VK_SHADER_STAGE_FRAGMENT_BIT;
-    default:                   return VK_SHADER_STAGE_ALL_GRAPHICS;
-  }
-}
-
-std::vector<VkPipelineShaderStageCreateInfo> VulkanEngine::compileSlang(
-  Slang::ComPtr<slang::ISession> session, const std::string& module_path,
-  const std::vector<std::string>& entry_names, const std::string& specialization)
-{
-  Slang::ComPtr<slang::IBlob> diag = nullptr;
-  // Load code from [module_path].slang as a module
-  auto module = session->loadModule(module_path.c_str(), diag.writeRef());
-  diagnose(diag);
-
-  std::vector<slang::IComponentType*> components;
-  components.reserve(entry_names.size() + 1);
-  components.push_back(module);
-  // Lookup entry points by their names
-  for (const auto& name : entry_names)
-  {
-    Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
-    module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
-    if (entrypoint != nullptr) components.push_back(entrypoint);
-  }
-  Slang::ComPtr<slang::IComponentType> program = nullptr;
-  validation::checkSlang(session->createCompositeComponentType(
-    components.data(), components.size(), program.writeRef(), diag.writeRef())
-  );
-  diagnose(diag);
-
-  if (!specialization.empty())
-  {
-    auto spec_type = module->getLayout()->findTypeByName(specialization.c_str());
-    std::vector<slang::SpecializationArg> args;
-    slang::SpecializationArg arg;
-    arg.kind = slang::SpecializationArg::Kind::Type;
-    arg.type = spec_type;
-    args.push_back(arg);
-
-    Slang::ComPtr<slang::IComponentType> spec_program;
-    validation::checkSlang(program->specialize(
-      args.data(), args.size(), spec_program.writeRef(), diag.writeRef())
-    );
-    diagnose(diag);
-    program = spec_program;
-  }
-
-  auto layout = program->getLayout();
-  std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
-  compiled_stages.reserve(layout->getEntryPointCount());
-  for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)
-  {
-    auto entrypoint = layout->getEntryPointByIndex(idx);
-    auto stage = getVulkanShaderFlag(entrypoint->getStage());
-
-    diag = nullptr;
-    Slang::ComPtr<slang::IBlob> kernel = nullptr;
-    validation::checkSlang(
-      program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef())
-    );
-    diagnose(diag);
-
-    VkShaderModuleCreateInfo info{};
-    info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    info.pNext    = nullptr;
-    info.flags    = 0; // Unused by Vulkan API
-    info.codeSize = kernel->getBufferSize();
-    info.pCode    = static_cast<const uint32_t*>(kernel->getBufferPointer());
-    VkShaderModule shader_module;
-    validation::checkVulkan(
-      vkCreateShaderModule(dev->logical_device, &info, nullptr, &shader_module)
-    );
-    deletors.pushFunction([=]{
-      vkDestroyShaderModule(dev->logical_device, shader_module, nullptr);
-    });
-    auto shader_info = vkinit::pipelineShaderStageCreateInfo(stage, shader_module);
-    compiled_stages.push_back(shader_info);
-  }
-  return compiled_stages;
-}
-
 void VulkanEngine::createGraphicsPipelines()
 {
   auto start = std::chrono::steady_clock::now();
   auto orig_path = std::filesystem::current_path();
   std::filesystem::current_path(shader_path);
 
-  // Create global session to work with the Slang API
-  Slang::ComPtr<slang::IGlobalSession> global_session;
-  validation::checkSlang(slang::createGlobalSession(global_session.writeRef()));
-
-  slang::TargetDesc target_desc{};
-  target_desc.format = SLANG_SPIRV;
-  target_desc.profile = global_session->findProfile("sm_6_6");
-  const char* search_paths[] = { "shaders/include" };
-  slang::SessionDesc session_desc{};
-  session_desc.targets = &target_desc;
-  session_desc.targetCount = 1;
-  session_desc.searchPaths = search_paths;
-  session_desc.searchPathCount = 1;
-
-  // Obtain a compilation session that scopes compilation and code loading
-  Slang::ComPtr<slang::ISession> session;
-  validation::checkSlang(
-    global_session->createSession(session_desc, session.writeRef())
-  );
-
   PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
 
-  auto marker2d_slang = compileSlang(session, "shaders/marker.slang",
-    {"vertex2dMain", "geometryMain", "fragmentMain"}
-  );
-
-  PipelineInfo points2d;
-  points2d.shader_stages = marker2d_slang;
-  points2d.vertex_input_info = getVertexDescriptions2d();
-  points2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-  points2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  points2d.multisampling = vkinit::multisampleStateCreateInfo();
-  points2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(points2d);
-
-  auto marker3d_slang = compileSlang(session, "shaders/marker.slang",
-    {"vertex3dMain", "geometryMain", "fragmentMain"}
-  );
-
-  PipelineInfo points3d;
-  points3d.shader_stages = marker3d_slang;
-  points3d.vertex_input_info = getVertexDescriptions3d();
-  points3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-  points3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  points3d.multisampling = vkinit::multisampleStateCreateInfo();
-  points3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(points3d);
-
-  auto tex2d_slang = compileSlang(session, "shaders/texture.slang",
-    {"vertex2dMain", "fragment2dMain"}, "RawColor"
-  );
-
-  PipelineInfo texture2d;
-  texture2d.shader_stages = tex2d_slang;
-  texture2d.vertex_input_info = getVertexDescriptionsVert();
-  texture2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  texture2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  texture2d.multisampling = vkinit::multisampleStateCreateInfo();
-  texture2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(texture2d);
-
-  auto tex3d_slang = compileSlang(session, "shaders/texture.slang",
-    {"vertex3dMain", "fragment3dMain"}
-  );
-
-  PipelineInfo texture3d;
-  texture3d.shader_stages = tex3d_slang;
-  texture3d.vertex_input_info = getVertexDescriptionsVert();
-  texture3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  texture3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  texture3d.multisampling = vkinit::multisampleStateCreateInfo();
-  texture3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(texture3d);
-
-  auto mesh2d_slang = compileSlang(session, "shaders/mesh.slang",
-    {"vertex2dMain", "fragmentMain"}
-  );
-
-  PipelineInfo mesh2d;
-  mesh2d.shader_stages = mesh2d_slang;
-  mesh2d.vertex_input_info = getVertexDescriptions2d();
-  mesh2d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  mesh2d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
-  mesh2d.multisampling = vkinit::multisampleStateCreateInfo();
-  mesh2d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(mesh2d);
-
-  auto mesh3d_slang = compileSlang(session, "shaders/mesh.slang",
-    {"vertex3dMain", "fragmentMain"}
-  );
-
-  PipelineInfo mesh3d;
-  mesh3d.shader_stages = mesh3d_slang;
-  mesh3d.vertex_input_info = getVertexDescriptions3d();
-  mesh3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  mesh3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_LINE);
-  mesh3d.multisampling     = vkinit::multisampleStateCreateInfo();
-  mesh3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(mesh3d);
-
-  auto voxel_implicit_slang = compileSlang(session, "shaders/voxel.slang",
-    {"vertexImplicitMain", "geometryMain", "fragmentMain"}
-  );
-
-  PipelineInfo voxel_implicit;
-  voxel_implicit.shader_stages = voxel_implicit_slang;
-  voxel_implicit.vertex_input_info = getVoxelDescriptions();
-  voxel_implicit.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-  voxel_implicit.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  voxel_implicit.multisampling = vkinit::multisampleStateCreateInfo();
-  voxel_implicit.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(voxel_implicit);
-
-  auto voxel_slang = compileSlang(session, "shaders/voxel.slang",
-    {"vertexMain", "geometryMain", "fragmentMain"}
-  );
-
-  PipelineInfo voxel3d;
-  voxel3d.shader_stages = voxel_slang;
-  voxel3d.vertex_input_info = getVertexDescriptions3d();
-  voxel3d.input_assembly = vkinit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-  voxel3d.rasterizer = vkinit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-  voxel3d.multisampling = vkinit::multisampleStateCreateInfo();
-  voxel3d.color_blend_attachment = vkinit::colorBlendAttachmentState();
-  builder.addPipelineInfo(voxel3d);
-
+  // Iterate through views, generating the corresponding pipelines
+  // TODO: This does not allow adding views at runtime
+  for (auto& view : views)
+  {
+    view.pipeline_index = builder.addPipeline(view.params, dev.get());
+  }
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
   std::cout << pipelines.size() << " pipeline(s) created\n";
 

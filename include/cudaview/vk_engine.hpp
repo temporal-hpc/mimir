@@ -2,7 +2,6 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <slang-com-ptr.h>
 #include <cuda_runtime_api.h>
 
 #include <condition_variable> // std::condition_variable
@@ -55,13 +54,6 @@ private:
   VkRenderPass render_pass = VK_NULL_HANDLE;
   VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
   VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-  std::vector<VkPipeline> pipelines;
-  // 0: points2d
-  // 1: points3d
-  // 2: texture2d
-  // 3: texture3d
-  // 4: mesh2d
-  // 5: mesh3d
   VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
   std::vector<VkCommandBuffer> command_buffers;
   std::vector<VkDescriptorSet> descriptor_sets;
@@ -91,18 +83,14 @@ private:
   uint64_t current_frame = 0;
   std::string shader_path;
 
+  std::vector<VkPipeline> pipelines;
   std::vector<CudaView> views;
 
   FrameBarrier& getCurrentFrame();
-
   void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
     std::vector<VkPipelineStageFlags>& wait_stages) const;
   void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
   VkShaderModule createShaderModule(const std::vector<char>& code);
-  std::vector<VkPipelineShaderStageCreateInfo> compileSlang(
-    Slang::ComPtr<slang::ISession> session, const std::string& module_path,
-    const std::vector<std::string>& entry_names, const std::string& specialization=""
-  );
 
   color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};
 
@@ -135,6 +123,8 @@ private:
   void createInstance();
   void pickPhysicalDevice();
   void createSyncObjects();
+  void updateDescriptorSets();
+  VkRenderPass createRenderPass();
 
   // Swapchain-related functions
   void initSwapchain();
@@ -142,15 +132,10 @@ private:
   void recreateSwapchain();
   void createGraphicsPipelines();
 
-  // Update functions
-  void updateDescriptorSets();
-
   // Depth buffering
   bool hasStencil(VkFormat format);
   VkFormat findDepthFormat();
   VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates,
     VkImageTiling tiling, VkFormatFeatureFlags features
   );
-
-  VkRenderPass createRenderPass();
 };
