@@ -162,6 +162,11 @@ CudaView VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
   return view;
 }
 
+CudaView *VulkanEngine::getView(uint32_t view_index)
+{
+  return &views[view_index];
+}
+
 void VulkanEngine::initVulkan()
 {
   createInstance();

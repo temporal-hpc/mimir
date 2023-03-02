@@ -12,8 +12,12 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
   if (view.resource_type == ResourceType::Texture || view.resource_type == ResourceType::TextureLinear)
   {
     params.source_path = "shaders/texture.slang";
-    params.specializations.push_back("RawColor");
-    // TODO: Check why the vertex entry point names are swapped here
+    // The texture shader needs a specialization for the way to interpret its content
+    // as a fragment. If no specialization is set, use the RawColor no-op.
+    if (params.specializations.empty())
+    {
+      params.specializations.push_back("RawColor");
+    }
     if (view.data_domain == DataDomain::Domain2D)
     {
       params.entrypoints = {"vertex2dMain", "fragment2dMain"};
@@ -165,17 +169,7 @@ PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
   session_desc.searchPathCount = 1;
 
   // Obtain a compilation session that scopes compilation and code loading
-  validation::checkSlang(
-    global_session->createSession(session_desc, session.writeRef())
-  );
-}
-
-void diagnose(slang::IBlob *diag_blob)
-{
-  if (diag_blob != nullptr)
-  {
-    printf("%s", (const char*) diag_blob->getBufferPointer());
-  }
+  validation::checkSlang(global_session->createSession(session_desc, session.writeRef()));
 }
 
 VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
@@ -215,10 +209,11 @@ VkShaderModule PipelineBuilder::createShaderModule(
 std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
   VulkanCudaDevice *dev, const ShaderCompileParameters& params)
 {
+  SlangResult result = SLANG_OK;
   Slang::ComPtr<slang::IBlob> diag = nullptr;
   // Load code from [source_path].slang as a module
   auto module = session->loadModule(params.source_path.c_str(), diag.writeRef());
-  diagnose(diag);
+  validation::checkSlang(result, diag);
 
   std::vector<slang::IComponentType*> components;
   components.reserve(params.entrypoints.size() + 1);
@@ -231,10 +226,10 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
     if (entrypoint != nullptr) components.push_back(entrypoint);
   }
   Slang::ComPtr<slang::IComponentType> program = nullptr;
-  validation::checkSlang(session->createCompositeComponentType(
-    components.data(), components.size(), program.writeRef(), diag.writeRef())
+  result = session->createCompositeComponentType(
+    components.data(), components.size(), program.writeRef(), diag.writeRef()
   );
-  diagnose(diag);
+  validation::checkSlang(result, diag);
 
   if (!params.specializations.empty())
   {
@@ -249,10 +244,10 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
     }
 
     Slang::ComPtr<slang::IComponentType> spec_program;
-    validation::checkSlang(program->specialize(
-      args.data(), args.size(), spec_program.writeRef(), diag.writeRef())
+    result = program->specialize(
+      args.data(), args.size(), spec_program.writeRef(), diag.writeRef()
     );
-    diagnose(diag);
+    validation::checkSlang(result, diag);
     program = spec_program;
   }
 
@@ -266,10 +261,8 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
 
     diag = nullptr;
     Slang::ComPtr<slang::IBlob> kernel = nullptr;
-    validation::checkSlang(
-      program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef())
-    );
-    diagnose(diag);
+    result = program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
+    validation::checkSlang(result, diag);
 
     VkShaderModuleCreateInfo info{};
     info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;

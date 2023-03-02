@@ -21,6 +21,8 @@ enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
 // In the future, it should only have the fields the view actually supports
 struct ViewOptions
 {
+  // Customizable name for the view
+  std::string view_name;
   // Flag indicating if this view should be displayed or not
   bool visible = true;
   // Default primitive color if no per-instance color is set
