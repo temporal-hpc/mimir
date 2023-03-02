@@ -734,6 +734,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   );
   for (const auto& view : views)
   {
+    if (!view.params.options.visible) continue;
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[view.pipeline_index]);
     if (view.params.resource_type == ResourceType::TextureLinear ||
         view.params.resource_type == ResourceType::Texture)
