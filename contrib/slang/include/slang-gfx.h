@@ -98,7 +98,7 @@ enum class DeviceType
 enum class ProjectionStyle
 {
     Unknown,
-    OpenGl, 
+    OpenGl,
     DirectX,
     Vulkan,
     CountOf,
@@ -415,7 +415,7 @@ enum class Format
 // TODO: Width/Height/Depth/whatever should not be used. We should use extentX, extentY, etc.
 struct FormatInfo
 {
-    GfxCount channelCount;         ///< The amount of channels in the format. Only set if the channelType is set 
+    GfxCount channelCount;         ///< The amount of channels in the format. Only set if the channelType is set
     uint8_t channelType;           ///< One of SlangScalarType None if type isn't made up of elements of type. TODO: Change to uint32_t?
 
     Size blockSizeInBytes;         ///< The size of a block in bytes.
@@ -588,7 +588,7 @@ public:
     virtual SLANG_NO_THROW Type SLANG_MCALL getType() = 0;
     virtual SLANG_NO_THROW Result SLANG_MCALL getNativeResourceHandle(InteropHandle* outHandle) = 0;
     virtual SLANG_NO_THROW Result SLANG_MCALL getSharedHandle(InteropHandle* outHandle) = 0;
-	
+
     virtual SLANG_NO_THROW Result SLANG_MCALL setDebugName(const char* name) = 0;
     virtual SLANG_NO_THROW const char* SLANG_MCALL getDebugName() = 0;
 
@@ -706,7 +706,7 @@ public:
         GfxCount numMipLevels = 0;       ///< Number of mip levels - if 0 will create all mip levels
         Format format;                   ///< The resources format
         SampleDesc sampleDesc;           ///< How the resource is sampled
-        ClearValue optimalClearValue;
+        ClearValue* optimalClearValue = nullptr;
     };
 
         /// Data for a single subresource of a texture.
@@ -1726,17 +1726,17 @@ public:
 
     virtual SLANG_NO_THROW void SLANG_MCALL
         setIndexBuffer(IBufferResource* buffer, Format indexFormat, Offset offset = 0) = 0;
-    virtual SLANG_NO_THROW void SLANG_MCALL
+    virtual SLANG_NO_THROW Result SLANG_MCALL
         draw(GfxCount vertexCount, GfxIndex startVertex = 0) = 0;
-    virtual SLANG_NO_THROW void SLANG_MCALL
+    virtual SLANG_NO_THROW Result SLANG_MCALL
         drawIndexed(GfxCount indexCount, GfxIndex startIndex = 0, GfxIndex baseVertex = 0) = 0;
-    virtual SLANG_NO_THROW void SLANG_MCALL drawIndirect(
+    virtual SLANG_NO_THROW Result SLANG_MCALL drawIndirect(
         GfxCount maxDrawCount,
         IBufferResource* argBuffer,
         Offset argOffset,
         IBufferResource* countBuffer = nullptr,
         Offset countOffset = 0) = 0;
-    virtual SLANG_NO_THROW void SLANG_MCALL drawIndexedIndirect(
+    virtual SLANG_NO_THROW Result SLANG_MCALL drawIndexedIndirect(
         GfxCount maxDrawCount,
         IBufferResource* argBuffer,
         Offset argOffset,
@@ -1745,12 +1745,12 @@ public:
     virtual SLANG_NO_THROW void SLANG_MCALL setStencilReference(uint32_t referenceValue) = 0;
     virtual SLANG_NO_THROW Result SLANG_MCALL setSamplePositions(
         GfxCount samplesPerPixel, GfxCount pixelCount, const SamplePosition* samplePositions) = 0;
-    virtual SLANG_NO_THROW void SLANG_MCALL drawInstanced(
+    virtual SLANG_NO_THROW Result SLANG_MCALL drawInstanced(
         GfxCount vertexCount,
         GfxCount instanceCount,
         GfxIndex startVertex,
         GfxIndex startInstanceLocation) = 0;
-    virtual SLANG_NO_THROW void SLANG_MCALL drawIndexedInstanced(
+    virtual SLANG_NO_THROW Result SLANG_MCALL drawIndexedInstanced(
         GfxCount indexCount,
         GfxCount instanceCount,
         GfxIndex startIndexLocation,
@@ -1780,8 +1780,8 @@ public:
     // Sets the current pipeline state along with a pre-created mutable root shader object.
     virtual SLANG_NO_THROW Result SLANG_MCALL
         bindPipelineWithRootObject(IPipelineState* state, IShaderObject* rootObject) = 0;
-    virtual SLANG_NO_THROW void SLANG_MCALL dispatchCompute(int x, int y, int z) = 0;
-    virtual SLANG_NO_THROW void SLANG_MCALL dispatchComputeIndirect(IBufferResource* cmdBuffer, Offset offset) = 0;
+    virtual SLANG_NO_THROW Result SLANG_MCALL dispatchCompute(int x, int y, int z) = 0;
+    virtual SLANG_NO_THROW Result SLANG_MCALL dispatchComputeIndirect(IBufferResource* cmdBuffer, Offset offset) = 0;
 };
 
 enum class AccelerationStructureCopyMode
@@ -1828,7 +1828,7 @@ public:
 
     /// Issues a dispatch command to start ray tracing workload with a ray tracing pipeline.
     /// `rayGenShaderIndex` specifies the index into the shader table that identifies the ray generation shader.
-    virtual SLANG_NO_THROW void SLANG_MCALL dispatchRays(
+    virtual SLANG_NO_THROW Result SLANG_MCALL dispatchRays(
         GfxIndex rayGenShaderIndex,
         IShaderTable* shaderTable,
         GfxCount width,
@@ -1995,7 +1995,7 @@ public:
         0xcd48bd29, 0xee72, 0x41b8, { 0xbc, 0xff, 0xa, 0x2b, 0x3a, 0xaa, 0x6d, 0xeb } \
     }
 
-class ID3D12TransientResourceHeap : public ISlangUnknown
+class ITransientResourceHeapD3D12 : public ISlangUnknown
 {
 public:
     enum class DescriptorType
@@ -2008,7 +2008,7 @@ public:
         Offset& outDescriptorOffset,
         void** outD3DDescriptorHeapHandle) = 0;
 };
-#define SLANG_UUID_ID3D12TransientResourceHeap                                             \
+#define SLANG_UUID_ITransientResourceHeapD3D12                                             \
     {                                                                                  \
         0x9bc6a8bc, 0x5f7a, 0x454a, { 0x93, 0xef, 0x3b, 0x10, 0x5b, 0xb7, 0x63, 0x7e } \
     }
@@ -2052,9 +2052,102 @@ public:
         0xbe91ba6c, 0x784, 0x4308, { 0xa1, 0x0, 0x19, 0xc3, 0x66, 0x83, 0x44, 0xb2 } \
     }
 
+struct AdapterLUID
+{
+    uint8_t luid[16];
+
+    bool operator==(const AdapterLUID& other) const
+    {
+        for (int i = 0; i < sizeof(AdapterLUID::luid); ++i)
+            if (luid[i] != other.luid[i])
+                return false;
+        return true;
+    }
+    bool operator!=(const AdapterLUID& other) const
+    {
+        return !this->operator==(other);
+    }
+};
+
+struct AdapterInfo
+{
+    // Descriptive name of the adapter.
+    char name[128];
+
+    // Unique identifier for the vendor (only available for D3D and Vulkan).
+    uint32_t vendorID;
+
+    // Unique identifier for the physical device among devices from the vendor (only available for D3D and Vulkan)
+    uint32_t deviceID;
+
+    // Logically unique identifier of the adapter.
+    AdapterLUID luid;
+};
+
+class AdapterList
+{
+public:
+    AdapterList(ISlangBlob* blob) : m_blob(blob) {}
+
+    const AdapterInfo* getAdapters() const
+    {
+        return reinterpret_cast<const AdapterInfo*>(m_blob ? m_blob->getBufferPointer() : nullptr);
+    }
+
+    GfxCount getCount() const
+    {
+        return (GfxCount)(m_blob ? m_blob->getBufferSize() / sizeof(AdapterInfo) : 0);
+    }
+
+private:
+    ComPtr<ISlangBlob> m_blob;
+};
+
+struct DeviceLimits
+{
+    /// Maximum dimension for 1D textures.
+    uint32_t maxTextureDimension1D;
+    /// Maximum dimensions for 2D textures.
+    uint32_t maxTextureDimension2D;
+    /// Maximum dimensions for 3D textures.
+    uint32_t maxTextureDimension3D;
+    /// Maximum dimensions for cube textures.
+    uint32_t maxTextureDimensionCube;
+    /// Maximum number of texture layers.
+    uint32_t maxTextureArrayLayers;
+
+    /// Maximum number of vertex input elements in a graphics pipeline.
+    uint32_t maxVertexInputElements;
+    /// Maximum offset of a vertex input element in the vertex stream.
+    uint32_t maxVertexInputElementOffset;
+    /// Maximum number of vertex streams in a graphics pipeline.
+    uint32_t maxVertexStreams;
+    /// Maximum stride of a vertex stream.
+    uint32_t maxVertexStreamStride;
+
+    /// Maximum number of threads per thread group.
+    uint32_t maxComputeThreadsPerGroup;
+    /// Maximum dimensions of a thread group.
+    uint32_t maxComputeThreadGroupSize[3];
+    /// Maximum number of thread groups per dimension in a single dispatch.
+    uint32_t maxComputeDispatchThreadGroups[3];
+
+    /// Maximum number of viewports per pipeline.
+    uint32_t maxViewports;
+    /// Maximum viewport dimensions.
+    uint32_t maxViewportDimensions[2];
+    /// Maximum framebuffer dimensions.
+    uint32_t maxFramebufferDimensions[3];
+
+    /// Maximum samplers visible in a shader stage.
+    uint32_t maxShaderVisibleSamplers;
+};
+
 struct DeviceInfo
 {
     DeviceType deviceType;
+
+    DeviceLimits limits;
 
     BindingStyle bindingStyle;
 
@@ -2089,7 +2182,7 @@ public:
         handleMessage(DebugMessageType type, DebugMessageSource source, const char* message) = 0;
 };
 
-class IDevice: public ISlangUnknown
+class IDevice : public ISlangUnknown
 {
 public:
     struct SlangDesc
@@ -2111,6 +2204,14 @@ public:
         SlangLineDirectiveMode lineDirectiveMode = SLANG_LINE_DIRECTIVE_MODE_DEFAULT;
     };
 
+    struct ShaderCacheDesc
+    {
+        // The root directory for the shader cache. If not set, shader cache is disabled.
+        const char* shaderCachePath = nullptr;
+        // The maximum number of entries stored in the cache. By default, there is no limit.
+        GfxCount maxEntryCount = 0;
+    };
+
     struct InteropHandles
     {
         InteropHandle handles[3] = {};
@@ -2124,8 +2225,8 @@ public:
         // for the ID3D12Device. For Vulkan, the first InteropHandle is the VkInstance, the second is the VkPhysicalDevice,
         // and the third is the VkDevice. For CUDA, this only contains a single value for the CUDADevice.
         InteropHandles existingDeviceHandles;
-        // Name to identify the adapter to use
-        const char* adapter = nullptr;
+        // LUID of the adapter to use. Use getGfxAdapters() to get a list of available adapters.
+        const AdapterLUID* adapterLUID = nullptr;
         // Number of required features.
         GfxCount requiredFeatureCount = 0;
         // Array of required feature names, whose size is `requiredFeatureCount`.
@@ -2134,9 +2235,8 @@ public:
         ISlangUnknown* apiCommandDispatcher = nullptr;
         // The slot (typically UAV) used to identify NVAPI intrinsics. If >=0 NVAPI is required.
         GfxIndex nvapiExtnSlot = -1;
-        // The file system for loading cached shader kernels. The layer does not maintain a strong reference to the object,
-        // instead the user is responsible for holding the object alive during the lifetime of an `IDevice`.
-        ISlangFileSystem* shaderCacheFileSystem = nullptr;
+        // Configurations for the shader cache.
+        ShaderCacheDesc shaderCache = {};
         // Configurations for Slang compiler.
         SlangDesc slang = {};
 
@@ -2363,7 +2463,7 @@ public:
         slang::TypeReflection* type,
         ShaderObjectContainerType container,
         IShaderObject** outObject) = 0;
-    
+
     virtual SLANG_NO_THROW Result SLANG_MCALL createShaderObjectFromTypeLayout(
         slang::TypeLayoutReflection* typeLayout, IShaderObject** outObject) = 0;
 
@@ -2441,7 +2541,7 @@ public:
     virtual SLANG_NO_THROW Result SLANG_MCALL createQueryPool(
         const IQueryPool::Desc& desc, IQueryPool** outPool) = 0;
 
-    
+
     virtual SLANG_NO_THROW Result SLANG_MCALL getAccelerationStructurePrebuildInfo(
         const IAccelerationStructure::BuildInputs& buildInputs,
         IAccelerationStructure::PrebuildInfo* outPrebuildInfo) = 0;
@@ -2473,6 +2573,29 @@ public:
           0x715bdf26, 0x5135, 0x11eb, { 0xAE, 0x93, 0x02, 0x42, 0xAC, 0x13, 0x00, 0x02 } \
     }
 
+struct ShaderCacheStats
+{
+    GfxCount hitCount;
+    GfxCount missCount;
+    GfxCount entryCount;
+};
+
+// These are exclusively used to track hit/miss counts for shader cache entries. Entry hit and
+// miss counts specifically indicate if the file containing relevant shader code was found in
+// the cache, while the general hit and miss counts indicate whether the file was both found and
+// up-to-date.
+class IShaderCache : public ISlangUnknown
+{
+public:
+    virtual SLANG_NO_THROW Result SLANG_MCALL clearShaderCache() = 0;
+    virtual SLANG_NO_THROW Result SLANG_MCALL getShaderCacheStats(ShaderCacheStats* outStats) = 0;
+    virtual SLANG_NO_THROW Result SLANG_MCALL resetShaderCacheStats() = 0;
+};
+
+#define SLANG_UUID_IShaderCache                                                          \
+    {                                                                                    \
+          0x8eccc8ec, 0x5c04, 0x4a51, { 0x99, 0x75, 0x13, 0xf8, 0xfe, 0xa1, 0x59, 0xf3 } \
+    }
 
 class IPipelineCreationAPIDispatcher : public ISlangUnknown
 {
@@ -2508,12 +2631,19 @@ extern "C"
     /// Checks if format is typeless
     SLANG_GFX_API bool SLANG_MCALL gfxIsTypelessFormat(Format format);
 
-    /// Gets information about the format 
+    /// Gets information about the format
     SLANG_GFX_API SlangResult SLANG_MCALL gfxGetFormatInfo(Format format, FormatInfo* outInfo);
+
+    /// Gets a list of available adapters for a given device type
+    SLANG_GFX_API SlangResult SLANG_MCALL gfxGetAdapters(DeviceType type, ISlangBlob** outAdaptersBlob);
 
     /// Given a type returns a function that can construct it, or nullptr if there isn't one
     SLANG_GFX_API SlangResult SLANG_MCALL
         gfxCreateDevice(const IDevice::Desc* desc, IDevice** outDevice);
+
+    /// Reports current set of live objects in gfx.
+    /// Currently this only calls D3D's ReportLiveObjects.
+    SLANG_GFX_API SlangResult SLANG_MCALL gfxReportLiveObjects();
 
     /// Sets a callback for receiving debug messages.
     /// The layer does not hold a strong reference to the callback object.
@@ -2525,6 +2655,14 @@ extern "C"
     SLANG_GFX_API void SLANG_MCALL gfxEnableDebugLayer();
 
     SLANG_GFX_API const char* SLANG_MCALL gfxGetDeviceTypeName(DeviceType type);
+}
+
+/// Gets a list of available adapters for a given device type
+inline AdapterList gfxGetAdapters(DeviceType type)
+{
+    ComPtr<ISlangBlob> blob;
+    gfxGetAdapters(type, blob.writeRef());
+    return AdapterList(blob);
 }
 
 // Extended descs.
@@ -2542,6 +2680,7 @@ struct D3D12DeviceExtendedDesc
     StructType structType = StructType::D3D12DeviceExtendedDesc;
     const char* rootParameterShaderAttributeName = nullptr;
     bool debugBreakOnD3D12Error = false;
+    uint32_t highestShaderModel = 0;
 };
 
 }

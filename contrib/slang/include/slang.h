@@ -380,7 +380,7 @@ convention for interface methods.
 #endif // __cplusplus
 
 #ifndef SLANG_RETURN_NEVER
-#   define SLANG_RETURN_NEVER /* empty */
+#   define SLANG_RETURN_NEVER [[noreturn]]
 #endif // SLANG_RETURN_NEVER
 
 /* Macros for detecting processor */
@@ -1868,6 +1868,7 @@ extern "C"
         SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER,
         SLANG_TYPE_KIND_INTERFACE,
         SLANG_TYPE_KIND_OUTPUT_STREAM,
+        SLANG_TYPE_KIND_MESH_OUTPUT,
         SLANG_TYPE_KIND_SPECIALIZED,
         SLANG_TYPE_KIND_FEEDBACK,
         SLANG_TYPE_KIND_COUNT,
@@ -1958,6 +1959,9 @@ extern "C"
 
         // HLSL register `space`, Vulkan GLSL `set`
         SLANG_PARAMETER_CATEGORY_REGISTER_SPACE,
+
+        // TODO: Ellie, Both APIs treat mesh outputs as more or less varying output,
+        // Does it deserve to be represented here??
 
         // A parameter whose type is to be specialized by a global generic type argument
         SLANG_PARAMETER_CATEGORY_GENERIC,
@@ -2052,7 +2056,7 @@ extern "C"
         SLANG_BINDING_TYPE_COMBINED_TEXTURE_SAMPLER,
         SLANG_BINDING_TYPE_INPUT_RENDER_TARGET,
         SLANG_BINDING_TYPE_INLINE_UNIFORM_DATA,
-        SLANG_BINDING_TYPE_RAY_TRACTING_ACCELERATION_STRUCTURE,
+        SLANG_BINDING_TYPE_RAY_TRACING_ACCELERATION_STRUCTURE,
 
         SLANG_BINDING_TYPE_VARYING_INPUT,
         SLANG_BINDING_TYPE_VARYING_OUTPUT,
@@ -2568,7 +2572,7 @@ namespace slang
         CombinedTextureSampler              = SLANG_BINDING_TYPE_COMBINED_TEXTURE_SAMPLER,
         InputRenderTarget                   = SLANG_BINDING_TYPE_INPUT_RENDER_TARGET,
         InlineUniformData                   = SLANG_BINDING_TYPE_INLINE_UNIFORM_DATA,
-        RayTracingAccelerationStructure     = SLANG_BINDING_TYPE_RAY_TRACTING_ACCELERATION_STRUCTURE,
+        RayTracingAccelerationStructure     = SLANG_BINDING_TYPE_RAY_TRACING_ACCELERATION_STRUCTURE,
         VaryingInput                        = SLANG_BINDING_TYPE_VARYING_INPUT,
         VaryingOutput                       = SLANG_BINDING_TYPE_VARYING_OUTPUT,
         ExistentialValue                    = SLANG_BINDING_TYPE_EXISTENTIAL_VALUE,
@@ -4064,10 +4068,6 @@ namespace slang
             */
         SlangFloatingPointMode  floatingPointMode = SLANG_FLOATING_POINT_MODE_DEFAULT;
 
-            /** Optimization level to use for the target.
-            */
-        SlangOptimizationLevel optimizationLevel = SLANG_OPTIMIZATION_LEVEL_DEFAULT;
-
             /** The line directive mode for output source code.
             */
         SlangLineDirectiveMode lineDirectiveMode = SLANG_LINE_DIRECTIVE_MODE_DEFAULT;
@@ -4420,6 +4420,17 @@ namespace slang
             SlangInt    targetIndex,
             IBlob**     outCode,
             IBlob**     outDiagnostics = nullptr) = 0;
+
+            /** Compute a hash for the entry point at `entryPointIndex` for the chosen `targetIndex`.
+
+            This computes a hash based on all the dependencies for this component type as well as the
+            target settings affecting the compiler backend. The computed hash is used as a key for caching
+            the output of the compiler backend to implement shader caching.
+            */
+        virtual SLANG_NO_THROW void SLANG_MCALL getEntryPointHash(
+            SlangInt    entryPointIndex,
+            SlangInt    targetIndex,
+            IBlob**     outHash) = 0;
 
             /** Specialize the component by binding its specialization parameters to concrete arguments.
 
