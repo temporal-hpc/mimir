@@ -80,7 +80,7 @@ private:
   std::condition_variable cond;
 
   // Cuda interop data
-  cudaStream_t stream;
+  cudaStream_t stream = 0; // TODO: Remove
   uint64_t current_frame = 0;
   std::string shader_path;
 
