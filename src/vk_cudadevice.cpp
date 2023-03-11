@@ -65,10 +65,10 @@ VkImageViewType getViewType(DataDomain domain)
   }
 }
 
-InteropImage VulkanCudaDevice::getInteropImage(ViewParams params)
+InteropMemory VulkanCudaDevice::getInteropImage(ViewParams params)
 {
   constexpr int level_count = 1; // TODO: Should be a parameter
-  InteropImage interop;
+  InteropMemory interop;
 
   // Init texture memory
   auto img_type = getImageType(params.data_domain);
@@ -118,13 +118,28 @@ InteropImage VulkanCudaDevice::getInteropImage(ViewParams params)
   validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
     &interop.mipmap_array, interop.cuda_extmem, &array_desc)
   );
+  validation::checkCuda(cudaMallocMipmappedArray(
+    &interop.cudaMipmappedImageArrayTemp, &format_desc, cuda_extent, level_count
+  ));
+  validation::checkCuda(cudaMallocMipmappedArray(
+    &interop.cudaMipmappedImageArrayOrig, &format_desc, cuda_extent, level_count
+  ));
+
+  deletors.pushFunction([=]{
+    validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
+    validation::checkCuda(cudaFreeMipmappedArray(interop.cudaMipmappedImageArrayTemp));
+    validation::checkCuda(cudaFreeMipmappedArray(interop.cudaMipmappedImageArrayOrig));
+    validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
+    vkDestroyImage(logical_device, interop.image, nullptr);
+    vkFreeMemory(logical_device, interop.memory, nullptr);
+  });
 
   return interop;
 }
 
-InteropBuffer VulkanCudaDevice::getInteropBuffer(ViewParams params)
+InteropMemory VulkanCudaDevice::getInteropBuffer(ViewParams params)
 {
-  InteropBuffer interop;
+  InteropMemory interop;
 
   VkDeviceSize memsize = params.element_size * params.element_count;
   auto usage = getUsageFlags(params.primitive_type, params.resource_type);
@@ -168,7 +183,6 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
 {
   CudaView view;
   view.params = params;
-  view._interop = getInteropBuffer(params);
   view.vk_format = getVulkanFormat(params.texture_format);
   view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
@@ -226,40 +240,10 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
     });
 
     // Init texture memory
-    auto img_type = getImageType(params.data_domain);
-    VkExternalMemoryImageCreateInfo ext_info{};
-    ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-    ext_info.pNext = nullptr;
-    ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
-    view.image = createImage(img_type, view.vk_format, view.vk_extent,
-      VK_IMAGE_TILING_OPTIMAL,
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-      &ext_info
-    );
-
-    VkMemoryRequirements mem_req;
-    vkGetImageMemoryRequirements(logical_device, view.image, &mem_req);
-
-    VkExportMemoryAllocateInfoKHR export_info{};
-    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
-    export_info.pNext = nullptr;
-    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.pNext = &export_info;
-    alloc_info.allocationSize = mem_req.size;
-    auto mem_props = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    alloc_info.memoryTypeIndex = findMemoryType(mem_req.memoryTypeBits, mem_props);
-
-    validation::checkVulkan(
-      vkAllocateMemory(logical_device, &alloc_info, nullptr, &view.img_memory)
-    );
-    vkBindImageMemory(logical_device, view.image, view.img_memory, 0);
+    view._interop = getInteropImage(params);
 
     auto view_type = getViewType(params.data_domain);
-    auto info = vkinit::imageViewCreateInfo(view.image,
+    auto info = vkinit::imageViewCreateInfo(view._interop.image,
       view_type, view.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
     );
     validation::checkVulkan(
@@ -269,9 +253,7 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
 
     deletors.pushFunction([=]{
       vkDestroyImageView(logical_device, view.vk_view, nullptr);
-      vkDestroyImage(logical_device, view.image, nullptr);
-      vkFreeMemory(logical_device, view.img_memory, nullptr);
-    });    
+    });
 
     if (params.resource_type == ResourceType::Texture)
     {
@@ -297,11 +279,12 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
       vkBindBufferMemory(logical_device, staging_buffer, staging_memory, 0);
 
       data = nullptr;
-      vkMapMemory(logical_device, staging_memory, 0, mem_req.size, 0, (void**)&data);
-      memcpy(data, img_data, static_cast<size_t>(mem_req.size));
+      VkDeviceSize memsize = params.element_size * params.element_count;
+      vkMapMemory(logical_device, staging_memory, 0, memsize, 0, (void**)&data);
+      memcpy(data, img_data, static_cast<size_t>(memsize));
       vkUnmapMemory(logical_device, staging_memory);
 
-      transitionImageLayout(view.image,
+      transitionImageLayout(view._interop.image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
       );
 
@@ -320,41 +303,15 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
       region.imageExtent       = view.vk_extent;
       immediateSubmit([=](VkCommandBuffer cmd)
       {
-        vkCmdCopyBufferToImage(cmd, staging_buffer, view.image,
+        vkCmdCopyBufferToImage(cmd, staging_buffer, view._interop.image,
           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
         );
       });
       vkDestroyBuffer(logical_device, staging_buffer, nullptr);
       vkFreeMemory(logical_device, staging_memory, nullptr);
 
-      generateMipmaps(view.image, view.vk_format, image_width, image_height, level_count);
-      importCudaExternalMemory(view._interop.cuda_extmem, view.img_memory, mem_req.size);
+      generateMipmaps(view._interop.image, view.vk_format, image_width, image_height, level_count);
 
-      auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
-      cudaChannelFormatDesc format_desc;
-      format_desc.x = 8;
-      format_desc.y = 8;
-      format_desc.z = 8;
-      format_desc.w = 8;
-      format_desc.f = cudaChannelFormatKindUnsigned;
-
-      cudaExternalMemoryMipmappedArrayDesc array_desc{};
-      array_desc.offset     = 0;
-      array_desc.formatDesc = format_desc;
-      array_desc.extent     = cuda_extent;
-      array_desc.flags      = 0;
-      array_desc.numLevels  = level_count;
-
-      validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
-        &view.cudaMipmappedImageArray, view._interop.cuda_extmem, &array_desc)
-      );
-
-      validation::checkCuda(cudaMallocMipmappedArray(
-        &view.cudaMipmappedImageArrayTemp, &format_desc, cuda_extent, level_count
-      ));
-      validation::checkCuda(cudaMallocMipmappedArray(
-        &view.cudaMipmappedImageArrayOrig, &format_desc, cuda_extent, level_count
-      ));
       // TODO: Handle this properly
       validation::checkCuda(cudaDeviceSynchronize());
 
@@ -363,13 +320,13 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
         cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
 
         validation::checkCuda(cudaGetMipmappedArrayLevel(
-          &mipLevelArray, view.cudaMipmappedImageArray, level_idx
+          &mipLevelArray, view._interop.mipmap_array, level_idx
         ));
         validation::checkCuda(cudaGetMipmappedArrayLevel(
-          &mipLevelArrayTemp, view.cudaMipmappedImageArrayTemp, level_idx
+          &mipLevelArrayTemp, view._interop.cudaMipmappedImageArrayTemp, level_idx
         ));
         validation::checkCuda(cudaGetMipmappedArrayLevel(
-          &mipLevelArrayOrig, view.cudaMipmappedImageArrayOrig, level_idx
+          &mipLevelArrayOrig, view._interop.cudaMipmappedImageArrayOrig, level_idx
         ));
 
         uint32_t width = (image_width >> level_idx) ? (image_width >> level_idx) : 1;
@@ -396,7 +353,7 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
 
       cudaResourceDesc res_desc{};
       res_desc.resType = cudaResourceTypeMipmappedArray;
-      res_desc.res.mipmap.mipmap = view.cudaMipmappedImageArrayOrig;
+      res_desc.res.mipmap.mipmap = view._interop.cudaMipmappedImageArrayOrig;
 
       cudaTextureDesc tex_desc{};
       tex_desc.normalizedCoords    = true;
@@ -427,60 +384,61 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
       ));
 
       deletors.pushFunction([=]{
-        validation::checkCuda(cudaFreeMipmappedArray(view.cudaMipmappedImageArrayTemp));
-        validation::checkCuda(cudaFreeMipmappedArray(view.cudaMipmappedImageArrayOrig));
-        validation::checkCuda(cudaFreeMipmappedArray(view.cudaMipmappedImageArray));
         validation::checkCuda(cudaDestroyTextureObject(view.textureObjMipMapInput));
       });
       return view;
     }
     else if (params.resource_type == ResourceType::TextureLinear)
     {
-      transitionImageLayout(view.image,
+      transitionImageLayout(view._interop.image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
       );
     }
   }
-  else if (params.resource_type == ResourceType::StructuredBuffer)
+  else
   {
-    auto buffer_size = sizeof(float3) * params.element_count;
-
-    // Test buffer for asking about its memory properties
-    auto test_buffer = createBuffer(1, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    vkGetBufferMemoryRequirements(logical_device, test_buffer, &requirements);
-    auto vert_size_align = getAlignedSize(buffer_size, requirements.alignment);
-    requirements.size = vert_size_align;
-    vkDestroyBuffer(logical_device, test_buffer, nullptr);
-
-    // Allocate memory and bind it to buffers
-    view.aux_memory = allocateMemory(requirements,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    view.vertex_buffer = createBuffer(buffer_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    vkBindBufferMemory(logical_device, view.vertex_buffer, view.aux_memory, 0);
-
-    float3 *data = nullptr;
-    vkMapMemory(logical_device, view.aux_memory, 0, buffer_size, 0, (void**)&data);
-    auto slice_size = view.vk_extent.width * view.vk_extent.height;
-    for (uint32_t z = 0; z < view.vk_extent.depth; ++z)
+    view._interop = getInteropBuffer(params);
+    if (params.resource_type == ResourceType::StructuredBuffer)
     {
-      auto rz = static_cast<float>(z) / view.vk_extent.depth;
-      for (uint32_t y = 0; y < view.vk_extent.height; ++y)
+      auto buffer_size = sizeof(float3) * params.element_count;
+
+      // Test buffer for asking about its memory properties
+      auto test_buffer = createBuffer(1, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+      vkGetBufferMemoryRequirements(logical_device, test_buffer, &requirements);
+      auto vert_size_align = getAlignedSize(buffer_size, requirements.alignment);
+      requirements.size = vert_size_align;
+      vkDestroyBuffer(logical_device, test_buffer, nullptr);
+
+      // Allocate memory and bind it to buffers
+      view.aux_memory = allocateMemory(requirements,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+      );
+      view.vertex_buffer = createBuffer(buffer_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+      vkBindBufferMemory(logical_device, view.vertex_buffer, view.aux_memory, 0);
+
+      float3 *data = nullptr;
+      vkMapMemory(logical_device, view.aux_memory, 0, buffer_size, 0, (void**)&data);
+      auto slice_size = view.vk_extent.width * view.vk_extent.height;
+      for (uint32_t z = 0; z < view.vk_extent.depth; ++z)
       {
-        auto ry = static_cast<float>(y) / view.vk_extent.height;
-        for (uint32_t x = 0; x < view.vk_extent.width; ++x)
+        auto rz = static_cast<float>(z) / view.vk_extent.depth;
+        for (uint32_t y = 0; y < view.vk_extent.height; ++y)
         {
-          auto rx = static_cast<float>(x) / view.vk_extent.width;
-          data[slice_size * z + view.vk_extent.width * y + x] = float3{rx, ry, rz};
+          auto ry = static_cast<float>(y) / view.vk_extent.height;
+          for (uint32_t x = 0; x < view.vk_extent.width; ++x)
+          {
+            auto rx = static_cast<float>(x) / view.vk_extent.width;
+            data[slice_size * z + view.vk_extent.width * y + x] = float3{rx, ry, rz};
+          }
         }
       }
-    }
-    vkUnmapMemory(logical_device, view.aux_memory);
+      vkUnmapMemory(logical_device, view.aux_memory);
 
-    deletors.pushFunction([=]{
-      vkDestroyBuffer(logical_device, view.vertex_buffer, nullptr);
-      vkFreeMemory(logical_device, view.aux_memory, nullptr);
-    });
+      deletors.pushFunction([=]{
+        vkDestroyBuffer(logical_device, view.vertex_buffer, nullptr);
+        vkFreeMemory(logical_device, view.aux_memory, nullptr);
+      });
+    }
   }
   return view;
 }
@@ -625,7 +583,7 @@ InteropBarrier VulkanCudaDevice::createInteropBarrier()
 
 void VulkanCudaDevice::updateTexture(CudaView view)
 {
-  transitionImageLayout(view.image,
+  transitionImageLayout(view._interop.image,
     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
   );
 
@@ -644,12 +602,12 @@ void VulkanCudaDevice::updateTexture(CudaView view)
   region.imageExtent = view.vk_extent;
   immediateSubmit([=](VkCommandBuffer cmd)
   {
-    vkCmdCopyBufferToImage(cmd, view._interop.data_buffer, view.image,
+    vkCmdCopyBufferToImage(cmd, view._interop.data_buffer, view._interop.image,
       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
     );
   });
 
-  transitionImageLayout(view.image,
+  transitionImageLayout(view._interop.image,
     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
 }

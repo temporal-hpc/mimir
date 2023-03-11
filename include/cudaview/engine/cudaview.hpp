@@ -49,8 +49,16 @@ struct ViewParams
 };
 
 // Struct for storing Vulkan/Cuda interoperatibility members 
-struct InteropBuffer
+struct InteropMemory
 {
+  // Image members (TODO: Should be separated)
+  std::vector<cudaSurfaceObject_t> surfaceObjectList;
+  cudaMipmappedArray_t mipmap_array = nullptr;
+  VkImage image = VK_NULL_HANDLE;
+  // TODO: Delete or move
+  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = 0;
+  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = 0;
+
   // Raw Cuda pointer which can be passed to the library user
   // for use in kernels, as per cudaMalloc
   void *cuda_ptr = nullptr;
@@ -62,24 +70,11 @@ struct InteropBuffer
   cudaExternalMemory_t cuda_extmem = nullptr;
 };
 
-// Struct for storing Vulkan/Cuda interoperatibility members 
-struct InteropImage
-{
-  std::vector<cudaSurfaceObject_t> surfaceObjectList;
-  cudaMipmappedArray_t mipmap_array = nullptr;
-  // Vulkan image handle
-  VkImage image = VK_NULL_HANDLE;
-  // Vulkan external device memory
-  VkDeviceMemory memory = VK_NULL_HANDLE;
-  // Cuda external memory handle, provided by the Cuda interop API
-  cudaExternalMemory_t cuda_extmem = nullptr;
-};
-
 struct CudaView
 {
   ViewParams params;
   uint32_t pipeline_index = 0;
-  InteropBuffer _interop;
+  InteropMemory _interop;
 
   // Auxiliary memory members
   VkBuffer vertex_buffer = VK_NULL_HANDLE;
@@ -91,15 +86,10 @@ struct CudaView
   // Image members
   VkFormat vk_format = VK_FORMAT_UNDEFINED;
   VkExtent3D vk_extent = {0, 0, 0};
-  VkDeviceMemory img_memory = VK_NULL_HANDLE;
-  VkImage image = VK_NULL_HANDLE;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;
 
   // Cudaarrays (TODO: Move)
-  cudaMipmappedArray_t cudaMipmappedImageArray = 0;
-  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = 0;
-  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = 0;
   std::vector<cudaSurfaceObject_t> surfaceObjectList, surfaceObjectListTemp;
   cudaSurfaceObject_t *d_surfaceObjectList = nullptr;
   cudaSurfaceObject_t *d_surfaceObjectListTemp = nullptr;
