@@ -25,9 +25,7 @@ struct VulkanCudaDevice : public VulkanDevice
   );
   void updateTexture(CudaView mapped);
   InteropBarrier createInteropBarrier();
-  void importCudaExternalMemory(void **cuda_ptr,
-    cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size
-  );
+  void importCudaExternalMemory(cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size);
   void *getMemoryHandle(VkDeviceMemory memory,
     VkExternalMemoryHandleTypeFlagBits handle_type
   );

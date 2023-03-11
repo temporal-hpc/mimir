@@ -89,9 +89,15 @@ MappedMemory VulkanCudaDevice::getMappedMemory(ViewParams params)
   );
 
   vkBindBufferMemory(logical_device, mapped.data_buffer, mapped.memory, 0);
-  importCudaExternalMemory(
-    &mapped.cuda_ptr, mapped.cuda_extmem, mapped.memory, memsize
+  importCudaExternalMemory(mapped.cuda_extmem, mapped.memory, memsize);
+  cudaExternalMemoryBufferDesc buffer_desc{};
+  buffer_desc.offset = 0;
+  buffer_desc.size   = memsize;
+  buffer_desc.flags  = 0;
+  validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+    &mapped.cuda_ptr, mapped.cuda_extmem, &buffer_desc)
   );
+  
   deletors.pushFunction([=]{
     validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
     vkDestroyBuffer(logical_device, mapped.data_buffer, nullptr);
@@ -267,14 +273,7 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
       vkDestroyBuffer(logical_device, staging_buffer, nullptr);
       vkFreeMemory(logical_device, staging_memory, nullptr);
 
-      cudaExternalMemoryHandleDesc extmem_desc{};
-      extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
-      extmem_desc.size = mem_req.size;
-      extmem_desc.handle.fd = (int)(uintptr_t)getMemoryHandle(
-        view.img_memory, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-      );
-
-      validation::checkCuda(cudaImportExternalMemory(&view._interop.cuda_extmem, &extmem_desc));
+      importCudaExternalMemory(view._interop.cuda_extmem, view.img_memory, mem_req.size);
 
       auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
       cudaChannelFormatDesc format_desc;
@@ -498,7 +497,7 @@ void *VulkanCudaDevice::getMemoryHandle(VkDeviceMemory memory,
   return (void*)(uintptr_t)fd;
 }
 
-void VulkanCudaDevice::importCudaExternalMemory(void **cuda_ptr,
+void VulkanCudaDevice::importCudaExternalMemory(
   cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size)
 {
   cudaExternalMemoryHandleDesc extmem_desc{};
@@ -507,17 +506,7 @@ void VulkanCudaDevice::importCudaExternalMemory(void **cuda_ptr,
   extmem_desc.handle.fd = (int)(uintptr_t)getMemoryHandle(
     vk_mem, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
   );
-
   validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
-
-  cudaExternalMemoryBufferDesc buffer_desc{};
-  buffer_desc.offset = 0;
-  buffer_desc.size   = size;
-  buffer_desc.flags  = 0;
-
-  validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-    cuda_ptr, cuda_mem, &buffer_desc)
-  );
 }
 
 void *VulkanCudaDevice::getSemaphoreHandle(VkSemaphore semaphore,
