@@ -1,7 +1,5 @@
 #include "cudaview/engine/vk_cudadevice.hpp"
 
-#include <cuda_runtime.h>
-
 #include <cstring> // std::memcpy
 
 #include "cudaview/vk_types.hpp"
@@ -9,6 +7,29 @@
 #include "internal/color.hpp"
 #include "internal/utils.hpp"
 #include "internal/validation.hpp"
+
+VkMemoryRequirements VulkanCudaDevice::getMemoryRequiements(VkBufferUsageFlags usage,
+  const std::vector<uint32_t>& sizes)
+{
+  VkMemoryRequirements reqs;
+
+  // Test buffer for asking about its memory properties
+  auto test_buffer = createBuffer(1, usage);
+  vkGetBufferMemoryRequirements(logical_device, test_buffer, &reqs);
+  // Get maximum aligned size to set it in the requirements struct
+  uint32_t max_aligned_size = 0;
+  for (auto size : sizes)
+  {
+    auto aligned_size = getAlignedSize(size, reqs.alignment);
+    if (aligned_size > max_aligned_size) max_aligned_size = aligned_size;
+  }
+  reqs.size = max_aligned_size;
+  // Destroy the test buffer, since a proper one should be created with
+  // the returned requirements 
+  vkDestroyBuffer(logical_device, test_buffer, nullptr);
+  
+  return reqs;
+}
 
 void VulkanCudaDevice::generateMipmaps(VkImage image, VkFormat img_format,
   int img_width, int img_height, int mip_levels)

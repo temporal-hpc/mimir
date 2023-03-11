@@ -48,12 +48,17 @@ struct ViewParams
   ViewOptions options;
 };
 
+// Struct for storing Vulkan/Cuda interoperatibility members 
 struct MappedMemory
 {
-  // Interop members
+  // Raw Cuda pointer which can be passed to the library user
+  // for use in kernels, as per cudaMalloc
   void *cuda_ptr = nullptr;
+  // Cuda external memory handle, provided by the Cuda interop API
   cudaExternalMemory_t cuda_extmem = nullptr;
+  // Vulkan memory buffer
   VkBuffer data_buffer = VK_NULL_HANDLE;
+  // Vulkan external device memory
   VkDeviceMemory memory = VK_NULL_HANDLE;  
 };
 
@@ -61,7 +66,6 @@ struct CudaView
 {
   ViewParams params;
   uint32_t pipeline_index = 0;
-
   MappedMemory _interop;
 
   // Auxiliary memory members

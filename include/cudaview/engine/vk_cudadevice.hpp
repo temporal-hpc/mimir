@@ -1,8 +1,10 @@
 #pragma once
 
 #include "cudaview/engine/vk_device.hpp"
-#include "cudaview/vk_types.hpp"
 
+#include <vector>
+
+#include "cudaview/vk_types.hpp"
 #include "cudaview/engine/cudaview.hpp"
 #include "cudaview/engine/barrier.hpp"
 
@@ -13,8 +15,18 @@ struct VulkanCudaDevice : public VulkanDevice
   // Use the constructor from the base VulkanDevice class
   using VulkanDevice::VulkanDevice;
 
-  MappedMemory getMappedMemory(ViewParams params);
+  // Main library function, which setups all the visualization interop
+  // TODO: Return the created view with a better handle
   CudaView createView(ViewParams params);
+  // TODO: Currently called inside createView, but should be called from API
+  MappedMemory getMappedMemory(ViewParams params);
+
+  // Get memory requirements for later allocation
+  // TODO: Use span instead of vector
+  VkMemoryRequirements getMemoryRequiements(VkBufferUsageFlags usage,
+    const std::vector<uint32_t>& sizes
+  );
+
   void createUniformBuffers(CudaView& view, uint32_t img_count);
   void updateUniformBuffers(CudaView& view, uint32_t image_idx,
     ModelViewProjection mvp, PrimitiveParams options, SceneParams scene
