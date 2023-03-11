@@ -49,24 +49,37 @@ struct ViewParams
 };
 
 // Struct for storing Vulkan/Cuda interoperatibility members 
-struct InteropMemory
+struct InteropBuffer
 {
   // Raw Cuda pointer which can be passed to the library user
   // for use in kernels, as per cudaMalloc
   void *cuda_ptr = nullptr;
-  // Cuda external memory handle, provided by the Cuda interop API
-  cudaExternalMemory_t cuda_extmem = nullptr;
+  // Vulkan buffer handle
+  VkBuffer data_buffer = VK_NULL_HANDLE;
   // Vulkan external device memory
   VkDeviceMemory memory = VK_NULL_HANDLE;  
-  // Vulkan memory buffer (TODO: Move)
-  VkBuffer data_buffer = VK_NULL_HANDLE;
+  // Cuda external memory handle, provided by the Cuda interop API
+  cudaExternalMemory_t cuda_extmem = nullptr;
+};
+
+// Struct for storing Vulkan/Cuda interoperatibility members 
+struct InteropImage
+{
+  std::vector<cudaSurfaceObject_t> surfaceObjectList;
+  cudaMipmappedArray_t mipmap_array = nullptr;
+  // Vulkan image handle
+  VkImage image = VK_NULL_HANDLE;
+  // Vulkan external device memory
+  VkDeviceMemory memory = VK_NULL_HANDLE;
+  // Cuda external memory handle, provided by the Cuda interop API
+  cudaExternalMemory_t cuda_extmem = nullptr;
 };
 
 struct CudaView
 {
   ViewParams params;
   uint32_t pipeline_index = 0;
-  InteropMemory _interop;
+  InteropBuffer _interop;
 
   // Auxiliary memory members
   VkBuffer vertex_buffer = VK_NULL_HANDLE;

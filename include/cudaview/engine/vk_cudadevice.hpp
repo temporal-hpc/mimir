@@ -17,7 +17,8 @@ struct VulkanCudaDevice : public VulkanDevice
   // TODO: Return the created view with a better handle
   CudaView createView(ViewParams params);
   // TODO: Currently called inside createView, but should be called from API
-  InteropMemory getInteropMemory(ViewParams params);
+  InteropBuffer getInteropBuffer(ViewParams params);
+  InteropImage getInteropImage(ViewParams params);
 
   void createUniformBuffers(CudaView& view, uint32_t img_count);
   void updateUniformBuffers(CudaView& view, uint32_t image_idx,

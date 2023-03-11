@@ -65,9 +65,66 @@ VkImageViewType getViewType(DataDomain domain)
   }
 }
 
-InteropMemory VulkanCudaDevice::getInteropMemory(ViewParams params)
+InteropImage VulkanCudaDevice::getInteropImage(ViewParams params)
 {
-  InteropMemory interop;
+  constexpr int level_count = 1; // TODO: Should be a parameter
+  InteropImage interop;
+
+  // Init texture memory
+  auto img_type = getImageType(params.data_domain);
+  VkExternalMemoryImageCreateInfo ext_info{};
+  ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+  ext_info.pNext = nullptr;
+  ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+  auto img_format = getVulkanFormat(params.texture_format);
+  VkExtent3D img_extent = {params.extent.x, params.extent.y, params.extent.z};
+  interop.image = createImage(img_type, img_format, img_extent,
+    VK_IMAGE_TILING_OPTIMAL, 
+    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+    &ext_info
+  );
+
+  VkExportMemoryAllocateInfoKHR export_info{};
+  export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+  export_info.pNext = nullptr;
+  export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+  VkMemoryRequirements reqs;
+  vkGetImageMemoryRequirements(logical_device, interop.image, &reqs);
+  interop.memory = allocateMemory(reqs,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
+  );
+
+  vkBindImageMemory(logical_device, interop.image, interop.memory, 0);
+  importCudaExternalMemory(interop.cuda_extmem, interop.memory, reqs.size);
+  
+  cudaChannelFormatDesc format_desc;
+  format_desc.x = 8;
+  format_desc.y = 8;
+  format_desc.z = 8;
+  format_desc.w = 8;
+  format_desc.f = cudaChannelFormatKindUnsigned;
+  size_t image_width  = params.extent.x;
+  size_t image_height = params.extent.y;
+  auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
+
+  cudaExternalMemoryMipmappedArrayDesc array_desc{};
+  array_desc.offset     = 0;
+  array_desc.formatDesc = format_desc;
+  array_desc.extent     = cuda_extent;
+  array_desc.flags      = 0;
+  array_desc.numLevels  = level_count;
+
+  validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
+    &interop.mipmap_array, interop.cuda_extmem, &array_desc)
+  );
+
+  return interop;
+}
+
+InteropBuffer VulkanCudaDevice::getInteropBuffer(ViewParams params)
+{
+  InteropBuffer interop;
 
   VkDeviceSize memsize = params.element_size * params.element_count;
   auto usage = getUsageFlags(params.primitive_type, params.resource_type);
@@ -82,9 +139,9 @@ InteropMemory VulkanCudaDevice::getInteropMemory(ViewParams params)
   export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
   export_info.pNext = nullptr;
   export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-  VkMemoryRequirements requirements;
-  vkGetBufferMemoryRequirements(logical_device, interop.data_buffer, &requirements);
-  interop.memory = allocateMemory(requirements,
+  VkMemoryRequirements reqs;
+  vkGetBufferMemoryRequirements(logical_device, interop.data_buffer, &reqs);
+  interop.memory = allocateMemory(reqs,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
   );
 
@@ -111,7 +168,7 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
 {
   CudaView view;
   view.params = params;
-  view._interop = getInteropMemory(params);
+  view._interop = getInteropBuffer(params);
   view.vk_format = getVulkanFormat(params.texture_format);
   view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
@@ -267,12 +324,10 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
         );
       });
-
-      generateMipmaps(view.image, view.vk_format, image_width, image_height, level_count);
-
       vkDestroyBuffer(logical_device, staging_buffer, nullptr);
       vkFreeMemory(logical_device, staging_memory, nullptr);
 
+      generateMipmaps(view.image, view.vk_format, image_width, image_height, level_count);
       importCudaExternalMemory(view._interop.cuda_extmem, view.img_memory, mem_req.size);
 
       auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
