@@ -65,9 +65,9 @@ VkImageViewType getViewType(DataDomain domain)
   }
 }
 
-MappedMemory VulkanCudaDevice::getMappedMemory(ViewParams params)
+InteropMemory VulkanCudaDevice::getInteropMemory(ViewParams params)
 {
-  MappedMemory mapped;
+  InteropMemory interop;
 
   VkDeviceSize memsize = params.element_size * params.element_count;
   auto usage = getUsageFlags(params.primitive_type, params.resource_type);
@@ -76,42 +76,42 @@ MappedMemory VulkanCudaDevice::getMappedMemory(ViewParams params)
   VkExternalMemoryBufferCreateInfo extmem_info{};
   extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
   extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-  mapped.data_buffer = createBuffer(memsize, usage, &extmem_info);
+  interop.data_buffer = createBuffer(memsize, usage, &extmem_info);
 
   VkExportMemoryAllocateInfoKHR export_info{};
   export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
   export_info.pNext = nullptr;
   export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
   VkMemoryRequirements requirements;
-  vkGetBufferMemoryRequirements(logical_device, mapped.data_buffer, &requirements);
-  mapped.memory = allocateMemory(requirements,
+  vkGetBufferMemoryRequirements(logical_device, interop.data_buffer, &requirements);
+  interop.memory = allocateMemory(requirements,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
   );
 
-  vkBindBufferMemory(logical_device, mapped.data_buffer, mapped.memory, 0);
-  importCudaExternalMemory(mapped.cuda_extmem, mapped.memory, memsize);
+  vkBindBufferMemory(logical_device, interop.data_buffer, interop.memory, 0);
+  importCudaExternalMemory(interop.cuda_extmem, interop.memory, memsize);
   cudaExternalMemoryBufferDesc buffer_desc{};
   buffer_desc.offset = 0;
   buffer_desc.size   = memsize;
   buffer_desc.flags  = 0;
   validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-    &mapped.cuda_ptr, mapped.cuda_extmem, &buffer_desc)
+    &interop.cuda_ptr, interop.cuda_extmem, &buffer_desc)
   );
   
   deletors.pushFunction([=]{
-    validation::checkCuda(cudaDestroyExternalMemory(mapped.cuda_extmem));
-    vkDestroyBuffer(logical_device, mapped.data_buffer, nullptr);
-    vkFreeMemory(logical_device, mapped.memory, nullptr);
+    validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
+    vkDestroyBuffer(logical_device, interop.data_buffer, nullptr);
+    vkFreeMemory(logical_device, interop.memory, nullptr);
   }); 
 
-  return mapped;
+  return interop;
 }
 
 CudaView VulkanCudaDevice::createView(ViewParams params)
 {
   CudaView view;
   view.params = params;
-  view._interop = getMappedMemory(params);
+  view._interop = getInteropMemory(params);
   view.vk_format = getVulkanFormat(params.texture_format);
   view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
