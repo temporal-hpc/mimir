@@ -22,7 +22,7 @@ enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
 struct ViewOptions
 {
   // Customizable name for the view
-  std::string view_name;
+  std::string name;
   // Flag indicating if this view should be displayed or not
   bool visible = true;
   // Default primitive color if no per-instance color is set
@@ -48,16 +48,21 @@ struct ViewParams
   ViewOptions options;
 };
 
+struct MappedMemory
+{
+  // Interop members
+  void *cuda_ptr = nullptr;
+  cudaExternalMemory_t cuda_extmem = nullptr;
+  VkBuffer data_buffer = VK_NULL_HANDLE;
+  VkDeviceMemory memory = VK_NULL_HANDLE;  
+};
+
 struct CudaView
 {
   ViewParams params;
   uint32_t pipeline_index = 0;
 
-  // Interop members
-  void *cuda_ptr = nullptr;
-  cudaExternalMemory_t cuda_extmem = nullptr;
-  VkBuffer interop_buffer = VK_NULL_HANDLE;
-  VkDeviceMemory interop_memory = VK_NULL_HANDLE;
+  MappedMemory _interop;
 
   // Auxiliary memory members
   VkBuffer vertex_buffer = VK_NULL_HANDLE;

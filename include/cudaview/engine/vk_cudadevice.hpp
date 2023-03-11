@@ -6,10 +6,14 @@
 #include "cudaview/engine/cudaview.hpp"
 #include "cudaview/engine/barrier.hpp"
 
+// Class for encapsulating Vulkan device functions with Cuda interop 
+// Inherited from VulkanDevice to encapsulate Cuda-related code
 struct VulkanCudaDevice : public VulkanDevice
 {
+  // Use the constructor from the base VulkanDevice class
   using VulkanDevice::VulkanDevice;
 
+  MappedMemory getMappedMemory(ViewParams params);
   CudaView createView(ViewParams params);
   void createUniformBuffers(CudaView& view, uint32_t img_count);
   void updateUniformBuffers(CudaView& view, uint32_t image_idx,

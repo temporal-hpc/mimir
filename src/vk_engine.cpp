@@ -160,7 +160,7 @@ CudaView VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
   dev->createUniformBuffers(view, swap->image_count);
   views.push_back(view);
   updateDescriptorSets();
-  *ptr_devmem = view.cuda_ptr;
+  *ptr_devmem = view._interop.cuda_ptr;
   return view;
 }
 
@@ -762,7 +762,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     {
       if (view.params.primitive_type == PrimitiveType::Voxels)
       {
-        VkBuffer vertex_buffers[] = { view.interop_buffer };
+        VkBuffer vertex_buffers[] = { view._interop.data_buffer };
         VkDeviceSize offsets[] = { 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
@@ -780,7 +780,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     {
       if (view.params.primitive_type == PrimitiveType::Voxels)
       {
-        VkBuffer vertex_buffers[] = { view.vertex_buffer, view.interop_buffer };
+        VkBuffer vertex_buffers[] = { view.vertex_buffer, view._interop.data_buffer };
         VkDeviceSize offsets[] = { 0, 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
@@ -793,7 +793,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
       {
         case PrimitiveType::Points:
         {
-          VkBuffer vertex_buffers[] = { view.interop_buffer };
+          VkBuffer vertex_buffers[] = { view._interop.data_buffer };
           VkDeviceSize offsets[] = { 0 };
           auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
           vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
@@ -802,10 +802,10 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         }
         case PrimitiveType::Edges:
         {
-          VkBuffer vertexBuffers[] = { views[0].interop_buffer };
+          VkBuffer vertexBuffers[] = { views[0]._interop.data_buffer };
           VkDeviceSize offsets[] = {0};
           vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-          vkCmdBindIndexBuffer(cmd, view.interop_buffer, 0, VK_INDEX_TYPE_UINT32);
+          vkCmdBindIndexBuffer(cmd, view._interop.data_buffer, 0, VK_INDEX_TYPE_UINT32);
           vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
           break;
         }

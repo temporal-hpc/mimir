@@ -263,7 +263,7 @@ void VulkanCudaDevice::updateTexture(CudaView view)
   region.imageExtent = view.vk_extent;
   immediateSubmit([=](VkCommandBuffer cmd)
   {
-    vkCmdCopyBufferToImage(cmd, view.interop_buffer, view.image,
+    vkCmdCopyBufferToImage(cmd, view._interop.data_buffer, view.image,
       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
     );
   });
