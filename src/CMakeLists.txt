@@ -8,7 +8,6 @@ target_sources(cudaview PRIVATE
   io.cpp
   validation.cpp
   vk_cudadevice.cpp
-  vk_createview.cpp
   vk_device.cpp
   vk_engine.cpp
   vk_framebuffer.cpp

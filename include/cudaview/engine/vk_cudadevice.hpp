@@ -2,8 +2,6 @@
 
 #include "cudaview/engine/vk_device.hpp"
 
-#include <vector>
-
 #include "cudaview/vk_types.hpp"
 #include "cudaview/engine/cudaview.hpp"
 #include "cudaview/engine/barrier.hpp"
@@ -21,12 +19,6 @@ struct VulkanCudaDevice : public VulkanDevice
   // TODO: Currently called inside createView, but should be called from API
   MappedMemory getMappedMemory(ViewParams params);
 
-  // Get memory requirements for later allocation
-  // TODO: Use span instead of vector
-  VkMemoryRequirements getMemoryRequiements(VkBufferUsageFlags usage,
-    const std::vector<uint32_t>& sizes
-  );
-
   void createUniformBuffers(CudaView& view, uint32_t img_count);
   void updateUniformBuffers(CudaView& view, uint32_t image_idx,
     ModelViewProjection mvp, PrimitiveParams options, SceneParams scene
@@ -42,7 +34,5 @@ struct VulkanCudaDevice : public VulkanDevice
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
-  void generateMipmaps(VkImage image, VkFormat img_format,
-    int img_width, int img_height, int mip_levels
-  );
+
 };

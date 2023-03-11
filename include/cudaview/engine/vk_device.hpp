@@ -45,8 +45,16 @@ struct VulkanDevice
     VkImageTiling tiling, VkImageUsageFlags usage, const void *extmem_info = nullptr
   );
   VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
+  void generateMipmaps(VkImage image, VkFormat img_format,
+    int img_width, int img_height, int mip_levels
+  );
   VkDescriptorPool createDescriptorPool(
     const std::vector<VkDescriptorPoolSize>& sizes
+  );
+  // Get memory requirements for later allocation
+  // TODO: Use span instead of vector
+  VkMemoryRequirements getMemoryRequiements(VkBufferUsageFlags usage,
+    const std::vector<uint32_t>& sizes
   );
   std::vector<VkDescriptorSet> createDescriptorSets(
     VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count
