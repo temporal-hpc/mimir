@@ -10,6 +10,7 @@ struct SceneParams
   float4 bg_color;
   int3 extent;
   float depth;
+  int2 resolution;
 };
 
 struct PrimitiveParams

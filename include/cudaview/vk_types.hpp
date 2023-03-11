@@ -23,8 +23,8 @@ struct SceneParams
 {
   glm::vec4 bg_color;
   glm::ivec3 extent;
-  // TODO: Investigate what happens with alignment after a vec3
   float depth;
+  glm::ivec2 resolution;
 };
 
 struct Vertex {

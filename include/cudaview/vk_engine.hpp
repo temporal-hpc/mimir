@@ -45,6 +45,7 @@ public:
   void setBackgroundColor(color::rgba<float> color);
 
 private:
+  int _width = 0, _height = 0;
   std::unique_ptr<VulkanCudaDevice> dev;
   std::unique_ptr<VulkanSwapchain> swap;
   std::vector<VulkanFramebuffer> fbs;

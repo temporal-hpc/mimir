@@ -58,6 +58,8 @@ VulkanEngine::~VulkanEngine()
 
 void VulkanEngine::init(int width, int height)
 {
+  _width = width;
+  _height = height;
   glfwInit();
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
@@ -672,9 +674,23 @@ void VulkanEngine::renderFrame()
 
   for (auto& view : views)
   {
-    dev->updateUniformBuffers(view, 
-      image_idx, camera->matrices.view, camera->matrices.perspective, bg_color
-    );
+    ModelViewProjection mvp{};
+    mvp.model = glm::mat4(1.f);
+    mvp.view  = camera->matrices.view;
+    mvp.proj  = camera->matrices.perspective;
+
+    PrimitiveParams options{};
+    options.color = color::getColor(view.params.options.color);
+    options.size = view.params.options.size;
+
+    SceneParams scene{};
+    auto extent = view.params.extent;
+    scene.bg_color = color::getColor(bg_color);
+    scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
+    scene.depth = view.params.options.depth;
+    scene.resolution = glm::ivec2{_width, _height};
+
+    dev->updateUniformBuffers(view, image_idx, mvp, options, scene);
   }
 
   std::vector<VkSemaphore> wait_semaphores;
@@ -685,7 +701,7 @@ void VulkanEngine::renderFrame()
 
   std::vector<VkSemaphore> signal_semaphores;
   getSignalFrameSemaphores(signal_semaphores);
-  signal_semaphores.push_back(frame.render_semaphore);//vk_timeline_semaphore
+  signal_semaphores.push_back(frame.render_semaphore); //vk_timeline_semaphore
 
   auto submit_info = vkinit::submitInfo(&cmd);
   submit_info.waitSemaphoreCount   = wait_semaphores.size();
