@@ -195,20 +195,20 @@ void VulkanEngine::initVulkan()
 
   // Create descriptor set layout
   descriptor_layout = dev->createDescriptorSetLayout({
-    vkinit::descriptorLayoutBinding(0, // mvp
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
+    vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
     ),
-    vkinit::descriptorLayoutBinding(1, // scene
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
+    vkinit::descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
     ),
-    vkinit::descriptorLayoutBinding(2, // primitive
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
+    vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
     ),
-    vkinit::descriptorLayoutBinding(5, // binding
-      VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT
+    vkinit::descriptorLayoutBinding(5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 
+      VK_SHADER_STAGE_FRAGMENT_BIT
     ),
-    vkinit::descriptorLayoutBinding(6, // binding
-      VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT
+    vkinit::descriptorLayoutBinding(6, VK_DESCRIPTOR_TYPE_SAMPLER,
+      VK_SHADER_STAGE_FRAGMENT_BIT
     )
   });
 
