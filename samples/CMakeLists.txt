@@ -15,10 +15,7 @@ target_link_libraries(mesh3d PRIVATE cudaview)
 add_executable(points3d points3d/points3d.cu)
 target_link_libraries(points3d PRIVATE cudaview)
 
-add_executable(run_structured
-  structured/jump_flood.cu
-  structured/run_structured.cpp
-)
+add_executable(run_structured structured/run_structured.cu)
 target_include_directories(run_structured PRIVATE include)
 target_link_libraries(run_structured PRIVATE cudaview)
 

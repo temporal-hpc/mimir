@@ -78,15 +78,15 @@ struct CudaView
   InteropMemory _interop;
 
   // Auxiliary memory members
-  VkBuffer vertex_buffer = VK_NULL_HANDLE;
-  VkBuffer index_buffer = VK_NULL_HANDLE;
+  VkBuffer vertex_buffer    = VK_NULL_HANDLE;
+  VkBuffer index_buffer     = VK_NULL_HANDLE;
   VkDeviceMemory aux_memory = VK_NULL_HANDLE;
-  VkBuffer ubo_buffer = VK_NULL_HANDLE;
+  VkBuffer ubo_buffer       = VK_NULL_HANDLE;
   VkDeviceMemory ubo_memory = VK_NULL_HANDLE;
 
   // Image members
-  VkFormat vk_format = VK_FORMAT_UNDEFINED;
   VkExtent3D vk_extent = {0, 0, 0};
+  VkFormat vk_format   = VK_FORMAT_UNDEFINED;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;
 

@@ -257,8 +257,30 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
       vkFreeMemory(logical_device, view.aux_memory, nullptr);
     });
 
-    // Init texture memory
-    view._interop = getInteropImage(params);
+    // Init texture memory (TODO: Refactor)
+    if (params.resource_type == ResourceType::TextureLinear)
+    {
+      view._interop = getInteropBuffer(params);
+      auto img_type = getImageType(params.data_domain);
+      VkExternalMemoryImageCreateInfo ext_info{};
+      ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+      ext_info.pNext = nullptr;
+      ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+      auto img_format = getVulkanFormat(params.texture_format);
+      VkExtent3D img_extent = {params.extent.x, params.extent.y, params.extent.z};
+      view._interop.image = createImage(img_type, img_format, img_extent,
+        VK_IMAGE_TILING_LINEAR, 
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        &ext_info
+      );
+      vkBindImageMemory(logical_device, view._interop.image, view._interop.memory, 0);
+      // TODO: Image layout transition
+    }
+    else if (params.resource_type == ResourceType::Texture)
+    {
+      view._interop = getInteropImage(params);
+    }
 
     auto view_type = getViewType(params.data_domain);
     auto info = vkinit::imageViewCreateInfo(view._interop.image,
