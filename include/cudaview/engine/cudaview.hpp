@@ -56,8 +56,9 @@ struct InteropMemory
   cudaMipmappedArray_t mipmap_array = nullptr;
   VkImage image = VK_NULL_HANDLE;
   // TODO: Delete or move
-  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = 0;
-  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = 0;
+  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
+  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = nullptr;
+  cudaTextureObject_t texture_object = 0;
 
   // Raw Cuda pointer which can be passed to the library user
   // for use in kernels, as per cudaMalloc
@@ -93,5 +94,5 @@ struct CudaView
   std::vector<cudaSurfaceObject_t> surfaceObjectList, surfaceObjectListTemp;
   cudaSurfaceObject_t *d_surfaceObjectList = nullptr;
   cudaSurfaceObject_t *d_surfaceObjectListTemp = nullptr;
-  cudaTextureObject_t textureObjMipMapInput = 0;
+  
 };

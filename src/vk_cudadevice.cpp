@@ -125,10 +125,28 @@ InteropMemory VulkanCudaDevice::getInteropImage(ViewParams params)
     &interop.cudaMipmappedImageArrayOrig, &format_desc, cuda_extent, level_count
   ));
 
+  cudaResourceDesc res_desc{};
+  res_desc.resType = cudaResourceTypeMipmappedArray;
+  res_desc.res.mipmap.mipmap = interop.cudaMipmappedImageArrayOrig;
+
+  cudaTextureDesc tex_desc{};
+  tex_desc.normalizedCoords    = true;
+  tex_desc.filterMode          = cudaFilterModeLinear;
+  tex_desc.mipmapFilterMode    = cudaFilterModeLinear;
+  tex_desc.addressMode[0]      = cudaAddressModeWrap;
+  tex_desc.addressMode[1]      = cudaAddressModeWrap;
+  tex_desc.maxMipmapLevelClamp = static_cast<float>(level_count - 1);
+  tex_desc.readMode            = cudaReadModeNormalizedFloat;
+
+  validation::checkCuda(cudaCreateTextureObject(
+    &interop.texture_object, &res_desc, &tex_desc, nullptr
+  ));
+
   deletors.pushFunction([=]{
     validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
     validation::checkCuda(cudaFreeMipmappedArray(interop.cudaMipmappedImageArrayTemp));
     validation::checkCuda(cudaFreeMipmappedArray(interop.cudaMipmappedImageArrayOrig));
+    validation::checkCuda(cudaDestroyTextureObject(interop.texture_object));
     validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
     vkDestroyImage(logical_device, interop.image, nullptr);
     vkFreeMemory(logical_device, interop.memory, nullptr);
@@ -351,23 +369,6 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
         view.surfaceObjectListTemp.push_back(surf_temp);
       }
 
-      cudaResourceDesc res_desc{};
-      res_desc.resType = cudaResourceTypeMipmappedArray;
-      res_desc.res.mipmap.mipmap = view._interop.cudaMipmappedImageArrayOrig;
-
-      cudaTextureDesc tex_desc{};
-      tex_desc.normalizedCoords    = true;
-      tex_desc.filterMode          = cudaFilterModeLinear;
-      tex_desc.mipmapFilterMode    = cudaFilterModeLinear;
-      tex_desc.addressMode[0]      = cudaAddressModeWrap;
-      tex_desc.addressMode[1]      = cudaAddressModeWrap;
-      tex_desc.maxMipmapLevelClamp = static_cast<float>(level_count - 1);
-      tex_desc.readMode            = cudaReadModeNormalizedFloat;
-
-      validation::checkCuda(cudaCreateTextureObject(
-        &view.textureObjMipMapInput, &res_desc, &tex_desc, nullptr
-      ));
-
       validation::checkCuda(cudaMalloc(
         &view.d_surfaceObjectList, sizeof(cudaSurfaceObject_t) * level_count
       ));
@@ -382,11 +383,6 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
         view.d_surfaceObjectListTemp, view.surfaceObjectListTemp.data(),
         sizeof(cudaSurfaceObject_t) * level_count, cudaMemcpyHostToDevice
       ));
-
-      deletors.pushFunction([=]{
-        validation::checkCuda(cudaDestroyTextureObject(view.textureObjMipMapInput));
-      });
-      return view;
     }
     else if (params.resource_type == ResourceType::TextureLinear)
     {

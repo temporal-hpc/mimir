@@ -212,7 +212,7 @@ int main(int argc, char *argv[])
 
     // Perform 2D box filter on image using CUDA
     d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
-      view.d_surfaceObjectListTemp, view.textureObjMipMapInput,
+      view.d_surfaceObjectListTemp, view._interop.texture_object,
       img_width, img_height, mipLevels, filter_radius
     );
     d_boxfilter_rgba_y<<<img_width / nthreads, nthreads >>>(
