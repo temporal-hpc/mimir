@@ -1,23 +1,30 @@
 #include "cudaview/vk_engine.hpp"
 
-#include <cuda_runtime_api.h>
-#include <curand_kernel.h>
-
 #include <iostream>
 #include <limits> // std::numeric_limits
+
+#include <cuda_runtime.h>
+#include <curand_kernel.h>
 
 #include "cuda_utils.hpp"
 
 constexpr float max_distance = std::numeric_limits<float>::max();
 
-cudaStream_t stream   = nullptr;
-curandState *d_states = nullptr;
-float *d_distances    = nullptr;
-float *d_coords       = nullptr;
-float4 *d_grid[2]     = {nullptr, nullptr};
-int2 extent           = {512, 512};
-unsigned point_count  = 100;
-size_t iter_count     = 10000;
+struct JumpFloodProgram
+{
+  cudaStream_t stream    = nullptr;
+  float *d_distances     = nullptr;
+  float *d_coords        = nullptr;
+  float4 *d_grid[2]      = {nullptr, nullptr};
+  curandState *d_states  = nullptr;
+  unsigned element_count = 0;
+  int2 extent            = {0, 0};
+
+  JumpFloodProgram(unsigned particle_count, int width, int height);
+  void setInitialState();
+  void cleanup();
+  void runTimestep();
+};
 
 __device__
 float4 jumpFloodStep(float2 coord, float4 *seeds, int step_length, int2 extent)
@@ -176,19 +183,23 @@ __global__ void integrate2d(float *coords, size_t particle_count,
   }
 }
 
+JumpFloodProgram::JumpFloodProgram(unsigned point_count, int width, int height):
+  element_count{point_count}, extent{width, height}
+{
+  checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+}
 
-void setInitialState(curandState *d_states, unsigned point_count, int2 extent, 
-  cudaStream_t stream)
+void JumpFloodProgram::setInitialState()
 {
   checkCuda(cudaSetDevice(0));
 
   //checkCuda(cudaMalloc(&_d_distances, dist_size));
-  //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * point_count));
-  checkCuda(cudaMallocAsync(&d_states, sizeof(curandState) * point_count, stream));
+  //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * element_count));
+  checkCuda(cudaMallocAsync(&d_states, sizeof(curandState) * element_count, stream));
 
   dim3 threads{128};
-  dim3 blocks { (point_count + threads.x - 1) / threads.x};
-  initSystem<<<blocks, threads>>>(d_coords, point_count, d_states, extent, 1234);
+  dim3 blocks { (element_count + threads.x - 1) / threads.x};
+  initSystem<<<blocks, threads>>>(d_coords, element_count, d_states, extent, 1234);
   checkCuda(cudaDeviceSynchronize());
 
 	// Allocate device numeric canvas
@@ -196,10 +207,10 @@ void setInitialState(curandState *d_states, unsigned point_count, int2 extent,
 	checkCuda(cudaMalloc(&d_grid[0], seed_sizes));
   checkCuda(cudaMalloc(&d_grid[1], seed_sizes));
   checkCuda(cudaDeviceSynchronize());
-	initJumpFlood(d_grid[1], d_coords, point_count, extent, stream);
+	initJumpFlood(d_grid[1], d_coords, element_count, extent, stream);
 }
 
-void cleanup()
+void JumpFloodProgram::cleanup()
 {
   checkCuda(cudaDeviceSynchronize());
   checkCuda(cudaStreamDestroy(stream));
@@ -211,24 +222,25 @@ void cleanup()
   checkCuda(cudaDeviceReset());
 }
 
-void runTimestep()
+void JumpFloodProgram::runTimestep()
 {
   dim3 threads{128};
-  dim3 blocks { (point_count + threads.x - 1) / threads.x};
+  dim3 blocks { (element_count + threads.x - 1) / threads.x};
 
   integrate2d<<< blocks, threads, 0, stream >>>(
-    d_coords, point_count, d_states, extent
+    d_coords, element_count, d_states, extent
   );
   checkCuda(cudaDeviceSynchronize());
 
-  initJumpFlood(d_grid[1], d_coords, point_count, extent, stream);
+  initJumpFlood(d_grid[1], d_coords, element_count, extent, stream);
 
   jumpFlood(d_distances, d_grid, extent, stream);
 }
 
-
 int main(int argc, char *argv[])
 {
+  unsigned point_count = 100;
+  size_t iter_count = 10000;
   if (argc >= 2)
   {
     point_count = std::stoul(argv[1]);
@@ -238,40 +250,43 @@ int main(int argc, char *argv[])
     iter_count = std::stoul(argv[2]);
   }
 
-  checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+  JumpFloodProgram program(point_count, 512, 512);
   try
   {
     VulkanEngine engine;
     engine.init(800, 600);
 
     ViewParams params;
-    params.element_count = point_count;
+    params.element_count = program.element_count;
     params.element_size = sizeof(float2);
-    params.extent = {(unsigned)extent.x, (unsigned)extent.y, 1};
+    params.extent = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
     params.data_domain = DataDomain::Domain2D;
     params.resource_type = ResourceType::UnstructuredBuffer;
     params.primitive_type = PrimitiveType::Points;
-    params.cuda_stream = stream;
-    engine.addView((void**)&d_coords, params);
+    params.cuda_stream = program.stream;
+    engine.addView((void**)&program.d_coords, params);
+    //cudaMalloc((void**)&program.d_coords, sizeof(float2) * point_count);
 
-    params.element_count = extent.x * extent.y;
+    params.element_count = program.extent.x * program.extent.y;
     params.element_size = sizeof(float);
     params.resource_type = ResourceType::TextureLinear;
     params.texture_format = TextureFormat::Float32;
-    engine.addView((void**)&d_distances, params);
+    engine.addView((void**)&program.d_distances, params);
+    //cudaMalloc((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
 
-    setInitialState(d_states, point_count, extent, stream);
+    program.setInitialState();
 
     // Start rendering loop
-    engine.display(runTimestep, iter_count);
+    auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);
+    engine.display(timestep_function, iter_count);
   }
   catch (const std::exception& e)
   {
     std::cerr << e.what() << std::endl;
-    cleanup();
     return EXIT_FAILURE;
+    program.cleanup();
   }
-  cleanup();
+  program.cleanup();
 
   return EXIT_SUCCESS;
 }
