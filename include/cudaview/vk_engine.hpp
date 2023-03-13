@@ -42,6 +42,7 @@ public:
   bool should_resize = false;
 
   CudaView *getView(uint32_t view_index);
+  void loadTexture(CudaView& view, void *img_data);
   void setBackgroundColor(color::rgba<float> color);
 
 private:

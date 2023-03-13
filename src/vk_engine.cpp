@@ -169,6 +169,11 @@ CudaView *VulkanEngine::getView(uint32_t view_index)
   return &views[view_index];
 }
 
+void VulkanEngine::loadTexture(CudaView& view, void *img_data)
+{
+  dev->loadTexture(view, img_data);
+}
+
 void VulkanEngine::initVulkan()
 {
   createInstance();

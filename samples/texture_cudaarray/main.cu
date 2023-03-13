@@ -185,13 +185,14 @@ int main(int argc, char *argv[])
 
   // Load image
   std::string filename = "teapot1024.ppm";
-  unsigned *img_data  = nullptr;
+  void *img_data  = nullptr;
   unsigned img_width  = 0;
   unsigned img_height = 0;
   sdkLoadPPM4(filename.c_str(), (unsigned char**)&img_data, &img_width, &img_height);
   printf("Loaded '%s', '%d'x'%d pixels \n", filename.c_str(), img_width, img_height);
+
+  // TODO: Unused, should be a texture handle
   uchar4 *d_image = nullptr;
-  checkCuda(cudaMalloc(&d_image, sizeof(uchar4) * img_width * img_height));
 
   ViewParams params;
   params.element_count  = img_width * img_height;
@@ -202,6 +203,7 @@ int main(int argc, char *argv[])
   params.texture_format = TextureFormat::Rgba32;
   auto view = engine.addView((void**)&d_image, params);
 
+  engine.loadTexture(view, img_data);
   engine.displayAsync();
 
   int nthreads = 128;
@@ -212,19 +214,17 @@ int main(int argc, char *argv[])
 
     // Perform 2D box filter on image using CUDA
     d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
-      view.d_surfaceObjectListTemp, view._interop.texture_object,
+      view._interop.d_surfaceObjectListTemp, view._interop.texture_object,
       img_width, img_height, mipLevels, filter_radius
     );
     d_boxfilter_rgba_y<<<img_width / nthreads, nthreads >>>(
-      view.d_surfaceObjectList, view.d_surfaceObjectListTemp,
+      view._interop.d_surfaceObjectList, view._interop.d_surfaceObjectListTemp,
       img_width, img_height, mipLevels, filter_radius
     );
     varySigma();
 
     engine.updateWindow();
   }
-
-  checkCuda(cudaFree(d_image));
 
   return EXIT_SUCCESS;
 }

@@ -275,7 +275,9 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
         &ext_info
       );
       vkBindImageMemory(logical_device, view._interop.image, view._interop.memory, 0);
-      // TODO: Image layout transition
+      transitionImageLayout(view._interop.image,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+      );
     }
     else if (params.resource_type == ResourceType::Texture)
     {
@@ -294,124 +296,6 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
     deletors.pushFunction([=]{
       vkDestroyImageView(logical_device, view.vk_view, nullptr);
     });
-
-    if (params.resource_type == ResourceType::Texture)
-    {
-      constexpr int level_count = 1;
-      size_t image_width  = params.extent.x;
-      size_t image_height = params.extent.y;
-
-      std::string filename = "teapot1024.ppm";
-      unsigned *img_data  = nullptr;
-      unsigned img_width  = 0;
-      unsigned img_height = 0;
-      sdkLoadPPM4(filename.c_str(), (unsigned char**)&img_data, &img_width, &img_height);
-      printf("Loaded '%s', '%d'x'%d pixels \n", filename.c_str(), img_width, img_height);
-
-      // Create staging buffer to copy image data
-      VkDeviceSize staging_size = image_width * image_height * 4;
-      auto staging_buffer = createBuffer(staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-      VkMemoryRequirements staging_req;
-      vkGetBufferMemoryRequirements(logical_device, staging_buffer, &staging_req);
-      auto staging_memory = allocateMemory(staging_req,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-      );
-      vkBindBufferMemory(logical_device, staging_buffer, staging_memory, 0);
-
-      data = nullptr;
-      VkDeviceSize memsize = params.element_size * params.element_count;
-      vkMapMemory(logical_device, staging_memory, 0, memsize, 0, (void**)&data);
-      memcpy(data, img_data, static_cast<size_t>(memsize));
-      vkUnmapMemory(logical_device, staging_memory);
-
-      transitionImageLayout(view._interop.image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-      );
-
-      VkImageSubresourceLayers subres;
-      subres.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-      subres.mipLevel       = 0;
-      subres.baseArrayLayer = 0;
-      subres.layerCount     = 1;
-
-      VkBufferImageCopy region{};
-      region.bufferOffset      = 0;
-      region.bufferRowLength   = 0;
-      region.bufferImageHeight = 0;
-      region.imageSubresource  = subres;
-      region.imageOffset       = {0, 0, 0};
-      region.imageExtent       = view.vk_extent;
-      immediateSubmit([=](VkCommandBuffer cmd)
-      {
-        vkCmdCopyBufferToImage(cmd, staging_buffer, view._interop.image,
-          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
-        );
-      });
-      vkDestroyBuffer(logical_device, staging_buffer, nullptr);
-      vkFreeMemory(logical_device, staging_memory, nullptr);
-
-      generateMipmaps(view._interop.image, view.vk_format, image_width, image_height, level_count);
-
-      // TODO: Handle this properly
-      validation::checkCuda(cudaDeviceSynchronize());
-
-      for (int level_idx = 0; level_idx < level_count; ++level_idx)
-      {
-        cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
-
-        validation::checkCuda(cudaGetMipmappedArrayLevel(
-          &mipLevelArray, view._interop.mipmap_array, level_idx
-        ));
-        validation::checkCuda(cudaGetMipmappedArrayLevel(
-          &mipLevelArrayTemp, view._interop.cudaMipmappedImageArrayTemp, level_idx
-        ));
-        validation::checkCuda(cudaGetMipmappedArrayLevel(
-          &mipLevelArrayOrig, view._interop.cudaMipmappedImageArrayOrig, level_idx
-        ));
-
-        uint32_t width = (image_width >> level_idx) ? (image_width >> level_idx) : 1;
-        uint32_t height = (image_height >> level_idx) ? (image_height >> level_idx) : 1;
-        validation::checkCuda(cudaMemcpy2DArrayToArray(
-          mipLevelArrayOrig, 0, 0, mipLevelArray, 0, 0,
-          width * sizeof(uchar4), height, cudaMemcpyDeviceToDevice
-        ));
-
-        cudaResourceDesc res_desc{};
-        res_desc.resType = cudaResourceTypeArray;
-        res_desc.res.array.array = mipLevelArray;
-        cudaSurfaceObject_t surf_obj;
-        validation::checkCuda(cudaCreateSurfaceObject(&surf_obj, &res_desc));
-        view.surfaceObjectList.push_back(surf_obj);
-
-        cudaResourceDesc res_desc_temp{};
-        res_desc_temp.resType = cudaResourceTypeArray;
-        res_desc_temp.res.array.array = mipLevelArrayTemp;
-        cudaSurfaceObject_t surf_temp;
-        validation::checkCuda(cudaCreateSurfaceObject(&surf_temp, &res_desc_temp));
-        view.surfaceObjectListTemp.push_back(surf_temp);
-      }
-
-      validation::checkCuda(cudaMalloc(
-        &view.d_surfaceObjectList, sizeof(cudaSurfaceObject_t) * level_count
-      ));
-      validation::checkCuda(cudaMalloc(
-        &view.d_surfaceObjectListTemp, sizeof(cudaSurfaceObject_t) * level_count
-      ));
-      validation::checkCuda(cudaMemcpy(
-        view.d_surfaceObjectList, view.surfaceObjectList.data(),
-        sizeof(cudaSurfaceObject_t) * level_count, cudaMemcpyHostToDevice
-      ));
-      validation::checkCuda(cudaMemcpy(
-        view.d_surfaceObjectListTemp, view.surfaceObjectListTemp.data(),
-        sizeof(cudaSurfaceObject_t) * level_count, cudaMemcpyHostToDevice
-      ));
-    }
-    else if (params.resource_type == ResourceType::TextureLinear)
-    {
-      transitionImageLayout(view._interop.image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-      );
-    }
   }
   else
   {
@@ -628,4 +512,109 @@ void VulkanCudaDevice::updateTexture(CudaView view)
   transitionImageLayout(view._interop.image,
     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   );
+}
+
+void VulkanCudaDevice::loadTexture(CudaView& view, void *img_data)
+{
+  constexpr int level_count = 1;
+  size_t image_width  = view.params.extent.x;
+  size_t image_height = view.params.extent.y;
+
+  // Create staging buffer to copy image data
+  VkDeviceSize staging_size = image_width * image_height * 4;
+  auto staging_buffer = createBuffer(staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+  VkMemoryRequirements staging_req;
+  vkGetBufferMemoryRequirements(logical_device, staging_buffer, &staging_req);
+  auto staging_memory = allocateMemory(staging_req,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+  );
+  vkBindBufferMemory(logical_device, staging_buffer, staging_memory, 0);
+
+  char *data = nullptr;
+  VkDeviceSize memsize = view.params.element_size * view.params.element_count;
+  vkMapMemory(logical_device, staging_memory, 0, memsize, 0, (void**)&data);
+  memcpy(data, img_data, static_cast<size_t>(memsize));
+  vkUnmapMemory(logical_device, staging_memory);
+
+  transitionImageLayout(view._interop.image,
+    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+  );
+
+  VkImageSubresourceLayers subres;
+  subres.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+  subres.mipLevel       = 0;
+  subres.baseArrayLayer = 0;
+  subres.layerCount     = 1;
+
+  VkBufferImageCopy region{};
+  region.bufferOffset      = 0;
+  region.bufferRowLength   = 0;
+  region.bufferImageHeight = 0;
+  region.imageSubresource  = subres;
+  region.imageOffset       = {0, 0, 0};
+  region.imageExtent       = view.vk_extent;
+  immediateSubmit([=](VkCommandBuffer cmd)
+  {
+    vkCmdCopyBufferToImage(cmd, staging_buffer, view._interop.image,
+      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
+    );
+  });
+  vkDestroyBuffer(logical_device, staging_buffer, nullptr);
+  vkFreeMemory(logical_device, staging_memory, nullptr);
+
+  generateMipmaps(view._interop.image, view.vk_format, image_width, image_height, level_count);
+
+  // TODO: Handle this properly
+  validation::checkCuda(cudaDeviceSynchronize());
+
+  for (int level_idx = 0; level_idx < level_count; ++level_idx)
+  {
+    cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
+
+    validation::checkCuda(cudaGetMipmappedArrayLevel(
+      &mipLevelArray, view._interop.mipmap_array, level_idx
+    ));
+    validation::checkCuda(cudaGetMipmappedArrayLevel(
+      &mipLevelArrayTemp, view._interop.cudaMipmappedImageArrayTemp, level_idx
+    ));
+    validation::checkCuda(cudaGetMipmappedArrayLevel(
+      &mipLevelArrayOrig, view._interop.cudaMipmappedImageArrayOrig, level_idx
+    ));
+
+    uint32_t width = (image_width >> level_idx) ? (image_width >> level_idx) : 1;
+    uint32_t height = (image_height >> level_idx) ? (image_height >> level_idx) : 1;
+    validation::checkCuda(cudaMemcpy2DArrayToArray(
+      mipLevelArrayOrig, 0, 0, mipLevelArray, 0, 0,
+      width * sizeof(uchar4), height, cudaMemcpyDeviceToDevice
+    ));
+
+    cudaResourceDesc res_desc{};
+    res_desc.resType = cudaResourceTypeArray;
+    res_desc.res.array.array = mipLevelArray;
+    cudaSurfaceObject_t surf_obj;
+    validation::checkCuda(cudaCreateSurfaceObject(&surf_obj, &res_desc));
+    view._interop.surfaceObjectList.push_back(surf_obj);
+
+    cudaResourceDesc res_desc_temp{};
+    res_desc_temp.resType = cudaResourceTypeArray;
+    res_desc_temp.res.array.array = mipLevelArrayTemp;
+    cudaSurfaceObject_t surf_temp;
+    validation::checkCuda(cudaCreateSurfaceObject(&surf_temp, &res_desc_temp));
+    view._interop.surfaceObjectListTemp.push_back(surf_temp);
+  }
+
+  validation::checkCuda(cudaMalloc(
+    &view._interop.d_surfaceObjectList, sizeof(cudaSurfaceObject_t) * level_count
+  ));
+  validation::checkCuda(cudaMalloc(
+    &view._interop.d_surfaceObjectListTemp, sizeof(cudaSurfaceObject_t) * level_count
+  ));
+  validation::checkCuda(cudaMemcpy(
+    view._interop.d_surfaceObjectList, view._interop.surfaceObjectList.data(),
+    sizeof(cudaSurfaceObject_t) * level_count, cudaMemcpyHostToDevice
+  ));
+  validation::checkCuda(cudaMemcpy(
+    view._interop.d_surfaceObjectListTemp, view._interop.surfaceObjectListTemp.data(),
+    sizeof(cudaSurfaceObject_t) * level_count, cudaMemcpyHostToDevice
+  ));
 }

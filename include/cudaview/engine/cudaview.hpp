@@ -51,15 +51,6 @@ struct ViewParams
 // Struct for storing Vulkan/Cuda interoperatibility members 
 struct InteropMemory
 {
-  // Image members (TODO: Should be separated)
-  std::vector<cudaSurfaceObject_t> surfaceObjectList;
-  cudaMipmappedArray_t mipmap_array = nullptr;
-  VkImage image = VK_NULL_HANDLE;
-  // TODO: Delete or move
-  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
-  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = nullptr;
-  cudaTextureObject_t texture_object = 0;
-
   // Raw Cuda pointer which can be passed to the library user
   // for use in kernels, as per cudaMalloc
   void *cuda_ptr = nullptr;
@@ -69,6 +60,17 @@ struct InteropMemory
   VkDeviceMemory memory = VK_NULL_HANDLE;  
   // Cuda external memory handle, provided by the Cuda interop API
   cudaExternalMemory_t cuda_extmem = nullptr;
+
+  // Image members (TODO: Should be separated)
+  std::vector<cudaSurfaceObject_t> surfaceObjectList, surfaceObjectListTemp;
+  cudaMipmappedArray_t mipmap_array = nullptr;
+  VkImage image = VK_NULL_HANDLE;
+  // TODO: Delete or move
+  cudaSurfaceObject_t *d_surfaceObjectList = nullptr;
+  cudaSurfaceObject_t *d_surfaceObjectListTemp = nullptr;
+  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
+  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = nullptr;
+  cudaTextureObject_t texture_object = 0; 
 };
 
 struct CudaView
@@ -89,10 +91,4 @@ struct CudaView
   VkFormat vk_format   = VK_FORMAT_UNDEFINED;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;
-
-  // Cudaarrays (TODO: Move)
-  std::vector<cudaSurfaceObject_t> surfaceObjectList, surfaceObjectListTemp;
-  cudaSurfaceObject_t *d_surfaceObjectList = nullptr;
-  cudaSurfaceObject_t *d_surfaceObjectListTemp = nullptr;
-  
 };

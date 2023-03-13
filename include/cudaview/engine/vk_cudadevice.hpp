@@ -24,7 +24,6 @@ struct VulkanCudaDevice : public VulkanDevice
   void updateUniformBuffers(CudaView& view, uint32_t image_idx,
     ModelViewProjection mvp, PrimitiveParams options, SceneParams scene
   );
-  void updateTexture(CudaView mapped);
   InteropBarrier createInteropBarrier();
   void importCudaExternalMemory(cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size);
   void *getMemoryHandle(VkDeviceMemory memory,
@@ -33,5 +32,6 @@ struct VulkanCudaDevice : public VulkanDevice
   void *getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type
   );
-
+  void updateTexture(CudaView mapped);
+  void loadTexture(CudaView& view, void *img_data);
 };
