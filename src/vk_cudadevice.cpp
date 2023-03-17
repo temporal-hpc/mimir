@@ -250,6 +250,9 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
       transitionImageLayout(view._interop.image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
       );
+      deletors.pushFunction([=]{
+        vkDestroyImage(logical_device, view._interop.image, nullptr);
+      });      
     }
     else if (params.resource_type == ResourceType::Texture)
     {
@@ -260,9 +263,7 @@ CudaView VulkanCudaDevice::createView(ViewParams params)
     auto info = vkinit::imageViewCreateInfo(view._interop.image,
       view_type, view.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
     );
-    validation::checkVulkan(
-      vkCreateImageView(logical_device, &info, nullptr, &view.vk_view)
-    );
+    validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &view.vk_view));
     view.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
 
     deletors.pushFunction([=]{

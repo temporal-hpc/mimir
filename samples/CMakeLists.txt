@@ -27,6 +27,7 @@ target_include_directories(run_unstructured PRIVATE include)
 target_link_libraries(run_unstructured PRIVATE cudaview)
 
 add_executable(run_texture texture_cudaarray/main.cu)
+target_include_directories(run_texture PRIVATE include)
 target_link_libraries(run_texture PRIVATE cudaview)
 
 # NOTE: Legacy code for shader compilation target

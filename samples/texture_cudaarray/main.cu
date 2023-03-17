@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h" // stbi_load
+
 #include <cuda.h>
 #include <curand_kernel.h>
 
@@ -179,17 +182,29 @@ void varySigma() {
 
 int main(int argc, char *argv[])
 {
+  std::string filepath;
+  if (argc == 2)
+  {
+    filepath = argv[1];
+  }
+  else
+  {
+    std::cerr << "Usage: ./run_texture path/to/image\n";
+    return EXIT_FAILURE;
+  }
+
+  int img_width, img_height, chans;
+  auto img_data = stbi_load(filepath.c_str(), &img_width, &img_height, &chans, STBI_rgb_alpha);
+  if (!img_data)
+  {
+    printf("failed to load texture image");
+    return EXIT_FAILURE;
+  }
+  printf("Loaded '%s', '%d'x'%d pixels \n", filepath.c_str(), img_width, img_height);
+
   int width = 900, height = 900;
   VulkanEngine engine;
   engine.init(width, height);
-
-  // Load image
-  std::string filename = "teapot1024.ppm";
-  void *img_data  = nullptr;
-  unsigned img_width  = 0;
-  unsigned img_height = 0;
-  sdkLoadPPM4(filename.c_str(), (unsigned char**)&img_data, &img_width, &img_height);
-  printf("Loaded '%s', '%d'x'%d pixels \n", filename.c_str(), img_width, img_height);
 
   // TODO: Unused, should be a texture handle
   uchar4 *d_image = nullptr;
@@ -197,7 +212,7 @@ int main(int argc, char *argv[])
   ViewParams params;
   params.element_count  = img_width * img_height;
   params.element_size   = sizeof(uchar4);
-  params.extent         = {img_width, img_height, 1};
+  params.extent         = {unsigned(img_width), unsigned(img_height), 1};
   params.data_domain    = DataDomain::Domain2D;
   params.resource_type  = ResourceType::Texture;
   params.texture_format = TextureFormat::Rgba32;
