@@ -1,33 +1,18 @@
-#include <stdio.h>
-#include <stdlib.h>
-
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h" // stbi_load
 
 #include <cuda.h>
 #include <curand_kernel.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#include <experimental/source_location> // std::experimental::source_location
 #include <chrono> // std::chrono
+#include <iostream> // std::cerr
 #include <thread> // std::thread
 
-#include "helper_image.h"
 #include "helper_math.h"
 #include "cudaview/vk_engine.hpp"
-
-using source_location = std::experimental::source_location;
-
-constexpr void checkCuda(cudaError_t code, bool panic = true,
-  source_location src = source_location::current())
-{
-  if (code != cudaSuccess)
-  {
-    fprintf(stderr, "CUDA assertion: %s on function %s at %s(%d)\n",
-      cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
-    );
-    if (panic) exit(code);
-  }
-}
+#include "cuda_utils.hpp" // checkCuda
 
 // convert floating point rgba color to 32-bit integer
 __device__ unsigned int rgbaFloatToInt(float4 rgba) {

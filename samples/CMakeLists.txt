@@ -19,10 +19,7 @@ add_executable(run_structured structured/run_structured.cu)
 target_include_directories(run_structured PRIVATE include)
 target_link_libraries(run_structured PRIVATE cudaview)
 
-add_executable(run_unstructured
-   unstructured/cudaprogram.cu
-   unstructured/run_unstructured.cpp
-)
+add_executable(run_unstructured unstructured/run_unstructured.cu)
 target_include_directories(run_unstructured PRIVATE include)
 target_link_libraries(run_unstructured PRIVATE cudaview)
 
