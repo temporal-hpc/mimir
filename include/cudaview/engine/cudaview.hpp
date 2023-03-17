@@ -62,15 +62,8 @@ struct InteropMemory
   cudaExternalMemory_t cuda_extmem = nullptr;
 
   // Image members (TODO: Should be separated)
-  std::vector<cudaSurfaceObject_t> surfaceObjectList, surfaceObjectListTemp;
   cudaMipmappedArray_t mipmap_array = nullptr;
   VkImage image = VK_NULL_HANDLE;
-  // TODO: Delete or move
-  cudaSurfaceObject_t *d_surfaceObjectList = nullptr;
-  cudaSurfaceObject_t *d_surfaceObjectListTemp = nullptr;
-  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
-  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = nullptr;
-  cudaTextureObject_t texture_object = 0; 
 };
 
 struct CudaView

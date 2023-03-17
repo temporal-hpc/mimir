@@ -51,12 +51,12 @@ __device__ float4 rgbaIntToFloat(unsigned int c) {
 __global__ void d_boxfilter_rgba_x(cudaSurfaceObject_t* dstSurfMipMapArray,
                                    cudaTextureObject_t textureMipMapInput,
                                    size_t baseWidth, size_t baseHeight,
-                                   size_t mipLevels, int filter_radius) {
+                                   size_t mip_levels, int filter_radius) {
   float scale = 1.0f / (float)((filter_radius << 1) + 1);
   unsigned int y = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (y < baseHeight) {
-    for (uint32_t mipLevelIdx = 0; mipLevelIdx < mipLevels; mipLevelIdx++) {
+    for (uint32_t mipLevelIdx = 0; mipLevelIdx < mip_levels; mipLevelIdx++) {
       uint32_t width =
           (baseWidth >> mipLevelIdx) ? (baseWidth >> mipLevelIdx) : 1;
       uint32_t height =
@@ -92,11 +92,11 @@ __global__ void d_boxfilter_rgba_x(cudaSurfaceObject_t* dstSurfMipMapArray,
 __global__ void d_boxfilter_rgba_y(cudaSurfaceObject_t* dstSurfMipMapArray,
                                    cudaSurfaceObject_t* srcSurfMipMapArray,
                                    size_t baseWidth, size_t baseHeight,
-                                   size_t mipLevels, int filter_radius) {
+                                   size_t mip_levels, int filter_radius) {
   unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
   float scale = 1.0f / (float)((filter_radius << 1) + 1);
 
-  for (uint32_t mipLevelIdx = 0; mipLevelIdx < mipLevels; mipLevelIdx++) {
+  for (uint32_t mipLevelIdx = 0; mipLevelIdx < mip_levels; mipLevelIdx++) {
     uint32_t width =
         (baseWidth >> mipLevelIdx) ? (baseWidth >> mipLevelIdx) : 1;
     uint32_t height =
@@ -162,7 +162,7 @@ __global__ void d_boxfilter_rgba_y(cudaSurfaceObject_t* dstSurfMipMapArray,
 
 int filter_radius = 14;
 int g_nFilterSign = 1;
-int mipLevels     = 1;
+int mip_levels    = 1;
 
 // This varies the filter radius, so we can see automatic animation
 void varySigma() {
@@ -203,7 +203,91 @@ int main(int argc, char *argv[])
   params.texture_format = TextureFormat::Rgba32;
   auto view = engine.addView((void**)&d_image, params);
 
+  cudaChannelFormatDesc format_desc;
+  format_desc.x = 8;
+  format_desc.y = 8;
+  format_desc.z = 8;
+  format_desc.w = 8;
+  format_desc.f = cudaChannelFormatKindUnsigned;
+  size_t image_width  = params.extent.x;
+  size_t image_height = params.extent.y;
+  auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
+
+  cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
+  checkCuda(cudaMallocMipmappedArray(
+    &cudaMipmappedImageArrayTemp, &format_desc, cuda_extent, mip_levels
+  ));
+  cudaMipmappedArray_t cudaMipmappedImageArrayOrig = nullptr;
+  checkCuda(cudaMallocMipmappedArray(
+    &cudaMipmappedImageArrayOrig, &format_desc, cuda_extent, mip_levels
+  ));
+
+  cudaResourceDesc res_desc{};
+  res_desc.resType = cudaResourceTypeMipmappedArray;
+  res_desc.res.mipmap.mipmap = cudaMipmappedImageArrayOrig;
+
+  cudaTextureDesc tex_desc{};
+  tex_desc.normalizedCoords    = true;
+  tex_desc.filterMode          = cudaFilterModeLinear;
+  tex_desc.mipmapFilterMode    = cudaFilterModeLinear;
+  tex_desc.addressMode[0]      = cudaAddressModeWrap;
+  tex_desc.addressMode[1]      = cudaAddressModeWrap;
+  tex_desc.maxMipmapLevelClamp = static_cast<float>(mip_levels - 1);
+  tex_desc.readMode            = cudaReadModeNormalizedFloat;
+
+  cudaTextureObject_t tex_obj = 0; 
+  checkCuda(cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr));
+
   engine.loadTexture(view, img_data);
+
+  std::vector<cudaSurfaceObject_t> surf_obj_list, surf_obj_list_temp;
+  for (int level_idx = 0; level_idx < mip_levels; ++level_idx)
+  {
+    cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
+
+    checkCuda(cudaGetMipmappedArrayLevel(
+      &mipLevelArray, view._interop.mipmap_array, level_idx
+    ));
+    checkCuda(cudaGetMipmappedArrayLevel(
+      &mipLevelArrayTemp, cudaMipmappedImageArrayTemp, level_idx
+    ));
+    checkCuda(cudaGetMipmappedArrayLevel(
+      &mipLevelArrayOrig, cudaMipmappedImageArrayOrig, level_idx
+    ));
+
+    uint32_t width = (image_width >> level_idx) ? (image_width >> level_idx) : 1;
+    uint32_t height = (image_height >> level_idx) ? (image_height >> level_idx) : 1;
+    checkCuda(cudaMemcpy2DArrayToArray(
+      mipLevelArrayOrig, 0, 0, mipLevelArray, 0, 0,
+      width * sizeof(uchar4), height, cudaMemcpyDeviceToDevice
+    ));
+
+    cudaResourceDesc res_desc{};
+    res_desc.resType = cudaResourceTypeArray;
+    res_desc.res.array.array = mipLevelArray;
+    cudaSurfaceObject_t surf_obj;
+    checkCuda(cudaCreateSurfaceObject(&surf_obj, &res_desc));
+    surf_obj_list.push_back(surf_obj);
+
+    cudaResourceDesc res_desc_temp{};
+    res_desc_temp.resType = cudaResourceTypeArray;
+    res_desc_temp.res.array.array = mipLevelArrayTemp;
+    cudaSurfaceObject_t surf_temp;
+    checkCuda(cudaCreateSurfaceObject(&surf_temp, &res_desc_temp));
+    surf_obj_list_temp.push_back(surf_temp);
+  }
+
+  cudaSurfaceObject_t *d_surf_list = nullptr;
+  checkCuda(cudaMalloc(&d_surf_list, sizeof(cudaSurfaceObject_t) * mip_levels));
+  checkCuda(cudaMemcpy(d_surf_list, surf_obj_list.data(),
+    sizeof(cudaSurfaceObject_t) * mip_levels, cudaMemcpyHostToDevice
+  ));
+  cudaSurfaceObject_t *d_surf_list_temp = nullptr;
+  checkCuda(cudaMalloc(&d_surf_list_temp, sizeof(cudaSurfaceObject_t) * mip_levels));
+  checkCuda(cudaMemcpy(d_surf_list_temp, surf_obj_list_temp.data(),
+    sizeof(cudaSurfaceObject_t) * mip_levels, cudaMemcpyHostToDevice
+  ));
+
   engine.displayAsync();
 
   int nthreads = 128;
@@ -214,17 +298,19 @@ int main(int argc, char *argv[])
 
     // Perform 2D box filter on image using CUDA
     d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
-      view._interop.d_surfaceObjectListTemp, view._interop.texture_object,
-      img_width, img_height, mipLevels, filter_radius
+      d_surf_list_temp, tex_obj, img_width, img_height, mip_levels, filter_radius
     );
     d_boxfilter_rgba_y<<<img_width / nthreads, nthreads >>>(
-      view._interop.d_surfaceObjectList, view._interop.d_surfaceObjectListTemp,
-      img_width, img_height, mipLevels, filter_radius
+      d_surf_list, d_surf_list_temp, img_width, img_height, mip_levels, filter_radius
     );
     varySigma();
 
     engine.updateWindow();
   }
+
+  checkCuda(cudaDestroyTextureObject(tex_obj));
+  checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayTemp));
+  checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayOrig));
 
   return EXIT_SUCCESS;
 }

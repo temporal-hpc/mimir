@@ -10,8 +10,6 @@
 #include "internal/utils.hpp"
 #include "internal/validation.hpp"
 
-#include "helper_image.h" // TODO: Remove
-
 VkBufferUsageFlags getUsageFlags(PrimitiveType p, ResourceType r)
 {
   if (r == ResourceType::TextureLinear) return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -118,35 +116,9 @@ InteropMemory VulkanCudaDevice::getInteropImage(ViewParams params)
   validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
     &interop.mipmap_array, interop.cuda_extmem, &array_desc)
   );
-  validation::checkCuda(cudaMallocMipmappedArray(
-    &interop.cudaMipmappedImageArrayTemp, &format_desc, cuda_extent, level_count
-  ));
-  validation::checkCuda(cudaMallocMipmappedArray(
-    &interop.cudaMipmappedImageArrayOrig, &format_desc, cuda_extent, level_count
-  ));
-
-  cudaResourceDesc res_desc{};
-  res_desc.resType = cudaResourceTypeMipmappedArray;
-  res_desc.res.mipmap.mipmap = interop.cudaMipmappedImageArrayOrig;
-
-  cudaTextureDesc tex_desc{};
-  tex_desc.normalizedCoords    = true;
-  tex_desc.filterMode          = cudaFilterModeLinear;
-  tex_desc.mipmapFilterMode    = cudaFilterModeLinear;
-  tex_desc.addressMode[0]      = cudaAddressModeWrap;
-  tex_desc.addressMode[1]      = cudaAddressModeWrap;
-  tex_desc.maxMipmapLevelClamp = static_cast<float>(level_count - 1);
-  tex_desc.readMode            = cudaReadModeNormalizedFloat;
-
-  validation::checkCuda(cudaCreateTextureObject(
-    &interop.texture_object, &res_desc, &tex_desc, nullptr
-  ));
 
   deletors.pushFunction([=]{
     validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
-    validation::checkCuda(cudaFreeMipmappedArray(interop.cudaMipmappedImageArrayTemp));
-    validation::checkCuda(cudaFreeMipmappedArray(interop.cudaMipmappedImageArrayOrig));
-    validation::checkCuda(cudaDestroyTextureObject(interop.texture_object));
     validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
     vkDestroyImage(logical_device, interop.image, nullptr);
     vkFreeMemory(logical_device, interop.memory, nullptr);
@@ -566,55 +538,4 @@ void VulkanCudaDevice::loadTexture(CudaView& view, void *img_data)
 
   // TODO: Handle this properly
   validation::checkCuda(cudaDeviceSynchronize());
-
-  for (int level_idx = 0; level_idx < level_count; ++level_idx)
-  {
-    cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
-
-    validation::checkCuda(cudaGetMipmappedArrayLevel(
-      &mipLevelArray, view._interop.mipmap_array, level_idx
-    ));
-    validation::checkCuda(cudaGetMipmappedArrayLevel(
-      &mipLevelArrayTemp, view._interop.cudaMipmappedImageArrayTemp, level_idx
-    ));
-    validation::checkCuda(cudaGetMipmappedArrayLevel(
-      &mipLevelArrayOrig, view._interop.cudaMipmappedImageArrayOrig, level_idx
-    ));
-
-    uint32_t width = (image_width >> level_idx) ? (image_width >> level_idx) : 1;
-    uint32_t height = (image_height >> level_idx) ? (image_height >> level_idx) : 1;
-    validation::checkCuda(cudaMemcpy2DArrayToArray(
-      mipLevelArrayOrig, 0, 0, mipLevelArray, 0, 0,
-      width * sizeof(uchar4), height, cudaMemcpyDeviceToDevice
-    ));
-
-    cudaResourceDesc res_desc{};
-    res_desc.resType = cudaResourceTypeArray;
-    res_desc.res.array.array = mipLevelArray;
-    cudaSurfaceObject_t surf_obj;
-    validation::checkCuda(cudaCreateSurfaceObject(&surf_obj, &res_desc));
-    view._interop.surfaceObjectList.push_back(surf_obj);
-
-    cudaResourceDesc res_desc_temp{};
-    res_desc_temp.resType = cudaResourceTypeArray;
-    res_desc_temp.res.array.array = mipLevelArrayTemp;
-    cudaSurfaceObject_t surf_temp;
-    validation::checkCuda(cudaCreateSurfaceObject(&surf_temp, &res_desc_temp));
-    view._interop.surfaceObjectListTemp.push_back(surf_temp);
-  }
-
-  validation::checkCuda(cudaMalloc(
-    &view._interop.d_surfaceObjectList, sizeof(cudaSurfaceObject_t) * level_count
-  ));
-  validation::checkCuda(cudaMalloc(
-    &view._interop.d_surfaceObjectListTemp, sizeof(cudaSurfaceObject_t) * level_count
-  ));
-  validation::checkCuda(cudaMemcpy(
-    view._interop.d_surfaceObjectList, view._interop.surfaceObjectList.data(),
-    sizeof(cudaSurfaceObject_t) * level_count, cudaMemcpyHostToDevice
-  ));
-  validation::checkCuda(cudaMemcpy(
-    view._interop.d_surfaceObjectListTemp, view._interop.surfaceObjectListTemp.data(),
-    sizeof(cudaSurfaceObject_t) * level_count, cudaMemcpyHostToDevice
-  ));
 }
