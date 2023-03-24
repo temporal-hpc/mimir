@@ -16,6 +16,11 @@ enum class PrimitiveType { Points, Edges, Voxels };
 // Specifies the datatype stored in the texture corresponding to a view
 enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
 
+struct ShaderInfo {
+  std::string filepath;
+  VkShaderStageFlagBits stage = VK_SHADER_STAGE_ALL_GRAPHICS;
+};
+
 // Holds customization options for the view it is associated to, for example:
 // Point color, point size, edge color, etc.
 // In the future, it should only have the fields the view actually supports
@@ -29,6 +34,8 @@ struct ViewOptions
   color::rgba<float> color{0.f,0.f,0.f,1.f};
   // Default primitive size if no per-instance size is set
   float size = 10.f;
+  // External alternate shaders for use in this view
+  std::vector<ShaderInfo> external_shaders;
   // For specializing slang shaders associated to this view
   std::vector<std::string> specializations;
   // For moving through the different slices in a 3D texture

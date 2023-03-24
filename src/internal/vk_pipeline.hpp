@@ -48,5 +48,8 @@ struct PipelineBuilder
   std::vector<VkPipelineShaderStageCreateInfo> compileSlang(
     VulkanCudaDevice *dev, const ShaderCompileParameters& params
   );
+  std::vector<VkPipelineShaderStageCreateInfo> loadExternalShaders(
+    VulkanCudaDevice *dev, const std::vector<ShaderInfo> shaders
+  );
   VkShaderModule createShaderModule(const std::vector<char>& code, VulkanCudaDevice *dev);
 };

@@ -1,9 +1,9 @@
 #include "internal/vk_pipeline.hpp"
 
+#include "cudaview/io.hpp"
 #include "cudaview/vk_types.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/validation.hpp"
-
 
 ShaderCompileParameters getShaderCompileParams(ViewParams view)
 {
@@ -283,11 +283,35 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
   return compiled_stages;
 }
 
+std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::loadExternalShaders(
+  VulkanCudaDevice *dev, const std::vector<ShaderInfo> shaders)
+{
+  std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
+  for (const auto& info : shaders)
+  {
+    auto shader_module = createShaderModule(io::readFile(info.filepath), dev);
+    auto shader_info = vkinit::pipelineShaderStageCreateInfo(info.stage, shader_module);
+    compiled_stages.push_back(shader_info);
+  }
+  return compiled_stages;
+}
+
 uint32_t PipelineBuilder::addPipeline(const ViewParams params, VulkanCudaDevice *dev)
 {
   PipelineInfo info;
   auto compile_params = getShaderCompileParams(params);
-  auto stages = compileSlang(dev, compile_params);
+  auto ext_shaders = params.options.external_shaders;
+
+  std::vector<VkPipelineShaderStageCreateInfo> stages;
+  if (!ext_shaders.empty()) {
+    printf("Loading external shaders\n");
+    stages = loadExternalShaders(dev, ext_shaders);
+  }
+  else
+  {
+    printf("Compiling slang shaders\n");
+    stages = compileSlang(dev, compile_params);
+  }
 
   info.shader_stages = stages;
   info.vertex_input_info = getVertexDescription(
