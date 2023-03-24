@@ -167,6 +167,7 @@ PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
   session_desc.targetCount = 1;
   session_desc.searchPaths = search_paths;
   session_desc.searchPathCount = 1;
+  session_desc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR;
 
   // Obtain a compilation session that scopes compilation and code loading
   validation::checkSlang(global_session->createSession(session_desc, session.writeRef()));
@@ -312,7 +313,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, VulkanCudaDevice 
     printf("Compiling slang shaders\n");
     stages = compileSlang(dev, compile_params);
   }
-
+  
   info.shader_stages = stages;
   info.vertex_input_info = getVertexDescription(
     params.data_domain, params.resource_type, params.primitive_type
