@@ -51,8 +51,9 @@ VertexData vertex3dMain(VertexInput3d input)
 
 struct MarkerData
 {
-  float4 pos   : SV_Position;
-  float2 uv    : TEXCOORD;
+  float4 pos : SV_Position;
+  float2 uv  : TEXCOORD;
+  float size : PSIZE;
   //float4 color : COLOR;
   //float3 normal : NORMAL;
 };
@@ -64,12 +65,15 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
   float4x4 model_view = mul(mvp.model, mvp.view);
   float4 center = mul(input[0].center, model_view);
 
-  float4 dx = model_view[0] * primitive.size * 2/scene.resolution.x;
-  float4 dy = model_view[1] * primitive.size * 2/scene.resolution.y;
+  MarkerData output;
+  output.size = SQRT_2*primitive.size  + 2 * (v_linewidth + 1.5*u_antialias);
+
+  float4 dx = model_view[0] * output.size * 2/scene.resolution.x;
+  float4 dy = model_view[1] * output.size * 2/scene.resolution.y;
 
   float4 shift[4] = {(-dx-dy), (-dx+dy), (+dx-dy), (+dx+dy)}; 
   float2 texcoords[4] = {{0,0}, {0,1}, {1,0}, {1,1}};
-  MarkerData output;
+
   //output.color = input[0].color;
   //output.normal = normal.xyz;
 
@@ -163,11 +167,10 @@ float diamond(float2 p, float size)
 float4 fragmentMain(MarkerData input) : SV_Target
 {
   float2 p = 2 * input.uv - 1;
-  if (dot(p, p) > 1) discard;
-  return primitive.color;
+  // if (dot(p, p) > 1) discard;
+  // return primitive.color;
   //float2 p = input.uv - float2(0.5);
   //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
-  //float point_size = SQRT_2*primitive.size  + 2 * (v_linewidth + 1.5*u_antialias);
-  //float distance = disc(p*point_size, primitive.size);
-  //return filled(distance, v_linewidth, u_antialias, scene.bg_color, primitive.color);*/
+  float distance = disc(p * input.size, primitive.size);
+  return outline(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
 }

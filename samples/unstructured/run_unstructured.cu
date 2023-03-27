@@ -124,6 +124,7 @@ int main(int argc, char *argv[])
     params.resource_type = ResourceType::UnstructuredBuffer;
     params.primitive_type = PrimitiveType::Points;
     params.cuda_stream = program.stream;
+    params.options.size = 10.f;
     params.options.external_shaders = {
       {"shaders/precompiled/marker_vertex2dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
       {"shaders/precompiled/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
@@ -150,5 +151,3 @@ int main(int argc, char *argv[])
 
   return EXIT_SUCCESS;
 }
-
-//VulkanEngine engine(vertices.size());
