@@ -150,6 +150,12 @@ VkPipelineRasterizationStateCreateInfo getRasterizationInfo(PrimitiveType primit
   return vkinit::rasterizationStateCreateInfo(poly_mode);
 }
 
+VkPipelineDepthStencilStateCreateInfo getDepthInfo(DataDomain domain)
+{
+  bool use_depth = (domain == DataDomain::Domain3D);
+  return vkinit::depthStencilCreateInfo(use_depth, use_depth, VK_COMPARE_OP_LESS);
+}
+
 PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
   pipeline_layout{layout},
   viewport{0.f, 0.f, (float)extent.width, (float)extent.height, 0.f, 1.f},
@@ -319,6 +325,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, VulkanCudaDevice 
     params.data_domain, params.resource_type, params.primitive_type
   );
   info.input_assembly = getAssemblyInfo(params.resource_type, params.primitive_type);
+  info.depth_stencil = getDepthInfo(params.data_domain);
   info.rasterizer = getRasterizationInfo(params.primitive_type);
   info.multisampling = vkinit::multisampleStateCreateInfo();
   info.color_blend_attachment = vkinit::colorBlendAttachmentState();
@@ -336,8 +343,6 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
   viewport_state.pViewports    = &viewport;
   viewport_state.scissorCount  = 1;
   viewport_state.pScissors     = &scissor;
-
-  auto depth_stencil = vkinit::depthStencilCreateInfo(true, true, VK_COMPARE_OP_LESS);
 
   std::vector<VkPipelineColorBlendStateCreateInfo> color_states;
   color_states.reserve(pipeline_infos.size());
@@ -370,7 +375,7 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     create_info.pViewportState      = &viewport_state;
     create_info.pRasterizationState = &info.rasterizer;
     create_info.pMultisampleState   = &info.multisampling;
-    create_info.pDepthStencilState  = &depth_stencil;
+    create_info.pDepthStencilState  = &info.depth_stencil;
     create_info.pColorBlendState    = &color_states.back();
 
     create_infos.push_back(create_info);

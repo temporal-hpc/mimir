@@ -21,6 +21,7 @@ struct PipelineInfo
   VkPipelineInputAssemblyStateCreateInfo input_assembly;
 
   VkPipelineRasterizationStateCreateInfo rasterizer;
+  VkPipelineDepthStencilStateCreateInfo depth_stencil;
   VkPipelineColorBlendAttachmentState color_blend_attachment;
   VkPipelineMultisampleStateCreateInfo multisampling;
 };

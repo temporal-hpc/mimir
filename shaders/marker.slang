@@ -68,8 +68,8 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
   MarkerData output;
   output.size = SQRT_2*primitive.size  + 2 * (v_linewidth + 1.5*u_antialias);
 
-  float4 dx = model_view[0] * output.size * 2/scene.resolution.x;
-  float4 dy = model_view[1] * output.size * 2/scene.resolution.y;
+  float4 dx = model_view[0] * (output.size / scene.resolution.x);
+  float4 dy = model_view[1] * (output.size / scene.resolution.y);
 
   float4 shift[4] = {(-dx-dy), (-dx+dy), (+dx-dy), (+dx+dy)}; 
   float2 texcoords[4] = {{0,0}, {0,1}, {1,0}, {1,1}};
@@ -85,23 +85,6 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
     output.uv = texcoords[i];
     stream.Append(output);
   }
-}
-
-float4 outline(
-  float distance,  // Signed distance to line
-  float linewidth, // Stroke line width
-  float antialias, // Stroke antialiased area
-  float4 stroke,   // Stroke color
-  float4 fill)     // Fill color
-{
-  float t = linewidth / 2.0 - antialias;
-  float signed_distance = distance;
-  float border_distance = abs(signed_distance) - t;
-  float alpha = border_distance / antialias;
-  alpha = exp(-alpha * alpha);
-  if (border_distance < 0.0)     return stroke;
-  else if(signed_distance < 0.0) return lerp(fill, stroke, sqrt(alpha));
-  else                           return float4(stroke.rgb, stroke.a * alpha);
 }
 
 float4 stroke(
@@ -124,8 +107,8 @@ float4 filled(
   float distance,
   float linewidth,
   float antialias,
-  float4 stroke, // Unused
-  float4 fill)
+  float4 fill,
+  float4 stroke) // Unused
 {
   float t = linewidth / 2.0 - antialias;
   float signed_distance = distance;
@@ -136,6 +119,24 @@ float4 filled(
   else if (signed_distance < 0.0) return fill;
   else                            return float4(fill.rgb, alpha * fill.a);
 }
+
+float4 outline(
+  float distance,  // Signed distance to line
+  float linewidth, // Stroke line width
+  float antialias, // Stroke antialiased area
+  float4 stroke,   // Stroke color
+  float4 fill)     // Fill color
+{
+  float t = linewidth / 2.0 - antialias;
+  float signed_distance = distance;
+  float border_distance = abs(signed_distance) - t;
+  float alpha = border_distance / antialias;
+  alpha = exp(-alpha * alpha);
+  if (border_distance < 0.0)     return stroke;
+  else if(signed_distance < 0.0) return lerp(fill, stroke, sqrt(alpha));
+  else                           return float4(stroke.rgb, stroke.a * alpha);
+}
+
 
 float disc(float2 p, float size)
 {
@@ -172,5 +173,5 @@ float4 fragmentMain(MarkerData input) : SV_Target
   //float2 p = input.uv - float2(0.5);
   //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
   float distance = disc(p * input.size, primitive.size);
-  return outline(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
+  return filled(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
 }
