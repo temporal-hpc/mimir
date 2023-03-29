@@ -164,14 +164,27 @@ float diamond(float2 p, float size)
   return max(abs(x), abs(y)) - size / (2 * SQRT_2);
 }
 
-[shader("fragment")]
-float4 fragmentMain(MarkerData input) : SV_Target
+struct FragmentOutput
 {
+  float4 color : SV_Target;
+  float depth : SV_Depth;
+};
+
+[shader("fragment")]
+FragmentOutput fragmentMain(MarkerData input)
+{
+  FragmentOutput out;
+  float4x4 view_proj = mul(mvp.view, mvp.proj);
+
   float2 p = 2 * input.uv - 1;
   // if (dot(p, p) > 1) discard;
   // return primitive.color;
   //float2 p = input.uv - float2(0.5);
   //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
   float distance = disc(p * input.size, primitive.size);
-  return filled(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
+  out.color = filled(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
+  //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
+  //out.depth = clip_pos.z / clip_pos.w;
+  out.depth = 1 - out.color.w;
+  return out; 
 }

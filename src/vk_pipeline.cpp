@@ -152,7 +152,8 @@ VkPipelineRasterizationStateCreateInfo getRasterizationInfo(PrimitiveType primit
 
 VkPipelineDepthStencilStateCreateInfo getDepthInfo(DataDomain domain)
 {
-  bool use_depth = (domain == DataDomain::Domain3D);
+  // TODO: Decide when to apply depth testing
+  bool use_depth = true; //(domain == DataDomain::Domain3D);
   return vkinit::depthStencilCreateInfo(use_depth, use_depth, VK_COMPARE_OP_LESS);
 }
 
