@@ -113,8 +113,8 @@ void VulkanEngine::updateWindow()
   std::unique_lock<std::mutex> ul(mutex);
   for (auto view : views)
   {
-    if (view.params.resource_type == ResourceType::TextureLinear)
-      dev->updateTexture(view);
+    if (view._params.resource_type == ResourceType::TextureLinear)
+      view.updateTexture();
   }
   device_working = false;
   signalKernelFinish();
@@ -140,8 +140,8 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
       func();
       for (auto view : views)
       {
-        if (view.params.resource_type == ResourceType::TextureLinear)
-          dev->updateTexture(view);
+        if (view._params.resource_type == ResourceType::TextureLinear)
+          view.updateTexture();
       }
       iteration_idx++;
     }
@@ -151,13 +151,11 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
   vkDeviceWaitIdle(dev->logical_device);
 }
 
-CudaView VulkanEngine::addView(void **ptr_devmem, const ViewParams params)
+CudaView VulkanEngine::addView(void **ptr_devmem, ViewParams params)
 {
-  auto view = dev->createView(params);
-  /*data_extent.x = std::max(data_extent.x, params.extent.x);
-  data_extent.y = std::max(data_extent.y, params.extent.y);
-  data_extent.z = std::max(data_extent.z, params.extent.z);*/
-  dev->createUniformBuffers(view, swap->image_count);
+  auto view = CudaView(params, dev.get());
+  view.init();
+  view.createUniformBuffers(swap->image_count);
   views.push_back(view);
   updateDescriptorSets();
   *ptr_devmem = view._interop.cuda_ptr;
@@ -171,7 +169,7 @@ CudaView *VulkanEngine::getView(uint32_t view_index)
 
 void VulkanEngine::loadTexture(CudaView& view, void *img_data)
 {
-  dev->loadTexture(view, img_data);
+  view.loadTexture(img_data);
 }
 
 void VulkanEngine::initVulkan()
@@ -571,8 +569,8 @@ void VulkanEngine::updateDescriptorSets()
       );
       desc_writes.push_back(write_scene);
       
-      if (view.params.resource_type == ResourceType::TextureLinear ||
-          view.params.resource_type == ResourceType::Texture)
+      if (view._params.resource_type == ResourceType::TextureLinear ||
+          view._params.resource_type == ResourceType::Texture)
       {
         VkDescriptorImageInfo samp_img_info{};
         samp_img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -685,17 +683,17 @@ void VulkanEngine::renderFrame()
     mvp.proj  = camera->matrices.perspective;
 
     PrimitiveParams options{};
-    options.color = color::getColor(view.params.options.color);
-    options.size = view.params.options.size;
+    options.color = color::getColor(view._params.options.color);
+    options.size = view._params.options.size;
 
     SceneParams scene{};
-    auto extent = view.params.extent;
+    auto extent = view._params.extent;
     scene.bg_color = color::getColor(bg_color);
     scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
-    scene.depth = view.params.options.depth;
+    scene.depth = view._params.options.depth;
     scene.resolution = glm::ivec2{_width, _height};
 
-    dev->updateUniformBuffers(view, image_idx, mvp, options, scene);
+    view.updateUniformBuffers(image_idx, mvp, options, scene);
   }
 
   std::vector<VkSemaphore> wait_semaphores;
@@ -760,18 +758,18 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
   );
   for (const auto& view : views)
   {
-    if (!view.params.options.visible) continue;
+    if (!view._params.options.visible) continue;
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[view.pipeline_index]);
-    if (view.params.resource_type == ResourceType::TextureLinear ||
-        view.params.resource_type == ResourceType::Texture)
+    if (view._params.resource_type == ResourceType::TextureLinear ||
+        view._params.resource_type == ResourceType::Texture)
     {
-      if (view.params.primitive_type == PrimitiveType::Voxels)
+      if (view._params.primitive_type == PrimitiveType::Voxels)
       {
         VkBuffer vertex_buffers[] = { view._interop.data_buffer };
         VkDeviceSize offsets[] = { 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-        vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+        vkCmdDraw(cmd, view._params.element_count, 1, 0, 0);
       }
       else
       {
@@ -781,20 +779,20 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
       }
     }
-    else if (view.params.resource_type == ResourceType::StructuredBuffer)
+    else if (view._params.resource_type == ResourceType::StructuredBuffer)
     {
-      if (view.params.primitive_type == PrimitiveType::Voxels)
+      if (view._params.primitive_type == PrimitiveType::Voxels)
       {
         VkBuffer vertex_buffers[] = { view.vertex_buffer, view._interop.data_buffer };
         VkDeviceSize offsets[] = { 0, 0 };
         auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
         vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-        vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+        vkCmdDraw(cmd, view._params.element_count, 1, 0, 0);
       }
     }
-    else if (view.params.resource_type == ResourceType::UnstructuredBuffer)
+    else if (view._params.resource_type == ResourceType::UnstructuredBuffer)
     {
-      switch (view.params.primitive_type)
+      switch (view._params.primitive_type)
       {
         case PrimitiveType::Points:
         {
@@ -802,7 +800,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
           VkDeviceSize offsets[] = { 0 };
           auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
           vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-          vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+          vkCmdDraw(cmd, view._params.element_count, 1, 0, 0);
           break;
         }
         case PrimitiveType::Edges:
@@ -811,7 +809,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
           VkDeviceSize offsets[] = {0};
           vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
           vkCmdBindIndexBuffer(cmd, view._interop.data_buffer, 0, VK_INDEX_TYPE_UINT32);
-          vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
+          vkCmdDrawIndexed(cmd, 3 * view._params.element_count, 1, 0, 0, 0);
           break;
         }
         case PrimitiveType::Voxels:
@@ -923,7 +921,7 @@ void VulkanEngine::createGraphicsPipelines()
   // TODO: This does not allow adding views at runtime
   for (auto& view : views)
   {
-    view.pipeline_index = builder.addPipeline(view.params, dev.get());
+    view.pipeline_index = builder.addPipeline(view._params, dev.get());
   }
   pipelines = builder.createPipelines(dev->logical_device, render_pass);
   std::cout << pipelines.size() << " pipeline(s) created\n";

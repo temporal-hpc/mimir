@@ -6,6 +6,7 @@
 #include <string> // std::string
 
 #include "color/color.hpp"
+#include "cudaview/engine/vk_cudadevice.hpp"
 
 // Specifies the number of spatial dimensions of the view
 enum class DataDomain    { Domain2D, Domain3D };
@@ -75,9 +76,11 @@ struct InteropMemory
 
 struct CudaView
 {
-  ViewParams params;
+  ViewParams _params;
   uint32_t pipeline_index = 0;
   InteropMemory _interop;
+
+  VulkanCudaDevice *_dev = nullptr;
 
   // Auxiliary memory members
   VkBuffer vertex_buffer    = VK_NULL_HANDLE;
@@ -91,4 +94,17 @@ struct CudaView
   VkFormat vk_format   = VK_FORMAT_UNDEFINED;
   VkImageView vk_view  = VK_NULL_HANDLE;
   VkSampler vk_sampler = VK_NULL_HANDLE;
+
+  CudaView(ViewParams params, VulkanCudaDevice *dev);
+  void init();
+  void createUniformBuffers(uint32_t img_count);
+  void updateUniformBuffers(uint32_t image_idx,
+    ModelViewProjection mvp, PrimitiveParams options, SceneParams scene
+  );
+  void loadTexture(void *img_data);  
+  void updateTexture();
+
+  // TODO: Currently called inside createView, but should be called from API
+  InteropMemory getInteropBuffer(ViewParams params);
+  InteropMemory getInteropImage(ViewParams params);
 };

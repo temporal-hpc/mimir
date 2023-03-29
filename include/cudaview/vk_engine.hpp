@@ -33,7 +33,9 @@ public:
   VulkanEngine();
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
-  CudaView addView(void **ptr_devmem, const ViewParams params);
+  // Main library function, which setups all the visualization interop
+  // TODO: Return the created view with a better handle
+  CudaView addView(void **ptr_devmem, ViewParams params);
 
   void display(std::function<void(void)> func, size_t iter_count);
   void displayAsync();

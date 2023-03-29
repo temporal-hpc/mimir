@@ -328,7 +328,15 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, VulkanCudaDevice 
   info.depth_stencil = getDepthInfo(params.data_domain);
   info.rasterizer = getRasterizationInfo(params.primitive_type);
   info.multisampling = vkinit::multisampleStateCreateInfo();
-  info.color_blend_attachment = vkinit::colorBlendAttachmentState();
+  auto col_blend = vkinit::colorBlendAttachmentState();
+  col_blend.blendEnable         = VK_TRUE;
+  col_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  col_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  col_blend.colorBlendOp        = VK_BLEND_OP_ADD;
+  col_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;  
+  info.color_blend_attachment = col_blend;
 
   pipeline_infos.push_back(info);
   return pipeline_infos.size() - 1;
