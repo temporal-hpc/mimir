@@ -266,14 +266,14 @@ int main(int argc, char *argv[])
     params.cuda_stream = program.stream;
     params.options.color = color::constant::turquoise_t{};
     color::set::alpha(params.options.color, 1.f);
-    engine.addView((void**)&program.d_coords, params);
+    engine.createView((void**)&program.d_coords, params);
     //cudaMalloc((void**)&program.d_coords, sizeof(float2) * point_count);
 
     params.element_count = program.extent.x * program.extent.y;
     params.element_size = sizeof(float);
     params.resource_type = ResourceType::TextureLinear;
     params.texture_format = TextureFormat::Float32;
-    engine.addView((void**)&program.d_distances, params);
+    engine.createView((void**)&program.d_distances, params);
     //cudaMalloc((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
 
     program.setInitialState();

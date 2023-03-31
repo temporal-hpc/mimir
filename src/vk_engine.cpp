@@ -151,7 +151,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
   vkDeviceWaitIdle(dev->logical_device);
 }
 
-CudaView VulkanEngine::addView(void **ptr_devmem, ViewParams params)
+CudaView *VulkanEngine::createView(void **ptr_devmem, ViewParams params)
 {
   auto view = CudaView(params, dev.get());
   view.init();
@@ -159,17 +159,12 @@ CudaView VulkanEngine::addView(void **ptr_devmem, ViewParams params)
   views.push_back(view);
   updateDescriptorSets();
   *ptr_devmem = view._interop.cuda_ptr;
-  return view;
+  return &views.back();
 }
 
 CudaView *VulkanEngine::getView(uint32_t view_index)
 {
   return &views[view_index];
-}
-
-void VulkanEngine::loadTexture(CudaView& view, void *img_data)
-{
-  view.loadTexture(img_data);
 }
 
 void VulkanEngine::initVulkan()

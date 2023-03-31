@@ -34,8 +34,7 @@ public:
   ~VulkanEngine();
   void init(int width = 800, int height = 600);
   // Main library function, which setups all the visualization interop
-  // TODO: Return the created view with a better handle
-  CudaView addView(void **ptr_devmem, ViewParams params);
+  CudaView *createView(void **ptr_devmem, ViewParams params);
 
   void display(std::function<void(void)> func, size_t iter_count);
   void displayAsync();
@@ -44,7 +43,6 @@ public:
   bool should_resize = false;
 
   CudaView *getView(uint32_t view_index);
-  void loadTexture(CudaView& view, void *img_data);
   void setBackgroundColor(color::rgba<float> color);
 
 private:

@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
     params.data_domain = DataDomain::Domain2D;
     params.resource_type = ResourceType::UnstructuredBuffer;
     params.primitive_type = PrimitiveType::Points;
-    engine.addView((void**)&dPoints, params);
+    engine.createView((void**)&dPoints, params);
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);

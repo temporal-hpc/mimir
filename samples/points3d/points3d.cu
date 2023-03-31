@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
   params.data_domain = DataDomain::Domain3D;
   params.resource_type = ResourceType::UnstructuredBuffer;
   params.primitive_type = PrimitiveType::Points;
-  engine.addView((void**)&d_coords, params);
+  engine.createView((void**)&d_coords, params);
 
   checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
   unsigned grid_size = (point_count + block_size - 1) / block_size;

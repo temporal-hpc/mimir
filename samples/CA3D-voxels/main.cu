@@ -56,10 +56,10 @@ int main(int argc, char **argv){
     t1 = omp_get_wtime();
     init_prob(n, original, seed, prob);
 
-    /*engine.addViewStructured((void**)&d1, extent, sizeof(int),
+    /*engine.createViewStructured((void**)&d1, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
     );*/
-    /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
+    /*engine.createViewStructured((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
     );*/
 
@@ -78,8 +78,8 @@ int main(int argc, char **argv){
 
     //params.resource_type = ResourceType::TextureLinear;
     //params.texture_format = TextureFormat::Int32;
-    engine.addView((void**)&d1, params);
-    /*engine.addViewStructured((void**)&d2, extent, sizeof(int),
+    engine.createView((void**)&d1, params);
+    /*engine.createViewStructured((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
     );*/
     //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));

@@ -52,12 +52,12 @@ int main(int argc, char *argv[])
   params.data_domain = DataDomain::Domain3D;
   params.resource_type = ResourceType::UnstructuredBuffer;
   params.primitive_type = PrimitiveType::Points;
-  engine.addView((void**)&d_coords, params);
+  engine.createView((void**)&d_coords, params);
 
   params.element_count = triangles.size();
   params.element_size = sizeof(uint3);
   params.primitive_type = PrimitiveType::Edges;
-  engine.addView((void**)&d_triangles, params);
+  engine.createView((void**)&d_triangles, params);
 
   //engine.setBackgroundColor(color::rgba<float>{.5f, .5f, .5f, 1.f});
   engine.setBackgroundColor(color::constant::turquoise_t{});

@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
   params.data_domain = DataDomain::Domain2D;
   params.resource_type = ResourceType::TextureLinear;
   params.texture_format = TextureFormat::Rgba32;
-  engine.addView((void**)&d_pixels, params);
+  engine.createView((void**)&d_pixels, params);
 
   auto tex_size = sizeof(uchar4) * width * height;
   checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));
