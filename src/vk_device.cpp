@@ -74,6 +74,7 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     physical_device, &create_info, nullptr, &logical_device)
   );
   deletors.pushFunction([=](){
+    printf("Destroying device\n");
     vkDestroyDevice(logical_device, nullptr);
   });
 

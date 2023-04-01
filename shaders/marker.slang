@@ -185,6 +185,6 @@ FragmentOutput fragmentMain(MarkerData input)
   out.color = filled(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
   //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
   //out.depth = clip_pos.z / clip_pos.w;
-  out.depth = out.color.w == 1? input.pos.z / input.pos.w : 1;
+  out.depth = out.color.w == 1? input.pos.w : 1;
   return out; 
 }
