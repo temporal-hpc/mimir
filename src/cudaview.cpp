@@ -5,7 +5,6 @@
 
 #include "cudaview/vk_types.hpp"
 #include "internal/vk_initializers.hpp"
-#include "internal/utils.hpp"
 #include <cudaview/validation.hpp>
 
 VkBufferUsageFlags getUsageFlags(PrimitiveType p, ResourceType r)

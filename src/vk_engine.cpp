@@ -3,7 +3,6 @@
 
 #include "internal/camera.hpp"
 #include "internal/color.hpp"
-#include "internal/utils.hpp"
 #include <cudaview/validation.hpp>
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"

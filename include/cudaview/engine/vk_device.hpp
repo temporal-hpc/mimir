@@ -66,3 +66,5 @@ struct VulkanDevice
         VkImageLayout old_layout, VkImageLayout new_layout
     );
 };
+
+size_t getAlignedSize(size_t original_size, size_t min_alignment);

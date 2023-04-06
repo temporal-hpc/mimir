@@ -57,12 +57,12 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
     {
         if (mode == VK_PRESENT_MODE_MAILBOX_KHR)
         {
-        present_mode = mode;
-        break;
+            present_mode = mode;
+            break;
         }
         else if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR)
         {
-        present_mode = mode;
+            present_mode = mode;
         }
     }
 
@@ -79,8 +79,8 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
         if (surf_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
             surf_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
         {
-        color_format = surf_format.format;
-        color_space = surf_format.colorSpace;
+            color_format = surf_format.format;
+            color_space = surf_format.colorSpace;
         }
     }
 
