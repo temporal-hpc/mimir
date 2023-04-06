@@ -7,7 +7,7 @@
 #include <chrono> // std::chrono
 #include <thread> // std::thread
 
-#include "cudaview/vk_engine.hpp"
+#include <cudaview/vk_engine.hpp>
 
 #define VEL 0.1
 #define BSIZE 256

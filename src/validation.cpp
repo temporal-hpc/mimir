@@ -1,4 +1,4 @@
-#include "internal/validation.hpp"
+#include <cudaview/validation.hpp>
 
 #include <cstring> // strcmp
 

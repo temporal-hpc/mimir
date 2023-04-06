@@ -11,8 +11,9 @@
 #include <thread> // std::thread
 
 #include "helper_math.h"
-#include "cudaview/vk_engine.hpp"
-#include "cuda_utils.hpp" // checkCuda
+#include <cudaview/vk_engine.hpp>
+#include <cudaview/validation.hpp> // checkCuda
+using namespace validation; // checkCuda
 
 // convert floating point rgba color to 32-bit integer
 __device__ unsigned int rgbaFloatToInt(float4 rgba) {

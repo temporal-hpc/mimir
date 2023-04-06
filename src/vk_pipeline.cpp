@@ -3,7 +3,7 @@
 #include "cudaview/io.hpp"
 #include "cudaview/vk_types.hpp"
 #include "internal/vk_initializers.hpp"
-#include "internal/validation.hpp"
+#include <cudaview/validation.hpp>
 
 ShaderCompileParameters getShaderCompileParams(ViewParams view)
 {
