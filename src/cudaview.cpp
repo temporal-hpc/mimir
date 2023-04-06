@@ -61,7 +61,7 @@ VkImageViewType getViewType(DataDomain domain)
   }
 }
 
-InteropMemory CudaView::getInteropImage(ViewParams params)
+InteropMemory getInteropImage(ViewParams params, VulkanCudaDevice *dev)
 {
   constexpr int level_count = 1; // TODO: Should be a parameter
   InteropMemory interop;
@@ -75,7 +75,7 @@ InteropMemory CudaView::getInteropImage(ViewParams params)
 
   auto img_format = getVulkanFormat(params.texture_format);
   VkExtent3D img_extent = {params.extent.x, params.extent.y, params.extent.z};
-  interop.image = _dev->createImage(img_type, img_format, img_extent,
+  interop.image = dev->createImage(img_type, img_format, img_extent,
     VK_IMAGE_TILING_OPTIMAL, 
     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
     &ext_info
@@ -86,13 +86,13 @@ InteropMemory CudaView::getInteropImage(ViewParams params)
   export_info.pNext = nullptr;
   export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
   VkMemoryRequirements reqs;
-  vkGetImageMemoryRequirements(_dev->logical_device, interop.image, &reqs);
-  interop.memory = _dev->allocateMemory(reqs,
+  vkGetImageMemoryRequirements(dev->logical_device, interop.image, &reqs);
+  interop.memory = dev->allocateMemory(reqs,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
   );
 
-  vkBindImageMemory(_dev->logical_device, interop.image, interop.memory, 0);
-  _dev->importCudaExternalMemory(interop.cuda_extmem, interop.memory, reqs.size);
+  vkBindImageMemory(dev->logical_device, interop.image, interop.memory, 0);
+  dev->importCudaExternalMemory(interop.cuda_extmem, interop.memory, reqs.size);
   
   cudaChannelFormatDesc format_desc;
   format_desc.x = 8;
@@ -115,17 +115,17 @@ InteropMemory CudaView::getInteropImage(ViewParams params)
     &interop.mipmap_array, interop.cuda_extmem, &array_desc)
   );
 
-  _dev->deletors.pushFunction([=]{
+  dev->deletors.pushFunction([=]{
     validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
     validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
-    vkDestroyImage(_dev->logical_device, interop.image, nullptr);
-    vkFreeMemory(_dev->logical_device, interop.memory, nullptr);
+    vkDestroyImage(dev->logical_device, interop.image, nullptr);
+    vkFreeMemory(dev->logical_device, interop.memory, nullptr);
   });
 
   return interop;
 }
 
-InteropMemory CudaView::getInteropBuffer(ViewParams params)
+InteropMemory getInteropBuffer(ViewParams params, VulkanCudaDevice *dev)
 {
   InteropMemory interop;
 
@@ -136,20 +136,20 @@ InteropMemory CudaView::getInteropBuffer(ViewParams params)
   VkExternalMemoryBufferCreateInfo extmem_info{};
   extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
   extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-  interop.data_buffer = _dev->createBuffer(memsize, usage, &extmem_info);
+  interop.data_buffer = dev->createBuffer(memsize, usage, &extmem_info);
 
   VkExportMemoryAllocateInfoKHR export_info{};
   export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
   export_info.pNext = nullptr;
   export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
   VkMemoryRequirements reqs;
-  vkGetBufferMemoryRequirements(_dev->logical_device, interop.data_buffer, &reqs);
-  interop.memory = _dev->allocateMemory(reqs,
+  vkGetBufferMemoryRequirements(dev->logical_device, interop.data_buffer, &reqs);
+  interop.memory = dev->allocateMemory(reqs,
     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
   );
 
-  vkBindBufferMemory(_dev->logical_device, interop.data_buffer, interop.memory, 0);
-  _dev->importCudaExternalMemory(interop.cuda_extmem, interop.memory, memsize);
+  vkBindBufferMemory(dev->logical_device, interop.data_buffer, interop.memory, 0);
+  dev->importCudaExternalMemory(interop.cuda_extmem, interop.memory, memsize);
   cudaExternalMemoryBufferDesc buffer_desc{};
   buffer_desc.offset = 0;
   buffer_desc.size   = memsize;
@@ -158,10 +158,10 @@ InteropMemory CudaView::getInteropBuffer(ViewParams params)
     &interop.cuda_ptr, interop.cuda_extmem, &buffer_desc)
   );
   
-  _dev->deletors.pushFunction([=]{
+  dev->deletors.pushFunction([=]{
     validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
-    vkDestroyBuffer(_dev->logical_device, interop.data_buffer, nullptr);
-    vkFreeMemory(_dev->logical_device, interop.memory, nullptr);
+    vkDestroyBuffer(dev->logical_device, interop.data_buffer, nullptr);
+    vkFreeMemory(dev->logical_device, interop.memory, nullptr);
   }); 
 
   return interop;
@@ -229,7 +229,7 @@ void CudaView::init()
     // Init texture memory (TODO: Refactor)
     if (_params.resource_type == ResourceType::TextureLinear)
     {
-      _interop = getInteropBuffer(_params);
+      _interop = getInteropBuffer(_params, _dev);
       auto img_type = getImageType(_params.data_domain);
       VkExternalMemoryImageCreateInfo ext_info{};
       ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -253,7 +253,7 @@ void CudaView::init()
     }
     else if (_params.resource_type == ResourceType::Texture)
     {
-      _interop = getInteropImage(_params);
+      _interop = getInteropImage(_params, _dev);
     }
 
     auto view_type = getViewType(_params.data_domain);
@@ -269,7 +269,7 @@ void CudaView::init()
   }
   else
   {
-    _interop = getInteropBuffer(_params);
+    _interop = getInteropBuffer(_params, _dev);
     if (_params.resource_type == ResourceType::StructuredBuffer)
     {
       auto buffer_size = sizeof(float3) * _params.element_count;

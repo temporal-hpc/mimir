@@ -5,19 +5,19 @@
 
 struct DeletionQueue
 {
-  std::vector<std::function<void()>> deletors;
+    std::vector<std::function<void()>> deletors;
 
-  void pushFunction(std::function<void()>&& function)
-  {
-    deletors.push_back(function);
-  }
-
-  void flush()
-  {
-    for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
+    void pushFunction(std::function<void()>&& function)
     {
-      (*it)();
+        deletors.push_back(function);
     }
-    deletors.clear();
-  }
+
+    void flush()
+    {
+        for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
+        {
+        (*it)();
+        }
+        deletors.clear();
+    }
 };
