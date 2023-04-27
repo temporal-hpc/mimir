@@ -253,7 +253,7 @@ void VulkanEngine::createInstance()
     app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     app_info.pEngineName        = "No engine";
     app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
-    app_info.apiVersion         = VK_API_VERSION_1_3;
+    app_info.apiVersion         = VK_API_VERSION_1_2;
 
     uint32_t glfw_ext_count = 0;
     // List required GLFW extensions and additional required validation layers
