@@ -18,7 +18,7 @@ make
 ```
 
 When successful, the above commands should create the `cudaview` library, which
-links to a test battery and a script that performs Gibbs sampling.
+links to a number of included sample programs making use of it.
 
 # Installing
 TODO
