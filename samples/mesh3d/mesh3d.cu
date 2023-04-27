@@ -59,10 +59,7 @@ int main(int argc, char *argv[])
     params.primitive_type = PrimitiveType::Edges;
     engine.createView((void**)&d_triangles, params);
 
-    //engine.setBackgroundColor(color::rgba<float>{.5f, .5f, .5f, 1.f});
-    engine.setBackgroundColor(color::constant::turquoise_t{});
-    //engine.setPointColor(color::constant::orange_t{});
-    //engine.setEdgeColor(color::constant::purple_t{});
+    engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     //unsigned grid_size = (point_count + block_size - 1) / block_size;

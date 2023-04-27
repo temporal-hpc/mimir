@@ -3,20 +3,10 @@
 
 #include <algorithm>
 
-void VulkanEngine::setBackgroundColor(color::rgba<float> color)
+void VulkanEngine::setBackgroundColor(float4 color)
 {
     bg_color = color;
 }
-
-/*void VulkanEngine::setPointColor(color::rgba<float> color)
-{
-  point_color = color;
-}
-
-void VulkanEngine::setEdgeColor(color::rgba<float> color)
-{
-  edge_color = color;
-}*/
 
 // Translates GLFW mouse movement into Viewer flags for detecting camera movement
 void VulkanEngine::handleMouseMove(float x, float y)

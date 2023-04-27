@@ -6,7 +6,6 @@
 
 #include "cudaview/vk_types.hpp"
 #include "internal/vk_initializers.hpp"
-#include "internal/color.hpp"
 #include <cudaview/validation.hpp>
 
 void *VulkanCudaDevice::getMemoryHandle(VkDeviceMemory memory,

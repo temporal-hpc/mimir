@@ -11,8 +11,6 @@
 #include <thread> // std::thread
 #include <vector> // std::vector
 
-#include "color/color.hpp"
-
 #include "cudaview/deletion_queue.hpp"
 #include "cudaview/engine/cudaview.hpp"
 
@@ -43,7 +41,7 @@ public:
     void updateWindow();
     bool should_resize = false;
 
-    void setBackgroundColor(color::rgba<float> color);
+    void setBackgroundColor(float4 color);
 
 private:
     int _width = 0, _height = 0;
@@ -94,7 +92,7 @@ private:
         std::vector<VkPipelineStageFlags>& wait_stages) const;
     void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;
 
-    color::rgba<float> bg_color{.5f, .5f, .5f, 1.f};
+    float4 bg_color{.5f, .5f, .5f, 1.f};
 
     // Camera functions
     struct {

@@ -5,7 +5,6 @@
 
 #include <string> // std::string
 
-#include "color/color.hpp"
 #include "cudaview/engine/vk_cudadevice.hpp"
 
 // Specifies the number of spatial dimensions of the view
@@ -33,7 +32,7 @@ struct ViewOptions
     // Flag indicating if this view should be displayed or not
     bool visible = true;
     // Default primitive color if no per-instance color is set
-    color::rgba<float> color{0.f,0.f,0.f,1.f};
+    float4 color{0.f,0.f,0.f,1.f};
     // Default primitive size if no per-instance size is set
     float size = 10.f;
     // External alternate shaders for use in this view

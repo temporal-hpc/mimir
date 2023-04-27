@@ -2,7 +2,6 @@
 #include "cudaview/io.hpp"
 
 #include "internal/camera.hpp"
-#include "internal/color.hpp"
 #include <cudaview/validation.hpp>
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
@@ -18,6 +17,24 @@
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
 #include <glm/gtx/string_cast.hpp>
+
+void setColor(float *vk_color, float4 color)
+{
+    vk_color[0] = color.x;
+    vk_color[1] = color.y;
+    vk_color[2] = color.z;
+    vk_color[3] = color.w;
+}
+
+glm::vec4 getColor(float4 color)
+{
+    glm::vec4 colorvec;
+    colorvec.x = color.x;
+    colorvec.y = color.y;
+    colorvec.z = color.z;
+    colorvec.w = color.w;
+    return colorvec;
+}
 
 VulkanEngine::VulkanEngine():
     shader_path{ io::getDefaultShaderPath() },
@@ -655,7 +672,7 @@ void VulkanEngine::renderFrame()
         render_pass, fbs[image_idx].framebuffer, swap->swapchain_extent
     );
     std::array<VkClearValue, 2> clear_values{};
-    color::setColor(clear_values[0].color.float32, bg_color);
+    setColor(clear_values[0].color.float32, bg_color);
     clear_values[1].depthStencil = {1.f, 0};
     render_pass_info.clearValueCount = clear_values.size();
     render_pass_info.pClearValues    = clear_values.data();
@@ -677,12 +694,12 @@ void VulkanEngine::renderFrame()
         mvp.proj  = camera->matrices.perspective;
 
         PrimitiveParams options{};
-        options.color = color::getColor(view._params.options.color);
+        options.color = getColor(view._params.options.color);
         options.size = view._params.options.size;
 
         SceneParams scene{};
         auto extent = view._params.extent;
-        scene.bg_color = color::getColor(bg_color);
+        scene.bg_color = getColor(bg_color);
         scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
         scene.depth = view._params.options.depth;
         scene.resolution = glm::ivec2{_width, _height};
