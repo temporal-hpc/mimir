@@ -72,12 +72,9 @@ struct InteropMemory
     // Image members (TODO: Should be separated)
     cudaMipmappedArray_t mipmap_array = nullptr;
     VkImage image = VK_NULL_HANDLE;
+
+    void initExternalMemory(ViewParams params, VulkanCudaDevice *dev);
 };
-
-
-// TODO: Currently called inside createView, but should be called from API
-InteropMemory getInteropBuffer(ViewParams params, VulkanCudaDevice *dev);
-InteropMemory getInteropImage(ViewParams params, VulkanCudaDevice *dev);
 
 struct CudaView
 {

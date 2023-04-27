@@ -2,6 +2,7 @@
 
 #include <cuda_runtime.h>
 #include <cstring> // std::memcpy
+#include <iostream>
 
 #include "cudaview/vk_types.hpp"
 #include "internal/vk_initializers.hpp"
@@ -60,110 +61,135 @@ VkImageViewType getViewType(DataDomain domain)
     }
 }
 
-InteropMemory getInteropImage(ViewParams params, VulkanCudaDevice *dev)
+VkImageTiling getImageTiling(ResourceType type)
 {
-    constexpr int level_count = 1; // TODO: Should be a parameter
-    InteropMemory interop;
-
-    // Init texture memory
-    auto img_type = getImageType(params.data_domain);
-    VkExternalMemoryImageCreateInfo ext_info{};
-    ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-    ext_info.pNext = nullptr;
-    ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
-    auto img_format = getVulkanFormat(params.texture_format);
-    VkExtent3D img_extent = {params.extent.x, params.extent.y, params.extent.z};
-    interop.image = dev->createImage(img_type, img_format, img_extent,
-        VK_IMAGE_TILING_OPTIMAL, 
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        &ext_info
-    );
-
-    VkExportMemoryAllocateInfoKHR export_info{};
-    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
-    export_info.pNext = nullptr;
-    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-    VkMemoryRequirements reqs;
-    vkGetImageMemoryRequirements(dev->logical_device, interop.image, &reqs);
-    interop.memory = dev->allocateMemory(reqs,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
-    );
-
-    vkBindImageMemory(dev->logical_device, interop.image, interop.memory, 0);
-    dev->importCudaExternalMemory(interop.cuda_extmem, interop.memory, reqs.size);
-    
-    cudaChannelFormatDesc format_desc;
-    format_desc.x = 8;
-    format_desc.y = 8;
-    format_desc.z = 8;
-    format_desc.w = 8;
-    format_desc.f = cudaChannelFormatKindUnsigned;
-    size_t image_width  = params.extent.x;
-    size_t image_height = params.extent.y;
-    auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
-
-    cudaExternalMemoryMipmappedArrayDesc array_desc{};
-    array_desc.offset     = 0;
-    array_desc.formatDesc = format_desc;
-    array_desc.extent     = cuda_extent;
-    array_desc.flags      = 0;
-    array_desc.numLevels  = level_count;
-
-    validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
-        &interop.mipmap_array, interop.cuda_extmem, &array_desc)
-    );
-
-    dev->deletors.pushFunction([=]{
-        validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
-        validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
-        vkDestroyImage(dev->logical_device, interop.image, nullptr);
-        vkFreeMemory(dev->logical_device, interop.memory, nullptr);
-    });
-
-    return interop;
+    switch (type)
+    {
+        case ResourceType::Texture: return VK_IMAGE_TILING_OPTIMAL;
+        case ResourceType::TextureLinear: default: return VK_IMAGE_TILING_LINEAR;
+    }
 }
 
-InteropMemory getInteropBuffer(ViewParams params, VulkanCudaDevice *dev)
+void InteropMemory::initExternalMemory(ViewParams params, VulkanCudaDevice *dev)
 {
-    InteropMemory interop;
+    VkMemoryRequirements bufreq{}, imgreq{}, memreq{};
+    if (params.resource_type == ResourceType::StructuredBuffer || 
+        params.resource_type == ResourceType::UnstructuredBuffer || 
+        params.resource_type == ResourceType::TextureLinear)
+    {
+        // Create interop buffers
+        VkDeviceSize memsize = params.element_size * params.element_count;
+        auto usage = getUsageFlags(params.primitive_type, params.resource_type);
+        VkExternalMemoryBufferCreateInfo extmem_info{};
+        extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
+        extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
-    VkDeviceSize memsize = params.element_size * params.element_count;
-    auto usage = getUsageFlags(params.primitive_type, params.resource_type);
+        data_buffer = dev->createBuffer(memsize, usage, &extmem_info);
+        dev->deletors.pushFunction([=]{
+            vkDestroyBuffer(dev->logical_device, data_buffer, nullptr);
+        });
+        vkGetBufferMemoryRequirements(dev->logical_device, data_buffer, &bufreq);
+        std::cout << "Buffer\n";
+    }
+    if (params.resource_type == ResourceType::Texture ||
+        params.resource_type == ResourceType::TextureLinear)
+    {
+        // Init texture memory
+        auto img_type = getImageType(params.data_domain);
+        VkExternalMemoryImageCreateInfo ext_info{};
+        ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+        ext_info.pNext = nullptr;
+        ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+        auto img_format = getVulkanFormat(params.texture_format);
+        VkExtent3D img_extent = {params.extent.x, params.extent.y, params.extent.z};
+        auto tiling = getImageTiling(params.resource_type);
+        auto usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-    // Create interop buffers
-    VkExternalMemoryBufferCreateInfo extmem_info{};
-    extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
-    extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-    interop.data_buffer = dev->createBuffer(memsize, usage, &extmem_info);
+        image = dev->createImage(img_type, img_format, img_extent, tiling, usage, &ext_info);
+        dev->deletors.pushFunction([=]{
+            vkDestroyImage(dev->logical_device, image, nullptr);
+        });
+        vkGetImageMemoryRequirements(dev->logical_device, image, &imgreq);
+        std::cout << "Image\n";
+    }
+
+    if (params.resource_type == ResourceType::StructuredBuffer || 
+        params.resource_type == ResourceType::UnstructuredBuffer)
+    {
+        memreq = bufreq;
+        std::cout << "Bufferreq";
+    }
+    else if (params.resource_type == ResourceType::Texture)
+    {
+        memreq = imgreq;
+    }
+    else if (params.resource_type == ResourceType::TextureLinear)
+    {
+        memreq.size = std::max(bufreq.size, imgreq.size);
+        memreq.alignment = std::max(bufreq.size, imgreq.size);
+        memreq.memoryTypeBits = bufreq.memoryTypeBits & imgreq.memoryTypeBits;
+    }
 
     VkExportMemoryAllocateInfoKHR export_info{};
     export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
     export_info.pNext = nullptr;
     export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-    VkMemoryRequirements reqs;
-    vkGetBufferMemoryRequirements(dev->logical_device, interop.data_buffer, &reqs);
-    interop.memory = dev->allocateMemory(reqs,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info
-    );
-
-    vkBindBufferMemory(dev->logical_device, interop.data_buffer, interop.memory, 0);
-    dev->importCudaExternalMemory(interop.cuda_extmem, interop.memory, memsize);
-    cudaExternalMemoryBufferDesc buffer_desc{};
-    buffer_desc.offset = 0;
-    buffer_desc.size   = memsize;
-    buffer_desc.flags  = 0;
-    validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-        &interop.cuda_ptr, interop.cuda_extmem, &buffer_desc)
-    );
-    
+    auto properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    memory = dev->allocateMemory(memreq, properties, &export_info);
+    dev->importCudaExternalMemory(cuda_extmem, memory, memreq.size);
     dev->deletors.pushFunction([=]{
-        validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
-        vkDestroyBuffer(dev->logical_device, interop.data_buffer, nullptr);
-        vkFreeMemory(dev->logical_device, interop.memory, nullptr);
-    }); 
+        //validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
+        vkFreeMemory(dev->logical_device, memory, nullptr);
+    });
 
-    return interop;
+    if (params.resource_type == ResourceType::StructuredBuffer || 
+        params.resource_type == ResourceType::UnstructuredBuffer || 
+        params.resource_type == ResourceType::TextureLinear)
+    {
+        VkDeviceSize memsize = params.element_size * params.element_count;
+        vkBindBufferMemory(dev->logical_device, data_buffer, memory, 0);
+        cudaExternalMemoryBufferDesc buffer_desc{};
+        buffer_desc.offset = 0;
+        buffer_desc.size   = memsize;
+        buffer_desc.flags  = 0;
+        validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+            &cuda_ptr, cuda_extmem, &buffer_desc)
+        );
+    }
+    if (params.resource_type == ResourceType::Texture ||
+        params.resource_type == ResourceType::TextureLinear)
+    {
+        vkBindImageMemory(dev->logical_device, image, memory, 0);
+        if (params.resource_type == ResourceType::Texture)
+        {
+            constexpr int level_count = 1; // TODO: Should be a parameter
+
+            cudaChannelFormatDesc format_desc;
+            format_desc.x = 8;
+            format_desc.y = 8;
+            format_desc.z = 8;
+            format_desc.w = 8;
+            format_desc.f = cudaChannelFormatKindUnsigned;
+            size_t image_width  = params.extent.x;
+            size_t image_height = params.extent.y;
+            auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
+
+            cudaExternalMemoryMipmappedArrayDesc array_desc{};
+            array_desc.offset     = 0;
+            array_desc.formatDesc = format_desc;
+            array_desc.extent     = cuda_extent;
+            array_desc.flags      = 0;
+            array_desc.numLevels  = level_count;
+
+            validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
+                &mipmap_array, cuda_extmem, &array_desc)
+            );
+
+            dev->deletors.pushFunction([=]{
+                validation::checkCuda(cudaFreeMipmappedArray(mipmap_array));
+            });
+        }
+    }
 }
 
 CudaView::CudaView(ViewParams params, VulkanCudaDevice *dev): _params{params}, _dev{dev}
@@ -173,6 +199,7 @@ void CudaView::init()
 {
     vk_format = getVulkanFormat(_params.texture_format);
     vk_extent = {_params.extent.x, _params.extent.y, _params.extent.z};
+    _interop.initExternalMemory(_params, _dev);
 
     auto usage = getUsageFlags(_params.primitive_type, _params.resource_type);
     VkMemoryRequirements requirements;
@@ -225,10 +252,20 @@ void CudaView::init()
             vkFreeMemory(logical_device, aux_memory, nullptr);
         });
 
+        auto view_type = getViewType(_params.data_domain);
+        auto info = vkinit::imageViewCreateInfo(_interop.image,
+            view_type, vk_format, VK_IMAGE_ASPECT_COLOR_BIT
+        );
+        validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &vk_view));
+        vk_sampler = _dev->createSampler(VK_FILTER_NEAREST, true);
+
+        _dev->deletors.pushFunction([=]{
+            vkDestroyImageView(logical_device, vk_view, nullptr);
+        });
+
         // Init texture memory (TODO: Refactor)
         if (_params.resource_type == ResourceType::TextureLinear)
         {
-            _interop = getInteropBuffer(_params, _dev);
             auto img_type = getImageType(_params.data_domain);
             VkExternalMemoryImageCreateInfo ext_info{};
             ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -250,25 +287,9 @@ void CudaView::init()
                 vkDestroyImage(logical_device, _interop.image, nullptr);
             });      
         }
-        else if (_params.resource_type == ResourceType::Texture)
-        {
-            _interop = getInteropImage(_params, _dev);
-        }
-
-        auto view_type = getViewType(_params.data_domain);
-        auto info = vkinit::imageViewCreateInfo(_interop.image,
-            view_type, vk_format, VK_IMAGE_ASPECT_COLOR_BIT
-        );
-        validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &vk_view));
-        vk_sampler = _dev->createSampler(VK_FILTER_NEAREST, true);
-
-        _dev->deletors.pushFunction([=]{
-            vkDestroyImageView(logical_device, vk_view, nullptr);
-        });
     }
     else
     {
-        _interop = getInteropBuffer(_params, _dev);
         if (_params.resource_type == ResourceType::StructuredBuffer)
         {
             auto buffer_size = sizeof(float3) * _params.element_count;
