@@ -3,7 +3,6 @@ add_library(cudaview STATIC)
 
 target_sources(cudaview PRIVATE
   camera.cpp
-  cudaview.cpp
   controls.cpp
   io.cpp
   validation.cpp

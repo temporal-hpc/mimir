@@ -5,8 +5,6 @@
 
 #include <string> // std::string
 
-#include "cudaview/engine/vk_cudadevice.hpp"
-
 // Specifies the number of spatial dimensions of the view
 enum class DataDomain    { Domain2D, Domain3D };
 // Specifies the data layout
@@ -56,36 +54,10 @@ struct ViewParams
     ViewOptions options;
 };
 
-// Struct for storing Vulkan/Cuda interoperatibility members 
-struct InteropMemory
-{
-    // Raw Cuda pointer which can be passed to the library user
-    // for use in kernels, as per cudaMalloc
-    void *cuda_ptr = nullptr;
-    // Vulkan buffer handle
-    VkBuffer data_buffer = VK_NULL_HANDLE;
-    // Vulkan external device memory
-    VkDeviceMemory memory = VK_NULL_HANDLE;  
-    // Cuda external memory handle, provided by the Cuda interop API
-    cudaExternalMemory_t cuda_extmem = nullptr;
-
-    // Image members (TODO: Should be separated)
-    cudaMipmappedArray_t mipmap_array = nullptr;
-    VkImage image = VK_NULL_HANDLE;
-};
-
-
-// TODO: Currently called inside createView, but should be called from API
-InteropMemory getInteropBuffer(ViewParams params, VulkanCudaDevice *dev);
-InteropMemory getInteropImage(ViewParams params, VulkanCudaDevice *dev);
-
 struct CudaView
 {
-    ViewParams _params;
+    ViewParams params;
     uint32_t pipeline_index = 0;
-    InteropMemory _interop;
-
-    VulkanCudaDevice *_dev = nullptr;
 
     // Auxiliary memory members
     VkBuffer vertex_buffer    = VK_NULL_HANDLE;
@@ -100,12 +72,17 @@ struct CudaView
     VkImageView vk_view  = VK_NULL_HANDLE;
     VkSampler vk_sampler = VK_NULL_HANDLE;
 
-    CudaView(ViewParams params, VulkanCudaDevice *dev);
-    void init();
-    void createUniformBuffers(uint32_t img_count);
-    void updateUniformBuffers(uint32_t image_idx,
-        ModelViewProjection mvp, PrimitiveParams options, SceneParams scene
-    );
-    void loadTexture(void *img_data);  
-    void updateTexture();
+    // Raw Cuda pointer which can be passed to the library user
+    // for use in kernels, as per cudaMalloc
+    void *cuda_ptr = nullptr;
+    // Vulkan buffer handle
+    VkBuffer data_buffer = VK_NULL_HANDLE;
+    // Vulkan external device memory
+    VkDeviceMemory memory = VK_NULL_HANDLE;  
+    // Cuda external memory handle, provided by the Cuda interop API
+    cudaExternalMemory_t cuda_extmem = nullptr;
+
+    // Image members (TODO: Should be separated)
+    cudaMipmappedArray_t mipmap_array = nullptr;
+    VkImage image = VK_NULL_HANDLE;
 };

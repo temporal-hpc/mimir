@@ -11,8 +11,8 @@
 #include <thread> // std::thread
 #include <vector> // std::vector
 
-#include "cudaview/deletion_queue.hpp"
-#include "cudaview/engine/cudaview.hpp"
+#include <cudaview/deletion_queue.hpp>
+#include <cudaview/engine/vk_cudadevice.hpp>
 
 namespace
 {
@@ -33,7 +33,7 @@ public:
     // Main library function, which setups all the visualization interop
     CudaView *createView(void **ptr_devmem, ViewParams params);
     CudaView *getView(uint32_t view_index);
-    InteropMemory createInteropBuffer(void **cuda_ptr, ViewParams params);
+    void loadTexture(CudaView *view, void *data);
 
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();

@@ -203,7 +203,7 @@ int main(int argc, char *argv[])
   params.resource_type  = ResourceType::Texture;
   params.texture_format = TextureFormat::Rgba32;
   auto view = engine.createView((void**)&d_image, params);
-  view->loadTexture(img_data);
+  engine.loadTexture(view, img_data);
 
   cudaChannelFormatDesc format_desc;
   format_desc.x = 8;
@@ -246,7 +246,7 @@ int main(int argc, char *argv[])
     cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
 
     checkCuda(cudaGetMipmappedArrayLevel(
-      &mipLevelArray, view->_interop.mipmap_array, level_idx
+      &mipLevelArray, view->mipmap_array, level_idx
     ));
     checkCuda(cudaGetMipmappedArrayLevel(
       &mipLevelArrayTemp, cudaMipmappedImageArrayTemp, level_idx
