@@ -86,7 +86,7 @@ void compileSlang(
 
         Slang::ComPtr<slang::IComponentType> spec_program;
         result = program->specialize(
-        args.data(), args.size(), spec_program.writeRef(), diag.writeRef()
+            args.data(), args.size(), spec_program.writeRef(), diag.writeRef()
         );
         checkSlang(result, diag);
         program = spec_program;
@@ -97,12 +97,13 @@ void compileSlang(
     auto layout = program->getLayout();
     for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)
     {
+        auto entrypoint = layout->getEntryPointByIndex(idx);
         diag = nullptr;
         Slang::ComPtr<slang::IBlob> kernel = nullptr;
         result = program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
         checkSlang(result, diag);
 
-        auto out_filename = root + "_" + std::to_string(idx) + ".spv";
+        auto out_filename = root + "_" + entrypoint->getName() + ".spv";
         std::cout << out_filename << "\n";
         std::ofstream out(out_filename, std::ios::out | std::ios::binary);
         out.write(static_cast<const char*>(kernel->getBufferPointer()), kernel->getBufferSize());
