@@ -70,7 +70,7 @@ VkImageTiling getImageTiling(ResourceType type)
     }
 }
 
-void VulkanCudaDevice::initExternalMemory(CudaView& view)
+void VulkanCudaDevice::initView(CudaView& view)
 {
     const auto params = view.params;
     view.vk_format = getVulkanFormat(params.texture_format);
@@ -249,7 +249,25 @@ void VulkanCudaDevice::initExternalMemory(CudaView& view)
         });
 
         vkBindImageMemory(logical_device, view.image, view.memory, 0);
-        if (params.resource_type == ResourceType::Texture)
+
+        auto view_type = getViewType(params.data_domain);
+        auto info = vkinit::imageViewCreateInfo(view.image,
+            view_type, view.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
+        );
+        validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &view.vk_view));
+        
+        deletors.pushFunction([=]{
+            vkDestroyImageView(logical_device, view.vk_view, nullptr);
+        });
+
+        // Init texture memory (TODO: Refactor)
+        if (params.resource_type == ResourceType::TextureLinear)
+        {
+            transitionImageLayout(view.image,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            );  
+        }
+        else if (params.resource_type == ResourceType::Texture)
         {
             constexpr int level_count = 1; // TODO: Should be a parameter
 
@@ -277,36 +295,6 @@ void VulkanCudaDevice::initExternalMemory(CudaView& view)
             deletors.pushFunction([=]{
                 validation::checkCuda(cudaFreeMipmappedArray(view.mipmap_array));
             });
-        }
-    }
-}
-
-void VulkanCudaDevice::initView(CudaView& view)
-{
-    const auto params = view.params;
-
-    auto usage = getUsageFlags(params.primitive_type, params.resource_type);
-    
-    
-    if (params.resource_type == ResourceType::Texture || 
-        params.resource_type == ResourceType::TextureLinear)
-    {
-        auto view_type = getViewType(params.data_domain);
-        auto info = vkinit::imageViewCreateInfo(view.image,
-            view_type, view.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
-        );
-        validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &view.vk_view));
-        
-        deletors.pushFunction([=]{
-            vkDestroyImageView(logical_device, view.vk_view, nullptr);
-        });
-
-        // Init texture memory (TODO: Refactor)
-        if (params.resource_type == ResourceType::TextureLinear)
-        {
-            transitionImageLayout(view.image,
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-            );  
         }
     }
 }

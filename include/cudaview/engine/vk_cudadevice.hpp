@@ -38,7 +38,6 @@ struct VulkanCudaDevice : public VulkanDevice
 
     // View functions
     void initView(CudaView& view);
-    void initExternalMemory(CudaView& view);
     void updateTexture(CudaView& view);
     void loadTexture(CudaView *view, void *data);
     void createUniformBuffers(CudaView& view, uint32_t img_count);

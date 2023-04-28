@@ -172,7 +172,6 @@ CudaView *VulkanEngine::createView(void **ptr_devmem, ViewParams params)
     CudaView view;
     view.params = params;
 
-    dev->initExternalMemory(view);
     dev->initView(view);
     dev->createUniformBuffers(view, swap->image_count);
     views.push_back(view);
