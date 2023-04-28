@@ -26,6 +26,7 @@ VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
 
 VulkanDevice::~VulkanDevice()
 {
+    std::cout << "Liberating resources...\n";
     deletors.flush();
 }
 

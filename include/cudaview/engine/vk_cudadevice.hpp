@@ -4,7 +4,8 @@
 
 #include <cuda_runtime_api.h>
 
-#include "cudaview/vk_types.hpp"
+#include <cudaview/engine/cudaview.hpp>
+#include <cudaview/vk_types.hpp>
 
 struct FrameBarrier
 {
@@ -34,4 +35,14 @@ struct VulkanCudaDevice : public VulkanDevice
     void *getSemaphoreHandle(VkSemaphore semaphore,
         VkExternalSemaphoreHandleTypeFlagBits handle_type
     );
+
+    // View functions
+    void initView(CudaView& view);
+    void initExternalMemory(CudaView& view);
+    void updateTexture(CudaView& view);
+    void loadTexture(CudaView *view, void *data);
+    void createUniformBuffers(CudaView& view, uint32_t img_count);
+    void updateUniformBuffers(CudaView& view, uint32_t image_idx,
+        ModelViewProjection mvp, PrimitiveParams options, SceneParams scene
+    );    
 };
