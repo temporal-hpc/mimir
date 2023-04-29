@@ -56,7 +56,7 @@ VulkanEngine::~VulkanEngine()
 
     cleanupSwapchain();
 
-    //ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplVulkan_Shutdown();
     deletors.flush();
     fbs.clear();
     swap.reset();
@@ -103,13 +103,13 @@ void VulkanEngine::displayAsync()
     {
         while(!glfwWindowShouldClose(window))
         {
-        glfwPollEvents(); // TODO: Move to main thread
-        //drawGui();
+            glfwPollEvents(); // TODO: Move to main thread
+            drawGui();
 
-        std::unique_lock<std::mutex> ul(mutex);
-        cond.wait(ul, [&]{ return device_working == false; });
-        renderFrame();
-        ul.unlock();
+            std::unique_lock<std::mutex> ul(mutex);
+            cond.wait(ul, [&]{ return device_working == false; });
+            renderFrame();
+            ul.unlock();
         }
         vkDeviceWaitIdle(dev->logical_device);
     });
@@ -146,7 +146,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     while(!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
-        //drawGui();
+        drawGui();
         renderFrame();
 
         waitKernelStart();
@@ -242,7 +242,7 @@ void VulkanEngine::initVulkan()
 
     initSwapchain();
 
-    //initImgui(); // After command pool and render pass are created
+    initImgui(); // After command pool and render pass are created
     createSyncObjects();
 }
 
@@ -623,7 +623,7 @@ void VulkanEngine::drawGui()
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
-    //ImGui::ShowDemoWindow();
+    ImGui::ShowDemoWindow();
     ImGui::Render();
 }
 
@@ -687,7 +687,7 @@ void VulkanEngine::renderFrame()
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
     drawObjects(image_idx);
-    //ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 
     vkCmdEndRenderPass(cmd);
     // Finalize command buffer recording, so it can be executed
