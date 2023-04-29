@@ -27,8 +27,9 @@ VertexData vertex2dMain(VertexInput input)
     float4x4 view_proj = mul(mvp.view, mvp.proj);
 
     VertexData output;
-    output.center = float4(2 * (float3(input.pos, 1) / scene.extent) - 1, 1);
-    //output.pos    = mul(output.center, view_proj);
+    float2 extent = scene.extent.xy;
+    float4 pos = float4(2 * (input.pos / extent) - 1, 0, 1);
+    output.center = mul(pos, view_proj);
     //output.color  = float4(0, 0, 1, 1);
     //output.marker_size = 10.f;
 
@@ -62,14 +63,13 @@ struct MarkerData
 [maxvertexcount(4)]
 void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> stream)
 {
-    float4x4 model_view = mul(mvp.model, mvp.view);
-    float4 center = mul(input[0].center, model_view);
+    float4x4 view_proj = mul(mvp.view, mvp.proj);
 
     MarkerData output;
     output.size = SQRT_2*primitive.size  + 2 * (v_linewidth + 1.5*u_antialias);
 
-    float4 dx = model_view[0] * (output.size / scene.resolution.x);
-    float4 dy = model_view[1] * (output.size / scene.resolution.y);
+    float4 dx = view_proj[0] * (output.size / scene.resolution.x);
+    float4 dy = view_proj[1] * (output.size / scene.resolution.y);
 
     float4 shift[4] = {(-dx-dy), (-dx+dy), (+dx-dy), (+dx+dy)}; 
     float2 texcoords[4] = {{0,0}, {0,1}, {1,0}, {1,1}};
@@ -80,8 +80,7 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
     // Add point coordinates
     for (int i = 0; i < 4; ++i)
     {
-        float4 v = center + shift[i];
-        output.pos = mul(v, mvp.proj);
+        output.pos = input[0].center + shift[i];
         output.uv = texcoords[i];
         stream.Append(output);
     }
@@ -185,6 +184,6 @@ FragmentOutput fragmentMain(MarkerData input)
     out.color = filled(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;
-    out.depth = out.color.w == 1? input.pos.w : 1;
+    out.depth = 1 - out.color.w;
     return out; 
 }

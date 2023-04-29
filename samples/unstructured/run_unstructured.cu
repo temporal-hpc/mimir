@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
         params.primitive_type = PrimitiveType::Points;
         params.cuda_stream = program.stream;
         params.options.size = 20.f;
-        /*info.external_shaders = {
+        /*params.options.external_shaders = {
             {"shaders/precompiled/marker_vertex2dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
             {"shaders/precompiled/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
             {"shaders/precompiled/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
