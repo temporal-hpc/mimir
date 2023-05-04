@@ -109,6 +109,7 @@ private:
     static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
     static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
     static void scrollCallback(GLFWwindow *window, double xoffset, double yoffset);
+    static void addViewObjectGui(CudaView *view_ptr, int uid);
     std::unique_ptr<Camera> camera;
 
     void initVulkan();

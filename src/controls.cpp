@@ -1,7 +1,8 @@
 #include <cudaview/vk_engine.hpp>
 #include "internal/camera.hpp"
 
-#include <algorithm>
+#include <imgui.h>
+#include <algorithm> // std::clamp
 
 void VulkanEngine::setBackgroundColor(float4 color)
 {
@@ -39,42 +40,48 @@ void VulkanEngine::cursorPositionCallback(GLFWwindow *window, double xpos, doubl
 // Translates GLFW mouse actions into Viewer flags for detecting camera actions 
 void VulkanEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
 {
-    switch (action)
+    // Perform action only if GUI does not want to use mouse input
+    // (if not hovering over a menu item)
+    auto& io = ImGui::GetIO();
+    if (!io.WantCaptureMouse)
     {
-        case GLFW_PRESS:
-        switch (button)
+        switch (action)
         {
-            case GLFW_MOUSE_BUTTON_LEFT:
-            mouse_buttons.left = true;
-            break;
-            case GLFW_MOUSE_BUTTON_MIDDLE:
-            mouse_buttons.middle = true;
-            break;
-            case GLFW_MOUSE_BUTTON_RIGHT:
-            mouse_buttons.right = true;
-            break;
+            case GLFW_PRESS:
+                switch (button)
+                {
+                    case GLFW_MOUSE_BUTTON_LEFT:
+                        mouse_buttons.left = true;
+                        break;
+                    case GLFW_MOUSE_BUTTON_MIDDLE:
+                        mouse_buttons.middle = true;
+                        break;
+                    case GLFW_MOUSE_BUTTON_RIGHT:
+                        mouse_buttons.right = true;
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case GLFW_RELEASE:
+                switch (button)
+                {
+                    case GLFW_MOUSE_BUTTON_LEFT:
+                        mouse_buttons.left = false;
+                        break;
+                    case GLFW_MOUSE_BUTTON_MIDDLE:
+                        mouse_buttons.middle = false;
+                        break;
+                    case GLFW_MOUSE_BUTTON_RIGHT:
+                        mouse_buttons.right = false;
+                        break;
+                    default:
+                        break;
+                }
+                break;
             default:
-            break;
+                break;
         }
-        break;
-        case GLFW_RELEASE:
-        switch (button)
-        {
-            case GLFW_MOUSE_BUTTON_LEFT:
-            mouse_buttons.left = false;
-            break;
-            case GLFW_MOUSE_BUTTON_MIDDLE:
-            mouse_buttons.middle = false;
-            break;
-            case GLFW_MOUSE_BUTTON_RIGHT:
-            mouse_buttons.right = false;
-            break;
-            default:
-            break;
-        }
-        break;
-        default:
-        break;
     }
 }
 

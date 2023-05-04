@@ -20,7 +20,6 @@ VertexData vertex2dMain(VertexInput input)
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
     float4 pos = float4(input.pos, 1);
-    pos.z = 0.99; // Temp hack to avoid z-fighting
 
     VertexData output;
     output.pos = mul(pos, view_proj);

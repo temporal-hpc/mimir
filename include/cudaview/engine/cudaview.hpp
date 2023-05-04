@@ -38,7 +38,7 @@ struct ViewOptions
     // For specializing slang shaders associated to this view
     std::vector<std::string> specializations;
     // For moving through the different slices in a 3D texture
-    float depth = 0.01f;
+    float depth = 0.1f;
 };
 
 struct ViewParams

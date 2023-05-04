@@ -2,13 +2,13 @@
 #include "cudaview/io.hpp"
 
 #include "internal/camera.hpp"
-#include <cudaview/validation.hpp>
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
-#include "cudaview/engine/vk_cudadevice.hpp"
-#include "cudaview/engine/vk_framebuffer.hpp"
-#include "cudaview/engine/vk_swapchain.hpp"
+#include <cudaview/validation.hpp>
+#include <cudaview/engine/vk_cudadevice.hpp>
+#include <cudaview/engine/vk_framebuffer.hpp>
+#include <cudaview/engine/vk_swapchain.hpp>
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -152,14 +152,14 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
         waitKernelStart();
         if (iteration_idx < iter_count)
         {
-        // Advance the simulation
-        func();
-        for (auto& view : views)
-        {
-            if (view.params.resource_type == ResourceType::TextureLinear)
-                dev->updateTexture(view);
-        }
-        iteration_idx++;
+            // Advance the simulation
+            func();
+            for (auto& view : views)
+            {
+                if (view.params.resource_type == ResourceType::TextureLinear)
+                    dev->updateTexture(view);
+            }
+            iteration_idx++;
         }
         signalKernelFinish();
     }
@@ -217,19 +217,19 @@ void VulkanEngine::initVulkan()
     // Create descriptor set layout
     descriptor_layout = dev->createDescriptorSetLayout({
         vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
         vkinit::descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
         vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
+            VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
         ),
         vkinit::descriptorLayoutBinding(5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 
-        VK_SHADER_STAGE_FRAGMENT_BIT
+            VK_SHADER_STAGE_FRAGMENT_BIT
         ),
         vkinit::descriptorLayoutBinding(6, VK_DESCRIPTOR_TYPE_SAMPLER,
-        VK_SHADER_STAGE_FRAGMENT_BIT
+            VK_SHADER_STAGE_FRAGMENT_BIT
         )
     });
 
@@ -299,10 +299,10 @@ void VulkanEngine::createInstance()
     {
         // Details about the debug messenger and its callback
         validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
-        instance, &debug_create_info, nullptr, &debug_messenger)
+            instance, &debug_create_info, nullptr, &debug_messenger)
         );
         deletors.pushFunction([=]{
-        validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
+            validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
         });
     }
 
@@ -333,8 +333,8 @@ void VulkanEngine::pickPhysicalDevice()
     {
         if (props::isDeviceSuitable(dev, swap->surface))
         {
-        physical_device = dev;
-        break;
+            physical_device = dev;
+            break;
         }
     }
     if (physical_device == VK_NULL_HANDLE)
@@ -345,6 +345,7 @@ void VulkanEngine::pickPhysicalDevice()
 
 void VulkanEngine::initImgui()
 {
+    IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(window, true);
 
@@ -416,18 +417,18 @@ void VulkanEngine::createSyncObjects()
     for (auto& frame : frames)
     {
         validation::checkVulkan(vkCreateSemaphore(
-        dev->logical_device, &semaphore_info, nullptr, &frame.present_semaphore)
+            dev->logical_device, &semaphore_info, nullptr, &frame.present_semaphore)
         );
         validation::checkVulkan(vkCreateSemaphore(
-        dev->logical_device, &semaphore_info, nullptr, &frame.render_semaphore)
+            dev->logical_device, &semaphore_info, nullptr, &frame.render_semaphore)
         );
         validation::checkVulkan(vkCreateFence(
-        dev->logical_device, &fence_info, nullptr, &frame.render_fence)
+            dev->logical_device, &fence_info, nullptr, &frame.render_fence)
         );
         deletors.pushFunction([=]{
-        vkDestroySemaphore(dev->logical_device, frame.present_semaphore, nullptr);
-        vkDestroySemaphore(dev->logical_device, frame.render_semaphore, nullptr);
-        vkDestroyFence(dev->logical_device, frame.render_fence, nullptr);
+            vkDestroySemaphore(dev->logical_device, frame.present_semaphore, nullptr);
+            vkDestroySemaphore(dev->logical_device, frame.render_semaphore, nullptr);
+            vkDestroyFence(dev->logical_device, frame.render_fence, nullptr);
         });
     }
 
@@ -560,62 +561,131 @@ void VulkanEngine::updateDescriptorSets()
         //desc_writes.reserve(3 + views_structured.size());
         for (const auto& view : views)
         {
-        VkDescriptorBufferInfo mvp_info{};
-        mvp_info.buffer = view.ubo_buffer;
-        mvp_info.offset = i * size_ubo;
-        mvp_info.range  = sizeof(ModelViewProjection);
-        auto write_mvp = vkinit::writeDescriptorBuffer(
-            descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &mvp_info
-        );
-        desc_writes.push_back(write_mvp);
-
-        VkDescriptorBufferInfo primitive_info{};
-        primitive_info.buffer = view.ubo_buffer;
-        primitive_info.offset = i * size_ubo + size_mvp;
-        primitive_info.range  = sizeof(PrimitiveParams);
-        auto write_primitive = vkinit::writeDescriptorBuffer(
-            descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &primitive_info
-        );
-        desc_writes.push_back(write_primitive);
-
-        VkDescriptorBufferInfo extent_info{};
-        extent_info.buffer = view.ubo_buffer;
-        extent_info.offset = i * size_ubo + size_mvp + size_colors;
-        extent_info.range  = sizeof(SceneParams);
-        auto write_scene = vkinit::writeDescriptorBuffer(
-            descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &extent_info
-        );
-        desc_writes.push_back(write_scene);
-        
-        if (view.params.resource_type == ResourceType::TextureLinear ||
-            view.params.resource_type == ResourceType::Texture)
-        {
-            VkDescriptorImageInfo samp_img_info{};
-            samp_img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            samp_img_info.imageView   = view.vk_view;
-            samp_img_info.sampler     = view.vk_sampler;
-
-            auto write_samp_img = vkinit::writeDescriptorImage(descriptor_sets[i],
-            5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &samp_img_info
+            VkDescriptorBufferInfo mvp_info{};
+            mvp_info.buffer = view.ubo_buffer;
+            mvp_info.offset = i * size_ubo;
+            mvp_info.range  = sizeof(ModelViewProjection);
+            auto write_mvp = vkinit::writeDescriptorBuffer(
+                descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &mvp_info
             );
-            desc_writes.push_back(write_samp_img);
+            desc_writes.push_back(write_mvp);
 
-            VkDescriptorImageInfo samp_info{};
-            samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            samp_info.imageView   = view.vk_view;
-            samp_info.sampler     = view.vk_sampler;
-
-            auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
-            6, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
+            VkDescriptorBufferInfo primitive_info{};
+            primitive_info.buffer = view.ubo_buffer;
+            primitive_info.offset = i * size_ubo + size_mvp;
+            primitive_info.range  = sizeof(PrimitiveParams);
+            auto write_primitive = vkinit::writeDescriptorBuffer(
+                descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &primitive_info
             );
-            desc_writes.push_back(write_samp);
-        }
+            desc_writes.push_back(write_primitive);
+
+            VkDescriptorBufferInfo extent_info{};
+            extent_info.buffer = view.ubo_buffer;
+            extent_info.offset = i * size_ubo + size_mvp + size_colors;
+            extent_info.range  = sizeof(SceneParams);
+            auto write_scene = vkinit::writeDescriptorBuffer(
+                descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &extent_info
+            );
+            desc_writes.push_back(write_scene);
+            
+            if (view.params.resource_type == ResourceType::TextureLinear ||
+                view.params.resource_type == ResourceType::Texture)
+            {
+                VkDescriptorImageInfo samp_img_info{};
+                samp_img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                samp_img_info.imageView   = view.vk_view;
+                samp_img_info.sampler     = view.vk_sampler;
+
+                auto write_samp_img = vkinit::writeDescriptorImage(descriptor_sets[i],
+                    5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &samp_img_info
+                );
+                desc_writes.push_back(write_samp_img);
+
+                VkDescriptorImageInfo samp_info{};
+                samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                samp_info.imageView   = view.vk_view;
+                samp_info.sampler     = view.vk_sampler;
+
+                auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
+                    6, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
+                );
+                desc_writes.push_back(write_samp);
+            }
         }
 
         vkUpdateDescriptorSets(dev->logical_device,
-        static_cast<uint32_t>(desc_writes.size()), desc_writes.data(), 0, nullptr
+            static_cast<uint32_t>(desc_writes.size()), desc_writes.data(), 0, nullptr
         );
     }
+}
+
+std::string to_string(DataDomain x)
+{
+    switch (x)
+    {
+        case DataDomain::Domain2D: return "2D";
+        case DataDomain::Domain3D: return "3D";
+        default: return "Unknown";
+    }
+}
+
+std::string to_string(ResourceType x)
+{
+    switch (x)
+    {
+        case ResourceType::UnstructuredBuffer: return "Buffer (unstructured)";
+        case ResourceType::StructuredBuffer: return "Buffer (structured)";
+        case ResourceType::Texture: return "Texture";
+        case ResourceType::TextureLinear: return "Texture (with linear buffer)";        
+        default: return "Unknown";
+    }
+}
+
+std::string to_string(PrimitiveType x)
+{
+    switch (x)
+    {
+        case PrimitiveType::Points: return "Markers";
+        case PrimitiveType::Edges: return "Edges";
+        case PrimitiveType::Voxels: return "Voxels";
+        default: return "Unknown";
+    }
+}
+
+void addTableRow(const std::string& key, const std::string& value)
+{
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", key.c_str());
+    ImGui::TableSetColumnIndex(1);
+    ImGui::Text("%s", value.c_str());
+}
+
+void VulkanEngine::addViewObjectGui(CudaView *view_ptr, int uid)
+{
+    ImGui::PushID(view_ptr);
+    bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
+
+    if (node_open)
+    {
+        auto& info = view_ptr->params;
+        if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+        {
+            addTableRow("Data domain", to_string(info.data_domain));
+            addTableRow("Resource type", to_string(info.resource_type));
+            addTableRow("Primitive type", to_string(info.primitive_type));
+            addTableRow("Element count", std::to_string(info.element_count));
+
+            ImGui::EndTable();
+        }
+        ImGui::Checkbox("show", &info.options.visible);
+        ImGui::SliderFloat("Primitive size (px)", &info.options.size, 1.f, 100.f);
+        ImGui::ColorEdit4("Primitive color", (float*)&info.options.color);
+        ImGui::SliderFloat("depth", &info.options.depth, 0.f, 1.f);
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
 }
 
 void VulkanEngine::drawGui()
@@ -623,7 +693,18 @@ void VulkanEngine::drawGui()
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
-    ImGui::ShowDemoWindow();
+    // TODO: Enable demo window with some button combination
+    //ImGui::ShowDemoWindow();
+    {
+        ImGui::Begin("Scene parameters");
+        //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
+        ImGui::ColorEdit3("Clear color", (float*)&bg_color);
+        for (size_t i = 0; i < views.size(); ++i)
+        {
+            addViewObjectGui(&views[i], i);
+        }
+        ImGui::End();
+    }
     ImGui::Render();
 }
 
@@ -781,60 +862,60 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         if (view.params.resource_type == ResourceType::TextureLinear ||
             view.params.resource_type == ResourceType::Texture)
         {
-        if (view.params.primitive_type == PrimitiveType::Voxels)
-        {
-            VkBuffer vertex_buffers[] = { view.data_buffer };
-            VkDeviceSize offsets[] = { 0 };
-            auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-            vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-            vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
-        }
-        else
-        {
-            VkDeviceSize offsets[1] = {0};
-            vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer, offsets);
-            vkCmdBindIndexBuffer(cmd, view.index_buffer, 0, VK_INDEX_TYPE_UINT16);
-            vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-        }
+            if (view.params.primitive_type == PrimitiveType::Voxels)
+            {
+                VkBuffer vertex_buffers[] = { view.data_buffer };
+                VkDeviceSize offsets[] = { 0 };
+                auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+                vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+                vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+            }
+            else
+            {
+                VkDeviceSize offsets[1] = {0};
+                vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer, offsets);
+                vkCmdBindIndexBuffer(cmd, view.index_buffer, 0, VK_INDEX_TYPE_UINT16);
+                vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+            }
         }
         else if (view.params.resource_type == ResourceType::StructuredBuffer)
         {
-        if (view.params.primitive_type == PrimitiveType::Voxels)
-        {
-            VkBuffer vertex_buffers[] = { view.vertex_buffer, view.data_buffer };
-            VkDeviceSize offsets[] = { 0, 0 };
-            auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-            vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-            vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
-        }
+            if (view.params.primitive_type == PrimitiveType::Voxels)
+            {
+                VkBuffer vertex_buffers[] = { view.vertex_buffer, view.data_buffer };
+                VkDeviceSize offsets[] = { 0, 0 };
+                auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+                vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+                vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+            }
         }
         else if (view.params.resource_type == ResourceType::UnstructuredBuffer)
         {
-        switch (view.params.primitive_type)
-        {
-            case PrimitiveType::Points:
+            switch (view.params.primitive_type)
             {
-            VkBuffer vertex_buffers[] = { view.data_buffer };
-            VkDeviceSize offsets[] = { 0 };
-            auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-            vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-            vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
-            break;
+                case PrimitiveType::Points:
+                {
+                VkBuffer vertex_buffers[] = { view.data_buffer };
+                VkDeviceSize offsets[] = { 0 };
+                auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+                vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+                vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+                break;
+                }
+                case PrimitiveType::Edges:
+                {
+                VkBuffer vertexBuffers[] = { views[0].data_buffer };
+                VkDeviceSize offsets[] = {0};
+                vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+                vkCmdBindIndexBuffer(cmd, view.data_buffer, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
+                break;
+                }
+                case PrimitiveType::Voxels:
+                {
+                // TODO: Check what to do here
+                }
             }
-            case PrimitiveType::Edges:
-            {
-            VkBuffer vertexBuffers[] = { views[0].data_buffer };
-            VkDeviceSize offsets[] = {0};
-            vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(cmd, view.data_buffer, 0, VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
-            break;
-            }
-            case PrimitiveType::Voxels:
-            {
-            // TODO: Check what to do here
-            }
-        }
         }
     }
 }
@@ -862,14 +943,14 @@ VkFormat VulkanEngine::findSupportedFormat(const std::vector<VkFormat>& candidat
         vkGetPhysicalDeviceFormatProperties(dev->physical_device, format, &props);
 
         if (tiling == VK_IMAGE_TILING_LINEAR &&
-        (props.linearTilingFeatures & features) == features)
+            (props.linearTilingFeatures & features) == features)
         {
-        return format;
+            return format;
         }
         else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
-        (props.optimalTilingFeatures & features) == features)
+            (props.optimalTilingFeatures & features) == features)
         {
-        return format;
+            return format;
         }
     }
     return VK_FORMAT_UNDEFINED;
