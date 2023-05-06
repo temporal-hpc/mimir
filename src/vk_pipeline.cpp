@@ -16,15 +16,15 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         // as a fragment. If no specialization is set, use the RawColor no-op.
         if (params.specializations.empty())
         {
-        params.specializations.push_back("RawColor");
+            params.specializations.push_back("RawColor");
         }
         if (view.data_domain == DataDomain::Domain2D)
         {
-        params.entrypoints = {"vertex2dMain", "fragment2dMain"};
+            params.entrypoints = {"vertex2dMain", "fragment2dMain"};
         }
         else if (view.data_domain == DataDomain::Domain3D)
         {
-        params.entrypoints = {"vertex3dMain", "fragment3dMain"};
+            params.entrypoints = {"vertex3dMain", "fragment3dMain"};
         }
     }
     else if (view.primitive_type == PrimitiveType::Points)
@@ -32,11 +32,11 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         params.source_path = "shaders/marker.slang";
         if (view.data_domain == DataDomain::Domain2D)
         {
-        params.entrypoints = {"vertex2dMain", "geometryMain", "fragmentMain"};
+            params.entrypoints = {"vertex2dMain", "geometryMain", "fragmentMain"};
         }
         else if (view.data_domain == DataDomain::Domain3D)
         {
-        params.entrypoints = {"vertex3dMain", "geometryMain", "fragmentMain"};
+            params.entrypoints = {"vertex3dMain", "geometryMain", "fragmentMain"};
         }
     }
     else if (view.primitive_type == PrimitiveType::Edges)
@@ -44,11 +44,11 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         params.source_path = "shaders/mesh.slang";
         if (view.data_domain == DataDomain::Domain2D)
         {
-        params.entrypoints = {"vertex2dMain", "fragmentMain"};
+            params.entrypoints = {"vertex2dMain", "fragmentMain"};
         }
         else if (view.data_domain == DataDomain::Domain3D)
         {
-        params.entrypoints = {"vertex3dMain", "fragmentMain"};
+            params.entrypoints = {"vertex3dMain", "fragmentMain"};
         }    
     }
     else if (view.primitive_type == PrimitiveType::Voxels)
@@ -56,11 +56,11 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         params.source_path = "shaders/voxel.slang";
         if (view.resource_type == ResourceType::StructuredBuffer)
         {
-        params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
+            params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
         }
         if (view.resource_type == ResourceType::Texture)
         {
-        params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+            params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
         }    
     }
     return params;
@@ -73,58 +73,58 @@ VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type,
     if (res_type == ResourceType::Texture || res_type == ResourceType::TextureLinear)
     {
         desc.binding.push_back(vkinit::vertexBindingDescription(
-        0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
+            0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
         ));
         desc.attribute.push_back(vkinit::vertexAttributeDescription(
-        0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
+            0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
         ));
         desc.attribute.push_back(vkinit::vertexAttributeDescription(
-        0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
+            0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
         ));
     }
     else
     {
         if (primitive == PrimitiveType::Voxels)
         {
-        desc.binding.push_back(vkinit::vertexBindingDescription(
-            0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
-        ));
-        desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0
-        ));
-        desc.binding.push_back(vkinit::vertexBindingDescription(
-            1, sizeof(int), VK_VERTEX_INPUT_RATE_VERTEX
-        ));
-        desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            1, 1, VK_FORMAT_R32_SINT, 0
-        ));
-        }
-        else
-        {
-        switch (domain)
-        {
-            case DataDomain::Domain2D:
-            {
-            desc.binding.push_back(vkinit::vertexBindingDescription(
-                0, sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX
-            ));
-            desc.attribute.push_back(vkinit::vertexAttributeDescription(
-                0, 0, VK_FORMAT_R32G32_SFLOAT, 0
-            ));
-            break;
-            }
-            case DataDomain::Domain3D:
-            {
             desc.binding.push_back(vkinit::vertexBindingDescription(
                 0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
             ));
             desc.attribute.push_back(vkinit::vertexAttributeDescription(
                 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0
             ));
-            break;
-            }
-            default: break;
+            desc.binding.push_back(vkinit::vertexBindingDescription(
+                1, sizeof(int), VK_VERTEX_INPUT_RATE_VERTEX
+            ));
+            desc.attribute.push_back(vkinit::vertexAttributeDescription(
+                1, 1, VK_FORMAT_R32_SINT, 0
+            ));
         }
+        else
+        {
+            switch (domain)
+            {
+                case DataDomain::Domain2D:
+                {
+                    desc.binding.push_back(vkinit::vertexBindingDescription(
+                        0, sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX
+                    ));
+                    desc.attribute.push_back(vkinit::vertexAttributeDescription(
+                        0, 0, VK_FORMAT_R32G32_SFLOAT, 0
+                    ));
+                    break;
+                }
+                case DataDomain::Domain3D:
+                {
+                    desc.binding.push_back(vkinit::vertexBindingDescription(
+                        0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
+                    ));
+                    desc.attribute.push_back(vkinit::vertexAttributeDescription(
+                        0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0
+                    ));
+                    break;
+                }
+                default: break;
+            }
         }
     }
     return desc;
@@ -243,16 +243,16 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
         std::vector<slang::SpecializationArg> args;
         for (const auto& specialization : params.specializations)
         {
-        auto spec_type = module->getLayout()->findTypeByName(specialization.c_str());
-        slang::SpecializationArg arg;
-        arg.kind = slang::SpecializationArg::Kind::Type;
-        arg.type = spec_type;
-        args.push_back(arg);
+            auto spec_type = module->getLayout()->findTypeByName(specialization.c_str());
+            slang::SpecializationArg arg;
+            arg.kind = slang::SpecializationArg::Kind::Type;
+            arg.type = spec_type;
+            args.push_back(arg);
         }
 
         Slang::ComPtr<slang::IComponentType> spec_program;
         result = program->specialize(
-        args.data(), args.size(), spec_program.writeRef(), diag.writeRef()
+            args.data(), args.size(), spec_program.writeRef(), diag.writeRef()
         );
         validation::checkSlang(result, diag);
         program = spec_program;
@@ -279,10 +279,10 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
         info.pCode    = static_cast<const uint32_t*>(kernel->getBufferPointer());
         VkShaderModule shader_module;
         validation::checkVulkan(
-        vkCreateShaderModule(dev->logical_device, &info, nullptr, &shader_module)
+            vkCreateShaderModule(dev->logical_device, &info, nullptr, &shader_module)
         );
         dev->deletors.pushFunction([=]{
-        vkDestroyShaderModule(dev->logical_device, shader_module, nullptr);
+            vkDestroyShaderModule(dev->logical_device, shader_module, nullptr);
         });
         auto shader_info = vkinit::pipelineShaderStageCreateInfo(stage, shader_module);
         compiled_stages.push_back(shader_info);
@@ -370,7 +370,7 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
         color_states.push_back(color_blend);
 
         auto input_info = vkinit::vertexInputStateCreateInfo(
-        info.vertex_input_info.binding, info.vertex_input_info.attribute
+            info.vertex_input_info.binding, info.vertex_input_info.attribute
         );
         vertex_states.push_back(input_info);
 

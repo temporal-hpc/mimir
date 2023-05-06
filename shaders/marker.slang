@@ -143,6 +143,7 @@ struct Outline : IAntialiased
     }
 }
 
+
 interface IShape2D
 {
     float apply(float2 p, float size);
@@ -186,6 +187,28 @@ struct DiamondShape : IShape2D
     }
 }
 
+interface IShape3D
+{
+    float2 apply(
+        float3 ro, // Ray origin
+        float3 rd, // Ray direction
+        float3 ce, // Center
+        float sz // size
+    );
+}
+
+struct SphereShape : IShape3D
+{
+    float2 apply(float3 ro, float3 rd, float3 center, float sz)
+    {
+        float3 oc = ro - center;
+        float b = dot(oc, rd);
+        float c = dot(oc, oc) - sz * sz;
+        float h = b*b - c;
+        return (h<0)? -1 : -b - sqrt(h);
+    }
+}
+
 struct FragmentOutput
 {
     float4 color : SV_Target;
@@ -196,19 +219,19 @@ struct FragmentOutput
 FragmentOutput fragmentMain(MarkerData input)
 {
     FragmentOutput out;
-    float4x4 view_proj = mul(mvp.view, mvp.proj);
-
+    
     float2 p = 2 * input.uv - 1;
     // if (dot(p, p) > 1) discard;
     // return primitive.color;
     //float2 p = input.uv - float2(0.5);
     //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
-
+    
     DiscShape shape;
     float distance = shape.apply(p * input.size, primitive.size);
-
+    
     Filled filled;
     out.color = filled.apply(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
+    //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;
     out.depth = 1 - out.color.w;

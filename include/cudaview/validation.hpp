@@ -31,12 +31,12 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
 {
     if (code != cudaSuccess)
     {
-        fprintf(stderr, "CUDA assertion: %s in function %s at %s(%d)\n",
-        cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
+        fprintf(stderr, "CUDA assertion: %s (code %d) in function %s at %s(%d)\n",
+            cudaGetErrorString(code), code, src.function_name(), src.file_name(), src.line()
         );
         if (panic)
         {
-        throw std::runtime_error("CUDA failure!");
+            throw std::runtime_error("CUDA failure!");
         }
     }
 }
@@ -49,12 +49,12 @@ constexpr VkResult checkVulkan(VkResult code, bool panic = true,
     if (code != VK_SUCCESS)
     {
         fprintf(stderr, "Vulkan assertion: %s in function %s at %s(%d)\n",
-        getVulkanErrorString(code).c_str(),
-        src.function_name(), src.file_name(), src.line()
+            getVulkanErrorString(code).c_str(),
+            src.function_name(), src.file_name(), src.line()
         );
         if (panic)
         {
-        throw std::runtime_error("Vulkan failure!");
+            throw std::runtime_error("Vulkan failure!");
         };
     }
     return code;
@@ -68,14 +68,14 @@ constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
         const char* msg = "error";
         if (diag != nullptr)
         {
-        msg = static_cast<const char*>(diag->getBufferPointer());
+            msg = static_cast<const char*>(diag->getBufferPointer());
         }
         fprintf(stderr, "Slang assertion: %s in function %s at %s(%d)\n",
-        msg, src.function_name(), src.file_name(), src.line()
+            msg, src.function_name(), src.file_name(), src.line()
         );
         if (panic)
         {
-        throw std::runtime_error("Slang failure!");
+            throw std::runtime_error("Slang failure!");
         }
     }
     return code;
