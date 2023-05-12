@@ -196,9 +196,8 @@ void VulkanEngine::initVulkan()
     swap = std::make_unique<VulkanSwapchain>();
     swap->initSurface(instance, window);
     pickPhysicalDevice();
-    dev = std::make_unique<VulkanCudaDevice>(physical_device, instance);
+    dev = std::make_unique<VulkanCudaDevice>(physical_device);
     dev->initLogicalDevice(swap->surface);
-    dev->initCuda(dev->device_uuid, VK_UUID_SIZE);
 
     // Create descriptor pool
     descriptor_pool = dev->createDescriptorPool({
@@ -321,15 +320,30 @@ void VulkanEngine::createInstance()
 
 void VulkanEngine::pickPhysicalDevice()
 {
-    uint32_t device_count = 0;
-    vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
-    if (device_count == 0)
+    int cuda_dev_count = 0;
+    validation::checkCuda(cudaGetDeviceCount(&cuda_dev_count));
+    if (cuda_dev_count == 0)
     {
-        throw std::runtime_error("failed to find GPUs with Vulkan support");
+        throw std::runtime_error("could not find devices supporting CUDA");
     }
-    std::vector<VkPhysicalDevice> devices(device_count);
-    vkEnumeratePhysicalDevices(instance, &device_count, devices.data());
+    printf("Enumerating CUDA devices:\n");
+    for (int dev_id = 0; dev_id < cuda_dev_count; ++dev_id)
+    {
+        cudaDeviceProp dev_prop;
+        cudaGetDeviceProperties(&dev_prop, dev_id);
+        printf("* ID: %d\n  Name: %s\n  Capability: %d.%d\n",
+            dev_id, dev_prop.name, dev_prop.major, dev_prop.minor
+        );
+    }
 
+    uint32_t vulkan_dev_count = 0;
+    vkEnumeratePhysicalDevices(instance, &vulkan_dev_count, nullptr);
+    if (vulkan_dev_count == 0)
+    {
+        throw std::runtime_error("could not find devices supporting Vulkan");
+    }
+    std::vector<VkPhysicalDevice> devices(vulkan_dev_count);
+    vkEnumeratePhysicalDevices(instance, &vulkan_dev_count, devices.data());
     printf("Enumerating Vulkan devices:\n");
     for (const auto& dev : devices)
     {
@@ -337,20 +351,54 @@ void VulkanEngine::pickPhysicalDevice()
         vkGetPhysicalDeviceProperties(dev, &props);
         printf("* ID: %u\n  Name: %s\n", props.deviceID, props.deviceName);
     }
-    for (const auto& dev : devices)
+
+    auto fpGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2");
+    if (fpGetPhysicalDeviceProperties2 == nullptr)
     {
-        if (props::isDeviceSuitable(dev, swap->surface))
+        throw std::runtime_error("could not find proc address for \"vkGetPhysicalDeviceProperties2KHR\","
+            "which is needed for finding an interop-capable device");
+    }    
+
+    int curr_device = 0, prohibited_count = 0;
+    while (curr_device < cuda_dev_count)
+    {
+        cudaDeviceProp dev_prop;
+        cudaGetDeviceProperties(&dev_prop, curr_device);
+        if (dev_prop.computeMode == cudaComputeModeProhibited)
         {
-            VkPhysicalDeviceProperties props{};
-            vkGetPhysicalDeviceProperties(dev, &props);
-            printf("Selected Vulkan device %u: %s\n\n", props.deviceID, props.deviceName);
-            physical_device = dev;
-            break;
+            prohibited_count++;
+            curr_device++;
+            continue;
         }
+        for (const auto& dev : devices)
+        {
+            VkPhysicalDeviceIDProperties id_props{};
+            id_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+            id_props.pNext = nullptr;
+
+            VkPhysicalDeviceProperties2 props2{};
+            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            props2.pNext = &id_props;
+
+            fpGetPhysicalDeviceProperties2(dev, &props2);
+            auto matching = memcmp((void*)&dev_prop.uuid, id_props.deviceUUID, VK_UUID_SIZE) == 0;
+            if (matching && props::isDeviceSuitable(dev, swap->surface))
+            {
+                validation::checkCuda(cudaSetDevice(curr_device));
+                VkPhysicalDeviceProperties props{};
+                vkGetPhysicalDeviceProperties(dev, &props);
+                physical_device = dev;
+                printf("Selected CUDA-Vulkan device %d: %s\n\n", curr_device, dev_prop.name);
+                break;
+            }
+        }
+        curr_device++;
     }
-    if (physical_device == VK_NULL_HANDLE)
+
+    if (prohibited_count == cuda_dev_count)
     {
-        throw std::runtime_error("failed to find a suitable GPU!");
+        throw std::runtime_error("No CUDA-Vulkan interop device was found");
     }
 }
 

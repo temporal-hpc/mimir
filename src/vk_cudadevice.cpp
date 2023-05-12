@@ -70,54 +70,6 @@ VkImageTiling getImageTiling(ResourceType type)
     }
 }
 
-void VulkanCudaDevice::initCuda(uint8_t *device_uuid, size_t uuid_size)
-{
-    int curr_device = 0, device_count = 0, prohibited_count = 0;
-
-    validation::checkCuda(cudaGetDeviceCount(&device_count));
-    if (device_count == 0)
-    {
-        throw std::runtime_error("No CUDA-enabled device found");
-    }
-
-    printf("Enumerating CUDA devices:\n");
-    while (curr_device < device_count)
-    {
-        cudaDeviceProp dev_prop;
-        cudaGetDeviceProperties(&dev_prop, curr_device);
-        printf("* ID: %d\n  Name: %s\n  Capability: %d.%d\n",
-            curr_device, dev_prop.name, dev_prop.major, dev_prop.minor
-        );
-        curr_device++;
-    }
-    curr_device = 0;
-    while (curr_device < device_count)
-    {
-        cudaDeviceProp dev_prop;
-        cudaGetDeviceProperties(&dev_prop, curr_device);
-        if (dev_prop.computeMode != cudaComputeModeProhibited)
-        {
-            auto matching = memcmp((void*)&dev_prop.uuid, device_uuid, uuid_size) == 0;
-            if (matching)
-            {
-                validation::checkCuda(cudaSetDevice(curr_device));
-                printf("Selected CUDA device %d: %s\n\n", curr_device, dev_prop.name);
-            }
-        }
-        else
-        {
-            prohibited_count++;
-        }
-
-        curr_device++;
-    }    
-
-    if (prohibited_count == device_count)
-    {
-        throw std::runtime_error("No CUDA-Vulkan interop device was found");
-    }
-}
-
 void VulkanCudaDevice::initView(CudaView& view)
 {
     const auto params = view.params;
