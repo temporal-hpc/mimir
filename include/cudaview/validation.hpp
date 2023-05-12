@@ -31,8 +31,8 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
 {
     if (code != cudaSuccess)
     {
-        fprintf(stderr, "CUDA assertion: %s (code %d) in function %s at %s(%d)\n",
-            cudaGetErrorString(code), code, src.function_name(), src.file_name(), src.line()
+        fprintf(stderr, "CUDA assertion: %s in function %s at %s(%d)\n",
+            cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
         );
         if (panic)
         {

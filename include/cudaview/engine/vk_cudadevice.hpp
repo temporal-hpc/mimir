@@ -27,7 +27,7 @@ struct VulkanCudaDevice : public VulkanDevice
     // Use the constructor from the base VulkanDevice class
     using VulkanDevice::VulkanDevice;
 
-    InteropBarrier createInteropBarrier();
+    void initCuda(uint8_t *device_uuid, size_t uuid_size);
     void importCudaExternalMemory(cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size);
     void *getMemoryHandle(VkDeviceMemory memory,
         VkExternalMemoryHandleTypeFlagBits handle_type
@@ -35,6 +35,7 @@ struct VulkanCudaDevice : public VulkanDevice
     void *getSemaphoreHandle(VkSemaphore semaphore,
         VkExternalSemaphoreHandleTypeFlagBits handle_type
     );
+    InteropBarrier createInteropBarrier();
 
     // View functions
     void initView(CudaView& view);

@@ -106,8 +106,8 @@ SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKH
     if (format_count != 0)
     {
         details.formats.resize(format_count);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &format_count,
-        details.formats.data()
+        vkGetPhysicalDeviceSurfaceFormatsKHR(
+            dev, surface, &format_count, details.formats.data()
         );
     }
 
@@ -116,8 +116,8 @@ SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKH
     if (mode_count != 0)
     {
         details.present_modes.resize(mode_count);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &mode_count,
-        details.present_modes.data()
+        vkGetPhysicalDeviceSurfacePresentModesKHR(
+            dev, surface, &mode_count, details.present_modes.data()
         );
     }
     return details;

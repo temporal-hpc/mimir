@@ -14,6 +14,9 @@ struct VulkanQueue
 
 struct VulkanDevice
 {
+    // Unique identifier of the selected device
+    uint8_t device_uuid[VK_UUID_SIZE];
+    
     // GPU used for Vulkan operations
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     VkPhysicalDeviceProperties properties = {};
@@ -26,7 +29,7 @@ struct VulkanDevice
     VulkanQueue graphics, present;
     DeletionQueue deletors;
 
-    explicit VulkanDevice(VkPhysicalDevice gpu);
+    explicit VulkanDevice(VkPhysicalDevice gpu, VkInstance instance);
     ~VulkanDevice();
 
     void initLogicalDevice(VkSurfaceKHR surface);

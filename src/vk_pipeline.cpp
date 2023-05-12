@@ -1,9 +1,9 @@
 #include "internal/vk_pipeline.hpp"
 
-#include "cudaview/io.hpp"
-#include "cudaview/vk_types.hpp"
-#include "internal/vk_initializers.hpp"
+#include <cudaview/io.hpp>
+#include <cudaview/vk_types.hpp>
 #include <cudaview/validation.hpp>
+#include "internal/vk_initializers.hpp"
 
 ShaderCompileParameters getShaderCompileParams(ViewParams view)
 {
@@ -13,7 +13,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     {
         params.source_path = "shaders/texture.slang";
         // The texture shader needs a specialization for the way to interpret its content
-        // as a fragment. If no specialization is set, use the RawColor no-op.
+        // as a fragment. If no specialization is set, use the RawColor spec.
         if (params.specializations.empty())
         {
             params.specializations.push_back("RawColor");

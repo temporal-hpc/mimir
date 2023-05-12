@@ -196,8 +196,9 @@ void VulkanEngine::initVulkan()
     swap = std::make_unique<VulkanSwapchain>();
     swap->initSurface(instance, window);
     pickPhysicalDevice();
-    dev = std::make_unique<VulkanCudaDevice>(physical_device);
+    dev = std::make_unique<VulkanCudaDevice>(physical_device, instance);
     dev->initLogicalDevice(swap->surface);
+    dev->initCuda(dev->device_uuid, VK_UUID_SIZE);
 
     // Create descriptor pool
     descriptor_pool = dev->createDescriptorPool({
@@ -329,10 +330,20 @@ void VulkanEngine::pickPhysicalDevice()
     std::vector<VkPhysicalDevice> devices(device_count);
     vkEnumeratePhysicalDevices(instance, &device_count, devices.data());
 
+    printf("Enumerating Vulkan devices:\n");
+    for (const auto& dev : devices)
+    {
+        VkPhysicalDeviceProperties props{};
+        vkGetPhysicalDeviceProperties(dev, &props);
+        printf("* ID: %u\n  Name: %s\n", props.deviceID, props.deviceName);
+    }
     for (const auto& dev : devices)
     {
         if (props::isDeviceSuitable(dev, swap->surface))
         {
+            VkPhysicalDeviceProperties props{};
+            vkGetPhysicalDeviceProperties(dev, &props);
+            printf("Selected Vulkan device %u: %s\n\n", props.deviceID, props.deviceName);
             physical_device = dev;
             break;
         }

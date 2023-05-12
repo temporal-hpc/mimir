@@ -1,5 +1,6 @@
 #include "cudaview/engine/vk_device.hpp"
 
+#include <cstring> // memcpy
 #include <set> // std::set
 
 #include <cudaview/validation.hpp>
@@ -17,11 +18,29 @@ size_t getAlignedSize(size_t original_size, size_t min_alignment)
 	return aligned_size;
 }
 
-VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
+VulkanDevice::VulkanDevice(VkPhysicalDevice gpu, VkInstance instance): 
+    physical_device{gpu}
 {
     vkGetPhysicalDeviceProperties(physical_device, &properties);
     vkGetPhysicalDeviceFeatures(physical_device, &features);
     vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+
+    VkPhysicalDeviceIDProperties id_props{};
+    id_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+    id_props.pNext = nullptr;
+
+    VkPhysicalDeviceProperties2 props2{};
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    props2.pNext = &id_props;
+
+    auto fpGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2");
+    if (fpGetPhysicalDeviceProperties2 == nullptr)
+    {
+        throw std::runtime_error("Proc address for \"vkGetPhysicalDeviceProperties2KHR\" not found");
+    }
+    fpGetPhysicalDeviceProperties2(physical_device, &props2);
+    memcpy(device_uuid, id_props.deviceUUID, VK_UUID_SIZE);
 }
 
 VulkanDevice::~VulkanDevice()
@@ -249,8 +268,7 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
     if (!(format_props.optimalTilingFeatures &
             VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
     {
-        throw std::runtime_error(
-        "texture image format does not support linear blitting!");
+        throw std::runtime_error("texture image format does not support linear blitting!");
     }
 
     immediateSubmit([=](VkCommandBuffer cmd)
