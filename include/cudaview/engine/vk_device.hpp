@@ -67,4 +67,4 @@ struct VulkanDevice
     );
 };
 
-size_t getAlignedSize(size_t original_size, size_t min_alignment);
+uint32_t getAlignedSize(size_t original_size, size_t min_alignment);

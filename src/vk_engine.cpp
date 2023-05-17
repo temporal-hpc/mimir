@@ -216,13 +216,13 @@ void VulkanEngine::initVulkan()
 
     // Create descriptor set layout
     descriptor_layout = dev->createDescriptorSetLayout({
-        vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
+        vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
-        vkinit::descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
+        vkinit::descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
-        vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
         ),
         vkinit::descriptorLayoutBinding(5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 
@@ -607,12 +607,6 @@ void VulkanEngine::recreateSwapchain()
 
 void VulkanEngine::updateDescriptorSets()
 {
-    auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
-    auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_colors = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
-    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = 2 * size_mvp + size_colors + size_scene;
-
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
         // Write MVP matrix, scene info and texture samplers
@@ -622,28 +616,28 @@ void VulkanEngine::updateDescriptorSets()
         {
             VkDescriptorBufferInfo mvp_info{};
             mvp_info.buffer = view.ubo_buffer;
-            mvp_info.offset = i * size_ubo;
+            mvp_info.offset = 0;
             mvp_info.range  = sizeof(ModelViewProjection);
             auto write_mvp = vkinit::writeDescriptorBuffer(
-                descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &mvp_info
+                descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &mvp_info
             );
             desc_writes.push_back(write_mvp);
 
             VkDescriptorBufferInfo primitive_info{};
             primitive_info.buffer = view.ubo_buffer;
-            primitive_info.offset = i * size_ubo + size_mvp;
+            primitive_info.offset = 0;
             primitive_info.range  = sizeof(PrimitiveParams);
             auto write_primitive = vkinit::writeDescriptorBuffer(
-                descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &primitive_info
+                descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &primitive_info
             );
             desc_writes.push_back(write_primitive);
 
-            VkDescriptorBufferInfo extent_info{};
-            extent_info.buffer = view.ubo_buffer;
-            extent_info.offset = i * size_ubo + size_mvp + size_colors;
-            extent_info.range  = sizeof(SceneParams);
+            VkDescriptorBufferInfo scene_info{};
+            scene_info.buffer = view.ubo_buffer;
+            scene_info.offset = 0;
+            scene_info.range  = sizeof(SceneParams);
             auto write_scene = vkinit::writeDescriptorBuffer(
-                descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &extent_info
+                descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
             );
             desc_writes.push_back(write_scene);
             
@@ -909,13 +903,21 @@ void VulkanEngine::renderFrame()
 
 void VulkanEngine::drawObjects(uint32_t image_idx)
 {
+    auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+    auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
+    auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
+    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
+    auto size_ubo = size_mvp + size_options + size_scene;
+
     auto cmd = command_buffers[image_idx];
     // NOTE: Second parameter can be also used to bind a compute pipeline
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline_layout, 0, 1, &descriptor_sets[image_idx], 0, nullptr
-    );
-    for (const auto& view : views)
+    for (uint32_t i = 0; i < views.size(); ++i)
     {
+        auto& view = views[i];
+        std::vector<uint32_t> offsets = { i * size_ubo, i * size_ubo + size_mvp + size_options, i * size_ubo + size_mvp };
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
+        );
         if (!view.params.options.visible) continue;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view.pipeline);
         if (view.params.resource_type == ResourceType::TextureLinear ||

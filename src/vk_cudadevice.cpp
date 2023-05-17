@@ -392,7 +392,7 @@ void VulkanCudaDevice::createUniformBuffers(CudaView& view, uint32_t img_count)
     auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
 
-    VkDeviceSize buffer_size = img_count * (2 * size_mvp + size_options + size_scene);
+    VkDeviceSize buffer_size = img_count * (size_mvp + size_options + size_scene);
 
     auto test_buffer = createBuffer(1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     VkMemoryRequirements requirements;
@@ -415,7 +415,7 @@ void VulkanCudaDevice::updateUniformBuffers(CudaView& view, uint32_t image_idx,
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = 2 * size_mvp + size_options + size_scene;
+    auto size_ubo = size_mvp + size_options + size_scene;
     auto offset = image_idx * size_ubo;
 
     char *data = nullptr;
@@ -423,7 +423,6 @@ void VulkanCudaDevice::updateUniformBuffers(CudaView& view, uint32_t image_idx,
     std::memcpy(data, &mvp, sizeof(mvp));
     std::memcpy(data + size_mvp, &options, sizeof(options));
     std::memcpy(data + size_mvp + size_options, &scene, sizeof(scene));
-    std::memcpy(data + size_mvp + size_options + size_scene, &mvp, sizeof(mvp));
     vkUnmapMemory(logical_device, view.ubo_memory);
 }
 

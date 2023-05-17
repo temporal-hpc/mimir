@@ -7,7 +7,7 @@
 #include "internal/vk_properties.hpp"
 #include "internal/vk_initializers.hpp"
 
-size_t getAlignedSize(size_t original_size, size_t min_alignment)
+uint32_t getAlignedSize(size_t original_size, size_t min_alignment)
 {
 	// Calculate required alignment based on minimum device offset alignment
 	size_t aligned_size = original_size;
