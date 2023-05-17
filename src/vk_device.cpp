@@ -377,9 +377,9 @@ VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
     validation::checkVulkan(
         vkCreateDescriptorSetLayout(logical_device, &info, nullptr, &layout)
     );
-        deletors.pushFunction([=](){
-            vkDestroyDescriptorSetLayout(logical_device, layout, nullptr);
-        });
+    deletors.pushFunction([=](){
+        vkDestroyDescriptorSetLayout(logical_device, layout, nullptr);
+    });
     return layout;
 }
 

@@ -57,7 +57,10 @@ struct ViewParams
 struct CudaView
 {
     ViewParams params;
-    uint32_t pipeline_index = 0;
+
+    // Rendering members
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    //VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
 
     // Auxiliary memory members
     VkBuffer vertex_buffer    = VK_NULL_HANDLE;

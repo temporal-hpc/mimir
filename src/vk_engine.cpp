@@ -594,7 +594,7 @@ void VulkanEngine::initSwapchain()
     descriptor_sets = dev->createDescriptorSets(
         descriptor_pool, descriptor_layout, swap->image_count
     );
-    //updateDescriptorSets();
+    // TODO: Should update descriptor sets?
 }
 
 void VulkanEngine::recreateSwapchain()
@@ -917,7 +917,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     for (const auto& view : views)
     {
         if (!view.params.options.visible) continue;
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[view.pipeline_index]);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view.pipeline);
         if (view.params.resource_type == ResourceType::TextureLinear ||
             view.params.resource_type == ResourceType::Texture)
         {
@@ -954,25 +954,25 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
             {
                 case PrimitiveType::Points:
                 {
-                VkBuffer vertex_buffers[] = { view.data_buffer };
-                VkDeviceSize offsets[] = { 0 };
-                auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-                vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-                vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
-                break;
+                    VkBuffer vertex_buffers[] = { view.data_buffer };
+                    VkDeviceSize offsets[] = { 0 };
+                    auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
+                    vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
+                    vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+                    break;
                 }
                 case PrimitiveType::Edges:
                 {
-                VkBuffer vertexBuffers[] = { views[0].data_buffer };
-                VkDeviceSize offsets[] = {0};
-                vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-                vkCmdBindIndexBuffer(cmd, view.data_buffer, 0, VK_INDEX_TYPE_UINT32);
-                vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
-                break;
+                    VkBuffer vertexBuffers[] = { views[0].data_buffer };
+                    VkDeviceSize offsets[] = {0};
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+                    vkCmdBindIndexBuffer(cmd, view.data_buffer, 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
+                    break;
                 }
                 case PrimitiveType::Voxels:
                 {
-                // TODO: Check what to do here
+                    // TODO: Check what to do here
                 }
             }
         }
@@ -1079,10 +1079,14 @@ void VulkanEngine::createGraphicsPipelines()
     // TODO: This does not allow adding views at runtime
     for (auto& view : views)
     {
-        view.pipeline_index = builder.addPipeline(view.params, dev.get());
+        builder.addPipeline(view.params, dev.get());
     }
     pipelines = builder.createPipelines(dev->logical_device, render_pass);
     std::cout << pipelines.size() << " pipeline(s) created\n";
+    for (size_t i = 0; i < pipelines.size(); ++i)
+    {
+        views[i].pipeline = pipelines[i];
+    }
 
     // Restore original working directory
     std::filesystem::current_path(orig_path);
