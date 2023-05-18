@@ -66,8 +66,6 @@ struct CudaView
     VkBuffer vertex_buffer    = VK_NULL_HANDLE;
     VkBuffer index_buffer     = VK_NULL_HANDLE;
     VkDeviceMemory aux_memory = VK_NULL_HANDLE;
-    VkBuffer ubo_buffer       = VK_NULL_HANDLE;
-    VkDeviceMemory ubo_memory = VK_NULL_HANDLE;
 
     // Image members
     VkExtent3D vk_extent = {0, 0, 0};

@@ -640,27 +640,33 @@ void VulkanEngine::updateDescriptorSets()
             descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
         );
         set_writes.push_back(write_scene);
-        
-        // TODO: Make a different descriptor set for images
-        /*VkDescriptorImageInfo samp_img_info{};
-        samp_img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        samp_img_info.imageView   = view.vk_view;
-        samp_img_info.sampler     = view.vk_sampler;
 
-        auto write_samp_img = vkinit::writeDescriptorImage(descriptor_sets[i],
-            5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &samp_img_info
-        );
-        set_writes.push_back(write_samp_img);
+        for (const auto& view : views)
+        {
+            if (view.params.resource_type == ResourceType::TextureLinear ||
+                view.params.resource_type == ResourceType::Texture)
+            {
+                VkDescriptorImageInfo img_info{};
+                img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                img_info.imageView   = view.vk_view;
+                img_info.sampler     = view.vk_sampler;
 
-        VkDescriptorImageInfo samp_info{};
-        samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        samp_info.imageView   = view.vk_view;
-        samp_info.sampler     = view.vk_sampler;
+                auto write_img = vkinit::writeDescriptorImage(descriptor_sets[i],
+                    5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
+                );
+                set_writes.push_back(write_img);
 
-        auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
-            6, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
-        );
-        set_writes.push_back(write_samp);*/
+                VkDescriptorImageInfo samp_info{};
+                samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                samp_info.imageView   = view.vk_view;
+                samp_info.sampler     = view.vk_sampler;
+
+                auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
+                    6, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
+                );
+                set_writes.push_back(write_samp);
+            }
+        }        
 
         vkUpdateDescriptorSets(dev->logical_device,
             static_cast<uint32_t>(set_writes.size()), set_writes.data(), 0, nullptr
