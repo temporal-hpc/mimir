@@ -129,11 +129,6 @@ void VulkanEngine::prepareWindow()
 void VulkanEngine::updateWindow()
 {
     std::unique_lock<std::mutex> ul(mutex);
-    for (auto& view : views)
-    {
-        if (view.params.resource_type == ResourceType::TextureLinear)
-            dev->updateTexture(view);
-    }
     device_working = false;
     signalKernelFinish();
     ul.unlock();
@@ -145,7 +140,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     initUniformBuffers();
     updateDescriptorSets();
     createGraphicsPipelines();
-    size_t iteration_idx = 0;
+    size_t iter_idx = 0;
     device_working = true;
     while(!glfwWindowShouldClose(window))
     {
@@ -154,16 +149,11 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
         renderFrame();
 
         waitKernelStart();
-        if (iteration_idx < iter_count)
+        if (iter_idx < iter_count)
         {
             // Advance the simulation
             func();
-            for (auto& view : views)
-            {
-                if (view.params.resource_type == ResourceType::TextureLinear)
-                    dev->updateTexture(view);
-            }
-            iteration_idx++;
+            iter_idx++;
         }
         signalKernelFinish();
     }

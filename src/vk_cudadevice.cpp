@@ -76,10 +76,9 @@ void VulkanCudaDevice::initView(CudaView& view)
     view.vk_format = getVulkanFormat(params.texture_format);
     view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
-    VkMemoryRequirements bufreq{}, imgreq{}, memreq{};
+    VkMemoryRequirements memreq{};
     if (params.resource_type == ResourceType::StructuredBuffer || 
-        params.resource_type == ResourceType::UnstructuredBuffer || 
-        params.resource_type == ResourceType::TextureLinear)
+        params.resource_type == ResourceType::UnstructuredBuffer)
     {
         if (params.resource_type == ResourceType::StructuredBuffer)
         {
@@ -135,7 +134,7 @@ void VulkanCudaDevice::initView(CudaView& view)
         deletors.pushFunction([=]{
             vkDestroyBuffer(logical_device, view.data_buffer, nullptr);
         });
-        vkGetBufferMemoryRequirements(logical_device, view.data_buffer, &bufreq);
+        vkGetBufferMemoryRequirements(logical_device, view.data_buffer, &memreq);
     }
     if (params.resource_type == ResourceType::Texture ||
         params.resource_type == ResourceType::TextureLinear)
@@ -156,23 +155,7 @@ void VulkanCudaDevice::initView(CudaView& view)
         deletors.pushFunction([=]{
             vkDestroyImage(logical_device, view.image, nullptr);
         });
-        vkGetImageMemoryRequirements(logical_device, view.image, &imgreq);
-    }
-
-    if (params.resource_type == ResourceType::StructuredBuffer || 
-        params.resource_type == ResourceType::UnstructuredBuffer)
-    {
-        memreq = bufreq;
-    }
-    else if (params.resource_type == ResourceType::Texture)
-    {
-        memreq = imgreq;
-    }
-    else if (params.resource_type == ResourceType::TextureLinear)
-    {
-        memreq.size = std::max(bufreq.size, imgreq.size);
-        memreq.alignment = std::max(bufreq.size, imgreq.size);
-        memreq.memoryTypeBits = bufreq.memoryTypeBits & imgreq.memoryTypeBits;
+        vkGetImageMemoryRequirements(logical_device, view.image, &memreq);
     }
 
     VkExportMemoryAllocateInfoKHR export_info{};
@@ -188,11 +171,10 @@ void VulkanCudaDevice::initView(CudaView& view)
     });
 
     if (params.resource_type == ResourceType::StructuredBuffer || 
-        params.resource_type == ResourceType::UnstructuredBuffer || 
-        params.resource_type == ResourceType::TextureLinear)
+        params.resource_type == ResourceType::UnstructuredBuffer)
     {
-        VkDeviceSize memsize = params.element_size * params.element_count;
         vkBindBufferMemory(logical_device, view.data_buffer, view.memory, 0);
+        VkDeviceSize memsize = params.element_size * params.element_count;
         cudaExternalMemoryBufferDesc buffer_desc{};
         buffer_desc.offset = 0;
         buffer_desc.size   = memsize;
@@ -263,9 +245,17 @@ void VulkanCudaDevice::initView(CudaView& view)
         // Init texture memory (TODO: Refactor)
         if (params.resource_type == ResourceType::TextureLinear)
         {
+            VkDeviceSize memsize = params.element_size * params.element_count;
+            cudaExternalMemoryBufferDesc buffer_desc{};
+            buffer_desc.offset = 0;
+            buffer_desc.size   = memsize;
+            buffer_desc.flags  = 0;
+            validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+                &view.cuda_ptr, view.cuda_extmem, &buffer_desc)
+            );
             transitionImageLayout(view.image,
                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-            );  
+            );
         }
         else if (params.resource_type == ResourceType::Texture)
         {
