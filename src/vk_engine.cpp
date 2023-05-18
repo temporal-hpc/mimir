@@ -18,6 +18,8 @@
 #include <filesystem> // std::filesystem
 #include <glm/gtx/string_cast.hpp>
 
+constexpr size_t max_view_count = 256;
+
 void setColor(float *vk_color, float4 color)
 {
     vk_color[0] = color.x;
@@ -87,6 +89,7 @@ void VulkanEngine::init(int width, int height)
     glfwSetScrollCallback(window, scrollCallback);
 
     initVulkan();
+    views.reserve(max_view_count); // Temp hack
 
     camera->type = Camera::CameraType::LookAt;
     //camera->flipY = true;

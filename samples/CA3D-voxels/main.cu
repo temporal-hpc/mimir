@@ -6,6 +6,8 @@
 #define CA_HIGH 3
 #define CA_NACER 3
 
+#include <iostream>
+
 #include "tools.h"
 #include "kernel3D.cuh"
 #include "openmp3D.h"
@@ -66,7 +68,6 @@ int main(int argc, char **argv){
     ViewParams params;
     // TODO CAMBIAR A 2D
     params.element_count = n*n*n;
-
     params.element_size = sizeof(int);
 
     // TODO: 2D --> {n, n, 1}
@@ -78,13 +79,16 @@ int main(int argc, char **argv){
 
     //params.resource_type = ResourceType::TextureLinear;
     //params.texture_format = TextureFormat::Int32;
-    engine.createView((void**)&d1, params);
+    auto v1 = engine.createView((void**)&d1, params);
     /*engine.createViewStructured((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
     );*/
     //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
     // TODO CAMBIAR A 2D
-    gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
+    //gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
+    params.options.visible = false;
+    auto v2 = engine.createView((void**)&d2, params);
+    //std::cout << v1 << " " << v2 << "\n";
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);
@@ -117,6 +121,9 @@ int main(int argc, char **argv){
             kernel_CA3D<<<grid, block>>>(n, d1, d2);
             gpuErrchk( cudaPeekAtLastError() );
             gpuErrchk( cudaDeviceSynchronize() );
+
+            v1->toggleVisibility();
+            v2->toggleVisibility();
 
             engine.updateWindow();
 

@@ -86,4 +86,12 @@ struct CudaView
     VkSampler vk_sampler = VK_NULL_HANDLE;
     VkFormat vk_format   = VK_FORMAT_UNDEFINED;
     VkExtent3D vk_extent = {0, 0, 0};
+
+    bool toggleVisibility()
+    {
+        printf("\nbefore %d\n", params.options.visible);
+        params.options.visible = !params.options.visible;
+        printf("after %d\n", params.options.visible);
+        return params.options.visible;
+    }
 };
