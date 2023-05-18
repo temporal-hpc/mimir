@@ -524,9 +524,9 @@ void VulkanEngine::cleanupSwapchain()
         vkDestroyBuffer(dev->logical_device, view.ubo_buffer, nullptr);
         vkFreeMemory(dev->logical_device, view.ubo_memory, nullptr);
     }*/
-    for (auto pipeline : pipelines)
+    for (auto& view : views)
     {
-        vkDestroyPipeline(dev->logical_device, pipeline, nullptr);
+        vkDestroyPipeline(dev->logical_device, view.pipeline, nullptr);
     }
     vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
     vkDestroyRenderPass(dev->logical_device, render_pass, nullptr);
@@ -641,6 +641,7 @@ void VulkanEngine::updateDescriptorSets()
         );
         set_writes.push_back(write_scene);
 
+        // TODO: Test this
         for (const auto& view : views)
         {
             if (view.params.resource_type == ResourceType::TextureLinear ||
@@ -1066,7 +1067,7 @@ void VulkanEngine::createGraphicsPipelines()
     {
         builder.addPipeline(view.params, dev.get());
     }
-    pipelines = builder.createPipelines(dev->logical_device, render_pass);
+    auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
     std::cout << pipelines.size() << " pipeline(s) created\n";
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
@@ -1079,6 +1080,21 @@ void VulkanEngine::createGraphicsPipelines()
     std::cout << "Creation time for all pipelines: "
         << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
         << " ms\n";
+}
+
+void VulkanEngine::rebuildPipeline(CudaView& view)
+{
+    auto orig_path = std::filesystem::current_path();
+    std::filesystem::current_path(shader_path);
+
+    PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
+    builder.addPipeline(view.params, dev.get());
+    auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
+    // Destroy the old view pipeline and assign the new one
+    vkDestroyPipeline(dev->logical_device, view.pipeline, nullptr);
+    view.pipeline = pipelines[0];
+
+    std::filesystem::current_path(orig_path);
 }
 
 void VulkanEngine::initUniformBuffers()

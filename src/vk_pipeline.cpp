@@ -394,5 +394,6 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE,
         create_infos.size(), create_infos.data(), nullptr, pipelines.data())
     );
+    pipeline_infos.clear();
     return pipelines;
 }

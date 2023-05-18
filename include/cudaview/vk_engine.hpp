@@ -90,7 +90,6 @@ private:
     uint64_t current_frame = 0;
     std::string shader_path;
 
-    std::vector<VkPipeline> pipelines;
     std::vector<CudaView> views;
     std::vector<AllocatedBuffer> uniform_buffers;
 
@@ -139,6 +138,7 @@ private:
     void cleanupSwapchain();
     void recreateSwapchain();
     void createGraphicsPipelines();
+    void rebuildPipeline(CudaView& view);
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);
 
