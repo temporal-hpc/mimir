@@ -908,8 +908,8 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
             else
             {
                 VkDeviceSize offsets[1] = {0};
-                vkCmdBindVertexBuffers(cmd, 0, 1, &view.vertex_buffer, offsets);
-                vkCmdBindIndexBuffer(cmd, view.index_buffer, 0, VK_INDEX_TYPE_UINT16);
+                vkCmdBindVertexBuffers(cmd, 0, 1, &view.aux_buffer, offsets);
+                vkCmdBindIndexBuffer(cmd, view.aux_buffer, view.index_offset, VK_INDEX_TYPE_UINT16);
                 vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
             }
         }
@@ -917,7 +917,7 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
         {
             if (view.params.primitive_type == PrimitiveType::Voxels)
             {
-                VkBuffer vertex_buffers[] = { view.vertex_buffer, view.data_buffer };
+                VkBuffer vertex_buffers[] = { view.aux_buffer, view.data_buffer };
                 VkDeviceSize offsets[] = { 0, 0 };
                 auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
                 vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);

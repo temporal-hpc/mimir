@@ -82,21 +82,18 @@ void VulkanCudaDevice::initView(CudaView& view)
     {
         if (params.resource_type == ResourceType::StructuredBuffer)
         {
-            auto buffer_size = sizeof(float3) * params.element_count;
-
-            // Test buffer for asking about its memory properties
-            auto test_buffer = createBuffer(1, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-            VkMemoryRequirements requirements;
-            vkGetBufferMemoryRequirements(logical_device, test_buffer, &requirements);
-            requirements.size = getAlignedSize(buffer_size, requirements.alignment);
-            vkDestroyBuffer(logical_device, test_buffer, nullptr);
-
             // Allocate memory and bind it to buffers
-            view.aux_memory = allocateMemory(requirements,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-            );
-            view.vertex_buffer = createBuffer(buffer_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-            vkBindBufferMemory(logical_device, view.vertex_buffer, view.aux_memory, 0);
+            auto buffer_size = sizeof(float3) * params.element_count;
+            view.aux_buffer = createBuffer(buffer_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+            VkMemoryRequirements memreq;
+            vkGetBufferMemoryRequirements(logical_device, view.aux_buffer, &memreq);
+            auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            view.aux_memory = allocateMemory(memreq, flags);
+            deletors.pushFunction([=]{
+                vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
+                vkFreeMemory(logical_device, view.aux_memory, nullptr);
+            });            
+            vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
 
             float3 *data = nullptr;
             vkMapMemory(logical_device, view.aux_memory, 0, buffer_size, 0, (void**)&data);
@@ -116,11 +113,6 @@ void VulkanCudaDevice::initView(CudaView& view)
                 }
             }
             vkUnmapMemory(logical_device, view.aux_memory);
-
-            deletors.pushFunction([=]{
-                vkDestroyBuffer(logical_device, view.vertex_buffer, nullptr);
-                vkFreeMemory(logical_device, view.aux_memory, nullptr);
-            });
         }
 
         // Create view buffers
@@ -200,33 +192,24 @@ void VulkanCudaDevice::initView(CudaView& view)
 
         // Test buffer for asking about its memory properties
         auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-        auto requirements = getMemoryRequiements(usage, {vert_size, ids_size});
-        auto max_aligned_size = requirements.size;
-        // The largest alignment requirement can be used for all
-        requirements.size = max_aligned_size * 2;
+        view.aux_buffer = createBuffer(vert_size + ids_size, usage);
+        VkMemoryRequirements memreq{};
+        vkGetBufferMemoryRequirements(logical_device, view.aux_buffer, &memreq);
 
         // Allocate memory and bind it to buffers
-        view.aux_memory = allocateMemory(requirements,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
+        auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        view.aux_memory = allocateMemory(memreq, flags);
+        view.index_offset = vert_size;
 
-        view.vertex_buffer = createBuffer(vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-        vkBindBufferMemory(logical_device, view.vertex_buffer, view.aux_memory, 0);
+        vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
         char *data = nullptr;
         vkMapMemory(logical_device, view.aux_memory, 0, vert_size, 0, (void**)&data);
         std::memcpy(data, vertices.data(), vert_size);
-        vkUnmapMemory(logical_device, view.aux_memory);
-
-        view.index_buffer = createBuffer(ids_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-        vkBindBufferMemory(logical_device, view.index_buffer, view.aux_memory, max_aligned_size);
-        data = nullptr;
-        vkMapMemory(logical_device, view.aux_memory, max_aligned_size, ids_size, 0, (void**)&data);
-        std::memcpy(data, indices.data(), ids_size);
+        std::memcpy(data + view.index_offset, indices.data(), ids_size);
         vkUnmapMemory(logical_device, view.aux_memory);
 
         deletors.pushFunction([=]{
-            vkDestroyBuffer(logical_device, view.vertex_buffer, nullptr);
-            vkDestroyBuffer(logical_device, view.index_buffer, nullptr);
+            vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
             vkFreeMemory(logical_device, view.aux_memory, nullptr);
         });
 

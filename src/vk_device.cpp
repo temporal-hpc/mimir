@@ -342,29 +342,6 @@ VkDescriptorPool VulkanDevice::createDescriptorPool(
     return pool;
 }
 
-VkMemoryRequirements VulkanDevice::getMemoryRequiements(VkBufferUsageFlags usage,
-    const std::vector<uint32_t>& sizes)
-{
-    VkMemoryRequirements reqs;
-
-    // Test buffer for asking about its memory properties
-    auto test_buffer = createBuffer(1, usage);
-    vkGetBufferMemoryRequirements(logical_device, test_buffer, &reqs);
-    // Get maximum aligned size to set it in the requirements struct
-    uint32_t max_aligned_size = 0;
-    for (auto size : sizes)
-    {
-        auto aligned_size = getAlignedSize(size, reqs.alignment);
-        if (aligned_size > max_aligned_size) max_aligned_size = aligned_size;
-    }
-    reqs.size = max_aligned_size;
-    // Destroy the test buffer, since a proper one should be created with
-    // the returned requirements 
-    vkDestroyBuffer(logical_device, test_buffer, nullptr);
-    
-    return reqs;
-}
-
 VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
     const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings)
 {
