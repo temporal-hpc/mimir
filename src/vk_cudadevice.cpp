@@ -385,47 +385,6 @@ void VulkanCudaDevice::loadTexture(CudaView *view, void *img_data)
     validation::checkCuda(cudaDeviceSynchronize());
 }
 
-void VulkanCudaDevice::createUniformBuffers(CudaView& view, uint32_t img_count)
-{
-    auto min_alignment = properties.limits.minUniformBufferOffsetAlignment;
-    auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
-    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-
-    VkDeviceSize buffer_size = img_count * (size_mvp + size_options + size_scene);
-
-    auto test_buffer = createBuffer(1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-    VkMemoryRequirements requirements;
-    vkGetBufferMemoryRequirements(logical_device, test_buffer, &requirements);
-    requirements.size = buffer_size;
-    vkDestroyBuffer(logical_device, test_buffer, nullptr);
-
-    // Allocate memory and bind it to buffers
-    view.ubo_memory = allocateMemory(requirements,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    view.ubo_buffer = createBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-    vkBindBufferMemory(logical_device, view.ubo_buffer, view.ubo_memory, 0);
-}
-
-void VulkanCudaDevice::updateUniformBuffers(CudaView& view, uint32_t image_idx,
-    ModelViewProjection mvp, PrimitiveParams options, SceneParams scene)
-{
-    auto min_alignment = properties.limits.minUniformBufferOffsetAlignment;
-    auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
-    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = size_mvp + size_options + size_scene;
-    auto offset = image_idx * size_ubo;
-
-    char *data = nullptr;
-    vkMapMemory(logical_device, view.ubo_memory, offset, size_ubo, 0, (void**)&data);
-    std::memcpy(data, &mvp, sizeof(mvp));
-    std::memcpy(data + size_mvp, &options, sizeof(options));
-    std::memcpy(data + size_mvp + size_options, &scene, sizeof(scene));
-    vkUnmapMemory(logical_device, view.ubo_memory);
-}
-
 void *VulkanCudaDevice::getMemoryHandle(VkDeviceMemory memory,
     VkExternalMemoryHandleTypeFlagBits handle_type)
 {

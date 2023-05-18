@@ -24,6 +24,12 @@ struct VulkanCudaDevice;
 struct VulkanSwapchain;
 struct VulkanFramebuffer;
 
+struct AllocatedBuffer
+{
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+};
+
 class VulkanEngine
 {
 public:
@@ -86,6 +92,7 @@ private:
 
     std::vector<VkPipeline> pipelines;
     std::vector<CudaView> views;
+    std::vector<AllocatedBuffer> uniform_buffers;
 
     FrameBarrier& getCurrentFrame();
     void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
@@ -132,6 +139,8 @@ private:
     void cleanupSwapchain();
     void recreateSwapchain();
     void createGraphicsPipelines();
+    void initUniformBuffers();
+    void updateUniformBuffers(uint32_t image_idx);
 
     // Depth buffering
     bool hasStencil(VkFormat format);

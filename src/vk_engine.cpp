@@ -98,6 +98,8 @@ void VulkanEngine::init(int width, int height)
 
 void VulkanEngine::displayAsync()
 {
+    initUniformBuffers();
+    updateDescriptorSets();
     createGraphicsPipelines();
     rendering_thread = std::thread([this]()
     {
@@ -140,6 +142,8 @@ void VulkanEngine::updateWindow()
 
 void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 {
+    initUniformBuffers();
+    updateDescriptorSets();
     createGraphicsPipelines();
     size_t iteration_idx = 0;
     device_working = true;
@@ -173,9 +177,7 @@ CudaView *VulkanEngine::createView(void **ptr_devmem, ViewParams params)
     view.params = params;
 
     dev->initView(view);
-    dev->createUniformBuffers(view, swap->image_count);
     views.push_back(view);
-    updateDescriptorSets();
     *ptr_devmem = view.cuda_ptr;
     return &views.back();
 }
@@ -517,11 +519,11 @@ void VulkanEngine::createSyncObjects()
 
 void VulkanEngine::cleanupSwapchain()
 {
-    for (auto& view : views)
+    /*for (auto& view : views)
     {
         vkDestroyBuffer(dev->logical_device, view.ubo_buffer, nullptr);
         vkFreeMemory(dev->logical_device, view.ubo_memory, nullptr);
-    }
+    }*/
     for (auto pipeline : pipelines)
     {
         vkDestroyPipeline(dev->logical_device, pipeline, nullptr);
@@ -610,64 +612,58 @@ void VulkanEngine::updateDescriptorSets()
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
         // Write MVP matrix, scene info and texture samplers
-        std::vector<VkWriteDescriptorSet> desc_writes;
-        //desc_writes.reserve(3 + views_structured.size());
-        for (const auto& view : views)
-        {
-            VkDescriptorBufferInfo mvp_info{};
-            mvp_info.buffer = view.ubo_buffer;
-            mvp_info.offset = 0;
-            mvp_info.range  = sizeof(ModelViewProjection);
-            auto write_mvp = vkinit::writeDescriptorBuffer(
-                descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &mvp_info
-            );
-            desc_writes.push_back(write_mvp);
+        std::vector<VkWriteDescriptorSet> set_writes;
 
-            VkDescriptorBufferInfo primitive_info{};
-            primitive_info.buffer = view.ubo_buffer;
-            primitive_info.offset = 0;
-            primitive_info.range  = sizeof(PrimitiveParams);
-            auto write_primitive = vkinit::writeDescriptorBuffer(
-                descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &primitive_info
-            );
-            desc_writes.push_back(write_primitive);
+        VkDescriptorBufferInfo mvp_info{};
+        mvp_info.buffer = uniform_buffers[i].buffer;
+        mvp_info.offset = 0;
+        mvp_info.range  = sizeof(ModelViewProjection);
+        auto write_mvp = vkinit::writeDescriptorBuffer(
+            descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &mvp_info
+        );
+        set_writes.push_back(write_mvp);
 
-            VkDescriptorBufferInfo scene_info{};
-            scene_info.buffer = view.ubo_buffer;
-            scene_info.offset = 0;
-            scene_info.range  = sizeof(SceneParams);
-            auto write_scene = vkinit::writeDescriptorBuffer(
-                descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
-            );
-            desc_writes.push_back(write_scene);
-            
-            if (view.params.resource_type == ResourceType::TextureLinear ||
-                view.params.resource_type == ResourceType::Texture)
-            {
-                VkDescriptorImageInfo samp_img_info{};
-                samp_img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                samp_img_info.imageView   = view.vk_view;
-                samp_img_info.sampler     = view.vk_sampler;
+        VkDescriptorBufferInfo primitive_info{};
+        primitive_info.buffer = uniform_buffers[i].buffer;
+        primitive_info.offset = 0;
+        primitive_info.range  = sizeof(PrimitiveParams);
+        auto write_primitive = vkinit::writeDescriptorBuffer(
+            descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &primitive_info
+        );
+        set_writes.push_back(write_primitive);
 
-                auto write_samp_img = vkinit::writeDescriptorImage(descriptor_sets[i],
-                    5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &samp_img_info
-                );
-                desc_writes.push_back(write_samp_img);
+        VkDescriptorBufferInfo scene_info{};
+        scene_info.buffer = uniform_buffers[i].buffer;
+        scene_info.offset = 0;
+        scene_info.range  = sizeof(SceneParams);
+        auto write_scene = vkinit::writeDescriptorBuffer(
+            descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
+        );
+        set_writes.push_back(write_scene);
+        
+        // TODO: Make a different descriptor set for images
+        /*VkDescriptorImageInfo samp_img_info{};
+        samp_img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        samp_img_info.imageView   = view.vk_view;
+        samp_img_info.sampler     = view.vk_sampler;
 
-                VkDescriptorImageInfo samp_info{};
-                samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                samp_info.imageView   = view.vk_view;
-                samp_info.sampler     = view.vk_sampler;
+        auto write_samp_img = vkinit::writeDescriptorImage(descriptor_sets[i],
+            5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &samp_img_info
+        );
+        set_writes.push_back(write_samp_img);
 
-                auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
-                    6, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
-                );
-                desc_writes.push_back(write_samp);
-            }
-        }
+        VkDescriptorImageInfo samp_info{};
+        samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        samp_info.imageView   = view.vk_view;
+        samp_info.sampler     = view.vk_sampler;
+
+        auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
+            6, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
+        );
+        set_writes.push_back(write_samp);*/
 
         vkUpdateDescriptorSets(dev->logical_device,
-            static_cast<uint32_t>(desc_writes.size()), desc_writes.data(), 0, nullptr
+            static_cast<uint32_t>(set_writes.size()), set_writes.data(), 0, nullptr
         );
     }
 }
@@ -827,26 +823,7 @@ void VulkanEngine::renderFrame()
     // Finalize command buffer recording, so it can be executed
     validation::checkVulkan(vkEndCommandBuffer(cmd));
 
-    for (auto& view : views)
-    {
-        ModelViewProjection mvp{};
-        mvp.model = glm::mat4(1.f);
-        mvp.view  = camera->matrices.view;
-        mvp.proj  = camera->matrices.perspective;
-
-        PrimitiveParams options{};
-        options.color = getColor(view.params.options.color);
-        options.size = view.params.options.size;
-
-        SceneParams scene{};
-        auto extent = view.params.extent;
-        scene.bg_color = getColor(bg_color);
-        scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
-        scene.depth = view.params.options.depth;
-        scene.resolution = glm::ivec2{_width, _height};
-
-        dev->updateUniformBuffers(view, image_idx, mvp, options, scene);
-    }
+    updateUniformBuffers(image_idx);
 
     std::vector<VkSemaphore> wait_semaphores;
     std::vector<VkPipelineStageFlags> wait_stages;
@@ -1096,4 +1073,68 @@ void VulkanEngine::createGraphicsPipelines()
     std::cout << "Creation time for all pipelines: "
         << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
         << " ms\n";
+}
+
+void VulkanEngine::initUniformBuffers()
+{
+    auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+    auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
+    auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
+    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
+    auto size_ubo = (size_mvp + size_options + size_scene) * views.size();
+    
+    uniform_buffers.resize(swap->image_count);
+    for (auto& ubo : uniform_buffers)
+    {
+        ubo.buffer = dev->createBuffer(size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        VkMemoryRequirements memreq;
+        vkGetBufferMemoryRequirements(dev->logical_device, ubo.buffer, &memreq);
+        auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        ubo.memory = dev->allocateMemory(memreq, mem_usage);
+        vkBindBufferMemory(dev->logical_device, ubo.buffer, ubo.memory, 0);
+        deletors.pushFunction([=]{
+            vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
+            vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
+        });
+    }
+}
+
+// Update uniform buffers for view at index [view_idx] for frame [image_idx]
+void VulkanEngine::updateUniformBuffers(uint32_t image_idx)
+{
+    auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+    auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
+    auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
+    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
+    auto size_ubo = size_mvp + size_options + size_scene;
+    auto memory = uniform_buffers[image_idx].memory;
+
+    for (size_t view_idx = 0; view_idx < views.size(); ++view_idx)
+    {
+        auto& view = views[view_idx];
+
+        ModelViewProjection mvp{};
+        mvp.model = glm::mat4(1.f);
+        mvp.view  = camera->matrices.view;
+        mvp.proj  = camera->matrices.perspective;
+
+        PrimitiveParams options{};
+        options.color = getColor(view.params.options.color);
+        options.size = view.params.options.size;
+
+        SceneParams scene{};
+        auto extent = view.params.extent;
+        scene.bg_color = getColor(bg_color);
+        scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
+        scene.depth = view.params.options.depth;
+        scene.resolution = glm::ivec2{_width, _height};
+
+        char *data = nullptr;
+        auto offset = size_ubo * view_idx;
+        vkMapMemory(dev->logical_device, memory, offset, size_ubo, 0, (void**)&data);
+        std::memcpy(data, &mvp, sizeof(mvp));
+        std::memcpy(data + size_mvp, &options, sizeof(options));
+        std::memcpy(data + size_mvp + size_options, &scene, sizeof(scene));
+        vkUnmapMemory(dev->logical_device, memory);
+    }
 }

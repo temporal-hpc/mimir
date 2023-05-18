@@ -40,8 +40,4 @@ struct VulkanCudaDevice : public VulkanDevice
     void initView(CudaView& view);
     void updateTexture(CudaView& view);
     void loadTexture(CudaView *view, void *data);
-    void createUniformBuffers(CudaView& view, uint32_t img_count);
-    void updateUniformBuffers(CudaView& view, uint32_t image_idx,
-        ModelViewProjection mvp, PrimitiveParams options, SceneParams scene
-    );    
 };
