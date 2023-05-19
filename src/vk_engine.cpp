@@ -748,6 +748,10 @@ void VulkanEngine::drawGui()
         ImGui::Begin("Scene parameters");
         //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
         ImGui::ColorEdit3("Clear color", (float*)&bg_color);
+        auto pos = camera->position;
+        ImGui::Text("Camera position: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
+        auto rot = camera->rotation;
+        ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
         for (size_t i = 0; i < views.size(); ++i)
         {
             addViewObjectGui(&views[i], i);
@@ -1136,13 +1140,14 @@ void VulkanEngine::updateUniformBuffers(uint32_t image_idx)
         PrimitiveParams options{};
         options.color = getColor(view.params.options.color);
         options.size = view.params.options.size;
+        options.depth = view.params.options.depth;
 
         SceneParams scene{};
         auto extent = view.params.extent;
         scene.bg_color = getColor(bg_color);
         scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
-        scene.depth = view.params.options.depth;
         scene.resolution = glm::ivec2{_width, _height};
+        scene.camera_pos = camera->position;
 
         char *data = nullptr;
         auto offset = size_ubo * view_idx;

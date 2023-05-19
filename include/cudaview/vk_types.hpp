@@ -15,20 +15,21 @@ struct ModelViewProjection
 
 struct PrimitiveParams
 {
-    glm::vec4 color;
-    float size;
+    alignas(16) glm::vec4 color;
+    alignas(4)  float size;
+    alignas(4)  float depth;
 };
 
 struct SceneParams
 {
-    glm::vec4 bg_color;
-    glm::ivec3 extent;
-    float depth;
-    glm::ivec2 resolution;
+    alignas(16) glm::vec4 bg_color;
+    alignas(16) glm::ivec3 extent;
+    alignas(8)  glm::ivec2 resolution;
+    alignas(16) glm::vec3 camera_pos;
 };
 
 struct Vertex {
-    glm::vec3 pos;
-    glm::vec2 uv;
+    alignas(16) glm::vec3 pos;
+    alignas(8)  glm::vec2 uv;
     //glm::vec3 normal;
 };
