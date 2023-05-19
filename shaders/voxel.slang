@@ -60,7 +60,6 @@ struct VoxelData
 void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> stream)
 {
     float4 pos = input[0].pos;
-    float4 color = input[0].color;
 
     float4x4 model_view = mul(mvp.model, mvp.view);
     float4 center = mul(input[0].center, model_view);
@@ -73,100 +72,41 @@ void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> str
 
     // Compute offsets for block (voxel) vertices
     float3 vox_size = .001 * float3(primitive.size);
-    float4 bx = model_view[0] * vox_size.x;
-    float4 by = model_view[1] * vox_size.y;
-    float4 bz = model_view[2] * vox_size.z;
+    float4 offsets[3] = {
+        model_view[0] * vox_size.x,
+        model_view[1] * vox_size.y,
+        model_view[2] * vox_size.z
+    };
 
-    float4 v, shift, dx, dy, normal;
     VoxelData output;
-    output.color = color;
-
-    normal = mul(float4(1, 0, 0, 0), model_view);
-    // Emit a primitive only if the sign of the dot product is positive
-    if (dot(-center.xyz, normal.xyz) > 0)
+    output.color = input[0].color;
+    for (int k = 0; k < 3; ++k)
     {
-        shift = bx;
-        dx = bz;
-        dy = by;
+        float4 unit = float4(0);
+        unit[k] = 1;
+        float4 normal = mul(unit, model_view);
+        output.normal = normal.xyz;
+        float4 shift, dx, dy;
+        if (dot(-center.xyz, normal.xyz) > 0)
+        {
+            shift = offsets[k];
+            dx = offsets[(k + 2) % 3];
+            dy = offsets[(k + 1) % 3];
+        }
+        else
+        {
+            shift = -offsets[k];
+            dx = offsets[(k + 1) % 3];
+            dy = offsets[(k + 2) % 3];
+        }
+        float4 corners[4] = {(+dx-dy), (-dx-dy), (+dx+dy), (-dx+dy)};
+        for (int i = 0; i < 4; ++i)
+        {
+            float4 v = center + shift + corners[i];
+            output.pos = mul(v, mvp.proj);
+            stream.Append(output);
+        }
     }
-    else
-    {
-        shift = -bx;
-        dx = by;
-        dy = bz;
-    }
-    output.normal = normal.xyz;
-    // Add point coordinates
-    v = (center + shift) + (dx - dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (-dx - dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (dx + dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (-dx + dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-
-    normal = mul(float4(0, 1, 0, 0), model_view);
-    // Emit a primitive only if the sign of the dot product is positive
-    if (dot(-center.xyz, normal.xyz) > 0)
-    {
-        shift = by;
-        dx = bx;
-        dy = bz;
-    }
-    else
-    {
-        shift = -by;
-        dx = bz;
-        dy = bx;
-    }
-    output.normal = normal.xyz;
-    // Add point coordinates
-    v = (center + shift) + (dx - dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (-dx - dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (dx + dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (-dx + dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-
-    normal = mul(float4(0, 0, 1, 0), model_view);
-    // Emit a primitive only if the sign of the dot product is positive
-    if (dot(-center.xyz, normal.xyz) > 0)
-    {
-        shift = bz;
-        dx = by;
-        dy = bx;
-    }
-    else
-    {
-        shift = -bz;
-        dx = bx;
-        dy = by;
-    }
-    output.normal = normal.xyz;
-    // Add point coordinates
-    v = (center + shift) + (dx - dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (-dx - dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (dx + dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
-    v = (center + shift) + (-dx + dy);
-    output.pos = mul(v, mvp.proj);
-    stream.Append(output);
 }
 
 float3 lambert(float3 normal, float3 light, float3 color)
