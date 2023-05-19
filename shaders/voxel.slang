@@ -1,6 +1,8 @@
 import uniform;
 
 [[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
+[[vk::binding(1)]] ConstantBuffer<SceneParams> scene;
+[[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
 
 struct VertexInput
 {
@@ -22,7 +24,7 @@ VertexData vertexMain(VertexInput input)
     VertexData output;
     output.center = float4(2 * (input.pos / float3(200)) - 1, 1);
     output.pos = mul(output.center, view_proj);
-    output.color = float4(.5, .5, .5, 1);
+    output.color = primitive.color;
 
     return output;
 }
@@ -70,10 +72,10 @@ void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> str
     }
 
     // Compute offsets for block (voxel) vertices
-    float3 half_block = .5 * float3(.01);
-    float4 bx = model_view[0] * half_block.x;
-    float4 by = model_view[1] * half_block.y;
-    float4 bz = model_view[2] * half_block.z;
+    float3 vox_size = .001 * float3(primitive.size);
+    float4 bx = model_view[0] * vox_size.x;
+    float4 by = model_view[1] * vox_size.y;
+    float4 bz = model_view[2] * vox_size.z;
 
     float4 v, shift, dx, dy, normal;
     VoxelData output;
