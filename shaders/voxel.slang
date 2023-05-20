@@ -11,7 +11,6 @@ struct VertexInput
 
 struct VertexData
 {
-    float4 pos    : SV_Position;
     float4 center : POSITION;
     float4 color  : COLOR;
 };
@@ -19,11 +18,8 @@ struct VertexData
 [shader("vertex")]
 VertexData vertexMain(VertexInput input)
 {
-    float4x4 view_proj = mul(mvp.view, mvp.proj);
-
     VertexData output;
-    output.center = float4(2 * (input.pos / float3(200)) - 1, 1);
-    output.pos = mul(output.center, view_proj);
+    output.center = float4(2 * (input.pos / scene.extent) - 1, 1);
     output.color = primitive.color;
 
     return output;
@@ -38,11 +34,8 @@ struct VertexInputImplicit
 [shader("vertex")]
 VertexData vertexImplicitMain(VertexInputImplicit input)
 {
-    float4x4 view_proj = mul(mvp.view, mvp.proj);
-
     VertexData output;
     output.center = float4(input.pos, 1);
-    output.pos    = mul(output.center, view_proj);
     output.color  = float4(float1(input.color).xxx, 1);
 
     return output;
@@ -59,8 +52,6 @@ struct VoxelData
 [maxvertexcount(12)]
 void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> stream)
 {
-    float4 pos = input[0].pos;
-
     float4x4 model_view = mul(mvp.model, mvp.view);
     float4 center = mul(input[0].center, model_view);
     // In orthographic projection we have to fix our origin (center),
@@ -86,23 +77,23 @@ void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> str
         unit[k] = 1;
         float4 normal = mul(unit, model_view);
         output.normal = normal.xyz;
-        float4 shift, dx, dy;
+        float4 face_offset, dx, dy;
         if (dot(-center.xyz, normal.xyz) > 0)
         {
-            shift = offsets[k];
+            face_offset = offsets[k];
             dx = offsets[(k + 2) % 3];
             dy = offsets[(k + 1) % 3];
         }
         else
         {
-            shift = -offsets[k];
+            face_offset = -offsets[k];
             dx = offsets[(k + 1) % 3];
             dy = offsets[(k + 2) % 3];
         }
-        float4 corners[4] = {(+dx-dy), (-dx-dy), (+dx+dy), (-dx+dy)};
+        float4 vertex_offsets[4] = {(+dx-dy), (-dx-dy), (+dx+dy), (-dx+dy)};
         for (int i = 0; i < 4; ++i)
         {
-            float4 v = center + shift + corners[i];
+            float4 v = center + face_offset + vertex_offsets[i];
             output.pos = mul(v, mvp.proj);
             stream.Append(output);
         }
