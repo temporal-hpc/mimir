@@ -44,6 +44,7 @@ VertexData vertexImplicitMain(VertexInputImplicit input)
 struct VoxelData
 {
     float4 pos    : SV_Position;
+    float2 uv     : TEXCOORD;
     float4 color  : COLOR;
     float3 normal : NORMAL;
 };
@@ -78,23 +79,27 @@ void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> str
         float4 normal = mul(unit, model_view);
         output.normal = normal.xyz;
         float4 face_offset, dx, dy;
+        float2 texcoords[4];
         if (dot(-center.xyz, normal.xyz) > 0)
         {
             face_offset = offsets[k];
             dx = offsets[(k + 2) % 3];
             dy = offsets[(k + 1) % 3];
+            texcoords = {{1,0}, {0,0}, {1,1}, {0,1}};
         }
         else
         {
             face_offset = -offsets[k];
             dx = offsets[(k + 1) % 3];
             dy = offsets[(k + 2) % 3];
+            texcoords = {{0,1}, {1,1}, {0,0}, {1,0}};
         }
         float4 vertex_offsets[4] = {(+dx-dy), (-dx-dy), (+dx+dy), (-dx+dy)};
         for (int i = 0; i < 4; ++i)
         {
             float4 v = center + face_offset + vertex_offsets[i];
             output.pos = mul(v, mvp.proj);
+            output.uv = texcoords[i];
             stream.Append(output);
         }
     }
@@ -103,6 +108,22 @@ void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> str
 float3 lambert(float3 normal, float3 light, float3 color)
 {
     return color * max(dot(normalize(normal), normalize(light)), 0);
+}
+
+float4 filled(float distance, float linewidth, float antialias, float4 fill, float4 stroke)
+{
+    float t = linewidth / 2.0 - antialias;
+    float signed_distance = distance;
+    float border_distance = abs(signed_distance) - t;
+    float alpha = border_distance / antialias;
+    alpha = exp(-alpha * alpha);
+    if (border_distance < 0.0)      return fill;
+    else if (signed_distance < 0.0) return fill;
+    else                            return float4(fill.rgb, alpha * fill.a);
+}
+float disc(float2 p, float size)
+{
+    return length(p) - size/2;
 }
 
 [shader("fragment")]
@@ -118,4 +139,7 @@ float4 fragmentMain(VoxelData input) : SV_Target
     float3 color_up = (1 - front_bias) * lambert(input.normal, light_up, light_color);
 
     return float4(ambient_light + color_front + color_up, input.color.w);
+    // float2 p = 2 * input.uv - 1;
+    // float distance = disc(p * 10, primitive.size);
+    // return filled(distance, 1, 1, primitive.color, scene.bg_color);
 }
