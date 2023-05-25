@@ -19,7 +19,12 @@ target_include_directories(cudaview SYSTEM PUBLIC ../include)
 
 set_property(TARGET cudaview PROPERTY CUDA_STANDARD 17)
 target_compile_features(cudaview PUBLIC cxx_std_17)
-target_compile_options(cudaview PRIVATE -Wall -Wextra -g -O0)
+target_compile_options(cudaview PRIVATE
+    "$<$<CONFIG:Debug>:-Wall -Wextra -g -O0>"
+    "$<$<CONFIG:Release>:-O3>"
+)
+#add_custom_command(TARGET cudaview POST_BUILD COMMAND ${CMAKE_COMMAND} -E echo 
+#  "$<$<CONFIG:Debug>:-Wall -Wextra -g -O0> $<$<CONFIG:Release>:-O3>")
 
 find_package(Vulkan REQUIRED COMPONENTS glslc)
 find_package(CUDAToolkit)
