@@ -2,14 +2,31 @@
 
 #include <vulkan/vulkan.h>
 
+#include <string> // std::string
 #include <vector> // std::vector
 
 #include "cudaview/deletion_queue.hpp"
 
+constexpr float kilobyte = 1024.f;
+constexpr float megabyte = kilobyte * 1024.f;
+constexpr float gigabyte = megabyte * 1024.f;
+
+struct ConvertedMemory {
+    float data;
+    std::string units;
+};
+
+struct DeviceMemoryProperties
+{
+    uint32_t heap_count = 0;
+    VkDeviceSize total_usage = 0;
+    VkDeviceSize total_budget = 0;
+};
+
 struct VulkanQueue
 {
-  uint32_t family_index = ~0u;
-  VkQueue queue = VK_NULL_HANDLE;
+    uint32_t family_index = ~0u;
+    VkQueue queue = VK_NULL_HANDLE;
 };
 
 struct VulkanDevice
@@ -19,11 +36,14 @@ struct VulkanDevice
     VkPhysicalDeviceProperties properties = {};
     VkPhysicalDeviceFeatures features = {};
     VkPhysicalDeviceMemoryProperties memory_properties = {};
-
+    VkPhysicalDeviceMemoryProperties2 memory_properties2 = {};
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget_properties = {};
+    
     VkDevice logical_device = VK_NULL_HANDLE;
     VkCommandPool command_pool = VK_NULL_HANDLE;
 
     VulkanQueue graphics, present;
+    DeviceMemoryProperties props;
     DeletionQueue deletors;
 
     explicit VulkanDevice(VkPhysicalDevice gpu);
@@ -65,6 +85,9 @@ struct VulkanDevice
     void transitionImageLayout(VkImage image,
         VkImageLayout old_layout, VkImageLayout new_layout
     );
+    ConvertedMemory formatMemory(uint64_t memsize) const; 
+    std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
+    void updateMemoryProperties();
 };
 
 uint32_t getAlignedSize(size_t original_size, size_t min_alignment);

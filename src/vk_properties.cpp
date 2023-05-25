@@ -16,7 +16,8 @@ std::vector<const char*> getRequiredDeviceExtensions()
         VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
         VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
-        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME
+        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
+        VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
     };
 }
 
@@ -76,21 +77,21 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
     {
         if (queue_families[i].queueCount > 0)
         {
-        if (graphics_family == family_empty && queue_families[i].queueFlags &
-            VK_QUEUE_GRAPHICS_BIT)
-        {
-            graphics_family = i;
-        }
-        uint32_t present_support = 0;
-        vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface, &present_support);
-        if (present_family == family_empty && present_support)
-        {
-            present_family = i;
-        }
-        if (present_family != family_empty && graphics_family != family_empty)
-        {
-            break;
-        }
+            if (graphics_family == family_empty && queue_families[i].queueFlags &
+                VK_QUEUE_GRAPHICS_BIT)
+            {
+                graphics_family = i;
+            }
+            uint32_t present_support = 0;
+            vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface, &present_support);
+            if (present_family == family_empty && present_support)
+            {
+                present_family = i;
+            }
+            if (present_family != family_empty && graphics_family != family_empty)
+            {
+                break;
+            }
         }
     }
     return graphics_family != family_empty && present_family != family_empty;

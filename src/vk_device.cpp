@@ -23,6 +23,10 @@ VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
     vkGetPhysicalDeviceProperties(physical_device, &properties);
     vkGetPhysicalDeviceFeatures(physical_device, &features);
     vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+    budget_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+    budget_properties.pNext = nullptr;
+    memory_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+    memory_properties2.pNext = &budget_properties;
 }
 
 VulkanDevice::~VulkanDevice()
@@ -418,4 +422,56 @@ void VulkanDevice::transitionImageLayout(VkImage image,
     {
         vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     });
+}
+
+ConvertedMemory VulkanDevice::formatMemory(uint64_t memsize) const
+{
+    ConvertedMemory converted{};
+    auto memory = static_cast<float>(memsize);
+    if (memory < kilobyte)
+    {
+        converted.data = memory;
+        converted.units = "B";
+    }
+    else if (memory < megabyte)
+    {
+        converted.data = memory / kilobyte;
+        converted.units = "KB";
+    }
+    else if (memory < gigabyte)
+    {
+        converted.data = memory / megabyte;
+        converted.units = "MB";
+    }
+    else
+    {
+        converted.data = memory / gigabyte;
+        converted.units = "GB";
+    }
+    return converted;
+}
+
+std::string VulkanDevice::readMemoryHeapFlags(VkMemoryHeapFlags flags)
+{
+    switch (flags)
+    {
+        case VK_MEMORY_HEAP_DEVICE_LOCAL_BIT: return "Device local bit";
+        case VK_MEMORY_HEAP_MULTI_INSTANCE_BIT: return "Multiple instance bit";
+        default: return "Host local heap memory";
+    }
+    return "";
+}
+
+void VulkanDevice::updateMemoryProperties()
+{
+    vkGetPhysicalDeviceMemoryProperties2(physical_device, &memory_properties2);
+    props.heap_count = memory_properties2.memoryProperties.memoryHeapCount;
+    props.total_usage = 0;
+    props.total_budget = 0;
+
+    for (uint32_t i = 0; i < props.heap_count; ++i)
+    {
+        props.total_usage += budget_properties.heapUsage[i];
+        props.total_budget += budget_properties.heapBudget[i];
+    }   
 }

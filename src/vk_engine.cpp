@@ -104,6 +104,13 @@ void VulkanEngine::displayAsync()
     initUniformBuffers();
     updateDescriptorSets();
     createGraphicsPipelines();
+    dev->updateMemoryProperties();
+
+    auto total_usage = dev->formatMemory(dev->props.total_usage);
+    printf("Total memory usage: %.2f %s\n", total_usage.data, total_usage.units.c_str());
+    auto total_budget = dev->formatMemory(dev->props.total_budget);
+    printf("Total memory budget: %.2f %s\n", total_budget.data, total_budget.units.c_str());
+
     rendering_thread = std::thread([this]()
     {
         while(!glfwWindowShouldClose(window))
@@ -143,6 +150,21 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     initUniformBuffers();
     updateDescriptorSets();
     createGraphicsPipelines();
+    dev->updateMemoryProperties();
+
+    auto total_usage = dev->formatMemory(dev->props.total_usage);
+    printf("Total memory usage: %.2f %s\n", total_usage.data, total_usage.units.c_str());
+    auto total_budget = dev->formatMemory(dev->props.total_budget);
+    printf("Total memory budget: %.2f %s\n", total_budget.data, total_budget.units.c_str());
+
+    for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
+    {
+        auto heap_usage = dev->formatMemory(dev->budget_properties.heapUsage[i]);
+        printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
+        auto heap_budget = dev->formatMemory(dev->budget_properties.heapBudget[i]);
+        printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
+    }
+    
     size_t iter_idx = 0;
     device_working = true;
     while(!glfwWindowShouldClose(window))
@@ -191,7 +213,6 @@ void VulkanEngine::initVulkan()
     swap = std::make_unique<VulkanSwapchain>();
     swap->initSurface(instance, window);
     pickPhysicalDevice();
-    dev = std::make_unique<VulkanCudaDevice>(physical_device);
     dev->initLogicalDevice(swap->surface);
 
     // Create descriptor pool
@@ -266,8 +287,9 @@ void VulkanEngine::createInstance()
         // Enable debugging message extension
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
-    extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
     extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
+    extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+    extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
     VkInstanceCreateInfo instance_info{};
     instance_info.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -366,7 +388,7 @@ void VulkanEngine::pickPhysicalDevice()
             curr_device++;
             continue;
         }
-        for (const auto& dev : devices)
+        for (const auto& ph_dev : devices)
         {
             VkPhysicalDeviceIDProperties id_props{};
             id_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
@@ -376,14 +398,14 @@ void VulkanEngine::pickPhysicalDevice()
             props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
             props2.pNext = &id_props;
 
-            fpGetPhysicalDeviceProperties2(dev, &props2);
+            fpGetPhysicalDeviceProperties2(ph_dev, &props2);
             auto matching = memcmp((void*)&dev_prop.uuid, id_props.deviceUUID, VK_UUID_SIZE) == 0;
-            if (matching && props::isDeviceSuitable(dev, swap->surface))
+            if (matching && props::isDeviceSuitable(ph_dev, swap->surface))
             {
                 validation::checkCuda(cudaSetDevice(curr_device));
                 VkPhysicalDeviceProperties props{};
-                vkGetPhysicalDeviceProperties(dev, &props);
-                physical_device = dev;
+                vkGetPhysicalDeviceProperties(ph_dev, &props);
+                dev = std::make_unique<VulkanCudaDevice>(ph_dev);
                 printf("Selected CUDA-Vulkan device %d: %s\n\n", curr_device, dev_prop.name);
                 break;
             }
@@ -405,7 +427,7 @@ void VulkanEngine::initImgui()
 
     ImGui_ImplVulkan_InitInfo init_info{};
     init_info.Instance       = instance;
-    init_info.PhysicalDevice = physical_device;
+    init_info.PhysicalDevice = dev->physical_device;
     init_info.Device         = dev->logical_device;
     init_info.Queue          = dev->graphics.queue;
     init_info.DescriptorPool = descriptor_pool;
