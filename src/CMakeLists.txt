@@ -23,9 +23,19 @@ target_compile_options(cudaview PRIVATE
     "$<$<CONFIG:Debug>:-Wall -Wextra -g -O0>"
     "$<$<CONFIG:Release>:-O3>"
 )
+# This will print the result of the above generator expression, to check if it is correct
 #add_custom_command(TARGET cudaview POST_BUILD COMMAND ${CMAKE_COMMAND} -E echo 
 #  "$<$<CONFIG:Debug>:-Wall -Wextra -g -O0> $<$<CONFIG:Release>:-O3>")
 
 find_package(Vulkan REQUIRED COMPONENTS glslc)
 find_package(CUDAToolkit)
 target_link_libraries(cudaview PUBLIC Vulkan::Vulkan CUDA::cudart glfw imgui slang)
+
+install(
+    TARGETS cudaview
+    EXPORT cudaview # TODO: Check if this is right
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+    INCLUDES DESTINATION include
+)
