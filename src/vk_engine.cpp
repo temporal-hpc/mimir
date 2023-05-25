@@ -111,6 +111,14 @@ void VulkanEngine::displayAsync()
     auto total_budget = dev->formatMemory(dev->props.total_budget);
     printf("Total memory budget: %.2f %s\n", total_budget.data, total_budget.units.c_str());
 
+    for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
+    {
+        auto heap_usage = dev->formatMemory(dev->budget_properties.heapUsage[i]);
+        printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
+        auto heap_budget = dev->formatMemory(dev->budget_properties.heapBudget[i]);
+        printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
+    }
+    
     rendering_thread = std::thread([this]()
     {
         while(!glfwWindowShouldClose(window))
