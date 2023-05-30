@@ -89,9 +89,7 @@ struct CudaView
 
     bool toggleVisibility()
     {
-        printf("\nbefore %d\n", params.options.visible);
         params.options.visible = !params.options.visible;
-        printf("after %d\n", params.options.visible);
         return params.options.visible;
     }
 };

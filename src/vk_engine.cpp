@@ -81,12 +81,13 @@ void VulkanEngine::init(int width, int height)
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    window = glfwCreateWindow(width, height, "Vulkan test", nullptr, nullptr);
+    window = glfwCreateWindow(width, height, "CudaView", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     glfwSetCursorPosCallback(window, cursorPositionCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetScrollCallback(window, scrollCallback);
+    glfwSetKeyCallback(window, keyCallback);
 
     initVulkan();
     views.reserve(max_view_count); // Temp hack
@@ -772,8 +773,9 @@ void VulkanEngine::drawGui()
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
-    // TODO: Enable demo window with some button combination
-    //ImGui::ShowDemoWindow();
+    if (show_demo_window) { ImGui::ShowDemoWindow(); }
+    if (show_metrics) { ImGui::ShowMetricsWindow(); }
+    
     {
         ImGui::Begin("Scene parameters");
         //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);

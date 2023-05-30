@@ -4,6 +4,11 @@
 #include <imgui.h>
 #include <algorithm> // std::clamp
 
+VulkanEngine *getHandler(GLFWwindow *window)
+{
+    return reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+}
+
 void VulkanEngine::setBackgroundColor(float4 color)
 {
     bg_color = color;
@@ -33,7 +38,7 @@ void VulkanEngine::handleMouseMove(float x, float y)
 
 void VulkanEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
 {
-    auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+    auto app = getHandler(window);
     app->handleMouseMove(static_cast<float>(xpos), static_cast<float>(ypos));
 }
 
@@ -94,18 +99,37 @@ void VulkanEngine::handleScroll([[maybe_unused]] float xoffset, float yoffset)
 
 void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
-    auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+    auto app = getHandler(window);
     app->handleMouseButton(button, action, mods);
 }
 
 void VulkanEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
 {
-    auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+    auto app = getHandler(window);
     app->should_resize = true;
 }
 
 void VulkanEngine::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 {
-    auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+    auto app = getHandler(window);
     app->handleScroll(static_cast<float>(xoffset), static_cast<float>(yoffset));
+}
+
+void VulkanEngine::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+    auto app = getHandler(window);
+    app->handleKey(key, scancode, action, mods);
+}
+
+void VulkanEngine::handleKey(int key, int scancode, int action, int mods)
+{
+    // Toggle demo window
+    if (key == GLFW_KEY_D && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
+    {
+        show_demo_window = !show_demo_window;
+    }
+    if (key == GLFW_KEY_M && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
+    {
+        show_metrics = !show_metrics;
+    }
 }
