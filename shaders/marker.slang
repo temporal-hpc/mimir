@@ -1,17 +1,34 @@
-import uniform;
+import uniforms;
+import structures;
 
 [[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
 [[vk::binding(1)]] ConstantBuffer<SceneParams> scene;
 [[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
 
-struct VertexInput
-{
-    [[vk::location(0)]] float2 pos : POSITION;
-};
-
 static const float SQRT_2 = 1.4142135623730951;
 static const float u_antialias = 1;
 static const float v_linewidth = 1;
+
+
+struct Marker2dInput : ICoord
+{
+    [[vk::location(0)]] float2 pos : POSITION;
+
+    float4 getCoord()
+    {
+        return float4(pos / scene.extent.xy, 0, 1);
+    }
+};
+
+struct Marker3dInput : ICoord
+{
+    [[vk::location(0)]] float3 pos : POSITION;
+
+    float4 getCoord()
+    {
+        return float4(pos / scene.extent, 1);
+    }
+}
 
 struct VertexData
 {
@@ -22,27 +39,10 @@ struct VertexData
 };
 
 [shader("vertex")]
-VertexData vertex2dMain(VertexInput input)
+VertexData vertexMain<T:ICoord>(T input)
 {
     VertexData output;
-    float2 extent = scene.extent.xy;
-    output.center = float4(2 * (input.pos / extent) - 1, 0, 1);
-    //output.color  = float4(0, 0, 1, 1);
-    //output.marker_size = 10.f;
-
-    return output;
-}
-
-struct VertexInput3d
-{
-    [[vk::location(0)]] float3 pos : POSITION;
-};
-
-[shader("vertex")]
-VertexData vertex3dMain(VertexInput3d input)
-{
-    VertexData output;
-    output.center = float4(2 * (input.pos / scene.extent) - 1, 1);
+    output.center = input.getCoord();
     return output;
 }
 

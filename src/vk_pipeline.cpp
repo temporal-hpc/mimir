@@ -30,13 +30,14 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     else if (view.primitive_type == PrimitiveType::Points)
     {
         params.source_path = "shaders/marker.slang";
+        params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
         if (view.data_domain == DataDomain::Domain2D)
         {
-            params.entrypoints = {"vertex2dMain", "geometryMain", "fragmentMain"};
+            params.specializations.push_back("Marker2dInput");
         }
         else if (view.data_domain == DataDomain::Domain3D)
         {
-            params.entrypoints = {"vertex3dMain", "geometryMain", "fragmentMain"};
+            params.specializations.push_back("Marker3dInput");
         }
     }
     else if (view.primitive_type == PrimitiveType::Edges)
