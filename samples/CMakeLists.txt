@@ -16,15 +16,13 @@ add_executable(points3d points3d/points3d.cu)
 target_link_libraries(points3d PRIVATE cudaview)
 
 add_executable(run_structured structured/run_structured.cu)
-target_include_directories(run_structured PRIVATE include)
 target_link_libraries(run_structured PRIVATE cudaview)
 
 add_executable(run_unstructured unstructured/run_unstructured.cu)
-target_include_directories(run_unstructured PRIVATE include)
 target_link_libraries(run_unstructured PRIVATE cudaview)
 
 add_executable(run_texture texture_cudaarray/main.cu)
-target_include_directories(run_texture PRIVATE include)
+target_include_directories(run_texture SYSTEM PRIVATE include)
 target_link_libraries(run_texture PRIVATE cudaview)
 
 # Copy slang shaders to output directory

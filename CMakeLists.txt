@@ -22,5 +22,5 @@ set_property(TARGET slang PROPERTY IMPORTED_LOCATION
 add_subdirectory(contrib)
 add_subdirectory(src)
 add_subdirectory(samples)
-add_subdirectory(shaders)
 add_subdirectory(utils)
+#add_subdirectory(shaders)

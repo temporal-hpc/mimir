@@ -124,6 +124,7 @@ private:
 
     void initVulkan();
     void initImgui();
+    void prepare();
     void renderFrame();
     void drawObjects(uint32_t image_idx);
     void drawGui();

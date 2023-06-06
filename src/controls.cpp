@@ -2,7 +2,104 @@
 #include "internal/camera.hpp"
 
 #include <imgui.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+
 #include <algorithm> // std::clamp
+
+std::string to_string(DataDomain x)
+{
+    switch (x)
+    {
+        case DataDomain::Domain2D: return "2D";
+        case DataDomain::Domain3D: return "3D";
+        default: return "Unknown";
+    }
+}
+
+std::string to_string(ResourceType x)
+{
+    switch (x)
+    {
+        case ResourceType::UnstructuredBuffer: return "Buffer (unstructured)";
+        case ResourceType::StructuredBuffer: return "Buffer (structured)";
+        case ResourceType::Texture: return "Texture";
+        case ResourceType::TextureLinear: return "Texture (with linear buffer)";        
+        default: return "Unknown";
+    }
+}
+
+std::string to_string(PrimitiveType x)
+{
+    switch (x)
+    {
+        case PrimitiveType::Points: return "Markers";
+        case PrimitiveType::Edges: return "Edges";
+        case PrimitiveType::Voxels: return "Voxels";
+        default: return "Unknown";
+    }
+}
+
+void addTableRow(const std::string& key, const std::string& value)
+{
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", key.c_str());
+    ImGui::TableSetColumnIndex(1);
+    ImGui::Text("%s", value.c_str());
+}
+
+void VulkanEngine::addViewObjectGui(CudaView *view_ptr, int uid)
+{
+    ImGui::PushID(view_ptr);
+    bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
+
+    if (node_open)
+    {
+        auto& info = view_ptr->params;
+        if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+        {
+            addTableRow("Data domain", to_string(info.data_domain));
+            addTableRow("Resource type", to_string(info.resource_type));
+            addTableRow("Primitive type", to_string(info.primitive_type));
+            addTableRow("Element count", std::to_string(info.element_count));
+
+            ImGui::EndTable();
+        }
+        ImGui::Checkbox("show", &info.options.visible);
+        ImGui::SliderFloat("Primitive size (px)", &info.options.size, 1.f, 100.f);
+        ImGui::ColorEdit4("Primitive color", (float*)&info.options.color);
+        ImGui::SliderFloat("depth", &info.options.depth, 0.f, 1.f);
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
+}
+
+void VulkanEngine::drawGui()
+{
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    if (show_demo_window) { ImGui::ShowDemoWindow(); }
+    if (show_metrics) { ImGui::ShowMetricsWindow(); }
+    
+    {
+        ImGui::Begin("Scene parameters");
+        //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
+        ImGui::ColorEdit3("Clear color", (float*)&bg_color);
+        auto pos = camera->position;
+        ImGui::Text("Camera position: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
+        auto rot = camera->rotation;
+        ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
+        for (size_t i = 0; i < views.size(); ++i)
+        {
+            addViewObjectGui(&views[i], i);
+        }
+        ImGui::End();
+    }
+    ImGui::Render();
+}
 
 VulkanEngine *getHandler(GLFWwindow *window)
 {

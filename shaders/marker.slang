@@ -6,9 +6,8 @@ import structures;
 [[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
 
 static const float SQRT_2 = 1.4142135623730951;
-static const float u_antialias = 0;
-static const float v_linewidth = 0;
-
+static const float u_antialias = 1;
+static const float v_linewidth = 1;
 
 struct Marker2dInput : ICoord
 {

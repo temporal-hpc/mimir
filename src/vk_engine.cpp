@@ -80,7 +80,7 @@ void VulkanEngine::init(int width, int height)
     _height = height;
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     window = glfwCreateWindow(width, height, "CudaView", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
@@ -100,7 +100,7 @@ void VulkanEngine::init(int width, int height)
     camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
 }
 
-void VulkanEngine::displayAsync()
+void VulkanEngine::prepare()
 {
     initUniformBuffers();
     updateDescriptorSets();
@@ -119,7 +119,11 @@ void VulkanEngine::displayAsync()
         auto heap_budget = dev->formatMemory(dev->budget_properties.heapBudget[i]);
         printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
     }
-    
+}
+
+void VulkanEngine::displayAsync()
+{
+    prepare();
     rendering_thread = std::thread([this]()
     {
         while(!glfwWindowShouldClose(window))
@@ -156,24 +160,7 @@ void VulkanEngine::updateWindow()
 
 void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 {
-    initUniformBuffers();
-    updateDescriptorSets();
-    createGraphicsPipelines();
-    dev->updateMemoryProperties();
-
-    auto total_usage = dev->formatMemory(dev->props.total_usage);
-    printf("Total memory usage: %.2f %s\n", total_usage.data, total_usage.units.c_str());
-    auto total_budget = dev->formatMemory(dev->props.total_budget);
-    printf("Total memory budget: %.2f %s\n", total_budget.data, total_budget.units.c_str());
-
-    for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
-    {
-        auto heap_usage = dev->formatMemory(dev->budget_properties.heapUsage[i]);
-        printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
-        auto heap_budget = dev->formatMemory(dev->budget_properties.heapBudget[i]);
-        printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
-    }
-    
+    prepare();    
     size_t iter_idx = 0;
     device_working = true;
     while(!glfwWindowShouldClose(window))
@@ -697,100 +684,6 @@ void VulkanEngine::updateDescriptorSets()
             static_cast<uint32_t>(set_writes.size()), set_writes.data(), 0, nullptr
         );
     }
-}
-
-std::string to_string(DataDomain x)
-{
-    switch (x)
-    {
-        case DataDomain::Domain2D: return "2D";
-        case DataDomain::Domain3D: return "3D";
-        default: return "Unknown";
-    }
-}
-
-std::string to_string(ResourceType x)
-{
-    switch (x)
-    {
-        case ResourceType::UnstructuredBuffer: return "Buffer (unstructured)";
-        case ResourceType::StructuredBuffer: return "Buffer (structured)";
-        case ResourceType::Texture: return "Texture";
-        case ResourceType::TextureLinear: return "Texture (with linear buffer)";        
-        default: return "Unknown";
-    }
-}
-
-std::string to_string(PrimitiveType x)
-{
-    switch (x)
-    {
-        case PrimitiveType::Points: return "Markers";
-        case PrimitiveType::Edges: return "Edges";
-        case PrimitiveType::Voxels: return "Voxels";
-        default: return "Unknown";
-    }
-}
-
-void addTableRow(const std::string& key, const std::string& value)
-{
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s", key.c_str());
-    ImGui::TableSetColumnIndex(1);
-    ImGui::Text("%s", value.c_str());
-}
-
-void VulkanEngine::addViewObjectGui(CudaView *view_ptr, int uid)
-{
-    ImGui::PushID(view_ptr);
-    bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
-
-    if (node_open)
-    {
-        auto& info = view_ptr->params;
-        if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
-        {
-            addTableRow("Data domain", to_string(info.data_domain));
-            addTableRow("Resource type", to_string(info.resource_type));
-            addTableRow("Primitive type", to_string(info.primitive_type));
-            addTableRow("Element count", std::to_string(info.element_count));
-
-            ImGui::EndTable();
-        }
-        ImGui::Checkbox("show", &info.options.visible);
-        ImGui::SliderFloat("Primitive size (px)", &info.options.size, 1.f, 100.f);
-        ImGui::ColorEdit4("Primitive color", (float*)&info.options.color);
-        ImGui::SliderFloat("depth", &info.options.depth, 0.f, 1.f);
-        ImGui::TreePop();
-    }
-    ImGui::PopID();
-}
-
-void VulkanEngine::drawGui()
-{
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    if (show_demo_window) { ImGui::ShowDemoWindow(); }
-    if (show_metrics) { ImGui::ShowMetricsWindow(); }
-    
-    {
-        ImGui::Begin("Scene parameters");
-        //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
-        ImGui::ColorEdit3("Clear color", (float*)&bg_color);
-        auto pos = camera->position;
-        ImGui::Text("Camera position: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
-        auto rot = camera->rotation;
-        ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
-        for (size_t i = 0; i < views.size(); ++i)
-        {
-            addViewObjectGui(&views[i], i);
-        }
-        ImGui::End();
-    }
-    ImGui::Render();
 }
 
 FrameBarrier& VulkanEngine::getCurrentFrame()
