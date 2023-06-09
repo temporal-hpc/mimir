@@ -166,6 +166,32 @@ Any platforms not detected by the above logic are now now explicitly zeroed out.
 #define SLANG_APPLE_FAMILY (SLANG_IOS || SLANG_OSX)                  /* equivalent to #if __APPLE__ */
 #define SLANG_UNIX_FAMILY (SLANG_LINUX_FAMILY || SLANG_APPLE_FAMILY) /* shortcut for unix/posix platforms */
 
+/* Macros concerning DirectX */
+#if !defined(SLANG_CONFIG_DX_ON_VK) || !SLANG_CONFIG_DX_ON_VK
+#    define SLANG_ENABLE_DXVK 0
+#    define SLANG_ENABLE_VKD3D 0
+#else
+#    define SLANG_ENABLE_DXVK 1
+#    define SLANG_ENABLE_VKD3D 1
+#endif
+
+#if SLANG_WINDOWS_FAMILY
+#    define SLANG_ENABLE_DIRECTX 1
+#    define SLANG_ENABLE_DXGI_DEBUG 1
+#    define SLANG_ENABLE_DXBC_SUPPORT 1
+#    define SLANG_ENABLE_PIX 1
+#elif SLANG_LINUX_FAMILY
+#    define SLANG_ENABLE_DIRECTX (SLANG_ENABLE_DXVK || SLANG_ENABLE_VKD3D)
+#    define SLANG_ENABLE_DXGI_DEBUG 0
+#    define SLANG_ENABLE_DXBC_SUPPORT 0
+#    define SLANG_ENABLE_PIX 0
+#else
+#    define SLANG_ENABLE_DIRECTX 0
+#    define SLANG_ENABLE_DXGI_DEBUG 0
+#    define SLANG_ENABLE_DXBC_SUPPORT 0
+#    define SLANG_ENABLE_PIX 0
+#endif
+
 /* Macro for declaring if a method is no throw. Should be set before the return parameter. */
 #ifndef SLANG_NO_THROW
 #   if SLANG_WINDOWS_FAMILY && !defined(SLANG_DISABLE_EXCEPTIONS)
@@ -228,20 +254,19 @@ convention for interface methods.
 
 // GCC Specific
 #if SLANG_GCC_FAMILY
-// This doesn't work on clang - because the typedef is seen as multiply defined, use the line numbered version defined later
-#	if !defined(__clang__) && (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)) || defined(__ORBIS__))
-#		define SLANG_COMPILE_TIME_ASSERT(exp) typedef char SlangCompileTimeAssert_Dummy[(exp) ? 1 : -1] __attribute__((unused))
-#	endif
 
 #	define SLANG_NO_INLINE __attribute__((noinline))
 #	define SLANG_FORCE_INLINE inline __attribute__((always_inline))
 #   define SLANG_BREAKPOINT(id) __builtin_trap();
 #	define SLANG_ALIGN_OF(T)	__alignof__(T)
 
-// Use this macro instead of offsetof, because gcc produces warning if offsetof is used on a 
-// non POD type, even though it produces the correct result
-#   define SLANG_OFFSET_OF(T, ELEMENT) (size_t(&((T*)1)->ELEMENT) - 1)
+// Use the builtin directly so we don't need to have an include of stddef.h
+#   define SLANG_OFFSET_OF(T, ELEMENT) __builtin_offsetof(T, ELEMENT) 
 #endif // SLANG_GCC_FAMILY
+
+#ifndef SLANG_OFFSET_OF
+#   define SLANG_OFFSET_OF(T, ELEMENT) (size_t(&((T*)1)->ELEMENT) - 1)
+#endif
 
 // Microsoft VC specific
 #if SLANG_MICROSOFT_FAMILY
@@ -262,7 +287,8 @@ convention for interface methods.
 #endif
 
 #ifndef SLANG_COMPILE_TIME_ASSERT
-#	define SLANG_COMPILE_TIME_ASSERT(exp) typedef char SLANG_CONCAT(SlangCompileTimeAssert,__LINE__)[(exp) ? 1 : -1]
+//  TODO(C++17), can use terse static_assert
+#   define SLANG_COMPILE_TIME_ASSERT(x) static_assert(x, #x)
 #endif
 
 #ifndef SLANG_OFFSET_OF
@@ -275,7 +301,8 @@ convention for interface methods.
 #endif
 
 // Use for getting the amount of members of a standard C array.
-#define SLANG_COUNT_OF(x) (sizeof(x)/sizeof(x[0]))
+// Use 0[x] here to catch the case where x has an overloaded subscript operator
+#define SLANG_COUNT_OF(x) (SlangSSizeT(sizeof(x)/sizeof(0[x])))
 /// SLANG_INLINE exists to have a way to inline consistent with SLANG_ALWAYS_INLINE
 #define SLANG_INLINE inline
 
@@ -501,11 +528,13 @@ extern "C"
     typedef int64_t    SlangInt;
     typedef uint64_t   SlangUInt;
 
+    typedef int64_t    SlangSSizeT;
     typedef uint64_t   SlangSizeT;
 #else
     typedef int32_t    SlangInt;
     typedef uint32_t   SlangUInt;
 
+    typedef int32_t    SlangSSizeT;
     typedef uint32_t   SlangSizeT;
 #endif
 
@@ -546,14 +575,22 @@ extern "C"
         SLANG_STORAGE_BUFFER,
     };
 
+    /* NOTE! To keep binary compatibility care is needed with this enum!
+
+    * To add value, only add at the bottom (before COUNT_OF) 
+    * To remove a value, add _DEPRECATED as a suffix, but leave in the list
+    
+    This will make the enum values stable, and compatible with libraries that might not use the latest
+    enum values.
+    */
     typedef int SlangCompileTargetIntegral;
     enum SlangCompileTarget : SlangCompileTargetIntegral
     {
         SLANG_TARGET_UNKNOWN,
         SLANG_TARGET_NONE,
         SLANG_GLSL,
-        SLANG_GLSL_VULKAN,          //< deprecated: just use `SLANG_GLSL`
-        SLANG_GLSL_VULKAN_ONE_DESC, //< deprecated
+        SLANG_GLSL_VULKAN,              //< deprecated: just use `SLANG_GLSL`
+        SLANG_GLSL_VULKAN_ONE_DESC,     //< deprecated
         SLANG_HLSL,
         SLANG_SPIRV,
         SLANG_SPIRV_ASM,
@@ -561,16 +598,18 @@ extern "C"
         SLANG_DXBC_ASM,
         SLANG_DXIL,
         SLANG_DXIL_ASM,
-        SLANG_C_SOURCE,             ///< The C language
-        SLANG_CPP_SOURCE,           ///< C++ code for shader kernels.
-        SLANG_HOST_EXECUTABLE,           ///<  Standalone binary executable (for hosting CPU/OS)
-        SLANG_SHADER_SHARED_LIBRARY,     ///< A shared library/Dll for shader kernels (for hosting CPU/OS)
-        SLANG_SHADER_HOST_CALLABLE,      ///< A CPU target that makes the compiled shader code available to be run immediately
-        SLANG_CUDA_SOURCE,          ///< Cuda source
-        SLANG_PTX,                  ///< PTX
-        SLANG_OBJECT_CODE,          ///< Object code that can be used for later linking
-        SLANG_HOST_CPP_SOURCE,      ///< C++ code for host library or executable.
-        SLANG_HOST_HOST_CALLABLE,   ///< 
+        SLANG_C_SOURCE,                 ///< The C language
+        SLANG_CPP_SOURCE,               ///< C++ code for shader kernels.
+        SLANG_HOST_EXECUTABLE,          ///< Standalone binary executable (for hosting CPU/OS)
+        SLANG_SHADER_SHARED_LIBRARY,    ///< A shared library/Dll for shader kernels (for hosting CPU/OS)
+        SLANG_SHADER_HOST_CALLABLE,     ///< A CPU target that makes the compiled shader code available to be run immediately
+        SLANG_CUDA_SOURCE,              ///< Cuda source
+        SLANG_PTX,                      ///< PTX
+        SLANG_CUDA_OBJECT_CODE,         ///< Object code that contains CUDA functions.
+        SLANG_OBJECT_CODE,              ///< Object code that can be used for later linking
+        SLANG_HOST_CPP_SOURCE,          ///< C++ code for host library or executable.
+        SLANG_HOST_HOST_CALLABLE,       ///< Host callable host code (ie non kernel/shader) 
+        SLANG_CPP_PYTORCH_BINDING,      ///< C++ PyTorch binding code.
         SLANG_TARGET_COUNT_OF,
     };
 
@@ -684,6 +723,7 @@ extern "C"
         SLANG_LINE_DIRECTIVE_MODE_NONE,         /**< Don't emit line directives at all. */
         SLANG_LINE_DIRECTIVE_MODE_STANDARD,     /**< Emit standard C-style `#line` directives. */
         SLANG_LINE_DIRECTIVE_MODE_GLSL,         /**< Emit GLSL-style directives with file *number* instead of name */
+        SLANG_LINE_DIRECTIVE_MODE_SOURCE_MAP,   /**< Use a source map to track line mappings (ie no #line will appear in emitting source) */
     };
 
     typedef int SlangSourceLanguageIntegral;
@@ -751,6 +791,21 @@ extern "C"
         SLANG_DEBUG_INFO_LEVEL_STANDARD,    /**< Emit whatever is the standard level of debug information for each target. */
         SLANG_DEBUG_INFO_LEVEL_MAXIMAL,     /**< Emit as much debug infromation as possible for each target. */
         
+    };
+
+    /* Describes the debugging information format produced during a compilation. */
+    typedef SlangUInt32 SlangDebugInfoFormatIntegral;
+    enum SlangDebugInfoFormat : SlangDebugInfoFormatIntegral
+    {
+        SLANG_DEBUG_INFO_FORMAT_DEFAULT,         ///< Use the default debugging format for the target 
+        SLANG_DEBUG_INFO_FORMAT_C7,              ///< CodeView C7 format (typically means debugging infomation is embedded in the binary)
+        SLANG_DEBUG_INFO_FORMAT_PDB,             ///< Program database
+        
+        SLANG_DEBUG_INFO_FORMAT_STABS,          ///< Stabs
+        SLANG_DEBUG_INFO_FORMAT_COFF,           ///< COFF debug info
+        SLANG_DEBUG_INFO_FORMAT_DWARF,          ///< DWARF debug info (we may want to support specifying the version)
+
+        SLANG_DEBUG_INFO_FORMAT_COUNT_OF,
     };
 
     typedef SlangUInt32 SlangOptimizationLevelIntegral;
@@ -904,20 +959,32 @@ extern "C"
 // It is not necessary to use the multiple parameters (we can wrap in parens), but this is simple.
 #define SLANG_COM_INTERFACE(a, b, c, d0, d1, d2, d3, d4, d5, d6, d7) \
     public: \
-    SLANG_FORCE_INLINE static const SlangUUID& getTypeGuid() \
+    SLANG_FORCE_INLINE constexpr static SlangUUID getTypeGuid() \
     { \
-        static const SlangUUID guid = { a, b, c, d0, d1, d2, d3, d4, d5, d6, d7 }; \
-        return guid; \
+        return { a, b, c, d0, d1, d2, d3, d4, d5, d6, d7 }; \
     }
 
 // Sometimes it's useful to associate a guid with a class to identify it. This macro can used for this,
 // and the guid extracted via the getTypeGuid() function defined in the type
 #define SLANG_CLASS_GUID(a, b, c, d0, d1, d2, d3, d4, d5, d6, d7) \
-    SLANG_FORCE_INLINE static const SlangUUID& getTypeGuid() \
+    SLANG_FORCE_INLINE constexpr static SlangUUID getTypeGuid() \
     { \
-        static const SlangUUID guid = { a, b, c, d0, d1, d2, d3, d4, d5, d6, d7 }; \
-        return guid; \
+        return { a, b, c, d0, d1, d2, d3, d4, d5, d6, d7 }; \
     }
+
+// Helper to fill in pairs of GUIDs and return pointers. This ensures that the
+// type of the GUID passed matches the pointer type, and that it is derived
+// from ISlangUnknown,
+// TODO(c++20): would is_derived_from be more appropriate here for private inheritance of ISlangUnknown?
+//
+// with     : void createFoo(SlangUUID, void**);
+//            Slang::ComPtr<Bar> myBar;
+// call with: createFoo(SLANG_IID_PPV_ARGS(myBar.writeRef()))
+// to call  : createFoo(Bar::getTypeGuid(), (void**)(myBar.writeRef()))
+#define SLANG_IID_PPV_ARGS(ppType) \
+    std::decay_t<decltype(**(ppType))>::getTypeGuid(), \
+    ((void)[]{static_assert(std::is_base_of_v<ISlangUnknown, std::decay_t<decltype(**(ppType))>>);}, reinterpret_cast<void**>(ppType))
+
 
     /** Base interface for components exchanged through the API.
 
@@ -1526,6 +1593,11 @@ extern "C"
     SLANG_API void spSetDebugInfoLevel(
         SlangCompileRequest*    request,
         SlangDebugInfoLevel     level);
+
+    /*! @see slang::ICompileRequest::setDebugInfoFormat */
+    SLANG_API void spSetDebugInfoFormat(
+        SlangCompileRequest*    request,
+        SlangDebugInfoFormat        format);
 
     /*! @see slang::ICompileRequest::setOptimizationLevel */
     SLANG_API void spSetOptimizationLevel(
@@ -3443,10 +3515,9 @@ namespace slang
             */
         virtual SLANG_NO_THROW SlangPassThrough SLANG_MCALL getDownstreamCompilerForTransition(SlangCompileTarget source, SlangCompileTarget target) = 0;
 
-            /** Get the time in seconds spent in the downstream compiler.
-            @return The time spent in the downstream compiler in the current global session.
+            /** Get the time in seconds spent in the slang and downstream compiler.
             */
-        virtual SLANG_NO_THROW double SLANG_MCALL getDownstreamCompilerElapsedTime() = 0;
+        virtual SLANG_NO_THROW void SLANG_MCALL getCompilerElapsedTime(double* outTotalTime, double* outDownstreamTime) = 0;
     };
 
     #define SLANG_UUID_IGlobalSession IGlobalSession::getTypeGuid()
@@ -3888,6 +3959,12 @@ namespace slang
         virtual SLANG_NO_THROW void const* SLANG_MCALL getCompileRequestCode(
             size_t*                 outSize) = 0;
 
+            /** Get the compilation result as a file system.
+            The result is not written to the actual OS file system, but is made avaiable as an 
+            in memory representation.
+            */
+        virtual SLANG_NO_THROW ISlangMutableFileSystem* SLANG_MCALL getCompileRequestResultAsFileSystem() = 0;
+
             /** Return the container code as a blob. The container blob is created as part of a compilation (with spCompile),
             and a container is produced with a suitable ContainerFormat. 
 
@@ -4041,6 +4118,14 @@ namespace slang
             /** Sets the flags of the request's diagnostic sink.
                 The previously specified flags are discarded. */
         virtual SLANG_NO_THROW void SLANG_MCALL setDiagnosticFlags(SlangDiagnosticFlags flags) = 0;
+
+            /** Set the debug format to be used for debugging information */
+        virtual SLANG_NO_THROW void SLANG_MCALL setDebugInfoFormat(SlangDebugInfoFormat debugFormat) = 0;
+
+        virtual SLANG_NO_THROW void SLANG_MCALL setEnableEffectAnnotations(bool value) = 0;
+
+        virtual SLANG_NO_THROW void SLANG_MCALL setReportDownstreamTime(bool value) = 0;
+
     };
 
     #define SLANG_UUID_ICompileRequest ICompileRequest::getTypeGuid()
@@ -4127,6 +4212,8 @@ namespace slang
         SlangInt                        preprocessorMacroCount = 0;
 
         ISlangFileSystem* fileSystem = nullptr;
+
+        bool enableEffectAnnotations = false;
     };
 
     enum class ContainerType
