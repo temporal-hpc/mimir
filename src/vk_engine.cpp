@@ -60,7 +60,6 @@ VulkanEngine::~VulkanEngine()
 
     ImGui_ImplVulkan_Shutdown();
     deletors.flush();
-    fbs.clear();
     swap.reset();
     dev.reset();
     if (instance != VK_NULL_HANDLE)
@@ -80,7 +79,7 @@ void VulkanEngine::init(int width, int height)
     _height = height;
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     window = glfwCreateWindow(width, height, "CudaView", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
@@ -103,8 +102,8 @@ void VulkanEngine::init(int width, int height)
 void VulkanEngine::prepare()
 {
     initUniformBuffers();
-    updateDescriptorSets();
     createGraphicsPipelines();
+    updateDescriptorSets();
     dev->updateMemoryProperties();
 
     auto total_usage = dev->formatMemory(dev->props.total_usage);
@@ -251,11 +250,18 @@ void VulkanEngine::initVulkan()
     validation::checkVulkan(vkCreatePipelineLayout(
         dev->logical_device, &pipeline_layout_info, nullptr, &pipeline_layout)
     );
+    deletors.pushFunction([=]{
+        vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
+    });
 
     initSwapchain();
 
     initImgui(); // After command pool and render pass are created
     createSyncObjects();
+
+    descriptor_sets = dev->createDescriptorSets(
+        descriptor_pool, descriptor_layout, swap->image_count
+    );
 }
 
 void VulkanEngine::createInstance()
@@ -530,21 +536,17 @@ void VulkanEngine::createSyncObjects()
 
 void VulkanEngine::cleanupSwapchain()
 {
-    /*for (auto& view : views)
-    {
-        vkDestroyBuffer(dev->logical_device, view.ubo_buffer, nullptr);
-        vkFreeMemory(dev->logical_device, view.ubo_memory, nullptr);
-    }*/
+    vkDeviceWaitIdle(dev->logical_device);
     for (auto& view : views)
     {
         vkDestroyPipeline(dev->logical_device, view.pipeline, nullptr);
     }
-    vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
-    vkDestroyRenderPass(dev->logical_device, render_pass, nullptr);
-    vkFreeCommandBuffers(dev->logical_device, dev->command_pool,
+    /*vkFreeCommandBuffers(dev->logical_device, dev->command_pool,
         command_buffers.size(), command_buffers.data()
-    );
+    );*/
+    vkDestroyRenderPass(dev->logical_device, render_pass, nullptr);
     swap->cleanup();
+    fbs.clear();
 }
 
 void VulkanEngine::initSwapchain()
@@ -590,7 +592,7 @@ void VulkanEngine::initSwapchain()
         vkCreateImageView(dev->logical_device, &view_info, nullptr, &depth_view)
     );
 
-    deletors.pushFunction([=]{
+    swap->aux_deletors.pushFunction([=]{
         vkDestroyImageView(dev->logical_device, depth_view, nullptr);
         vkDestroyImage(dev->logical_device, depth_image, nullptr);
         vkFreeMemory(dev->logical_device, depth_memory, nullptr);
@@ -603,19 +605,14 @@ void VulkanEngine::initSwapchain()
         fbs[i].addAttachment(dev->logical_device, images[i], swap->color_format);
         fbs[i].create(dev->logical_device, render_pass, swap->swapchain_extent, depth_view);
     }
-
-    descriptor_sets = dev->createDescriptorSets(
-        descriptor_pool, descriptor_layout, swap->image_count
-    );
-    // TODO: Should update descriptor sets?
 }
 
 void VulkanEngine::recreateSwapchain()
 {
-    vkDeviceWaitIdle(dev->logical_device);
-
+    printf("Recreating swapchain\n");
     cleanupSwapchain();
     initSwapchain();
+    createGraphicsPipelines();
 }
 
 void VulkanEngine::updateDescriptorSets()
@@ -800,6 +797,9 @@ void VulkanEngine::renderFrame()
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
         || should_resize)
     {
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) printf("Outdated present\n");
+        if (result == VK_SUBOPTIMAL_KHR) printf("Suboptimal\n");
+        if (should_resize) printf("Resizing\n");
         recreateSwapchain();
         should_resize = false;
     }
@@ -967,6 +967,8 @@ VkRenderPass VulkanEngine::createRenderPass()
     pass_info.pSubpasses      = &subpass;
     pass_info.dependencyCount = 1;
     pass_info.pDependencies   = &dependency;
+
+    printf("render pass attachment count: %lu\n", attachments.size());
 
     VkRenderPass render_pass;
     validation::checkVulkan(

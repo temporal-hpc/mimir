@@ -91,7 +91,8 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
         image_count = max_image_count;
     }
 
-    auto old_swapchain = swapchain;
+    // TODO: Delete old_swapchain after image_count frames have passed 
+    auto old_swapchain = VK_NULL_HANDLE; //swapchain;
 
     VkSwapchainCreateInfoKHR create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -124,6 +125,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
         device, &create_info, nullptr, &swapchain)
     );
     aux_deletors.pushFunction([=](){
+        printf("destroying swapchain\n");
         vkDestroySwapchainKHR(device, swapchain, nullptr);
     });
 
