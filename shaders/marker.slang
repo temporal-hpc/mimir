@@ -1,5 +1,4 @@
 import uniforms;
-import structures;
 
 [[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
 [[vk::binding(1)]] ConstantBuffer<SceneParams> scene;
@@ -9,24 +8,134 @@ static const float SQRT_2 = 1.4142135623730951;
 static const float u_antialias = 1;
 static const float v_linewidth = 1;
 
-struct Marker2dInput : ICoord
+interface ICoord
+{
+    float4 getVertex(int3 extent);
+};
+
+struct MarkerInput<T, let N : int>
+{
+    [[vk::location(0)]] vector<T,N> pos : POSITION;
+}
+
+struct Float2 : ICoord
 {
     [[vk::location(0)]] float2 pos : POSITION;
-
-    float4 getCoord()
+    float4 getVertex(int3 extent)
     {
-        return float4(2 * (pos / scene.extent.xy) - 1, 0, 1);
+        return getVertexPos2d(pos, extent);
     }
 };
 
-struct Marker3dInput : ICoord
+struct Double2 : ICoord
 {
-    [[vk::location(0)]] float3 pos : POSITION;
-
-    float4 getCoord()
+    MarkerInput<double,2> input;
+    float4 getVertex(int3 extent)
     {
-        return float4(2 * (pos / scene.extent) - 1, 1);
+        float2 pos = convertDouble<2>(input.pos);
+        return getVertexPos2d(pos, extent);
     }
+};
+
+struct Half2 : ICoord
+{
+    MarkerInput<half,2> input;
+    float4 getVertex(int3 extent)
+    {
+        float2 pos = convertHalf<2>(input.pos);
+        return getVertexPos2d(pos, extent);
+    }
+};
+
+struct Int2 : ICoord
+{
+    MarkerInput<int,2> input;
+    float4 getVertex(int3 extent)
+    {
+        float2 pos = convertInt<2>(input.pos);
+        return getVertexPos2d(pos, extent);
+    }
+};
+
+struct Float3 : ICoord
+{
+    MarkerInput<float,3> input;
+    float4 getVertex(int3 extent)
+    {
+        return getVertexPos3d(input.pos, extent);
+    }
+}
+
+struct Double3 : ICoord
+{
+    MarkerInput<double,3> input;
+    float4 getVertex(int3 extent)
+    {
+        float3 pos = convertDouble<3>(input.pos);
+        return getVertexPos3d(pos, extent);
+    }
+};
+
+struct Half3 : ICoord
+{
+    MarkerInput<half,3> input;
+    float4 getVertex(int3 extent)
+    {
+        float3 pos = convertHalf<3>(input.pos);
+        return getVertexPos3d(pos, extent);
+    }
+};
+
+struct Int3 : ICoord
+{
+    MarkerInput<int,3> input;
+    float4 getVertex(int3 extent)
+    {
+        float3 pos = convertInt<3>(input.pos);
+        return getVertexPos3d(pos, extent);
+    }
+};
+
+float4 getVertexPos2d(float2 pos, int3 extent)
+{
+    return float4(2 * (pos / extent.xy) - 1, 0, 1);
+};
+
+float4 getVertexPos3d(float3 pos, int3 extent)
+{
+    return float4(2 * (pos / extent) - 1, 1);
+};
+
+vector<float,N> convertInt<let N:int>(vector<int,N> vec)
+{
+    vector<float,N> res;
+    [unroll]
+    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
+    return res;
+}
+
+vector<float,N> convertHalf<let N:int>(vector<half,N> vec)
+{
+    vector<float,N> res;
+    [unroll]
+    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
+    return res;
+}
+
+vector<float,N> convertFloat<let N:int>(vector<float,N> vec)
+{
+    vector<float,N> res;
+    [unroll]
+    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
+    return res;
+}
+
+vector<float,N> convertDouble<let N:int>(vector<double,N> vec)
+{
+    vector<float,N> res;
+    [unroll]
+    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
+    return res;
 }
 
 struct VertexData
@@ -41,7 +150,7 @@ struct VertexData
 VertexData vertexMain<T:ICoord>(T input)
 {
     VertexData output;
-    output.center = input.getCoord();
+    output.center = input.getVertex(scene.extent);
     return output;
 }
 

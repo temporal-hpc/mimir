@@ -5,6 +5,11 @@ import structures;
 [[vk::binding(1)]] ConstantBuffer<SceneParams> scene;
 [[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
 
+interface ITexel
+{
+    float4 getTexel();
+}
+
 struct VertexInput
 {
     [[vk::location(0)]] float3 pos : POSITION;

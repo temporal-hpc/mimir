@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
     {
         // Initialize engine
         VulkanEngine engine;
-        engine.init(1920, 1080);
+        engine.init(800, 600);
         ViewParams params;
         params.element_count = program.particle_count;
         params.element_size = sizeof(float2);

@@ -31,14 +31,10 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     {
         params.source_path = "shaders/marker.slang";
         params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-        if (view.data_domain == DataDomain::Domain2D)
-        {
-            params.specializations.push_back("Marker2dInput");
-        }
-        else if (view.data_domain == DataDomain::Domain3D)
-        {
-            params.specializations.push_back("Marker3dInput");
-        }
+        std::string spec = "Float";
+        if (view.data_domain == DataDomain::Domain2D)      { spec += "2"; }
+        else if (view.data_domain == DataDomain::Domain3D) { spec += "3"; }
+        params.specializations.push_back(spec);
     }
     else if (view.primitive_type == PrimitiveType::Edges)
     {
