@@ -236,10 +236,10 @@ void VulkanEngine::initVulkan()
         vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
         ),
-        vkinit::descriptorLayoutBinding(5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 
+        vkinit::descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 
             VK_SHADER_STAGE_FRAGMENT_BIT
         ),
-        vkinit::descriptorLayoutBinding(6, VK_DESCRIPTOR_TYPE_SAMPLER,
+        vkinit::descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER,
             VK_SHADER_STAGE_FRAGMENT_BIT
         )
     });
@@ -661,7 +661,7 @@ void VulkanEngine::updateDescriptorSets()
                 img_info.sampler     = view.vk_sampler;
 
                 auto write_img = vkinit::writeDescriptorImage(descriptor_sets[i],
-                    5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
+                    3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
                 );
                 set_writes.push_back(write_img);
 
@@ -671,7 +671,7 @@ void VulkanEngine::updateDescriptorSets()
                 samp_info.sampler     = view.vk_sampler;
 
                 auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
-                    6, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
+                    4, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
                 );
                 set_writes.push_back(write_samp);
             }
@@ -816,11 +816,11 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     auto size_ubo = size_mvp + size_options + size_scene;
 
     auto cmd = command_buffers[image_idx];
-    // NOTE: Second parameter can be also used to bind a compute pipeline
     for (uint32_t i = 0; i < views.size(); ++i)
     {
         auto& view = views[i];
         std::vector<uint32_t> offsets = { i * size_ubo, i * size_ubo + size_mvp + size_options, i * size_ubo + size_mvp };
+        // NOTE: Second parameter can be also used to bind a compute pipeline
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );

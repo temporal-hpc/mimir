@@ -1,14 +1,9 @@
 import uniforms;
 import structures;
 
-[[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
-[[vk::binding(1)]] ConstantBuffer<SceneParams> scene;
-[[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
-
-interface ITexel
-{
-    float4 getTexel();
-}
+ConstantBuffer<ModelViewProjection> mvp;
+ConstantBuffer<SceneParams> scene;
+ConstantBuffer<PrimitiveParams> primitive;
 
 struct VertexInput
 {
@@ -55,9 +50,6 @@ VertexData3d vertex3dMain(VertexInput input)
     return output;
 }
 
-[[vk::binding(5)]] Texture2D<float3> TextureFlt;
-[[vk::binding(6)]] SamplerState Sampler;
-
 interface IColorable
 {
     float3 getColor(float3 rgb);
@@ -79,16 +71,36 @@ struct Grayscale : IColorable
     }
 }
 
-[shader("fragment")]
-float4 fragment2dMain<T : IColorable>(VertexData input) : SV_Target
+[[vk::binding(3)]] Texture1D<float3> Tex1d32x3;
+[[vk::binding(3)]] Texture2D<float3> Tex2d32x3;
+[[vk::binding(3)]] Texture3D<float3> Tex3d32x3;
+
+[[vk::binding(3)]] Texture2D<float3> TextureFlt;
+[[vk::binding(3)]] Texture3D<int4> TextureRGBA;
+SamplerState Sampler;
+
+interface ITexture
 {
-    var sample = TextureFlt.Sample(Sampler, input.uv);
-    T colorable;
-    var color = colorable.getColor(sample);
-    return float4(color, 1);
+    float4 getColor(float2 uv);
 }
 
-[[vk::binding(5)]] Texture3D<int4> TextureRGBA;
+struct Texture2dFloat3 : ITexture
+{
+    float4 getColor(float2 uv)
+    {
+        return float4(Tex2d32x3.Sample(Sampler, uv), 1);
+    }
+}
+
+[shader("fragment")]
+float4 fragment2dMain<U:IColorable>(VertexData input) : SV_Target
+{
+    Texture2dFloat3 tex;
+    var sample = tex.getColor(input.uv);
+    U colorable;
+    var color = colorable.getColor(sample.xyz);
+    return float4(color, 1);
+}
 
 [shader("fragment")]
 float4 fragment3dMain(VertexData3d input) : SV_Target

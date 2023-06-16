@@ -1,8 +1,8 @@
 import uniforms;
 
-[[vk::binding(0)]] ConstantBuffer<ModelViewProjection> mvp;
-[[vk::binding(1)]] ConstantBuffer<SceneParams> scene;
-[[vk::binding(2)]] ConstantBuffer<PrimitiveParams> primitive;
+ConstantBuffer<ModelViewProjection> mvp;
+ConstantBuffer<SceneParams> scene;
+ConstantBuffer<PrimitiveParams> primitive;
 
 static const float SQRT_2 = 1.4142135623730951;
 static const float u_antialias = 1;
@@ -15,12 +15,12 @@ interface ICoord
 
 struct MarkerInput<T, let N : int>
 {
-    [[vk::location(0)]] vector<T,N> pos : POSITION;
+    vector<T,N> pos : POSITION;
 }
 
 struct Float2 : ICoord
 {
-    [[vk::location(0)]] float2 pos : POSITION;
+    float2 pos : POSITION;
     float4 getVertex(int3 extent)
     {
         return getVertexPos2d(pos, extent);
