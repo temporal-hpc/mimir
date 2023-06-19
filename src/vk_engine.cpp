@@ -250,7 +250,7 @@ void VulkanEngine::initVulkan()
     validation::checkVulkan(vkCreatePipelineLayout(
         dev->logical_device, &pipeline_layout_info, nullptr, &pipeline_layout)
     );
-    deletors.pushFunction([=]{
+    deletors.add([=,this]{
         vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
     });
 
@@ -320,7 +320,7 @@ void VulkanEngine::createInstance()
         validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
             instance, &debug_create_info, nullptr, &debug_messenger)
         );
-        deletors.pushFunction([=]{
+        deletors.add([=,this]{
             validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
         });
     }
@@ -438,7 +438,7 @@ void VulkanEngine::initImgui()
     init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
     ImGui_ImplVulkan_Init(&init_info, render_pass);
 
-    dev->immediateSubmit([=](VkCommandBuffer cmd) {
+    dev->immediateSubmit([=,this](VkCommandBuffer cmd) {
         ImGui_ImplVulkan_CreateFontsTexture(cmd);
     });
     ImGui_ImplVulkan_DestroyFontUploadObjects();
@@ -503,7 +503,7 @@ void VulkanEngine::createSyncObjects()
         validation::checkVulkan(vkCreateFence(
             dev->logical_device, &fence_info, nullptr, &frame.render_fence)
         );
-        deletors.pushFunction([=]{
+        deletors.add([=,this]{
             vkDestroySemaphore(dev->logical_device, frame.present_semaphore, nullptr);
             vkDestroySemaphore(dev->logical_device, frame.render_semaphore, nullptr);
             vkDestroyFence(dev->logical_device, frame.render_fence, nullptr);
@@ -592,7 +592,7 @@ void VulkanEngine::initSwapchain()
         vkCreateImageView(dev->logical_device, &view_info, nullptr, &depth_view)
     );
 
-    swap->aux_deletors.pushFunction([=]{
+    swap->aux_deletors.add([=,this]{
         vkDestroyImageView(dev->logical_device, depth_view, nullptr);
         vkDestroyImage(dev->logical_device, depth_image, nullptr);
         vkFreeMemory(dev->logical_device, depth_memory, nullptr);
@@ -1038,7 +1038,7 @@ void VulkanEngine::initUniformBuffers()
         auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         ubo.memory = dev->allocateMemory(memreq, mem_usage);
         vkBindBufferMemory(dev->logical_device, ubo.buffer, ubo.memory, 0);
-        deletors.pushFunction([=]{
+        deletors.add([=,this]{
             vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
             vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
         });

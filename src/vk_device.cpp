@@ -89,8 +89,7 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     validation::checkVulkan(vkCreateDevice(
         physical_device, &create_info, nullptr, &logical_device)
     );
-    deletors.pushFunction([=](){
-        printf("Destroying device\n");
+    deletors.add([=,this](){
         vkDestroyDevice(logical_device, nullptr);
     });
 
@@ -105,16 +104,16 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
 VkCommandPool VulkanDevice::createCommandPool(
     uint32_t queue_idx, VkCommandPoolCreateFlags flags)
 {
-    VkCommandPool new_pool = VK_NULL_HANDLE;
+    VkCommandPool cmd_pool = VK_NULL_HANDLE;
     auto pool_info = vkinit::commandPoolCreateInfo(flags, queue_idx);
     validation::checkVulkan(vkCreateCommandPool(
-        logical_device, &pool_info, nullptr, &new_pool)
+        logical_device, &pool_info, nullptr, &cmd_pool)
     );
-    deletors.pushFunction([=](){
+    deletors.add([=,this](){
         vkDestroyCommandPool(logical_device, command_pool, nullptr);
     });
 
-    return new_pool;
+    return cmd_pool;
 }
 
 std::vector<VkDescriptorSet> VulkanDevice::createDescriptorSets(
@@ -174,7 +173,7 @@ uint32_t VulkanDevice::findMemoryType(uint32_t type_filter, VkMemoryPropertyFlag
         auto flags = memory_properties.memoryTypes[i].propertyFlags;
         if ((type_filter & (1 << i)) && (flags & properties) == properties)
         {
-        return i;
+            return i;
         }
     }
     return ~0;
@@ -195,15 +194,15 @@ VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
     return memory;
 }
 
-VkBuffer VulkanDevice::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-    const void *extmem_info)
+VkBuffer VulkanDevice::createBuffer(VkDeviceSize size, 
+    VkBufferUsageFlags usage, const void *extmem_info)
 {
     VkBufferCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    info.size  = size;
-    info.usage = usage;
+    info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    info.size        = size;
+    info.usage       = usage;
     info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    info.pNext = extmem_info;
+    info.pNext       = extmem_info;
 
     VkBuffer buffer = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
@@ -237,7 +236,7 @@ VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)
 
     VkSampler sampler;
     validation::checkVulkan(vkCreateSampler(logical_device, &info, nullptr, &sampler));
-    deletors.pushFunction([=]{
+    deletors.add([=,this]{
         vkDestroySampler(logical_device, sampler, nullptr);
     });
     return sampler;
@@ -248,14 +247,13 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
 {
     VkFormatProperties format_props;
     vkGetPhysicalDeviceFormatProperties(physical_device, img_format, &format_props);
-
-    if (!(format_props.optimalTilingFeatures &
-            VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
+    auto blit_support = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    if (!(format_props.optimalTilingFeatures & blit_support))
     {
         throw std::runtime_error("texture image format does not support linear blitting!");
     }
 
-    immediateSubmit([=](VkCommandBuffer cmd)
+    immediateSubmit([=,this](VkCommandBuffer cmd)
     {
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -272,46 +270,46 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
 
         for (int i = 1; i < mip_levels; i++)
         {
-        barrier.subresourceRange.baseMipLevel = i - 1;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            barrier.subresourceRange.baseMipLevel = i - 1;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                            nullptr, 1, &barrier);
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                                nullptr, 1, &barrier);
 
-        VkImageBlit blit = {};
-        blit.srcOffsets[0] = {0, 0, 0};
-        blit.srcOffsets[1] = {mip_width, mip_height, 1};
-        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.srcSubresource.mipLevel = i - 1;
-        blit.srcSubresource.baseArrayLayer = 0;
-        blit.srcSubresource.layerCount = 1;
-        blit.dstOffsets[0] = {0, 0, 0};
-        blit.dstOffsets[1] = {mip_width > 1 ? mip_width / 2 : 1,
-                                mip_height > 1 ? mip_height / 2 : 1, 1};
-        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.dstSubresource.mipLevel = i;
-        blit.dstSubresource.baseArrayLayer = 0;
-        blit.dstSubresource.layerCount = 1;
+            VkImageBlit blit = {};
+            blit.srcOffsets[0] = {0, 0, 0};
+            blit.srcOffsets[1] = {mip_width, mip_height, 1};
+            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.mipLevel = i - 1;
+            blit.srcSubresource.baseArrayLayer = 0;
+            blit.srcSubresource.layerCount = 1;
+            blit.dstOffsets[0] = {0, 0, 0};
+            blit.dstOffsets[1] = {mip_width > 1 ? mip_width / 2 : 1,
+                                    mip_height > 1 ? mip_height / 2 : 1, 1};
+            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.mipLevel = i;
+            blit.dstSubresource.baseArrayLayer = 0;
+            blit.dstSubresource.layerCount = 1;
 
-        vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                        image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
-                        VK_FILTER_LINEAR);
+            vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                            VK_FILTER_LINEAR);
 
-        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
-                            0, nullptr, 1, &barrier);
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                                0, nullptr, 1, &barrier);
 
-        if (mip_width > 1) mip_width /= 2;
-        if (mip_height > 1) mip_height /= 2;
+            if (mip_width > 1) mip_width /= 2;
+            if (mip_height > 1) mip_height /= 2;
         }
 
         barrier.subresourceRange.baseMipLevel = mip_levels - 1;
@@ -321,8 +319,9 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
-        0, nullptr, 1, &barrier);
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+            0, nullptr, 1, &barrier
+        );
     });
 }
 
@@ -336,11 +335,11 @@ VkDescriptorPool VulkanDevice::createDescriptorPool(
     pool_info.poolSizeCount = pool_sizes.size();
     pool_info.pPoolSizes    = pool_sizes.data();
 
-    VkDescriptorPool pool;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
     validation::checkVulkan(
         vkCreateDescriptorPool(logical_device, &pool_info, nullptr, &pool)
     );
-    deletors.pushFunction([=]{
+    deletors.add([=,this]{
         vkDestroyDescriptorPool(logical_device, pool, nullptr);
     });
     return pool;
@@ -354,11 +353,11 @@ VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
     info.bindingCount = layout_bindings.size();
     info.pBindings    = layout_bindings.data();
 
-    VkDescriptorSetLayout layout;
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
     validation::checkVulkan(
         vkCreateDescriptorSetLayout(logical_device, &info, nullptr, &layout)
     );
-    deletors.pushFunction([=](){
+    deletors.add([=,this](){
         vkDestroyDescriptorSetLayout(logical_device, layout, nullptr);
     });
     return layout;
@@ -418,7 +417,7 @@ void VulkanDevice::transitionImageLayout(VkImage image,
         throw std::invalid_argument("unsupported layout transition");
     }
 
-    immediateSubmit([=](VkCommandBuffer cmd)
+    immediateSubmit([=,this](VkCommandBuffer cmd)
     {
         vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     });

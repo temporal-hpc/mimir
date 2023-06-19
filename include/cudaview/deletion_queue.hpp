@@ -7,7 +7,7 @@ struct DeletionQueue
 {
     std::vector<std::function<void()>> deletors;
 
-    void pushFunction(std::function<void()>&& function)
+    void add(std::function<void()>&& function)
     {
         deletors.push_back(function);
     }
@@ -16,7 +16,7 @@ struct DeletionQueue
     {
         for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
         {
-        (*it)();
+            (*it)();
         }
         deletors.clear();
     }

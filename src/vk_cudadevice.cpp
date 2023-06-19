@@ -89,7 +89,7 @@ void VulkanCudaDevice::initView(CudaView& view)
             vkGetBufferMemoryRequirements(logical_device, view.aux_buffer, &memreq);
             auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             view.aux_memory = allocateMemory(memreq, flags);
-            deletors.pushFunction([=]{
+            deletors.add([=,this]{
                 vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
                 vkFreeMemory(logical_device, view.aux_memory, nullptr);
             });            
@@ -123,7 +123,7 @@ void VulkanCudaDevice::initView(CudaView& view)
         extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
         view.data_buffer = createBuffer(memsize, usage, &extmem_info);
-        deletors.pushFunction([=]{
+        deletors.add([=,this]{
             vkDestroyBuffer(logical_device, view.data_buffer, nullptr);
         });
         vkGetBufferMemoryRequirements(logical_device, view.data_buffer, &memreq);
@@ -144,7 +144,7 @@ void VulkanCudaDevice::initView(CudaView& view)
 
         view.image = createImage(img_type, img_format, img_extent, tiling, usage, &ext_info);
         view.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
-        deletors.pushFunction([=]{
+        deletors.add([=,this]{
             vkDestroyImage(logical_device, view.image, nullptr);
         });
         vkGetImageMemoryRequirements(logical_device, view.image, &memreq);
@@ -157,7 +157,7 @@ void VulkanCudaDevice::initView(CudaView& view)
     auto properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     view.memory = allocateMemory(memreq, properties, &export_info);
     importCudaExternalMemory(view.cuda_extmem, view.memory, memreq.size);
-    deletors.pushFunction([=]{
+    deletors.add([=,this]{
         validation::checkCuda(cudaDestroyExternalMemory(view.cuda_extmem));
         vkFreeMemory(logical_device, view.memory, nullptr);
     });
@@ -208,7 +208,7 @@ void VulkanCudaDevice::initView(CudaView& view)
         std::memcpy(data + view.index_offset, indices.data(), ids_size);
         vkUnmapMemory(logical_device, view.aux_memory);
 
-        deletors.pushFunction([=]{
+        deletors.add([=,this]{
             vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
             vkFreeMemory(logical_device, view.aux_memory, nullptr);
         });
@@ -221,7 +221,7 @@ void VulkanCudaDevice::initView(CudaView& view)
         );
         validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &view.vk_view));
         
-        deletors.pushFunction([=]{
+        deletors.add([=,this]{
             vkDestroyImageView(logical_device, view.vk_view, nullptr);
         });
 
@@ -265,7 +265,7 @@ void VulkanCudaDevice::initView(CudaView& view)
                 &view.mipmap_array, view.cuda_extmem, &array_desc)
             );
 
-            deletors.pushFunction([=]{
+            deletors.add([=,this]{
                 validation::checkCuda(cudaFreeMipmappedArray(view.mipmap_array));
             });
         }
@@ -291,7 +291,7 @@ void VulkanCudaDevice::updateTexture(CudaView& view)
     region.imageSubresource = subres;
     region.imageOffset = {0, 0, 0};
     region.imageExtent = view.vk_extent;
-    immediateSubmit([=](VkCommandBuffer cmd)
+    immediateSubmit([=,this](VkCommandBuffer cmd)
     {
         vkCmdCopyBufferToImage(cmd, view.data_buffer, view.image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
@@ -343,7 +343,7 @@ void VulkanCudaDevice::loadTexture(CudaView *view, void *img_data)
     region.imageSubresource  = subres;
     region.imageOffset       = {0, 0, 0};
     region.imageExtent       = view->vk_extent;
-    immediateSubmit([=](VkCommandBuffer cmd)
+    immediateSubmit([=,this](VkCommandBuffer cmd)
     {
         vkCmdCopyBufferToImage(cmd, staging_buffer, view->image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
@@ -447,7 +447,7 @@ InteropBarrier VulkanCudaDevice::createInteropBarrier()
     desc.flags = 0;
     validation::checkCuda(cudaImportExternalSemaphore(&barrier.cuda_semaphore, &desc));
 
-    deletors.pushFunction([=]{
+    deletors.add([=,this]{
         validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));
         vkDestroySemaphore(logical_device, barrier.vk_semaphore, nullptr);
     });
