@@ -6,6 +6,17 @@
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_properties.hpp"
 
+VkPresentModeKHR getPreferredPresentMode(PresentOptions opts)
+{
+    switch (opts)
+    {
+        case PresentOptions::Immediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
+        case PresentOptions::VSync: return VK_PRESENT_MODE_FIFO_KHR; 
+        case PresentOptions::TripleBuffering: return VK_PRESENT_MODE_MAILBOX_KHR;
+        default: return VK_PRESENT_MODE_IMMEDIATE_KHR;
+    }
+}
+
 VulkanSwapchain::~VulkanSwapchain()
 {
     cleanup();
@@ -27,21 +38,21 @@ void VulkanSwapchain::initSurface(VkInstance instance, GLFWwindow *window)
     });
 }
 
-void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
+void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions opts,
     std::vector<uint32_t> queue_indices, VkPhysicalDevice physical_device, VkDevice device)
 {
     VkSurfaceCapabilitiesKHR surf_caps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surf_caps);
     if (surf_caps.currentExtent.width == std::numeric_limits<uint32_t>::max())
     {
-        swapchain_extent.width = width;
-        swapchain_extent.height = height;
+        extent.width = width;
+        extent.height = height;
     }
     else
     {
-        swapchain_extent = surf_caps.currentExtent;
-        width = swapchain_extent.width;
-        height = swapchain_extent.height;
+        extent = surf_caps.currentExtent;
+        width = extent.width;
+        height = extent.height;
     }
 
     uint32_t mode_count;
@@ -52,10 +63,12 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
     vkGetPhysicalDeviceSurfacePresentModesKHR(
         physical_device, surface, &mode_count, present_modes.data()
     );
-    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+
+    VkPresentModeKHR present_mode;
+    auto preferred_mode = getPreferredPresentMode(opts);
     for (const auto& mode : present_modes)
     {
-        if (mode == VK_PRESENT_MODE_MAILBOX_KHR)
+        if (mode == preferred_mode)
         {
             present_mode = mode;
             break;
@@ -100,7 +113,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height,
     create_info.minImageCount    = image_count;
     create_info.imageFormat      = color_format;
     create_info.imageColorSpace  = color_space;
-    create_info.imageExtent      = swapchain_extent;
+    create_info.imageExtent      = extent;
     create_info.imageArrayLayers = 1;
     create_info.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     if (queue_indices[0] != queue_indices[1])

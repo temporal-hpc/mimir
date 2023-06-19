@@ -73,10 +73,11 @@ VulkanEngine::~VulkanEngine()
     glfwTerminate();
 }
 
-void VulkanEngine::init(int width, int height)
+void VulkanEngine::init(ViewerOptions opts)
 {
-    _width = width;
-    _height = height;
+    options = opts;
+    auto width  = options.window.x;
+    auto height = options.window.y;
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
@@ -97,6 +98,13 @@ void VulkanEngine::init(int width, int height)
     camera->setRotation(glm::vec3(15.f, 0.f, 0.f));
     camera->setRotationSpeed(0.5f);
     camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
+}
+
+void VulkanEngine::init(int width, int height)
+{
+    ViewerOptions opts;
+    opts.window = {width, height};
+    init(opts);
 }
 
 void VulkanEngine::prepare()
@@ -556,7 +564,7 @@ void VulkanEngine::initSwapchain()
     uint32_t width = w;
     uint32_t height = h;
     std::vector queue_indices{dev->graphics.family_index, dev->present.family_index};
-    swap->create(width, height, queue_indices, dev->physical_device, dev->logical_device);
+    swap->create(width, height, options.present, queue_indices, dev->physical_device, dev->logical_device);
     command_buffers = dev->createCommandBuffers(swap->image_count);
     render_pass = createRenderPass();
 
@@ -603,7 +611,7 @@ void VulkanEngine::initSwapchain()
     {
         // Create a basic image view to be used as color target
         fbs[i].addAttachment(dev->logical_device, images[i], swap->color_format);
-        fbs[i].create(dev->logical_device, render_pass, swap->swapchain_extent, depth_view);
+        fbs[i].create(dev->logical_device, render_pass, swap->extent, depth_view);
     }
 }
 
@@ -732,7 +740,7 @@ void VulkanEngine::renderFrame()
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
     auto render_pass_info = vkinit::renderPassBeginInfo(
-        render_pass, fbs[image_idx].framebuffer, swap->swapchain_extent
+        render_pass, fbs[image_idx].framebuffer, swap->extent
     );
     std::array<VkClearValue, 2> clear_values{};
     setColor(clear_values[0].color.float32, bg_color);
@@ -811,15 +819,15 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
+    auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = size_mvp + size_options + size_scene;
+    auto size_ubo = size_mvp + size_primitive + size_scene;
 
     auto cmd = command_buffers[image_idx];
     for (uint32_t i = 0; i < views.size(); ++i)
     {
         auto& view = views[i];
-        std::vector<uint32_t> offsets = { i * size_ubo, i * size_ubo + size_mvp + size_options, i * size_ubo + size_mvp };
+        std::vector<uint32_t> offsets = { i * size_ubo, i * size_ubo + size_mvp + size_primitive, i * size_ubo + size_mvp };
         // NOTE: Second parameter can be also used to bind a compute pipeline
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
@@ -983,7 +991,7 @@ void VulkanEngine::createGraphicsPipelines()
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
 
-    PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
+    PipelineBuilder builder(pipeline_layout, swap->extent);
 
     // Iterate through views, generating the corresponding pipelines
     // TODO: This does not allow adding views at runtime
@@ -1011,7 +1019,7 @@ void VulkanEngine::rebuildPipeline(CudaView& view)
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
 
-    PipelineBuilder builder(pipeline_layout, swap->swapchain_extent);
+    PipelineBuilder builder(pipeline_layout, swap->extent);
     builder.addPipeline(view.params, dev.get());
     auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
     // Destroy the old view pipeline and assign the new one
@@ -1025,9 +1033,9 @@ void VulkanEngine::initUniformBuffers()
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
+    auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = (size_mvp + size_options + size_scene) * views.size();
+    auto size_ubo = (size_mvp + size_primitive + size_scene) * views.size();
     
     uniform_buffers.resize(swap->image_count);
     for (auto& ubo : uniform_buffers)
@@ -1050,9 +1058,9 @@ void VulkanEngine::updateUniformBuffers(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_options = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
+    auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = size_mvp + size_options + size_scene;
+    auto size_ubo = size_mvp + size_primitive + size_scene;
     auto memory = uniform_buffers[image_idx].memory;
 
     for (size_t view_idx = 0; view_idx < views.size(); ++view_idx)
@@ -1064,24 +1072,24 @@ void VulkanEngine::updateUniformBuffers(uint32_t image_idx)
         mvp.view  = camera->matrices.view;
         mvp.proj  = camera->matrices.perspective;
 
-        PrimitiveParams options{};
-        options.color = getColor(view.params.options.color);
-        options.size = view.params.options.size;
-        options.depth = view.params.options.depth;
+        PrimitiveParams primitive{};
+        primitive.color = getColor(view.params.options.color);
+        primitive.size = view.params.options.size;
+        primitive.depth = view.params.options.depth;
 
         SceneParams scene{};
         auto extent = view.params.extent;
         scene.bg_color = getColor(bg_color);
         scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
-        scene.resolution = glm::ivec2{_width, _height};
+        scene.resolution = glm::ivec2{options.window.x, options.window.y};
         scene.camera_pos = camera->position;
 
         char *data = nullptr;
         auto offset = size_ubo * view_idx;
         vkMapMemory(dev->logical_device, memory, offset, size_ubo, 0, (void**)&data);
         std::memcpy(data, &mvp, sizeof(mvp));
-        std::memcpy(data + size_mvp, &options, sizeof(options));
-        std::memcpy(data + size_mvp + size_options, &scene, sizeof(scene));
+        std::memcpy(data + size_mvp, &primitive, sizeof(primitive));
+        std::memcpy(data + size_mvp + size_primitive, &scene, sizeof(scene));
         vkUnmapMemory(dev->logical_device, memory);
     }
 }

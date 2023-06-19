@@ -30,12 +30,19 @@ struct AllocatedBuffer
     VkDeviceMemory memory = VK_NULL_HANDLE;
 };
 
+struct ViewerOptions
+{
+    int2 window            = { 800, 600 };
+    PresentOptions present = PresentOptions::TripleBuffering;
+};
+
 class VulkanEngine
 {
 public:
     VulkanEngine();
     ~VulkanEngine();
-    void init(int width = 800, int height = 600);
+    void init(ViewerOptions opts);
+    void init(int width, int height);
     // Main library function, which setups all the visualization interop
     CudaView *createView(void **ptr_devmem, ViewParams params);
     CudaView *getView(uint32_t view_index);
@@ -50,7 +57,7 @@ public:
     void setBackgroundColor(float4 color);
 
 private:
-    int _width = 0, _height = 0;
+    ViewerOptions options;
     std::unique_ptr<VulkanCudaDevice> dev;
     std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
