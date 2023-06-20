@@ -185,24 +185,24 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     vkDeviceWaitIdle(dev->logical_device);
 }
 
-static uint64_t kernel_wait = 1;
-static uint64_t kernel_signal = 2;
-
 void VulkanEngine::waitKernelStart()
 {   
+    static uint64_t kernel_wait = 1;
     cudaExternalSemaphoreWaitParams wait_params{};
     wait_params.flags = 0;
     wait_params.params.fence.value = kernel_wait;
+
     // Wait for Vulkan to complete its work
     printf("Waiting to vulkan to finish\n");
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
         &timeline.cuda_semaphore, &wait_params, 1, stream)
-        //&kernel_start.cuda_semaphore, &wait_params, 1, stream)
     );
+    kernel_wait += 2;
 }
 
 void VulkanEngine::signalKernelFinish()
 {
+    static uint64_t kernel_signal = 2;
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
     signal_params.params.fence.value = kernel_signal;
@@ -211,10 +211,7 @@ void VulkanEngine::signalKernelFinish()
     printf("Signaling that CUDA has ended\n");
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
         &timeline.cuda_semaphore, &signal_params, 1, stream)
-        //&kernel_finish.cuda_semaphore, &signal_params, 1, stream)
     );
-
-    kernel_wait += 2;
     kernel_signal += 2;
 }
 
@@ -361,17 +358,6 @@ void VulkanEngine::createInstance()
             validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
         });
     }
-
-    /*uint32_t extension_count = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
-    std::vector<VkExtensionProperties> available_exts(extension_count);
-    vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_exts.data());
-
-    std::cout << "Available extensions:\n";
-    for (const auto& extension : available_exts)
-    {
-        std::cout << '\t' << extension.extensionName << '\n';
-    }*/
 }
 
 void VulkanEngine::pickPhysicalDevice()
@@ -484,25 +470,12 @@ void VulkanEngine::initImgui()
 void VulkanEngine::createSyncObjects()
 {
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
-    auto fence_info = vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
     for (auto& fence : frame_fences)
     {
-        validation::checkVulkan(vkCreateFence(
-            dev->logical_device, &fence_info, nullptr, &fence)
-        );
-        deletors.add([=,this]{
-            vkDestroyFence(dev->logical_device, fence, nullptr);
-        });
+        fence = dev->createFence(VK_FENCE_CREATE_SIGNALED_BIT);
     }
-
     timeline = dev->createInteropBarrier();
-    auto semaphore_info = vkinit::semaphoreCreateInfo();
-    validation::checkVulkan(vkCreateSemaphore(
-        dev->logical_device, &semaphore_info, nullptr, &present_semaphore)
-    );
-    deletors.add([=,this]{
-        vkDestroySemaphore(dev->logical_device, present_semaphore, nullptr);
-    });
+    present_semaphore = dev->createSemaphore();
 }
 
 void VulkanEngine::cleanupSwapchain()
@@ -901,16 +874,17 @@ VkRenderPass VulkanEngine::createRenderPass()
     subpass.pDepthStencilAttachment = &depth_ref;
 
     // Specify memory and execution dependencies between subpasses
+    auto stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | 
+                      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    auto access_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     auto dependency = vkinit::subpassDependency();
     dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass    = 0;
-    dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.srcStageMask  = stage_mask;
+    dependency.dstStageMask  = stage_mask;
     dependency.srcAccessMask = 0;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependency.dstAccessMask = access_mask;
 
     std::array<VkAttachmentDescription, 2> attachments{ color, depth };
     auto pass_info = vkinit::renderPassCreateInfo();

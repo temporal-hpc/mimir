@@ -63,11 +63,12 @@ VkFenceCreateInfo fenceCreateInfo(VkFenceCreateFlags flags)
     return info;
 }
 
-VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags)
+VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags,
+    const void *export_info)
 {
     VkSemaphoreCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    info.pNext = nullptr;
+    info.pNext = export_info;
     info.flags = flags;
     return info;
 }

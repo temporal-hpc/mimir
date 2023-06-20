@@ -363,6 +363,28 @@ VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
     return layout;
 }
 
+VkFence VulkanDevice::createFence(VkFenceCreateFlags flags)
+{
+    auto info = vkinit::fenceCreateInfo(flags);
+    VkFence fence = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateFence(logical_device, &info, nullptr, &fence));
+    deletors.add([=,this]{
+        vkDestroyFence(logical_device, fence, nullptr);
+    });
+    return fence;
+}
+
+VkSemaphore VulkanDevice::createSemaphore(const void *export_info)
+{
+    auto info = vkinit::semaphoreCreateInfo(0, export_info);
+    VkSemaphore semaphore = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateSemaphore(logical_device, &info, nullptr, &semaphore));
+    deletors.add([=,this]{
+        vkDestroySemaphore(logical_device, semaphore, nullptr);
+    });
+    return semaphore;
+}
+
 void VulkanDevice::transitionImageLayout(VkImage image,
     VkImageLayout old_layout, VkImageLayout new_layout)
 {
@@ -473,4 +495,18 @@ void VulkanDevice::updateMemoryProperties()
         props.total_usage += budget_properties.heapUsage[i];
         props.total_budget += budget_properties.heapBudget[i];
     }   
+}
+
+void VulkanDevice::listExtensions()
+{
+    uint32_t ext_count = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
+    std::vector<VkExtensionProperties> available(ext_count);
+    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, available.data());
+
+    printf("Available extensions:\n");
+    for (const auto& extension : available)
+    {
+        printf("  %s\n", extension.extensionName);
+    }
 }

@@ -71,23 +71,21 @@ struct VulkanDevice
     VkDescriptorPool createDescriptorPool(
         const std::vector<VkDescriptorPoolSize>& sizes
     );
-    // Get memory requirements for later allocation
-    // TODO: Use span instead of vector
-    VkMemoryRequirements getMemoryRequiements(VkBufferUsageFlags usage,
-        const std::vector<uint32_t>& sizes
-    );
     std::vector<VkDescriptorSet> createDescriptorSets(
         VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count
     );
     VkDescriptorSetLayout createDescriptorSetLayout(
         const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings
     );
+    VkFence createFence(VkFenceCreateFlags flags);
+    VkSemaphore createSemaphore(const void *export_info = nullptr);
     void transitionImageLayout(VkImage image,
         VkImageLayout old_layout, VkImageLayout new_layout
     );
     ConvertedMemory formatMemory(uint64_t memsize) const; 
     std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
     void updateMemoryProperties();
+    void listExtensions();
 };
 
 uint32_t getAlignedSize(size_t original_size, size_t min_alignment);

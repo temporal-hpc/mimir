@@ -430,26 +430,18 @@ InteropBarrier VulkanCudaDevice::createInteropBarrier()
     export_info.pNext       = &timeline_info;
     export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
 
-    auto semaphore_info  = vkinit::semaphoreCreateInfo();
-    semaphore_info.pNext = &export_info;
-
     InteropBarrier barrier;
-    validation::checkVulkan(vkCreateSemaphore(
-        logical_device, &semaphore_info, nullptr, &barrier.vk_semaphore)
-    );
+    barrier.vk_semaphore = createSemaphore(&export_info);
 
     cudaExternalSemaphoreHandleDesc desc{};
     desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-    //desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
     desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
         barrier.vk_semaphore, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
     );
     desc.flags = 0;
     validation::checkCuda(cudaImportExternalSemaphore(&barrier.cuda_semaphore, &desc));
-
     deletors.add([=,this]{
         validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));
-        vkDestroySemaphore(logical_device, barrier.vk_semaphore, nullptr);
     });
     return barrier;
 }
