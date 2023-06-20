@@ -64,20 +64,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
         physical_device, surface, &mode_count, present_modes.data()
     );
 
-    VkPresentModeKHR present_mode;
-    auto preferred_mode = getPreferredPresentMode(opts);
-    for (const auto& mode : present_modes)
-    {
-        if (mode == preferred_mode)
-        {
-            present_mode = mode;
-            break;
-        }
-        else if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR)
-        {
-            present_mode = mode;
-        }
-    }
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
 
     uint32_t format_count;
     vkGetPhysicalDeviceSurfaceFormatsKHR(
@@ -130,7 +117,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
     }
     create_info.preTransform     = surf_caps.currentTransform;
     create_info.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    create_info.presentMode      = present_mode;
+    create_info.presentMode      = VK_PRESENT_MODE_IMMEDIATE_KHR;
     create_info.clipped          = VK_TRUE;
     create_info.oldSwapchain     = old_swapchain;
 

@@ -549,9 +549,7 @@ void VulkanEngine::createSyncObjects()
     timeline = dev->createInteropBarrier();
     deletors.add([=,this]{
         vkDestroySemaphore(dev->logical_device, vk_presentation_semaphore, nullptr);
-        vkDestroySemaphore(dev->logical_device, timeline.vk_semaphore, nullptr);
-        validation::checkCuda(cudaDestroyExternalSemaphore(timeline.cuda_semaphore));
-    });    
+    });
 
     /*createExternalSemaphore(vk_timeline_semaphore);
     importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
