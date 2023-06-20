@@ -84,8 +84,6 @@ int main(int argc, char *argv[])
     engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
     {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
         engine.prepareWindow();
         integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());

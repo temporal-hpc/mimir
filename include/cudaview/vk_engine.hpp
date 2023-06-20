@@ -88,10 +88,7 @@ private:
     //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
     // CPU thread synchronization variables
-    bool device_working = false;
     std::thread rendering_thread;
-    std::mutex mutex;
-    std::condition_variable cond;
 
     // Cuda interop data
     cudaStream_t stream = 0; // TODO: Remove

@@ -138,10 +138,8 @@ void VulkanEngine::displayAsync()
             glfwPollEvents(); // TODO: Move to main thread
             drawGui();
 
-            std::unique_lock<std::mutex> ul(mutex);
-            cond.wait(ul, [&]{ return device_working == false; });
+            //printf("Rendering frame\n");
             renderFrame();
-            ul.unlock();
         }
         vkDeviceWaitIdle(dev->logical_device);
     });
@@ -149,27 +147,20 @@ void VulkanEngine::displayAsync()
 
 void VulkanEngine::prepareWindow()
 {
-    std::unique_lock<std::mutex> ul(mutex);
-    device_working = true;
+    //printf("Kernel is starting\n");
     waitKernelStart();
-    ul.unlock();
-    cond.notify_one();
 }
 
 void VulkanEngine::updateWindow()
 {
-    std::unique_lock<std::mutex> ul(mutex);
-    device_working = false;
+    //printf("Kernel has ended\n");
     signalKernelFinish();
-    ul.unlock();
-    cond.notify_one();
 }
 
 void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();    
     size_t iter_idx = 0;
-    device_working = true;
     while(!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
@@ -185,8 +176,40 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
         }
         signalKernelFinish();
     }
-    device_working = false;
     vkDeviceWaitIdle(dev->logical_device);
+}
+
+static uint64_t kernel_wait = 1;
+static uint64_t kernel_signal = 2;
+
+void VulkanEngine::waitKernelStart()
+{   
+    cudaExternalSemaphoreWaitParams wait_params{};
+    wait_params.flags = 0;
+    wait_params.params.fence.value = kernel_wait;
+    // Wait for Vulkan to complete its work
+    //printf("Waiting to vulkan to finish\n");
+    validation::checkCuda(cudaWaitExternalSemaphoresAsync(
+        &timeline.cuda_semaphore, &wait_params, 1, stream)
+        //&kernel_start.cuda_semaphore, &wait_params, 1, stream)
+    );
+}
+
+void VulkanEngine::signalKernelFinish()
+{
+    cudaExternalSemaphoreSignalParams signal_params{};
+    signal_params.flags = 0;
+    signal_params.params.fence.value = kernel_signal;
+
+    // Signal Vulkan to continue with the updated buffers
+    //printf("Signaling that CUDA has ended\n");
+    validation::checkCuda(cudaSignalExternalSemaphoresAsync(
+        &timeline.cuda_semaphore, &signal_params, 1, stream)
+        //&kernel_finish.cuda_semaphore, &signal_params, 1, stream)
+    );
+
+    kernel_wait += 2;
+    kernel_signal += 2;
 }
 
 CudaView *VulkanEngine::createView(void **ptr_devmem, ViewParams params)
@@ -456,7 +479,7 @@ void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
   std::vector<VkPipelineStageFlags>& wait_stages) const
 {
     // Wait semaphore has not been initialized on the first frame
-    if (current_frame != 0 && device_working == true)
+    if (current_frame != 0)
     {
         // Vulkan waits until Cuda is done with the display buffer before rendering
         wait.push_back(kernel_finish.vk_semaphore);
@@ -469,37 +492,6 @@ void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) co
 {
     // Vulkan signals this semaphore once the device array is ready for Cuda use
     signal.push_back(kernel_start.vk_semaphore);
-}
-
-static uint64_t kernel_wait = 1;
-static uint64_t kernel_signal = 2;
-
-void VulkanEngine::waitKernelStart()
-{   
-    cudaExternalSemaphoreWaitParams wait_params{};
-    wait_params.flags = 0;
-    wait_params.params.fence.value = kernel_wait;
-    // Wait for Vulkan to complete its work
-    validation::checkCuda(cudaWaitExternalSemaphoresAsync(
-        &timeline.cuda_semaphore, &wait_params, 1, stream)
-        //&kernel_start.cuda_semaphore, &wait_params, 1, stream)
-    );
-}
-
-void VulkanEngine::signalKernelFinish()
-{
-    cudaExternalSemaphoreSignalParams signal_params{};
-    signal_params.flags = 0;
-    signal_params.params.fence.value = kernel_signal;
-
-    // Signal Vulkan to continue with the updated buffers
-    validation::checkCuda(cudaSignalExternalSemaphoresAsync(
-        &timeline.cuda_semaphore, &signal_params, 1, stream)
-        //&kernel_finish.cuda_semaphore, &signal_params, 1, stream)
-    );
-
-    kernel_wait += 2;
-    kernel_signal += 2;
 }
 
 void VulkanEngine::createSyncObjects()
