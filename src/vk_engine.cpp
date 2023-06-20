@@ -119,13 +119,16 @@ void VulkanEngine::prepare()
     printf("Total memory usage: %.2f %s\n", total_usage.data, total_usage.units.c_str());
     auto total_budget = dev->formatMemory(dev->props.total_budget);
     printf("Total memory budget: %.2f %s\n", total_budget.data, total_budget.units.c_str());
+    auto props = dev->budget_properties;
 
     for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
     {
-        auto heap_usage = dev->formatMemory(dev->budget_properties.heapUsage[i]);
+        auto heap_usage = dev->formatMemory(props.heapUsage[i]);
         printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
-        auto heap_budget = dev->formatMemory(dev->budget_properties.heapBudget[i]);
+        auto heap_budget = dev->formatMemory(props.heapBudget[i]);
         printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
+        auto heap_flags = dev->memory_properties2.memoryProperties.memoryHeaps[i].flags;
+        printf("Heap %d flags: %s\n", i, dev->readMemoryHeapFlags(heap_flags).c_str());
     }
 }
 
