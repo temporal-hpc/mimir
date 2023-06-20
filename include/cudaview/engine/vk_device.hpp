@@ -65,6 +65,10 @@ struct VulkanDevice
         VkImageTiling tiling, VkImageUsageFlags usage, const void *extmem_info = nullptr
     );
     VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
+    VkFormat findSupportedImageFormat(const std::vector<VkFormat>& candidates,
+        VkImageTiling tiling, VkFormatFeatureFlags features
+    );
+
     void generateMipmaps(VkImage image, VkFormat img_format,
         int img_width, int img_height, int mip_levels
     );

@@ -242,6 +242,32 @@ VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)
     return sampler;
 }
 
+VkFormat VulkanDevice::findSupportedImageFormat(const std::vector<VkFormat>& candidates,
+    VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+    for (auto format : candidates)
+    {
+        VkFormatProperties props;
+        vkGetPhysicalDeviceFormatProperties(physical_device, format, &props);
+
+        switch (tiling)
+        {
+            case VK_IMAGE_TILING_LINEAR:
+            {
+                if ((props.linearTilingFeatures & features) == features) return format;
+                break;
+            }
+            case VK_IMAGE_TILING_OPTIMAL:
+            {
+                if ((props.optimalTilingFeatures & features) == features) return format;
+                break;
+            }
+            default: return VK_FORMAT_UNDEFINED;
+        }
+    }
+    return VK_FORMAT_UNDEFINED;
+}
+
 void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
     int img_width, int img_height, int mip_levels)
 {

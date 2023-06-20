@@ -73,6 +73,17 @@ VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags,
     return info;
 }
 
+VkTimelineSemaphoreSubmitInfo timelineSubmitInfo(uint64_t *wait, uint64_t *signal)
+{
+    VkTimelineSemaphoreSubmitInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    info.waitSemaphoreValueCount   = 1;
+    info.pWaitSemaphoreValues      = wait;
+    info.signalSemaphoreValueCount = 1;
+    info.pSignalSemaphoreValues    = signal;
+    return info;
+}
+
 VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits,
     std::span<VkPipelineStageFlags> stages, std::span<VkSemaphore> signals,
     const void *timeline_info)

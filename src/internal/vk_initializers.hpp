@@ -25,6 +25,7 @@ VkFenceCreateInfo fenceCreateInfo(VkFenceCreateFlags flags = 0);
 VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags = 0,
     const void *export_info = nullptr
 );
+VkTimelineSemaphoreSubmitInfo timelineSubmitInfo(uint64_t *wait, uint64_t *signal);
 
 // Presentation-related functions
 VkPresentInfoKHR presentInfo(uint32_t *image_ids, VkSwapchainKHR *swapchain, VkSemaphore *semaphore);

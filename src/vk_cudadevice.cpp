@@ -425,19 +425,18 @@ InteropBarrier VulkanCudaDevice::createInteropBarrier()
     timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
     timeline_info.initialValue = 0;
 
+    auto handle_type = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
     VkExportSemaphoreCreateInfoKHR export_info{};
     export_info.sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
     export_info.pNext       = &timeline_info;
-    export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    export_info.handleTypes = handle_type;
 
     InteropBarrier barrier;
     barrier.vk_semaphore = createSemaphore(&export_info);
 
     cudaExternalSemaphoreHandleDesc desc{};
     desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-    desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
-        barrier.vk_semaphore, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
-    );
+    desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(barrier.vk_semaphore, handle_type);
     desc.flags = 0;
     validation::checkCuda(cudaImportExternalSemaphore(&barrier.cuda_semaphore, &desc));
     deletors.add([=,this]{

@@ -639,7 +639,6 @@ void VulkanEngine::renderFrame()
     wait_info.pValues = &wait_value;
     vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
 
-
     // Acquire image from swap chain
     uint32_t image_idx;
     auto result = vkAcquireNextImageKHR(dev->logical_device, swap->swapchain,
@@ -691,25 +690,18 @@ void VulkanEngine::renderFrame()
 
     updateUniformBuffers(frame_idx);
 
+    // Fill out command buffer submission info
     std::vector<VkPipelineStageFlags> stages;
     stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-
     std::vector<VkSemaphore> waits;
     waits.push_back(timeline.vk_semaphore);
     std::vector<VkSemaphore> signals;
     signals.push_back(timeline.vk_semaphore);
-
-    validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
-
-    // Fill out command buffer submission info
-    VkTimelineSemaphoreSubmitInfo timeline_info{};
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline_info.waitSemaphoreValueCount   = 1;
-    timeline_info.pWaitSemaphoreValues      = &wait_value;
-    timeline_info.signalSemaphoreValueCount = 1;
-    timeline_info.pSignalSemaphoreValues    = &signal_value;
+    auto timeline_info = vkinit::timelineSubmitInfo(&wait_value, &signal_value);
     auto submit_info = vkinit::submitInfo(&cmd, waits, stages, signals, &timeline_info);
 
+    // Clear fence before placing it again
+    validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
     // Execute command buffer using image as attachment in framebuffer
     validation::checkVulkan(vkQueueSubmit(dev->graphics.queue, 1, &submit_info, fence));
 
@@ -820,33 +812,11 @@ bool VulkanEngine::hasStencil(VkFormat format)
 
 VkFormat VulkanEngine::findDepthFormat()
 {
-    return findSupportedFormat(
+    return dev->findSupportedImageFormat(
         {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
         VK_IMAGE_TILING_OPTIMAL,
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
     );
-}
-
-VkFormat VulkanEngine::findSupportedFormat(const std::vector<VkFormat>& candidates,
-  VkImageTiling tiling, VkFormatFeatureFlags features)
-{
-    for (auto format : candidates)
-    {
-        VkFormatProperties props;
-        vkGetPhysicalDeviceFormatProperties(dev->physical_device, format, &props);
-
-        if (tiling == VK_IMAGE_TILING_LINEAR &&
-            (props.linearTilingFeatures & features) == features)
-        {
-            return format;
-        }
-        else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
-            (props.optimalTilingFeatures & features) == features)
-        {
-            return format;
-        }
-    }
-    return VK_FORMAT_UNDEFINED;
 }
 
 VkRenderPass VulkanEngine::createRenderPass()
