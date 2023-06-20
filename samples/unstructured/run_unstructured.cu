@@ -54,10 +54,10 @@ __global__ void integrate2d(float *coords, size_t particle_count,
         auto local_state = global_states[tidx];
         auto r = curand_normal2(&local_state);
         auto p = particles[tidx];
-        p.x += r.x / 5.f;
+        p.x += r.x;
         if (p.x > extent.x) p.x = extent.x;
         if (p.x < 0) p.x = 0;
-        p.y += r.y / 5.f;
+        p.y += r.y;
         if (p.y > extent.y) p.y = extent.y;
         if (p.y < 0) p.y = 0;
         particles[tidx] = p;

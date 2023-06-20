@@ -68,35 +68,37 @@ VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags)
     VkSemaphoreCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     info.pNext = nullptr;
-    info.flags = flags; // Unused
+    info.flags = flags;
     return info;
 }
 
-VkSubmitInfo submitInfo(VkCommandBuffer *cmd)
+VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits,
+    std::span<VkPipelineStageFlags> stages, std::span<VkSemaphore> signals,
+    const void *timeline_info)
 {
     VkSubmitInfo info{};
     info.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    info.pNext                = nullptr;
-    info.waitSemaphoreCount   = 0;
-    info.pWaitSemaphores      = nullptr;
-    info.pWaitDstStageMask    = nullptr;
+    info.pNext                = timeline_info;
+    info.waitSemaphoreCount   = waits.size();
+    info.pWaitSemaphores      = waits.data();
+    info.pWaitDstStageMask    = stages.data();
     info.commandBufferCount   = 1;
     info.pCommandBuffers      = cmd;
-    info.signalSemaphoreCount = 0;
-    info.pSignalSemaphores    = nullptr;
+    info.signalSemaphoreCount = signals.size();
+    info.pSignalSemaphores    = signals.data();
     return info;
 }
 
-VkPresentInfoKHR presentInfo()
+VkPresentInfoKHR presentInfo(uint32_t *image_ids, VkSwapchainKHR *swapchain, VkSemaphore *semaphore)
 {
     VkPresentInfoKHR info{};
     info.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     info.pNext              = nullptr;
-    info.waitSemaphoreCount = 0;
-    info.pWaitSemaphores    = nullptr;
-    info.swapchainCount     = 0;
-    info.pSwapchains        = nullptr;
-    info.pImageIndices      = nullptr;
+    info.waitSemaphoreCount = 1;
+    info.pWaitSemaphores    = semaphore;
+    info.swapchainCount     = 1;
+    info.pSwapchains        = swapchain;
+    info.pImageIndices      = image_ids;
     info.pResults           = nullptr;
     return info;
 }
@@ -151,8 +153,8 @@ VkVertexInputAttributeDescription vertexAttributeDescription(
 }
 
 VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo(
-    const std::vector<VkVertexInputBindingDescription>& bindings,
-    const std::vector<VkVertexInputAttributeDescription>& attributes)
+    std::span<VkVertexInputBindingDescription> bindings,
+    std::span<VkVertexInputAttributeDescription> attributes)
 {
     VkPipelineVertexInputStateCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -227,8 +229,7 @@ VkPipelineColorBlendAttachmentState colorBlendAttachmentState()
     return attachment;
 }
 
-VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
-    const std::vector<VkDescriptorSetLayout>& layouts)
+VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(std::span<VkDescriptorSetLayout> layouts)
 {
     VkPipelineLayoutCreateInfo info{};
     info.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

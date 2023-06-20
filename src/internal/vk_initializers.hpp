@@ -2,7 +2,7 @@
 
 #include <vulkan/vulkan.h>
 
-#include <vector> // TODO: Use span
+#include <span> // std::span
 
 namespace vkinit
 {
@@ -15,14 +15,17 @@ VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool,
     VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, uint32_t count = 1
 );
 VkCommandBufferBeginInfo commandBufferBeginInfo(VkCommandBufferUsageFlags flags = 0);
-VkSubmitInfo submitInfo(VkCommandBuffer *cmd);
+VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits = {},
+    std::span<VkPipelineStageFlags> stages = {}, std::span<VkSemaphore> signals = {},
+    const void *timeline_info = nullptr
+);
 
 // Synchronization-related functions
 VkFenceCreateInfo fenceCreateInfo(VkFenceCreateFlags flags = 0);
 VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags = 0);
 
 // Presentation-related functions
-VkPresentInfoKHR presentInfo();
+VkPresentInfoKHR presentInfo(uint32_t *image_ids, VkSwapchainKHR *swapchain, VkSemaphore *semaphore);
 VkRenderPassBeginInfo renderPassBeginInfo(VkRenderPass pass,
     VkFramebuffer framebuffer, VkExtent2D win_extent
 );
@@ -35,14 +38,14 @@ VkVertexInputAttributeDescription vertexAttributeDescription(
     uint32_t binding, uint32_t location, VkFormat format, uint32_t offset
 );
 VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(
-    const std::vector<VkDescriptorSetLayout>& layouts
+    std::span<VkDescriptorSetLayout> layouts
 );
 VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo(
     VkShaderStageFlagBits stage, VkShaderModule module
 );
 VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo(
-    const std::vector<VkVertexInputBindingDescription>& bindings = {},
-    const std::vector<VkVertexInputAttributeDescription>& attributes = {}
+    std::span<VkVertexInputBindingDescription> bindings = {},
+    std::span<VkVertexInputAttributeDescription> attributes = {}
 );
 VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo(
     bool depth_test, bool depth_write, VkCompareOp compare_op

@@ -173,14 +173,13 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
         drawGui();
         renderFrame();
 
-        waitKernelStart();
+        prepareWindow();
         if (iter_idx < iter_count)
         {
-            // Advance the simulation
-            func();
+            func(); // Advance the simulation
             iter_idx++;
         }
-        signalKernelFinish();
+        updateWindow();
     }
     working = false;
     vkDeviceWaitIdle(dev->logical_device);
@@ -482,54 +481,9 @@ void VulkanEngine::initImgui()
     ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
-void VulkanEngine::getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
-  std::vector<VkPipelineStageFlags>& wait_stages) const
-{
-    // Wait semaphore has not been initialized on the first frame
-    if (current_frame != 0)
-    {
-        // Vulkan waits until Cuda is done with the display buffer before rendering
-        wait.push_back(kernel_finish.vk_semaphore);
-        // Cuda will wait until all pipeline commands are complete
-        wait_stages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
-    }
-}
-
-void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const
-{
-    // Vulkan signals this semaphore once the device array is ready for Cuda use
-    signal.push_back(kernel_start.vk_semaphore);
-}
-
 void VulkanEngine::createSyncObjects()
 {
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
-
-    /*
-    auto fence_info = vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
-    for (auto& frame : frames)
-    {
-        validation::checkVulkan(vkCreateSemaphore(
-            dev->logical_device, &semaphore_info, nullptr, &frame.present_semaphore)
-        );
-        validation::checkVulkan(vkCreateSemaphore(
-            dev->logical_device, &semaphore_info, nullptr, &frame.render_semaphore)
-        );
-        validation::checkVulkan(vkCreateFence(
-            dev->logical_device, &fence_info, nullptr, &frame.render_fence)
-        );
-        deletors.add([=,this]{
-            vkDestroySemaphore(dev->logical_device, frame.present_semaphore, nullptr);
-            vkDestroySemaphore(dev->logical_device, frame.render_semaphore, nullptr);
-            vkDestroyFence(dev->logical_device, frame.render_fence, nullptr);
-        });
-    }
-
-    // Vulkan signal will be CUDA wait
-    kernel_start = dev->createInteropBarrier();
-    // CUDA signal will be Vulkan wait
-    kernel_finish = dev->createInteropBarrier();*/
-
     auto fence_info = vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
     for (auto& fence : frame_fences)
     {
@@ -541,29 +495,14 @@ void VulkanEngine::createSyncObjects()
         });
     }
 
+    timeline = dev->createInteropBarrier();
     auto semaphore_info = vkinit::semaphoreCreateInfo();
     validation::checkVulkan(vkCreateSemaphore(
-        dev->logical_device, &semaphore_info, nullptr, &vk_presentation_semaphore)
+        dev->logical_device, &semaphore_info, nullptr, &present_semaphore)
     );
-    timeline = dev->createInteropBarrier();
     deletors.add([=,this]{
-        vkDestroySemaphore(dev->logical_device, vk_presentation_semaphore, nullptr);
+        vkDestroySemaphore(dev->logical_device, present_semaphore, nullptr);
     });
-
-    /*createExternalSemaphore(vk_timeline_semaphore);
-    importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
-    if (cuda_timeline_semaphore != nullptr)
-    {
-        validation::checkCuda(cudaDestroyExternalSemaphore(cuda_timeline_semaphore));
-    }
-    if (vk_presentation_semaphore != VK_NULL_HANDLE)
-    {
-        vkDestroySemaphore(device, vk_presentation_semaphore, nullptr);
-    }
-    if (vk_timeline_semaphore != VK_NULL_HANDLE)
-    {
-        vkDestroySemaphore(device, vk_timeline_semaphore, nullptr);
-    }*/
 }
 
 void VulkanEngine::cleanupSwapchain()
@@ -652,36 +591,36 @@ void VulkanEngine::updateDescriptorSets()
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
         // Write MVP matrix, scene info and texture samplers
-        std::vector<VkWriteDescriptorSet> set_writes;
+        std::vector<VkWriteDescriptorSet> updates;
+        auto& set = descriptor_sets[i];
 
         VkDescriptorBufferInfo mvp_info{};
         mvp_info.buffer = uniform_buffers[i].buffer;
         mvp_info.offset = 0;
         mvp_info.range  = sizeof(ModelViewProjection);
-        auto write_mvp = vkinit::writeDescriptorBuffer(
-            descriptor_sets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &mvp_info
+        auto write_mvp = vkinit::writeDescriptorBuffer(set, 0, 
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &mvp_info
         );
-        set_writes.push_back(write_mvp);
+        updates.push_back(write_mvp);
 
         VkDescriptorBufferInfo primitive_info{};
         primitive_info.buffer = uniform_buffers[i].buffer;
         primitive_info.offset = 0;
         primitive_info.range  = sizeof(PrimitiveParams);
-        auto write_primitive = vkinit::writeDescriptorBuffer(
-            descriptor_sets[i], 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &primitive_info
+        auto write_primitive = vkinit::writeDescriptorBuffer(set, 2, 
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &primitive_info
         );
-        set_writes.push_back(write_primitive);
+        updates.push_back(write_primitive);
 
         VkDescriptorBufferInfo scene_info{};
         scene_info.buffer = uniform_buffers[i].buffer;
         scene_info.offset = 0;
         scene_info.range  = sizeof(SceneParams);
-        auto write_scene = vkinit::writeDescriptorBuffer(
-            descriptor_sets[i], 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
+        auto write_scene = vkinit::writeDescriptorBuffer(set, 1, 
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
         );
-        set_writes.push_back(write_scene);
+        updates.push_back(write_scene);
 
-        // TODO: Test this
         for (const auto& view : views)
         {
             if (view.params.resource_type == ResourceType::TextureLinear ||
@@ -692,33 +631,26 @@ void VulkanEngine::updateDescriptorSets()
                 img_info.imageView   = view.vk_view;
                 img_info.sampler     = view.vk_sampler;
 
-                auto write_img = vkinit::writeDescriptorImage(descriptor_sets[i],
+                auto write_img = vkinit::writeDescriptorImage(set,
                     3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
                 );
-                set_writes.push_back(write_img);
+                updates.push_back(write_img);
 
                 VkDescriptorImageInfo samp_info{};
                 samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 samp_info.imageView   = view.vk_view;
                 samp_info.sampler     = view.vk_sampler;
 
-                auto write_samp = vkinit::writeDescriptorImage(descriptor_sets[i],
+                auto write_samp = vkinit::writeDescriptorImage(set,
                     4, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
                 );
-                set_writes.push_back(write_samp);
+                updates.push_back(write_samp);
             }
         }        
 
-        vkUpdateDescriptorSets(dev->logical_device,
-            static_cast<uint32_t>(set_writes.size()), set_writes.data(), 0, nullptr
-        );
+        vkUpdateDescriptorSets(dev->logical_device, updates.size(), updates.data(), 0, nullptr);
     }
 }
-
-/*FrameBarrier& VulkanEngine::getCurrentFrame()
-{
-    return frames[current_frame % frames.size()];
-}*/
 
 void VulkanEngine::renderFrame()
 {
@@ -734,17 +666,11 @@ void VulkanEngine::renderFrame()
     wait_info.pValues = &wait_value;
     vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
 
-    //auto frame = getCurrentFrame();
-    //vkWaitForFences(dev->logical_device, 1, &frame.render_fence, VK_TRUE, timeout);
-
-    auto fence = frame_fences[frame_idx];
-    validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
 
     // Acquire image from swap chain
     uint32_t image_idx;
-    // TODO: vk_presentation_semaphore instead of frame.present_semaphore
     auto result = vkAcquireNextImageKHR(dev->logical_device, swap->swapchain,
-        timeout, vk_presentation_semaphore, VK_NULL_HANDLE, &image_idx
+        timeout, present_semaphore, VK_NULL_HANDLE, &image_idx
     );
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
@@ -761,11 +687,15 @@ void VulkanEngine::renderFrame()
     }
     images_inflight[image_idx] = frame.render_fence;*/
 
+    // Wait for fences 
+    auto fence = frame_fences[frame_idx];
+    validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
+
+    // Retrieve a command buffer and start recording to it
+    auto cmd = command_buffers[frame_idx];
+    validation::checkVulkan(vkResetCommandBuffer(cmd, 0));
     auto cmd_flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     auto begin_info = vkinit::commandBufferBeginInfo(cmd_flags);
-
-    auto cmd = command_buffers[frame_idx];
-    //validation::checkVulkan(vkResetCommandBuffer(cmd, 0));
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
     auto render_pass_info = vkinit::renderPassBeginInfo(
@@ -788,51 +718,32 @@ void VulkanEngine::renderFrame()
 
     updateUniformBuffers(frame_idx);
 
-    std::vector<VkSemaphore> wait_semaphores;
-    wait_semaphores.push_back(timeline.vk_semaphore);
-    //wait_semaphores.push_back(frame.present_semaphore); //vk_timeline_semaphore
-    std::vector<VkPipelineStageFlags> wait_stages;
-    wait_stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    //getWaitFrameSemaphores(wait_semaphores, wait_stages);
+    std::vector<VkPipelineStageFlags> stages;
+    stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
-    std::vector<VkSemaphore> signal_semaphores;
-    //getSignalFrameSemaphores(signal_semaphores);
-    //signal_semaphores.push_back(frame.render_semaphore); //vk_timeline_semaphore
-    signal_semaphores.push_back(timeline.vk_semaphore);
+    std::vector<VkSemaphore> waits;
+    waits.push_back(timeline.vk_semaphore);
+    std::vector<VkSemaphore> signals;
+    signals.push_back(timeline.vk_semaphore);
 
-    VkTimelineSemaphoreSubmitInfo timeline_info{};
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline_info.waitSemaphoreValueCount = 1;
-    timeline_info.pWaitSemaphoreValues = &wait_value;
-    timeline_info.signalSemaphoreValueCount = 1;
-    timeline_info.pSignalSemaphoreValues = &signal_value;
-
-    auto submit_info = vkinit::submitInfo(&cmd);
-    submit_info.pNext                = &timeline_info;
-    submit_info.waitSemaphoreCount   = wait_semaphores.size();
-    submit_info.pWaitSemaphores      = wait_semaphores.data();
-    submit_info.pWaitDstStageMask    = wait_stages.data();
-    submit_info.signalSemaphoreCount = signal_semaphores.size();
-    submit_info.pSignalSemaphores    = signal_semaphores.data();
-
-    //vkResetFences(dev->logical_device, 1, &frame.render_fence);
     validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
 
+    // Fill out command buffer submission info
+    VkTimelineSemaphoreSubmitInfo timeline_info{};
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timeline_info.waitSemaphoreValueCount   = 1;
+    timeline_info.pWaitSemaphoreValues      = &wait_value;
+    timeline_info.signalSemaphoreValueCount = 1;
+    timeline_info.pSignalSemaphoreValues    = &signal_value;
+    auto submit_info = vkinit::submitInfo(&cmd, waits, stages, signals, &timeline_info);
+
     // Execute command buffer using image as attachment in framebuffer
-    validation::checkVulkan(vkQueueSubmit(
-        dev->graphics.queue, 1, &submit_info, fence) //frame.render_fence
-    );
+    validation::checkVulkan(vkQueueSubmit(dev->graphics.queue, 1, &submit_info, fence));
 
     // Return image result back to swapchain for presentation on screen
-    auto present_info = vkinit::presentInfo();
-    present_info.swapchainCount     = 1;
-    present_info.pSwapchains        = &swap->swapchain;
-    present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores    = &vk_presentation_semaphore;
-    //present_info.pWaitSemaphores    = &frame.render_semaphore;
-    present_info.pImageIndices      = &image_idx;
-
+    auto present_info = vkinit::presentInfo(&image_idx, &swap->swapchain, &present_semaphore);
     result = vkQueuePresentKHR(dev->present.queue, &present_info);
+
     // Resize should be done after presentation to ensure semaphore consistency
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
         || should_resize)

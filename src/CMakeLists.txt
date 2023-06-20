@@ -17,8 +17,8 @@ target_sources(cudaview PRIVATE
 )
 target_include_directories(cudaview SYSTEM PUBLIC ../include)
 
-set_property(TARGET cudaview PROPERTY CUDA_STANDARD 17)
-target_compile_features(cudaview PUBLIC cxx_std_17)
+set_property(TARGET cudaview PROPERTY CUDA_STANDARD 20)
+target_compile_features(cudaview PUBLIC cxx_std_20)
 target_compile_options(cudaview PRIVATE -Wall -Wextra 
     "$<$<CONFIG:Debug>:-g>"
     "$<$<CONFIG:Release>:-O3>"
