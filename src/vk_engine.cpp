@@ -88,6 +88,7 @@ void VulkanEngine::init(ViewerOptions opts)
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetScrollCallback(window, scrollCallback);
     glfwSetKeyCallback(window, keyCallback);
+    glfwSetWindowCloseCallback(window, windowCloseCallback);
 
     initVulkan();
     views.reserve(max_view_count); // Temp hack
@@ -137,8 +138,6 @@ void VulkanEngine::displayAsync()
         {
             glfwPollEvents(); // TODO: Move to main thread
             drawGui();
-
-            //printf("Rendering frame\n");
             renderFrame();
         }
         vkDeviceWaitIdle(dev->logical_device);
@@ -147,20 +146,27 @@ void VulkanEngine::displayAsync()
 
 void VulkanEngine::prepareWindow()
 {
-    //printf("Kernel is starting\n");
-    waitKernelStart();
+    if (working)
+    {
+        //printf("Kernel is starting\n");
+        waitKernelStart();
+    }
 }
 
 void VulkanEngine::updateWindow()
 {
-    //printf("Kernel has ended\n");
-    signalKernelFinish();
+    if (working)
+    {
+        //printf("Kernel has ended\n");
+        signalKernelFinish();
+    }
 }
 
 void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();    
     size_t iter_idx = 0;
+    working = true;
     while(!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
@@ -176,6 +182,7 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
         }
         signalKernelFinish();
     }
+    working = false;
     vkDeviceWaitIdle(dev->logical_device);
 }
 
@@ -188,7 +195,7 @@ void VulkanEngine::waitKernelStart()
     wait_params.flags = 0;
     wait_params.params.fence.value = kernel_wait;
     // Wait for Vulkan to complete its work
-    //printf("Waiting to vulkan to finish\n");
+    printf("Waiting to vulkan to finish\n");
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
         &timeline.cuda_semaphore, &wait_params, 1, stream)
         //&kernel_start.cuda_semaphore, &wait_params, 1, stream)
@@ -202,7 +209,7 @@ void VulkanEngine::signalKernelFinish()
     signal_params.params.fence.value = kernel_signal;
 
     // Signal Vulkan to continue with the updated buffers
-    //printf("Signaling that CUDA has ended\n");
+    printf("Signaling that CUDA has ended\n");
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
         &timeline.cuda_semaphore, &signal_params, 1, stream)
         //&kernel_finish.cuda_semaphore, &signal_params, 1, stream)

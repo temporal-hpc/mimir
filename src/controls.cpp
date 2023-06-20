@@ -230,3 +230,10 @@ void VulkanEngine::handleKey(int key, int scancode, int action, int mods)
         show_metrics = !show_metrics;
     }
 }
+
+void VulkanEngine::windowCloseCallback(GLFWwindow *window)
+{
+    auto engine = getHandler(window);
+    engine->working = false;
+    engine->signalKernelFinish();
+}

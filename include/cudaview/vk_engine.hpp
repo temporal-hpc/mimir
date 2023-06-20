@@ -88,6 +88,7 @@ private:
     //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
     // CPU thread synchronization variables
+    bool working = true;
     std::thread rendering_thread;
 
     // Cuda interop data
@@ -122,6 +123,7 @@ private:
     static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
     static void scrollCallback(GLFWwindow *window, double xoffset, double yoffset);
     static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
+    static void windowCloseCallback(GLFWwindow *window);
 
     static void addViewObjectGui(CudaView *view_ptr, int uid);
     std::unique_ptr<Camera> camera;
