@@ -16,7 +16,7 @@
 
 namespace
 {
-     static constexpr size_t MAX_FRAMES_IN_FLIGHT = 1;
+     static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 }
 
 struct Camera;
@@ -78,10 +78,12 @@ private:
     VkImageView depth_view;
 
     // Synchronization structures
-    std::vector<VkFence> images_inflight;
-    std::array<FrameBarrier, MAX_FRAMES_IN_FLIGHT> frames;
+    //std::vector<VkFence> images_inflight;
+    //std::array<FrameBarrier, MAX_FRAMES_IN_FLIGHT> frames;
+    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> frame_fences;
     InteropBarrier kernel_start, kernel_finish;
-    //VkSemaphore vk_presentation_semaphore;
+    VkSemaphore vk_presentation_semaphore;
+    InteropBarrier timeline;
     //VkSemaphore vk_timeline_semaphore;
     //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
@@ -99,7 +101,7 @@ private:
     std::vector<CudaView> views;
     std::vector<AllocatedBuffer> uniform_buffers;
 
-    FrameBarrier& getCurrentFrame();
+    //FrameBarrier& getCurrentFrame();
     void getWaitFrameSemaphores(std::vector<VkSemaphore>& wait,
         std::vector<VkPipelineStageFlags>& wait_stages) const;
     void getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) const;

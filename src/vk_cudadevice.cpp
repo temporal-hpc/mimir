@@ -419,15 +419,15 @@ void *VulkanCudaDevice::getSemaphoreHandle(VkSemaphore semaphore,
 
 InteropBarrier VulkanCudaDevice::createInteropBarrier()
 {
-    /*VkSemaphoreTypeCreateInfo timeline_info{};
+    VkSemaphoreTypeCreateInfo timeline_info{};
     timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
     timeline_info.pNext = nullptr;
     timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    timeline_info.initialValue = 0;*/
+    timeline_info.initialValue = 0;
 
     VkExportSemaphoreCreateInfoKHR export_info{};
     export_info.sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
-    export_info.pNext       = nullptr; // &timeline_info
+    export_info.pNext       = &timeline_info;
     export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
 
     auto semaphore_info  = vkinit::semaphoreCreateInfo();
@@ -439,8 +439,8 @@ InteropBarrier VulkanCudaDevice::createInteropBarrier()
     );
 
     cudaExternalSemaphoreHandleDesc desc{};
-    //desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-    desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
+    desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+    //desc.type = cudaExternalSemaphoreHandleTypeOpaqueFd;
     desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(
         barrier.vk_semaphore, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
     );

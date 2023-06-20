@@ -149,8 +149,8 @@ void VulkanEngine::displayAsync()
 
 void VulkanEngine::prepareWindow()
 {
-    device_working = true;
     std::unique_lock<std::mutex> ul(mutex);
+    device_working = true;
     waitKernelStart();
     ul.unlock();
     cond.notify_one();
@@ -471,14 +471,18 @@ void VulkanEngine::getSignalFrameSemaphores(std::vector<VkSemaphore>& signal) co
     signal.push_back(kernel_start.vk_semaphore);
 }
 
+static uint64_t kernel_wait = 1;
+static uint64_t kernel_signal = 2;
+
 void VulkanEngine::waitKernelStart()
-{
+{   
     cudaExternalSemaphoreWaitParams wait_params{};
     wait_params.flags = 0;
-    wait_params.params.fence.value = 0;
+    wait_params.params.fence.value = kernel_wait;
     // Wait for Vulkan to complete its work
-    validation::checkCuda(cudaWaitExternalSemaphoresAsync(//&cuda_timeline_semaphore
-        &kernel_start.cuda_semaphore, &wait_params, 1, stream)
+    validation::checkCuda(cudaWaitExternalSemaphoresAsync(
+        &timeline.cuda_semaphore, &wait_params, 1, stream)
+        //&kernel_start.cuda_semaphore, &wait_params, 1, stream)
     );
 }
 
@@ -486,19 +490,23 @@ void VulkanEngine::signalKernelFinish()
 {
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
-    signal_params.params.fence.value = 0;
+    signal_params.params.fence.value = kernel_signal;
 
     // Signal Vulkan to continue with the updated buffers
-    validation::checkCuda(cudaSignalExternalSemaphoresAsync(//&cuda_timeline_semaphore
-        &kernel_finish.cuda_semaphore, &signal_params, 1, stream)
+    validation::checkCuda(cudaSignalExternalSemaphoresAsync(
+        &timeline.cuda_semaphore, &signal_params, 1, stream)
+        //&kernel_finish.cuda_semaphore, &signal_params, 1, stream)
     );
+
+    kernel_wait += 2;
+    kernel_signal += 2;
 }
 
 void VulkanEngine::createSyncObjects()
 {
-    images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
+    //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
 
-    auto semaphore_info = vkinit::semaphoreCreateInfo();
+    /*
     auto fence_info = vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
     for (auto& frame : frames)
     {
@@ -521,12 +529,31 @@ void VulkanEngine::createSyncObjects()
     // Vulkan signal will be CUDA wait
     kernel_start = dev->createInteropBarrier();
     // CUDA signal will be Vulkan wait
-    kernel_finish = dev->createInteropBarrier();
+    kernel_finish = dev->createInteropBarrier();*/
 
-    /*validation::checkVulkan(vkCreateSemaphore(
-        device, &semaphore_info, nullptr, &vk_presentation_semaphore)
+    auto fence_info = vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
+    for (auto& fence : frame_fences)
+    {
+        validation::checkVulkan(vkCreateFence(
+            dev->logical_device, &fence_info, nullptr, &fence)
+        );
+        deletors.add([=,this]{
+            vkDestroyFence(dev->logical_device, fence, nullptr);
+        });
+    }
+
+    auto semaphore_info = vkinit::semaphoreCreateInfo();
+    validation::checkVulkan(vkCreateSemaphore(
+        dev->logical_device, &semaphore_info, nullptr, &vk_presentation_semaphore)
     );
-    createExternalSemaphore(vk_timeline_semaphore);
+    timeline = dev->createInteropBarrier();
+    deletors.add([=,this]{
+        vkDestroySemaphore(dev->logical_device, vk_presentation_semaphore, nullptr);
+        vkDestroySemaphore(dev->logical_device, timeline.vk_semaphore, nullptr);
+        validation::checkCuda(cudaDestroyExternalSemaphore(timeline.cuda_semaphore));
+    });    
+
+    /*createExternalSemaphore(vk_timeline_semaphore);
     importCudaExternalSemaphore(cuda_timeline_semaphore, vk_timeline_semaphore);
     if (cuda_timeline_semaphore != nullptr)
     {
@@ -691,32 +718,36 @@ void VulkanEngine::updateDescriptorSets()
     }
 }
 
-FrameBarrier& VulkanEngine::getCurrentFrame()
+/*FrameBarrier& VulkanEngine::getCurrentFrame()
 {
     return frames[current_frame % frames.size()];
-}
+}*/
 
 void VulkanEngine::renderFrame()
 {
     constexpr auto timeout = std::numeric_limits<uint64_t>::max();
-    /*const uint64_t wait_value = 0;
-    const uint64_t signal_value = 1;
+    static uint64_t wait_value = 0;
+    static uint64_t signal_value = 1;
+    auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
 
     VkSemaphoreWaitInfo wait_info{};
     wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-    wait_info.pSemaphores = &vk_timeline_semaphore;
+    wait_info.pSemaphores = &timeline.vk_semaphore;
     wait_info.semaphoreCount = 1;
     wait_info.pValues = &wait_value;
-    vkWaitSemaphores(device, &wait_info, timeout);*/
+    vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
 
-    auto frame = getCurrentFrame();
-    vkWaitForFences(dev->logical_device, 1, &frame.render_fence, VK_TRUE, timeout);
+    //auto frame = getCurrentFrame();
+    //vkWaitForFences(dev->logical_device, 1, &frame.render_fence, VK_TRUE, timeout);
+
+    auto fence = frame_fences[frame_idx];
+    validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
 
     // Acquire image from swap chain
     uint32_t image_idx;
     // TODO: vk_presentation_semaphore instead of frame.present_semaphore
     auto result = vkAcquireNextImageKHR(dev->logical_device, swap->swapchain,
-        timeout, frame.present_semaphore, VK_NULL_HANDLE, &image_idx
+        timeout, vk_presentation_semaphore, VK_NULL_HANDLE, &image_idx
     );
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
@@ -727,16 +758,17 @@ void VulkanEngine::renderFrame()
         throw std::runtime_error("Failed to acquire swapchain image");
     }
 
-    if (images_inflight[image_idx] != VK_NULL_HANDLE)
+    /*if (images_inflight[image_idx] != VK_NULL_HANDLE)
     {
         vkWaitForFences(dev->logical_device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
     }
-    images_inflight[image_idx] = frame.render_fence;
+    images_inflight[image_idx] = frame.render_fence;*/
 
-    auto cmd_flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+    auto cmd_flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     auto begin_info = vkinit::commandBufferBeginInfo(cmd_flags);
 
-    auto cmd = command_buffers[image_idx];
+    auto cmd = command_buffers[frame_idx];
+    //validation::checkVulkan(vkResetCommandBuffer(cmd, 0));
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
     auto render_pass_info = vkinit::renderPassBeginInfo(
@@ -750,45 +782,48 @@ void VulkanEngine::renderFrame()
 
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-    drawObjects(image_idx);
+    drawObjects(frame_idx);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 
     vkCmdEndRenderPass(cmd);
     // Finalize command buffer recording, so it can be executed
     validation::checkVulkan(vkEndCommandBuffer(cmd));
 
-    updateUniformBuffers(image_idx);
+    updateUniformBuffers(frame_idx);
 
     std::vector<VkSemaphore> wait_semaphores;
+    wait_semaphores.push_back(timeline.vk_semaphore);
+    //wait_semaphores.push_back(frame.present_semaphore); //vk_timeline_semaphore
     std::vector<VkPipelineStageFlags> wait_stages;
-    wait_semaphores.push_back(frame.present_semaphore); //vk_timeline_semaphore
     wait_stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    getWaitFrameSemaphores(wait_semaphores, wait_stages);
+    //getWaitFrameSemaphores(wait_semaphores, wait_stages);
 
     std::vector<VkSemaphore> signal_semaphores;
-    getSignalFrameSemaphores(signal_semaphores);
-    signal_semaphores.push_back(frame.render_semaphore); //vk_timeline_semaphore
+    //getSignalFrameSemaphores(signal_semaphores);
+    //signal_semaphores.push_back(frame.render_semaphore); //vk_timeline_semaphore
+    signal_semaphores.push_back(timeline.vk_semaphore);
+
+    VkTimelineSemaphoreSubmitInfo timeline_info{};
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timeline_info.waitSemaphoreValueCount = 1;
+    timeline_info.pWaitSemaphoreValues = &wait_value;
+    timeline_info.signalSemaphoreValueCount = 1;
+    timeline_info.pSignalSemaphoreValues = &signal_value;
 
     auto submit_info = vkinit::submitInfo(&cmd);
+    submit_info.pNext                = &timeline_info;
     submit_info.waitSemaphoreCount   = wait_semaphores.size();
     submit_info.pWaitSemaphores      = wait_semaphores.data();
     submit_info.pWaitDstStageMask    = wait_stages.data();
     submit_info.signalSemaphoreCount = signal_semaphores.size();
     submit_info.pSignalSemaphores    = signal_semaphores.data();
 
-    /*VkTimelineSemaphoreSubmitInfo timeline_info{};
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline_info.waitSemaphoreValueCount = 1;
-    timeline_info.pWaitSemaphoreValues = &wait_value;
-    timeline_info.signalSemaphoreValueCount = 1;
-    timeline_info.pSignalSemaphoreValues = &signal_value;
-    submit_info.pNext = &timeline_info;*/
-
-    vkResetFences(dev->logical_device, 1, &frame.render_fence);
+    //vkResetFences(dev->logical_device, 1, &frame.render_fence);
+    validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
 
     // Execute command buffer using image as attachment in framebuffer
     validation::checkVulkan(vkQueueSubmit(
-        dev->graphics.queue, 1, &submit_info, frame.render_fence) //VK_NULL_HANDLE
+        dev->graphics.queue, 1, &submit_info, fence) //frame.render_fence
     );
 
     // Return image result back to swapchain for presentation on screen
@@ -796,8 +831,8 @@ void VulkanEngine::renderFrame()
     present_info.swapchainCount     = 1;
     present_info.pSwapchains        = &swap->swapchain;
     present_info.waitSemaphoreCount = 1;
-    //present_info.pWaitSemaphores = &vk_presentation_semaphore;
-    present_info.pWaitSemaphores    = &frame.render_semaphore;
+    present_info.pWaitSemaphores    = &vk_presentation_semaphore;
+    //present_info.pWaitSemaphores    = &frame.render_semaphore;
     present_info.pImageIndices      = &image_idx;
 
     result = vkQueuePresentKHR(dev->present.queue, &present_info);
@@ -813,6 +848,8 @@ void VulkanEngine::renderFrame()
     }
 
     current_frame++;
+    wait_value += 2;
+    signal_value += 2;
 }
 
 void VulkanEngine::drawObjects(uint32_t image_idx)
