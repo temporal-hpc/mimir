@@ -135,6 +135,7 @@ void VulkanEngine::prepare()
 void VulkanEngine::displayAsync()
 {
     prepare();
+    running = true;
     rendering_thread = std::thread([this]()
     {
         while(!glfwWindowShouldClose(window))
@@ -143,48 +144,53 @@ void VulkanEngine::displayAsync()
             drawGui();
             renderFrame();
         }
+        running = false;
         vkDeviceWaitIdle(dev->logical_device);
     });
 }
 
 void VulkanEngine::prepareWindow()
 {
-    if (working)
+    if (running)
     {
         //printf("Kernel is starting\n");
+        kernel_working = true;
         waitKernelStart();
     }
 }
 
 void VulkanEngine::updateWindow()
 {
-    if (working)
+    if (running)
     {
         //printf("Kernel has ended\n");
         signalKernelFinish();
+        kernel_working = false;
     }
 }
 
 void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();    
+    running = true;
+    kernel_working = true;
     size_t iter_idx = 0;
-    working = true;
     while(!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
         drawGui();
         renderFrame();
 
-        prepareWindow();
+        if (running) waitKernelStart();
         if (iter_idx < iter_count)
         {
             func(); // Advance the simulation
             iter_idx++;
         }
-        updateWindow();
+        if (running) signalKernelFinish();
     }
-    working = false;
+    kernel_working = false;
+    running = false;
     vkDeviceWaitIdle(dev->logical_device);
 }
 
@@ -635,12 +641,15 @@ void VulkanEngine::renderFrame()
     static uint64_t signal_value = 1;
     auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
 
-    VkSemaphoreWaitInfo wait_info{};
-    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-    wait_info.pSemaphores = &timeline.vk_semaphore;
-    wait_info.semaphoreCount = 1;
-    wait_info.pValues = &wait_value;
-    vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
+    if (kernel_working)
+    {
+        VkSemaphoreWaitInfo wait_info{};
+        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        wait_info.pSemaphores = &timeline.vk_semaphore;
+        wait_info.semaphoreCount = 1;
+        wait_info.pValues = &wait_value;
+        vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
+    }
 
     // Acquire image from swap chain
     uint32_t image_idx;
@@ -697,9 +706,12 @@ void VulkanEngine::renderFrame()
     std::vector<VkPipelineStageFlags> stages;
     stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     std::vector<VkSemaphore> waits;
-    waits.push_back(timeline.vk_semaphore);
     std::vector<VkSemaphore> signals;
-    signals.push_back(timeline.vk_semaphore);
+    if (kernel_working)
+    {
+        waits.push_back(timeline.vk_semaphore);
+        signals.push_back(timeline.vk_semaphore);
+    }
     auto timeline_info = vkinit::timelineSubmitInfo(&wait_value, &signal_value);
     auto submit_info = vkinit::submitInfo(&cmd, waits, stages, signals, &timeline_info);
 
@@ -724,8 +736,11 @@ void VulkanEngine::renderFrame()
     }
 
     current_frame++;
-    wait_value += 2;
-    signal_value += 2;
+    if (kernel_working)
+    {
+        wait_value += 2;
+        signal_value += 2;
+    }
 }
 
 void VulkanEngine::drawObjects(uint32_t image_idx)

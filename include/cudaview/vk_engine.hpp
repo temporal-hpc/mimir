@@ -88,7 +88,8 @@ private:
     //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
     // CPU thread synchronization variables
-    bool working = true;
+    bool running = false;
+    bool kernel_working = false;
     std::thread rendering_thread;
 
     // Cuda interop data
