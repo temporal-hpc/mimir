@@ -94,7 +94,6 @@ int main(int argc, char **argv){
     printf("done: %f secs\n", omp_get_wtime() - t1);
 
     engine.displayAsync();
-    engine.updateWindow();
 
     // ejecucion
     print_cube(n, original, "INPUT");

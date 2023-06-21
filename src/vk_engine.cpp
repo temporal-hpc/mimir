@@ -1,5 +1,5 @@
 #include <cudaview/vk_engine.hpp>
-#include "cudaview/io.hpp"
+#include <cudaview/io.hpp>
 
 #include "internal/camera.hpp"
 #include "internal/vk_initializers.hpp"
@@ -630,7 +630,7 @@ void VulkanEngine::updateDescriptorSets()
 
 void VulkanEngine::renderFrame()
 {
-    constexpr auto timeout = std::numeric_limits<uint64_t>::max();
+    constexpr auto timeout = 1000000000; //std::numeric_limits<uint64_t>::max();
     static uint64_t wait_value = 0;
     static uint64_t signal_value = 1;
     auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
@@ -676,7 +676,9 @@ void VulkanEngine::renderFrame()
 
     // Wait for fences 
     auto fence = frame_fences[frame_idx];
+    //printf("Frame %lu will wait for fence\n", frame_idx);
     validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
+    //printf("Frame %lu passed fence\n", frame_idx);
 
     // Retrieve a command buffer and start recording to it
     auto cmd = command_buffers[frame_idx];

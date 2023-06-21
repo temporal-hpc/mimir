@@ -233,6 +233,7 @@ void VulkanEngine::handleKey(int key, int scancode, int action, int mods)
 
 void VulkanEngine::windowCloseCallback(GLFWwindow *window)
 {
+    printf("Handling window close\n");
     auto engine = getHandler(window);
     engine->running = false;
     engine->signalKernelFinish();
