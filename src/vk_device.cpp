@@ -389,6 +389,16 @@ VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
     return layout;
 }
 
+VkPipelineLayout VulkanDevice::createPipelineLayout(VkDescriptorSetLayout descriptor_layout)
+{
+    std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
+    auto info = vkinit::pipelineLayoutCreateInfo(layouts);
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreatePipelineLayout(logical_device, &info, nullptr, &layout));
+    deletors.add([=,this]{ vkDestroyPipelineLayout(logical_device, layout, nullptr); });
+    return layout;
+}
+
 VkFence VulkanDevice::createFence(VkFenceCreateFlags flags)
 {
     auto info = vkinit::fenceCreateInfo(flags);

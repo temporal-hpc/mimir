@@ -51,6 +51,16 @@ struct VulkanDevice
 
     void initLogicalDevice(VkSurfaceKHR surface);
     VkCommandPool createCommandPool(uint32_t queue_idx, VkCommandPoolCreateFlags flags);
+    VkDescriptorPool createDescriptorPool(const std::vector<VkDescriptorPoolSize>& sizes);
+    
+    std::vector<VkDescriptorSet> createDescriptorSets(
+        VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count
+    );
+    VkDescriptorSetLayout createDescriptorSetLayout(
+        const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings
+    );
+    VkPipelineLayout createPipelineLayout(VkDescriptorSetLayout descriptor_layout);
+    
     std::vector<VkCommandBuffer> createCommandBuffers(uint32_t buffer_count);
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
@@ -68,24 +78,15 @@ struct VulkanDevice
     VkFormat findSupportedImageFormat(const std::vector<VkFormat>& candidates,
         VkImageTiling tiling, VkFormatFeatureFlags features
     );
-
     void generateMipmaps(VkImage image, VkFormat img_format,
         int img_width, int img_height, int mip_levels
     );
-    VkDescriptorPool createDescriptorPool(
-        const std::vector<VkDescriptorPoolSize>& sizes
-    );
-    std::vector<VkDescriptorSet> createDescriptorSets(
-        VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count
-    );
-    VkDescriptorSetLayout createDescriptorSetLayout(
-        const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings
-    );
-    VkFence createFence(VkFenceCreateFlags flags);
-    VkSemaphore createSemaphore(const void *export_info = nullptr);
     void transitionImageLayout(VkImage image,
         VkImageLayout old_layout, VkImageLayout new_layout
     );
+    
+    VkFence createFence(VkFenceCreateFlags flags);
+    VkSemaphore createSemaphore(const void *export_info = nullptr);
     ConvertedMemory formatMemory(uint64_t memsize) const; 
     std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
     void updateMemoryProperties();

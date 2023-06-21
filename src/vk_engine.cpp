@@ -16,7 +16,6 @@
 
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
-#include <glm/gtx/string_cast.hpp>
 
 constexpr size_t max_view_count = 256;
 
@@ -159,6 +158,21 @@ void VulkanEngine::prepareWindow()
     }
 }
 
+void VulkanEngine::waitKernelStart()
+{   
+    static uint64_t wait_value = 1;
+    cudaExternalSemaphoreWaitParams wait_params{};
+    wait_params.flags = 0;
+    wait_params.params.fence.value = wait_value;
+
+    // Wait for Vulkan to complete its work
+    printf("Waiting for value %lu to vulkan to finish\n", wait_value);
+    validation::checkCuda(cudaWaitExternalSemaphoresAsync(
+        &timeline.cuda_semaphore, &wait_params, 1, stream)
+    );
+    wait_value += 2;
+}
+
 void VulkanEngine::updateWindow()
 {
     if (running)
@@ -167,6 +181,21 @@ void VulkanEngine::updateWindow()
         signalKernelFinish();
         kernel_working = false;
     }
+}
+
+void VulkanEngine::signalKernelFinish()
+{
+    static uint64_t signal_value = 2;
+    cudaExternalSemaphoreSignalParams signal_params{};
+    signal_params.flags = 0;
+    signal_params.params.fence.value = signal_value;
+
+    // Signal Vulkan to continue with the updated buffers
+    printf("Signaling with value %lu that CUDA has ended\n", signal_value);
+    validation::checkCuda(cudaSignalExternalSemaphoresAsync(
+        &timeline.cuda_semaphore, &signal_params, 1, stream)
+    );
+    signal_value += 2;
 }
 
 void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
@@ -192,36 +221,6 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     kernel_working = false;
     running = false;
     vkDeviceWaitIdle(dev->logical_device);
-}
-
-void VulkanEngine::waitKernelStart()
-{   
-    static uint64_t kernel_wait = 1;
-    cudaExternalSemaphoreWaitParams wait_params{};
-    wait_params.flags = 0;
-    wait_params.params.fence.value = kernel_wait;
-
-    // Wait for Vulkan to complete its work
-    printf("Waiting to vulkan to finish\n");
-    validation::checkCuda(cudaWaitExternalSemaphoresAsync(
-        &timeline.cuda_semaphore, &wait_params, 1, stream)
-    );
-    kernel_wait += 2;
-}
-
-void VulkanEngine::signalKernelFinish()
-{
-    static uint64_t kernel_signal = 2;
-    cudaExternalSemaphoreSignalParams signal_params{};
-    signal_params.flags = 0;
-    signal_params.params.fence.value = kernel_signal;
-
-    // Signal Vulkan to continue with the updated buffers
-    printf("Signaling that CUDA has ended\n");
-    validation::checkCuda(cudaSignalExternalSemaphoresAsync(
-        &timeline.cuda_semaphore, &signal_params, 1, stream)
-    );
-    kernel_signal += 2;
 }
 
 CudaView *VulkanEngine::createView(void **ptr_devmem, ViewParams params)
@@ -268,8 +267,8 @@ void VulkanEngine::initVulkan()
         { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
     });
 
-    // Create descriptor set layout
-    descriptor_layout = dev->createDescriptorSetLayout({
+    // Create descriptor set and pipeline layouts
+    std::vector<VkDescriptorSetLayoutBinding> layout_bindings{
         vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
@@ -285,20 +284,11 @@ void VulkanEngine::initVulkan()
         vkinit::descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER,
             VK_SHADER_STAGE_FRAGMENT_BIT
         )
-    });
-
-    // Create pipeline layout
-    std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
-    auto pipeline_layout_info = vkinit::pipelineLayoutCreateInfo(layouts);
-    validation::checkVulkan(vkCreatePipelineLayout(
-        dev->logical_device, &pipeline_layout_info, nullptr, &pipeline_layout)
-    );
-    deletors.add([=,this]{
-        vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
-    });
+    };
+    descriptor_layout = dev->createDescriptorSetLayout(layout_bindings);
+    pipeline_layout = dev->createPipelineLayout(descriptor_layout);
 
     initSwapchain();
-
     initImgui(); // After command pool and render pass are created
     createSyncObjects();
 
@@ -309,8 +299,7 @@ void VulkanEngine::initVulkan()
 
 void VulkanEngine::createInstance()
 {
-    if (validation::enable_layers &&
-        !validation::checkValidationLayerSupport())
+    if (validation::enable_layers && !validation::checkValidationLayerSupport())
     {
         throw std::runtime_error("validation layers requested, but not supported");
     }
@@ -641,6 +630,8 @@ void VulkanEngine::renderFrame()
     static uint64_t signal_value = 1;
     auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
 
+    std::vector<VkSemaphore> waits;
+    std::vector<VkSemaphore> signals;
     if (kernel_working)
     {
         VkSemaphoreWaitInfo wait_info{};
@@ -648,7 +639,12 @@ void VulkanEngine::renderFrame()
         wait_info.pSemaphores = &timeline.vk_semaphore;
         wait_info.semaphoreCount = 1;
         wait_info.pValues = &wait_value;
+        printf("Frame %lu will wait for semaphore value %lu\n", frame_idx, wait_value);
         vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
+
+        waits.push_back(timeline.vk_semaphore);
+        signals.push_back(timeline.vk_semaphore);
+        printf("Frame %lu will signal semaphore value %lu\n", frame_idx, signal_value);
     }
 
     // Acquire image from swap chain
@@ -705,15 +701,8 @@ void VulkanEngine::renderFrame()
     // Fill out command buffer submission info
     std::vector<VkPipelineStageFlags> stages;
     stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    std::vector<VkSemaphore> waits;
-    std::vector<VkSemaphore> signals;
-    if (kernel_working)
-    {
-        waits.push_back(timeline.vk_semaphore);
-        signals.push_back(timeline.vk_semaphore);
-    }
-    auto timeline_info = vkinit::timelineSubmitInfo(&wait_value, &signal_value);
-    auto submit_info = vkinit::submitInfo(&cmd, waits, stages, signals, &timeline_info);
+    auto interop_sync_info = vkinit::timelineSubmitInfo(&wait_value, &signal_value);
+    auto submit_info = vkinit::submitInfo(&cmd, waits, stages, signals, &interop_sync_info);
 
     // Clear fence before placing it again
     validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
@@ -884,8 +873,7 @@ VkRenderPass VulkanEngine::createRenderPass()
     pass_info.pDependencies   = &dependency;
 
     printf("render pass attachment count: %lu\n", attachments.size());
-
-    VkRenderPass render_pass;
+    VkRenderPass render_pass = VK_NULL_HANDLE;
     validation::checkVulkan(
         vkCreateRenderPass(dev->logical_device, &pass_info, nullptr, &render_pass)
     );

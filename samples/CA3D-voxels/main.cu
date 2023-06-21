@@ -74,11 +74,11 @@ int main(int argc, char **argv){
     params.extent = {(unsigned)n, (unsigned)n, (unsigned)n};
     // TODO: CAMBIAR A DOMAIN 2D
     params.data_domain = DataDomain::Domain3D;
-    //params.resource_type = ResourceType::StructuredBuffer;
-    //params.primitive_type = PrimitiveType::Voxels;
+    params.resource_type = ResourceType::StructuredBuffer;
+    params.primitive_type = PrimitiveType::Voxels;
 
-    params.resource_type = ResourceType::TextureLinear;
-    params.texture_format = TextureFormat::Int32;
+    //params.resource_type = ResourceType::TextureLinear;
+    //params.texture_format = TextureFormat::Int32;
     auto v1 = engine.createView((void**)&d1, params);
     /*engine.createViewStructured((void**)&d2, extent, sizeof(int),
       DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
@@ -115,7 +115,6 @@ int main(int argc, char **argv){
             cudaEventRecord(start);
 
             // llamada al kernel
-            std::this_thread::sleep_for(std::chrono::seconds(1));
             engine.prepareWindow();
 
             kernel_CA3D<<<grid, block>>>(n, d1, d2);
@@ -159,4 +158,5 @@ int main(int argc, char **argv){
             std::swap(original, CPUd2);
         }
     }
+    printf("Finished running all steps\n");
 }
