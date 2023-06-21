@@ -20,4 +20,9 @@ struct DeletionQueue
         }
         deletors.clear();
     }
+
+    ~DeletionQueue()
+    {
+        flush();
+    }
 };

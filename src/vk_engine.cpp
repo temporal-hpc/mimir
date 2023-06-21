@@ -54,22 +54,17 @@ VulkanEngine::~VulkanEngine()
     {
         validation::checkCuda(cudaStreamSynchronize(stream));
     }
+    for (auto& ubo : uniform_buffers)
+    {
+        vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
+        vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
+    }
 
     cleanupSwapchain();
 
     ImGui_ImplVulkan_Shutdown();
-    deletors.flush();
     swap.reset();
     dev.reset();
-    if (instance != VK_NULL_HANDLE)
-    {
-        vkDestroyInstance(instance, nullptr);
-    }
-    if (window != nullptr)
-    {
-        glfwDestroyWindow(window);
-    }
-    glfwTerminate();
 }
 
 void VulkanEngine::init(ViewerOptions opts)
@@ -77,10 +72,19 @@ void VulkanEngine::init(ViewerOptions opts)
     options = opts;
     auto width  = options.window.x;
     auto height = options.window.y;
+    
+    // Initialize GLFW context and window
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     window = glfwCreateWindow(width, height, "CudaView", nullptr, nullptr);
+    deletors.add([=,this] {
+        printf("Terminating GLFW\n");
+        glfwDestroyWindow(window);
+        glfwTerminate();
+    });
+
+    // Set GLFW action callbacks
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     glfwSetCursorPosCallback(window, cursorPositionCallback);
@@ -345,6 +349,7 @@ void VulkanEngine::createInstance()
         instance_info.ppEnabledLayerNames = validation::layers.data();
     }
     validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
+    deletors.add([=,this]{ vkDestroyInstance(instance, nullptr); });
 
     if (validation::enable_layers)
     {
@@ -630,6 +635,7 @@ void VulkanEngine::renderFrame()
     static uint64_t signal_value = 1;
     auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
 
+    bool advance_timeline = false;
     std::vector<VkSemaphore> waits;
     std::vector<VkSemaphore> signals;
     if (kernel_working)
@@ -645,6 +651,7 @@ void VulkanEngine::renderFrame()
         waits.push_back(timeline.vk_semaphore);
         signals.push_back(timeline.vk_semaphore);
         printf("Frame %lu will signal semaphore value %lu\n", frame_idx, signal_value);
+        advance_timeline = true;
     }
 
     // Acquire image from swap chain
@@ -725,7 +732,7 @@ void VulkanEngine::renderFrame()
     }
 
     current_frame++;
-    if (kernel_working)
+    if (advance_timeline)
     {
         wait_value += 2;
         signal_value += 2;
@@ -941,10 +948,6 @@ void VulkanEngine::initUniformBuffers()
         auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         ubo.memory = dev->allocateMemory(memreq, mem_usage);
         vkBindBufferMemory(dev->logical_device, ubo.buffer, ubo.memory, 0);
-        deletors.add([=,this]{
-            vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
-            vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
-        });
     }
 }
 

@@ -79,13 +79,9 @@ private:
 
     // Synchronization structures
     //std::vector<VkFence> images_inflight;
-    //std::array<FrameBarrier, MAX_FRAMES_IN_FLIGHT> frames;
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> frame_fences;
-    InteropBarrier kernel_start, kernel_finish;
-    VkSemaphore present_semaphore;
+    VkSemaphore present_semaphore = VK_NULL_HANDLE;
     InteropBarrier timeline;
-    //VkSemaphore vk_timeline_semaphore;
-    //cudaExternalSemaphore_t cuda_timeline_semaphore;
 
     // CPU thread synchronization variables
     bool running = false;
