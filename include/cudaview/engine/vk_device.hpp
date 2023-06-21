@@ -86,7 +86,7 @@ struct VulkanDevice
     );
     
     VkFence createFence(VkFenceCreateFlags flags);
-    VkSemaphore createSemaphore(const void *export_info = nullptr);
+    VkSemaphore createSemaphore(const void *extensions = nullptr);
     ConvertedMemory formatMemory(uint64_t memsize) const; 
     std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
     void updateMemoryProperties();

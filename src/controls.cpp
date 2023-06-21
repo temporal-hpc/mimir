@@ -203,7 +203,7 @@ void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int actio
 void VulkanEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
 {
     auto app = getHandler(window);
-    //app->should_resize = true;
+    app->should_resize = true;
 }
 
 void VulkanEngine::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)

@@ -22,9 +22,7 @@ VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits = {},
 
 // Synchronization-related functions
 VkFenceCreateInfo fenceCreateInfo(VkFenceCreateFlags flags = 0);
-VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags = 0,
-    const void *export_info = nullptr
-);
+VkSemaphoreCreateInfo semaphoreCreateInfo(const void *extensions = nullptr);
 VkTimelineSemaphoreSubmitInfo timelineSubmitInfo(uint64_t *wait, uint64_t *signal);
 
 // Presentation-related functions
