@@ -19,8 +19,8 @@ struct ConvertedMemory {
 struct DeviceMemoryProperties
 {
     uint32_t heap_count = 0;
-    VkDeviceSize total_usage = 0;
-    VkDeviceSize total_budget = 0;
+    VkDeviceSize gpu_usage = 0;
+    VkDeviceSize gpu_budget = 0;
 };
 
 struct VulkanQueue

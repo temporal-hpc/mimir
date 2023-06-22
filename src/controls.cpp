@@ -82,7 +82,7 @@ void VulkanEngine::drawGui()
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     if (show_demo_window) { ImGui::ShowDemoWindow(); }
-    if (show_metrics) { ImGui::ShowMetricsWindow(); }
+    if (options.show_metrics) { ImGui::ShowMetricsWindow(); }
     
     {
         ImGui::Begin("Scene parameters");
@@ -227,7 +227,7 @@ void VulkanEngine::handleKey(int key, int scancode, int action, int mods)
     }
     if (key == GLFW_KEY_M && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
-        show_metrics = !show_metrics;
+        options.show_metrics = !options.show_metrics;
     }
 }
 

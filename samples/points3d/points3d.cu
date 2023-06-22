@@ -54,6 +54,7 @@ int main(int argc, char *argv[])
     unsigned seed         = 123456;
     uint3 extent          = {200, 200, 200};
 
+    // Default values for this program
     size_t point_count = 100;
     size_t iter_count  = 10000;
     if (argc >= 2)
@@ -65,8 +66,12 @@ int main(int argc, char *argv[])
         iter_count = std::stoul(argv[2]);
     }
 
+    ViewerOptions options;
+    options.window = {1920,1080};
+    options.show_metrics = true;
     VulkanEngine engine;
-    engine.init(800, 600);
+    engine.init(options);
+
     ViewParams params;
     params.element_count = point_count;
     params.element_size = sizeof(float3);

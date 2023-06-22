@@ -98,8 +98,8 @@ void VulkanEngine::init(ViewerOptions opts)
 
     camera->type = Camera::CameraType::LookAt;
     //camera->flipY = true;
-    camera->setPosition(glm::vec3(0.f, 0.f, -3.75f));
-    camera->setRotation(glm::vec3(15.f, 0.f, 0.f));
+    camera->setPosition(glm::vec3(0.f, 0.f, -2.85f)); //(glm::vec3(0.f, 0.f, -3.75f));
+    camera->setRotation(glm::vec3(1.5f, -2.5f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
     camera->setRotationSpeed(0.5f);
     camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
 }
@@ -118,10 +118,10 @@ void VulkanEngine::prepare()
     updateDescriptorSets();
     dev->updateMemoryProperties();
 
-    auto total_usage = dev->formatMemory(dev->props.total_usage);
-    printf("Total memory usage: %.2f %s\n", total_usage.data, total_usage.units.c_str());
-    auto total_budget = dev->formatMemory(dev->props.total_budget);
-    printf("Total memory budget: %.2f %s\n", total_budget.data, total_budget.units.c_str());
+    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
+    printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());
+    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
+    printf("GPU memory budget: %.2f %s\n", gpu_budget.data, gpu_budget.units.c_str());
     auto props = dev->budget_properties;
 
     for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
@@ -170,7 +170,7 @@ void VulkanEngine::waitKernelStart()
     wait_params.params.fence.value = wait_value;
 
     // Wait for Vulkan to complete its work
-    printf("Waiting for value %lu to vulkan to finish\n", wait_value);
+    //printf("Waiting for value %lu to vulkan to finish\n", wait_value);
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
         &timeline.cuda_semaphore, &wait_params, 1, stream)
     );
@@ -195,7 +195,7 @@ void VulkanEngine::signalKernelFinish()
     signal_params.params.fence.value = signal_value;
 
     // Signal Vulkan to continue with the updated buffers
-    printf("Signaling with value %lu that CUDA has ended\n", signal_value);
+    //printf("Signaling with value %lu that CUDA has ended\n", signal_value);
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
         &timeline.cuda_semaphore, &signal_params, 1, stream)
     );
@@ -645,12 +645,12 @@ void VulkanEngine::renderFrame()
         wait_info.pSemaphores = &timeline.vk_semaphore;
         wait_info.semaphoreCount = 1;
         wait_info.pValues = &wait_value;
-        printf("Frame %lu will wait for semaphore value %lu\n", frame_idx, wait_value);
+        //printf("Frame %lu will wait for semaphore value %lu\n", frame_idx, wait_value);
         vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
 
         waits.push_back(timeline.vk_semaphore);
         signals.push_back(timeline.vk_semaphore);
-        printf("Frame %lu will signal semaphore value %lu\n", frame_idx, signal_value);
+        //printf("Frame %lu will signal semaphore value %lu\n", frame_idx, signal_value);
         advance_timeline = true;
     }
 

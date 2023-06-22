@@ -523,13 +523,17 @@ void VulkanDevice::updateMemoryProperties()
 {
     vkGetPhysicalDeviceMemoryProperties2(physical_device, &memory_properties2);
     props.heap_count = memory_properties2.memoryProperties.memoryHeapCount;
-    props.total_usage = 0;
-    props.total_budget = 0;
+    props.gpu_usage = 0;
+    props.gpu_budget = 0;
 
     for (uint32_t i = 0; i < props.heap_count; ++i)
     {
-        props.total_usage += budget_properties.heapUsage[i];
-        props.total_budget += budget_properties.heapBudget[i];
+        auto heap_flags = memory_properties2.memoryProperties.memoryHeaps[i].flags;
+        if (heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+        {
+            props.gpu_usage += budget_properties.heapUsage[i];
+            props.gpu_budget += budget_properties.heapBudget[i];
+        }
     }   
 }
 

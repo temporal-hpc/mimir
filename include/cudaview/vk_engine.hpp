@@ -34,6 +34,7 @@ struct ViewerOptions
 {
     int2 window            = { 800, 600 };
     PresentOptions present = PresentOptions::TripleBuffering;
+    bool show_metrics      = false;
 };
 
 class VulkanEngine
@@ -120,7 +121,6 @@ private:
     static void addViewObjectGui(CudaView *view_ptr, int uid);
     std::unique_ptr<Camera> camera;
     bool show_demo_window = false;
-    bool show_metrics = false;
 
     void initVulkan();
     void initImgui();
