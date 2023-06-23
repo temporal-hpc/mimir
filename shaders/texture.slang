@@ -1,5 +1,4 @@
 import uniforms;
-import structures;
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
