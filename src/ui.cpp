@@ -238,3 +238,25 @@ void VulkanEngine::windowCloseCallback(GLFWwindow *window)
     engine->running = false;
     engine->signalKernelFinish();
 }
+
+void VulkanEngine::showMetrics()
+{
+    dev->updateMemoryProperties();
+    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
+    printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());
+    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
+    printf("GPU memory budget: %.2f %s\n", gpu_budget.data, gpu_budget.units.c_str());
+
+    /*
+    auto props = dev->budget_properties;
+    for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
+    {
+        auto heap_usage = dev->formatMemory(props.heapUsage[i]);
+        printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
+        auto heap_budget = dev->formatMemory(props.heapBudget[i]);
+        printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
+        auto heap_flags = dev->memory_properties2.memoryProperties.memoryHeaps[i].flags;
+        printf("Heap %d flags: %s\n", i, dev->readMemoryHeapFlags(heap_flags).c_str());
+    }
+    */
+}

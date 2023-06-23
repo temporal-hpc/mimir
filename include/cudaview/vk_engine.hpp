@@ -4,10 +4,9 @@
 #include <GLFW/glfw3.h>
 #include <cuda_runtime_api.h>
 
-#include <condition_variable> // std::condition_variable
+#include <chrono> // std::chrono
 #include <functional> // std::function
 #include <memory> // std::unique_ptr
-#include <mutex> // std::mutex
 #include <thread> // std::thread
 #include <vector> // std::vector
 
@@ -35,10 +34,12 @@ struct ViewerOptions
     int2 window            = { 800, 600 };
     PresentOptions present = PresentOptions::TripleBuffering;
     bool show_metrics      = false;
+    uint report_period     = 5;
 };
 
 class VulkanEngine
 {
+
 public:
     VulkanEngine();
     ~VulkanEngine();
@@ -88,6 +89,8 @@ private:
     bool running = false;
     bool kernel_working = false;
     std::thread rendering_thread;
+    using chrono_tp = std::chrono::time_point<std::chrono::high_resolution_clock>;
+    chrono_tp last_time = {};
 
     // Cuda interop data
     cudaStream_t stream = 0; // TODO: Remove
@@ -128,6 +131,7 @@ private:
     void renderFrame();
     void drawObjects(uint32_t image_idx);
     void drawGui();
+    void showMetrics();
     void signalKernelFinish();
     void waitKernelStart();
 

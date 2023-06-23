@@ -67,8 +67,9 @@ int main(int argc, char *argv[])
     }
 
     ViewerOptions options;
-    options.window = {1920,1080};
-    options.show_metrics = true;
+    options.window = {1280,720}; // Starting window size
+    options.show_metrics = true; // Show metrics window in GUI
+    options.report_period = 10; // Print relevant usage stats every N seconds
     VulkanEngine engine;
     engine.init(options);
 

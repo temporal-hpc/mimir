@@ -116,23 +116,6 @@ void VulkanEngine::prepare()
     initUniformBuffers();
     createGraphicsPipelines();
     updateDescriptorSets();
-    dev->updateMemoryProperties();
-
-    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
-    printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());
-    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
-    printf("GPU memory budget: %.2f %s\n", gpu_budget.data, gpu_budget.units.c_str());
-    auto props = dev->budget_properties;
-
-    for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
-    {
-        auto heap_usage = dev->formatMemory(props.heapUsage[i]);
-        printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
-        auto heap_budget = dev->formatMemory(props.heapBudget[i]);
-        printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
-        auto heap_flags = dev->memory_properties2.memoryProperties.memoryHeaps[i].flags;
-        printf("Heap %d flags: %s\n", i, dev->readMemoryHeapFlags(heap_flags).c_str());
-    }
 }
 
 void VulkanEngine::displayAsync()
@@ -630,6 +613,14 @@ void VulkanEngine::updateDescriptorSets()
 
 void VulkanEngine::renderFrame()
 {
+    static chrono_tp start_time = std::chrono::high_resolution_clock::now();
+    chrono_tp current_time = std::chrono::high_resolution_clock::now();
+    if (current_frame == 0)
+    {
+        last_time = start_time;
+    }
+    float frame_time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - last_time).count();
+
     constexpr auto timeout = 1000000000; //std::numeric_limits<uint64_t>::max();
     static uint64_t wait_value = 0;
     static uint64_t signal_value = 1;
@@ -738,6 +729,15 @@ void VulkanEngine::renderFrame()
     {
         wait_value += 2;
         signal_value += 2;
+    }
+
+    if (frame_time > options.report_period)
+    {
+        printf("Report at %d seconds:\n", options.report_period);
+        auto framerate = ImGui::GetIO().Framerate;
+        printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
+        showMetrics();
+        last_time = current_time;
     }
 }
 
