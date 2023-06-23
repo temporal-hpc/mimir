@@ -57,43 +57,55 @@ int main(int argc, char *argv[])
     // Default values for this program
     size_t point_count = 100;
     size_t iter_count  = 10000;
-    if (argc >= 2)
+    int width = 1280;
+    int height = 720;
+    if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
+    if (argc >= 4) point_count = std::stoul(argv[3]);
+    if (argc >= 5) iter_count = std::stoul(argv[4]);
+
+    bool display = true;
+    if (width == 0 || height == 0)
     {
-        point_count = std::stoul(argv[1]);
-    }
-    if (argc >= 3)
-    {
-        iter_count = std::stoul(argv[2]);
+        width = height = 10;
+        display = false;
     }
 
     ViewerOptions options;
-    options.window = {1280,720}; // Starting window size
+    options.window = {width,height}; // Starting window size
     options.show_metrics = true; // Show metrics window in GUI
     options.report_period = 10; // Print relevant usage stats every N seconds
     VulkanEngine engine;
     engine.init(options);
 
-    ViewParams params;
-    params.element_count = point_count;
-    params.element_size = sizeof(float3);
-    params.extent = extent;
-    params.data_domain = DataDomain::Domain3D;
-    params.resource_type = ResourceType::UnstructuredBuffer;
-    params.primitive_type = PrimitiveType::Points;
-    engine.createView((void**)&d_coords, params);
+    if (display)
+    {
+        ViewParams params;
+        params.element_count = point_count;
+        params.element_size = sizeof(float3);
+        params.extent = extent;
+        params.data_domain = DataDomain::Domain3D;
+        params.resource_type = ResourceType::UnstructuredBuffer;
+        params.primitive_type = PrimitiveType::Points;
+        engine.createView((void**)&d_coords, params);
+    }
+    else // Run the simulation without display
+    {
+        checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
+    }
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     unsigned grid_size = (point_count + block_size - 1) / block_size;
     initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
     checkCuda(cudaDeviceSynchronize());
 
-    engine.displayAsync();
+    if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
     {
-        engine.prepareWindow();
+        if (i == iter_count / 2) engine.showMetrics();
+        if (display) engine.prepareWindow();
         integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
-        engine.updateWindow();
+        if (display) engine.updateWindow();
     }
 
     checkCuda(cudaFree(d_states));

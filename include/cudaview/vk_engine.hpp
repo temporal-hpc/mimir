@@ -54,6 +54,7 @@ public:
     void displayAsync();
     void prepareWindow();
     void updateWindow();
+    void showMetrics();
     bool should_resize = false;
 
     void setBackgroundColor(float4 color);
@@ -131,7 +132,6 @@ private:
     void renderFrame();
     void drawObjects(uint32_t image_idx);
     void drawGui();
-    void showMetrics();
     void signalKernelFinish();
     void waitKernelStart();
 
