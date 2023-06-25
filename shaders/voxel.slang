@@ -4,15 +4,15 @@ ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
 ConstantBuffer<PrimitiveParams> primitive;
 
-struct VertexInput
-{
-    [[vk::location(0)]] float3 pos : POSITION;
-};
-
 struct VertexData
 {
     float4 center : POSITION;
     float4 color  : COLOR;
+};
+
+struct VertexInput
+{
+    [[vk::location(0)]] float3 pos : POSITION;
 };
 
 [shader("vertex")]

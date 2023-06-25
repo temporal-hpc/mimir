@@ -873,13 +873,7 @@ VkRenderPass VulkanEngine::createRenderPass()
     dependency.dstAccessMask = access_mask;
 
     std::array<VkAttachmentDescription, 2> attachments{ color, depth };
-    auto pass_info = vkinit::renderPassCreateInfo();
-    pass_info.attachmentCount = attachments.size();
-    pass_info.pAttachments    = attachments.data();
-    pass_info.subpassCount    = 1;
-    pass_info.pSubpasses      = &subpass;
-    pass_info.dependencyCount = 1;
-    pass_info.pDependencies   = &dependency;
+    auto pass_info = vkinit::renderPassCreateInfo(attachments, &subpass, &dependency);
 
     printf("render pass attachment count: %lu\n", attachments.size());
     VkRenderPass render_pass = VK_NULL_HANDLE;

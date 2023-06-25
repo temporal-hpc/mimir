@@ -343,11 +343,7 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     VkDevice device, VkRenderPass pass)
 {
     // Combine viewport and scissor rectangle into a viewport state
-    auto viewport_state = vkinit::viewportCreateInfo();
-    viewport_state.viewportCount = 1;
-    viewport_state.pViewports    = &viewport;
-    viewport_state.scissorCount  = 1;
-    viewport_state.pScissors     = &scissor;
+    auto viewport_state = vkinit::viewportCreateInfo(&viewport, &scissor);
 
     std::vector<VkPipelineColorBlendStateCreateInfo> color_states;
     color_states.reserve(pipeline_infos.size());
@@ -361,9 +357,7 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     for (auto& info : pipeline_infos)
     {
         // Write to color attachment with no actual blending being done
-        auto color_blend = vkinit::colorBlendInfo();
-        color_blend.attachmentCount = 1;
-        color_blend.pAttachments    = &info.color_blend_attachment;
+        auto color_blend = vkinit::colorBlendInfo(&info.color_blend_attachment);
         color_states.push_back(color_blend);
 
         auto input_info = vkinit::vertexInputStateCreateInfo(

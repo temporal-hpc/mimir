@@ -456,35 +456,37 @@ VkSubpassDependency subpassDependency()
     return dep;
 }
 
-VkRenderPassCreateInfo renderPassCreateInfo()
+VkRenderPassCreateInfo renderPassCreateInfo(std::span<VkAttachmentDescription> attachments,
+    VkSubpassDescription *subpass, VkSubpassDependency *dependency)
 {
     VkRenderPassCreateInfo info{};
     info.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     info.pNext           = nullptr;
     info.flags           = 0; // Can be VK_RENDER_PASS_CREATE_TRANSFORM_BIT_QCOM
-    info.attachmentCount = 0;
-    info.pAttachments    = nullptr;
-    info.subpassCount    = 0;
-    info.pSubpasses      = nullptr;
-    info.dependencyCount = 0;
-    info.pDependencies   = nullptr;
+    info.attachmentCount = attachments.size();
+    info.pAttachments    = attachments.data();
+    info.subpassCount    = 1;
+    info.pSubpasses      = subpass;
+    info.dependencyCount = 1;
+    info.pDependencies   = dependency;
     return info;
 }
 
-VkPipelineViewportStateCreateInfo viewportCreateInfo()
+VkPipelineViewportStateCreateInfo viewportCreateInfo(VkViewport *viewport, VkRect2D *scissor)
 {
     VkPipelineViewportStateCreateInfo info{};
     info.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     info.pNext         = nullptr;
     info.flags         = 0; // Unused
-    info.viewportCount = 0;
-    info.pViewports    = nullptr;
-    info.scissorCount  = 0;
-    info.pScissors     = nullptr;
+    info.viewportCount = 1;
+    info.pViewports    = viewport;
+    info.scissorCount  = 1;
+    info.pScissors     = scissor;
     return info;
 }
 
-VkPipelineColorBlendStateCreateInfo colorBlendInfo()
+VkPipelineColorBlendStateCreateInfo colorBlendInfo(
+    VkPipelineColorBlendAttachmentState *attachment)
 {
     VkPipelineColorBlendStateCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -492,8 +494,8 @@ VkPipelineColorBlendStateCreateInfo colorBlendInfo()
     info.flags             = 0; // Can be VK_PIPELINE_COLOR_BLEND_STATE_CREATE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_BIT_ARM
     info.logicOpEnable     = VK_FALSE;
     info.logicOp           = VK_LOGIC_OP_NO_OP;
-    info.attachmentCount   = 0;
-    info.pAttachments      = nullptr;
+    info.attachmentCount   = 1;
+    info.pAttachments      = attachment;
     info.blendConstants[0] = 0.f;
     info.blendConstants[1] = 0.f;
     info.blendConstants[2] = 0.f;

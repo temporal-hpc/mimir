@@ -55,10 +55,12 @@ VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo(VkPrimitiveTopolo
 VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo(VkPolygonMode mode);
 VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo();
 VkPipelineColorBlendAttachmentState colorBlendAttachmentState();
-VkPipelineColorBlendStateCreateInfo colorBlendInfo();
-VkPipelineViewportStateCreateInfo viewportCreateInfo();
-VkGraphicsPipelineCreateInfo pipelineCreateInfo(VkPipelineLayout layout,
-    VkRenderPass render_pass
+VkPipelineColorBlendStateCreateInfo colorBlendInfo(VkPipelineColorBlendAttachmentState *attachment);
+VkPipelineViewportStateCreateInfo viewportCreateInfo(
+    VkViewport *viewport, VkRect2D *scissor
+);
+VkGraphicsPipelineCreateInfo pipelineCreateInfo(
+    VkPipelineLayout layout, VkRenderPass render_pass
 );
 
 // Image-related functions
@@ -84,7 +86,9 @@ VkWriteDescriptorSet writeDescriptorImage(VkDescriptorSet dst_set,
 VkAttachmentDescription attachmentDescription(VkFormat format);
 VkSubpassDescription subpassDescription(VkPipelineBindPoint bind_point);
 VkSubpassDependency subpassDependency();
-VkRenderPassCreateInfo renderPassCreateInfo();
+VkRenderPassCreateInfo renderPassCreateInfo(std::span<VkAttachmentDescription> attachments,
+    VkSubpassDescription *subpass, VkSubpassDependency *dependency
+);
 VkFramebufferCreateInfo framebufferCreateInfo(VkRenderPass pass, VkExtent2D extent);
 
 // Other functions
