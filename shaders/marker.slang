@@ -176,8 +176,8 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
     float4 dx = view_proj[0] * (output.size / scene.resolution.x);
     float4 dy = view_proj[1] * (output.size / scene.resolution.y);
 
-    float4 vertex_offsets[4] = {(-dx-dy), (-dx+dy), (+dx-dy), (+dx+dy)}; 
-    float2 texcoords[4] = {{0,0}, {0,1}, {1,0}, {1,1}};
+    float4 vertex_offsets[4] = {(-dx-dy), (+dx-dy), (-dx+dy), (+dx+dy)};
+    float2 texcoords[4] = {{0,0}, {1,0}, {0,1}, {1,1}};
 
     //output.color = input[0].color;
     //output.normal = normal.xyz;

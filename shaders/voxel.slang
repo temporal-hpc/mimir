@@ -78,23 +78,23 @@ void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> str
         unit[k] = 1;
         float4 normal = mul(unit, model_view);
         output.normal = normal.xyz;
-        float4 face_offset, dx, dy;
+        float4 face_offset;
+        float4 vertex_offsets[4];
+        float4 dx = offsets[(k + 2) % 3];
+        float4 dy = offsets[(k + 1) % 3];
         float2 texcoords[4];
         if (dot(-center.xyz, normal.xyz) > 0)
         {
             face_offset = offsets[k];
-            dx = offsets[(k + 2) % 3];
-            dy = offsets[(k + 1) % 3];
-            texcoords = {{1,0}, {0,0}, {1,1}, {0,1}};
+            texcoords = {{0,0}, {0,1}, {1,0}, {1,1}};
+            vertex_offsets = {(-dx-dy), (-dx+dy), (+dx-dy), (+dx+dy)};
         }
         else
         {
             face_offset = -offsets[k];
-            dx = offsets[(k + 1) % 3];
-            dy = offsets[(k + 2) % 3];
-            texcoords = {{0,1}, {1,1}, {0,0}, {1,0}};
+            texcoords = {{0,0}, {1,0}, {0,1}, {1,1}};
+            vertex_offsets = {(-dx-dy), (+dx-dy), (-dx+dy), (+dx+dy)};
         }
-        float4 vertex_offsets[4] = {(+dx-dy), (-dx-dy), (+dx+dy), (-dx+dy)};
         for (int i = 0; i < 4; ++i)
         {
             float4 v = center + face_offset + vertex_offsets[i];
@@ -102,6 +102,7 @@ void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> str
             output.uv = texcoords[i];
             stream.Append(output);
         }
+        stream.RestartStrip();
     }
 }
 

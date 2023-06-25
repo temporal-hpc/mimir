@@ -13,6 +13,7 @@ namespace fs = std::filesystem;
 
 struct ShaderCompileParameters
 {
+    std::string output_path;
     std::string source_path;
     std::vector<std::string> entrypoints;
     std::vector<std::string> specializations;
@@ -26,23 +27,20 @@ constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
         const char* msg = "error";
         if (diag != nullptr)
         {
-        msg = static_cast<const char*>(diag->getBufferPointer());
+            msg = static_cast<const char*>(diag->getBufferPointer());
         }
         fprintf(stderr, "Slang assertion: %s in function %s at %s(%d)\n",
-        msg, src.function_name(), src.file_name(), src.line()
+            msg, src.function_name(), src.file_name(), src.line()
         );
         if (panic)
         {
-        throw std::runtime_error("Slang failure!");
+            throw std::runtime_error("Slang failure!");
         }
     }
     return code;
 }
 
-void compileSlang(
-    const std::string& out_path,
-    const ShaderCompileParameters& params,
-    Slang::ComPtr<slang::ISession> session)
+void compileSlang(const ShaderCompileParameters& params, Slang::ComPtr<slang::ISession> session)
 {
     std::cout << "Source path: " << params.source_path << "\n";
 
@@ -92,8 +90,9 @@ void compileSlang(
         program = spec_program;
     }
 
-    fs::path p{params.source_path};
-    auto root = p.stem().string();
+    fs::path in_path{params.source_path};
+    fs::path out_root{params.output_path};
+    auto root = in_path.stem().string();
     auto layout = program->getLayout();
     for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)
     {
@@ -104,8 +103,9 @@ void compileSlang(
         checkSlang(result, diag);
 
         auto out_filename = root + "_" + entrypoint->getName() + ".spv";
-        std::cout << out_filename << "\n";
-        std::ofstream out(out_filename, std::ios::out | std::ios::binary);
+        auto out_path = out_root / out_filename;
+        std::cout << out_path << "\n";
+        std::ofstream out(out_path, std::ios::out | std::ios::binary);
         out.write(static_cast<const char*>(kernel->getBufferPointer()), kernel->getBufferSize());
     }
 }
@@ -135,11 +135,15 @@ int main()
     checkSlang(global_session->createSession(session_desc, session.writeRef()));
 
     ShaderCompileParameters params;
+    params.output_path = "../samples/shaders";
+    params.source_path = "../samples/shaders/voxel.slang";
+    params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
+    compileSlang(params, session);
+    
     params.source_path = "../samples/shaders/marker.slang";
-    params.entrypoints = {"vertex2dMain", "geometryMain", "fragmentMain"};
-    params.specializations = {};
-
-    compileSlang("out", params, session);
-
+    params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+    params.specializations = { "Float2" };
+    compileSlang(params, session);
+    
     return 0;
 }

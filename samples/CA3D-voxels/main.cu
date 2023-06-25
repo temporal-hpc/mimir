@@ -76,6 +76,11 @@ int main(int argc, char **argv){
     params.data_domain = DataDomain::Domain3D;
     params.resource_type = ResourceType::StructuredBuffer;
     params.primitive_type = PrimitiveType::Voxels;
+    /*params.options.external_shaders = {
+        {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
+        {"shaders/voxel_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
+        {"shaders/voxel_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
+    };*/
 
     //params.resource_type = ResourceType::TextureLinear;
     //params.texture_format = TextureFormat::Int32;

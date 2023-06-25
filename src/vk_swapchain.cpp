@@ -6,7 +6,7 @@
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_properties.hpp"
 
-VkPresentModeKHR getPreferredPresentMode(PresentOptions opts)
+VkPresentModeKHR getDesiredPresentMode(PresentOptions opts)
 {
     switch (opts)
     {
@@ -64,7 +64,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
         physical_device, surface, &mode_count, present_modes.data()
     );
 
-    VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+    VkPresentModeKHR present_mode = getDesiredPresentMode(opts);
 
     uint32_t format_count;
     vkGetPhysicalDeviceSurfaceFormatsKHR(
@@ -117,7 +117,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
     }
     create_info.preTransform     = surf_caps.currentTransform;
     create_info.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    create_info.presentMode      = VK_PRESENT_MODE_IMMEDIATE_KHR;
+    create_info.presentMode      = present_mode;
     create_info.clipped          = VK_TRUE;
     create_info.oldSwapchain     = old_swapchain;
 
