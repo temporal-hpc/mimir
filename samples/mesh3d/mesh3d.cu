@@ -1,4 +1,4 @@
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 #include "cudaview/io.hpp"
 
 #include <curand_kernel.h>
@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
     io::loadTriangleMesh(filepath, points, triangles);
     auto point_count = points.size();
 
-    VulkanEngine engine;
+    CudaviewEngine engine;
     engine.init(1600, 900);
     ViewParams params;
     params.element_count = point_count;

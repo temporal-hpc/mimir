@@ -190,7 +190,7 @@ VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
 
 // Read buffer with shader bytecode and create a shader module from it
 VkShaderModule PipelineBuilder::createShaderModule(
-    const std::vector<char>& code, VulkanCudaDevice *dev)
+    const std::vector<char>& code, InteropDevice *dev)
 {
     VkShaderModuleCreateInfo info{};
     info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -211,7 +211,7 @@ VkShaderModule PipelineBuilder::createShaderModule(
 }
 
 std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
-    VulkanCudaDevice *dev, const ShaderCompileParameters& params)
+    InteropDevice *dev, const ShaderCompileParameters& params)
 {
     SlangResult result = SLANG_OK;
     Slang::ComPtr<slang::IBlob> diag = nullptr;
@@ -288,7 +288,7 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
 }
 
 std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::loadExternalShaders(
-    VulkanCudaDevice *dev, const std::vector<ShaderInfo> shaders)
+    InteropDevice *dev, const std::vector<ShaderInfo> shaders)
 {
     std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
     for (const auto& info : shaders)
@@ -300,7 +300,7 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::loadExternalShader
     return compiled_stages;
 }
 
-uint32_t PipelineBuilder::addPipeline(const ViewParams params, VulkanCudaDevice *dev)
+uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *dev)
 {
     PipelineInfo info;
     auto compile_params = getShaderCompileParams(params);

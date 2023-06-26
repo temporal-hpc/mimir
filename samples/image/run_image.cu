@@ -1,4 +1,4 @@
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h" // stbi_load
@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    VulkanEngine engine;
+    CudaviewEngine engine;
     engine.init(900, 900);
     ViewParams params;
     params.element_count = width * height;

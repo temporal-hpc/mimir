@@ -56,7 +56,7 @@ struct ViewParams
     ViewOptions options;
 };
 
-struct CudaView
+struct InteropView
 {
     // View parameters
     ViewParams params;

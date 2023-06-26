@@ -1,4 +1,4 @@
-#include "cudaview/engine/vk_device.hpp"
+#include "cudaview/engine/vulkan_device.hpp"
 
 #include <cstring> // memcpy
 #include <set> // std::set

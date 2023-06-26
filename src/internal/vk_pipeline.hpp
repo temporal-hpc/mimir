@@ -5,8 +5,8 @@
 
 #include <vector> // std::vector
 
-#include "cudaview/engine/cudaview.hpp"
-#include "cudaview/engine/vk_cudadevice.hpp"
+#include "cudaview/engine/interop_view.hpp"
+#include "cudaview/engine/interop_device.hpp"
 
 struct VertexDescription
 {
@@ -44,13 +44,13 @@ struct PipelineBuilder
     Slang::ComPtr<slang::ISession> session;
 
     PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent);
-    uint32_t addPipeline(const ViewParams params, VulkanCudaDevice *dev);
+    uint32_t addPipeline(const ViewParams params, InteropDevice *dev);
     std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
     std::vector<VkPipelineShaderStageCreateInfo> compileSlang(
-        VulkanCudaDevice *dev, const ShaderCompileParameters& params
+        InteropDevice *dev, const ShaderCompileParameters& params
     );
     std::vector<VkPipelineShaderStageCreateInfo> loadExternalShaders(
-        VulkanCudaDevice *dev, const std::vector<ShaderInfo> shaders
+        InteropDevice *dev, const std::vector<ShaderInfo> shaders
     );
-    VkShaderModule createShaderModule(const std::vector<char>& code, VulkanCudaDevice *dev);
+    VkShaderModule createShaderModule(const std::vector<char>& code, InteropDevice *dev);
 };

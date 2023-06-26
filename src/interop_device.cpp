@@ -1,4 +1,4 @@
-#include <cudaview/engine/vk_cudadevice.hpp>
+#include <cudaview/engine/interop_device.hpp>
 
 #include <cuda_runtime.h>
 
@@ -26,7 +26,7 @@ VkBufferUsageFlags getUsageFlags(PrimitiveType p, ResourceType r)
     }
 }
 
-// Converts a CudaView texture type to its Vulkan equivalent
+// Converts a InteropView texture type to its Vulkan equivalent
 VkFormat getVulkanFormat(TextureFormat format)
 {
     switch (format)
@@ -39,7 +39,7 @@ VkFormat getVulkanFormat(TextureFormat format)
     }
 }
 
-// Converts a CudaView image type to its Vulkan equivalent
+// Converts a InteropView image type to its Vulkan equivalent
 VkImageType getImageType(DataDomain domain)
 {
     switch (domain)
@@ -50,7 +50,7 @@ VkImageType getImageType(DataDomain domain)
     }
 }
 
-// Converts a CudaView domain type to its Vulkan equivalent
+// Converts a InteropView domain type to its Vulkan equivalent
 VkImageViewType getViewType(DataDomain domain)
 {
     switch (domain)
@@ -70,7 +70,7 @@ VkImageTiling getImageTiling(ResourceType type)
     }
 }
 
-void VulkanCudaDevice::initView(CudaView& view)
+void InteropDevice::initView(InteropView& view)
 {
     const auto params = view.params;
     view.vk_format = getVulkanFormat(params.texture_format);
@@ -272,7 +272,7 @@ void VulkanCudaDevice::initView(CudaView& view)
     }
 }
 
-void VulkanCudaDevice::updateTexture(CudaView& view)
+void InteropDevice::updateTexture(InteropView& view)
 {
     transitionImageLayout(view.image,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
@@ -303,7 +303,7 @@ void VulkanCudaDevice::updateTexture(CudaView& view)
     );
 }
 
-void VulkanCudaDevice::loadTexture(CudaView *view, void *img_data)
+void InteropDevice::loadTexture(InteropView *view, void *img_data)
 {
     auto params = view->params;
     constexpr int level_count = 1;
@@ -358,7 +358,7 @@ void VulkanCudaDevice::loadTexture(CudaView *view, void *img_data)
     validation::checkCuda(cudaDeviceSynchronize());
 }
 
-void *VulkanCudaDevice::getMemoryHandle(VkDeviceMemory memory,
+void *InteropDevice::getMemoryHandle(VkDeviceMemory memory,
     VkExternalMemoryHandleTypeFlagBits handle_type)
 {
     int fd = -1;
@@ -383,7 +383,7 @@ void *VulkanCudaDevice::getMemoryHandle(VkDeviceMemory memory,
     return (void*)(uintptr_t)fd;
 }
 
-void VulkanCudaDevice::importCudaExternalMemory(
+void InteropDevice::importCudaExternalMemory(
     cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size)
 {
     cudaExternalMemoryHandleDesc extmem_desc{};
@@ -395,7 +395,7 @@ void VulkanCudaDevice::importCudaExternalMemory(
     validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
 }
 
-void *VulkanCudaDevice::getSemaphoreHandle(VkSemaphore semaphore,
+void *InteropDevice::getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type)
 {
     int fd;
@@ -417,7 +417,7 @@ void *VulkanCudaDevice::getSemaphoreHandle(VkSemaphore semaphore,
     return (void*)(uintptr_t)fd;
 }
 
-InteropBarrier VulkanCudaDevice::createInteropBarrier()
+InteropBarrier InteropDevice::createInteropBarrier()
 {
     VkSemaphoreTypeCreateInfo timeline_info{};
     timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;

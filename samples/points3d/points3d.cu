@@ -1,4 +1,4 @@
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 
 #include <curand_kernel.h>
 
@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
     options.window = {width,height}; // Starting window size
     options.show_metrics = false; // Show metrics window in GUI
     options.report_period = 30; // Print relevant usage stats every N seconds
-    VulkanEngine engine;
+    CudaviewEngine engine;
     engine.init(options);
 
     if (display)

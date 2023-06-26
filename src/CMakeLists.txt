@@ -2,13 +2,13 @@
 add_library(cudaview STATIC)
 
 target_sources(cudaview PRIVATE
+    cudaview.cpp
     camera.cpp
     io.cpp
     ui.cpp
     validation.cpp
-    vk_cudadevice.cpp
-    vk_device.cpp
-    vk_engine.cpp
+    interop_device.cpp
+    vulkan_device.cpp
     vk_framebuffer.cpp
     vk_initializers.cpp
     vk_pipeline.cpp

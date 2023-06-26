@@ -1,4 +1,4 @@
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 #include "internal/camera.hpp"
 
 #include <imgui.h>
@@ -50,7 +50,7 @@ void addTableRow(const std::string& key, const std::string& value)
     ImGui::Text("%s", value.c_str());
 }
 
-void VulkanEngine::addViewObjectGui(CudaView *view_ptr, int uid)
+void CudaviewEngine::addViewObjectGui(InteropView *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
     bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
@@ -76,7 +76,7 @@ void VulkanEngine::addViewObjectGui(CudaView *view_ptr, int uid)
     ImGui::PopID();
 }
 
-void VulkanEngine::drawGui()
+void CudaviewEngine::drawGui()
 {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -101,18 +101,18 @@ void VulkanEngine::drawGui()
     ImGui::Render();
 }
 
-VulkanEngine *getHandler(GLFWwindow *window)
+CudaviewEngine *getHandler(GLFWwindow *window)
 {
-    return reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+    return reinterpret_cast<CudaviewEngine*>(glfwGetWindowUserPointer(window));
 }
 
-void VulkanEngine::setBackgroundColor(float4 color)
+void CudaviewEngine::setBackgroundColor(float4 color)
 {
     bg_color = color;
 }
 
 // Translates GLFW mouse movement into Viewer flags for detecting camera movement
-void VulkanEngine::handleMouseMove(float x, float y)
+void CudaviewEngine::handleMouseMove(float x, float y)
 {
     auto dx = mouse_pos.x - x;
     auto dy = mouse_pos.y - y;
@@ -133,14 +133,14 @@ void VulkanEngine::handleMouseMove(float x, float y)
     mouse_pos = float2{x, y};
 }
 
-void VulkanEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
+void CudaviewEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
 {
     auto app = getHandler(window);
     app->handleMouseMove(static_cast<float>(xpos), static_cast<float>(ypos));
 }
 
 // Translates GLFW mouse actions into Viewer flags for detecting camera actions 
-void VulkanEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
+void CudaviewEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
 {
     // Perform action only if GUI does not want to use mouse input
     // (if not hovering over a menu item)
@@ -188,37 +188,37 @@ void VulkanEngine::handleMouseButton(int button, int action, [[maybe_unused]] in
 }
 
 // Translates GLFW mouse scroll into values for detecting camera zoom in/out 
-void VulkanEngine::handleScroll([[maybe_unused]] float xoffset, float yoffset)
+void CudaviewEngine::handleScroll([[maybe_unused]] float xoffset, float yoffset)
 {
     // depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
     // printf("depth= %f, offset= %f\n", depth, yoffset);
 }
 
-void VulkanEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+void CudaviewEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
     auto app = getHandler(window);
     app->handleMouseButton(button, action, mods);
 }
 
-void VulkanEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
+void CudaviewEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
 {
     auto app = getHandler(window);
     app->should_resize = true;
 }
 
-void VulkanEngine::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+void CudaviewEngine::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 {
     auto app = getHandler(window);
     app->handleScroll(static_cast<float>(xoffset), static_cast<float>(yoffset));
 }
 
-void VulkanEngine::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+void CudaviewEngine::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     auto app = getHandler(window);
     app->handleKey(key, scancode, action, mods);
 }
 
-void VulkanEngine::handleKey(int key, int scancode, int action, int mods)
+void CudaviewEngine::handleKey(int key, int scancode, int action, int mods)
 {
     // Toggle demo window
     if (key == GLFW_KEY_D && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
@@ -231,7 +231,7 @@ void VulkanEngine::handleKey(int key, int scancode, int action, int mods)
     }
 }
 
-void VulkanEngine::windowCloseCallback(GLFWwindow *window)
+void CudaviewEngine::windowCloseCallback(GLFWwindow *window)
 {
     printf("Handling window close\n");
     auto engine = getHandler(window);
@@ -239,7 +239,7 @@ void VulkanEngine::windowCloseCallback(GLFWwindow *window)
     engine->signalKernelFinish();
 }
 
-void VulkanEngine::showMetrics()
+void CudaviewEngine::showMetrics()
 {
     dev->updateMemoryProperties();
     auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);

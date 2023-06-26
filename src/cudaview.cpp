@@ -1,4 +1,4 @@
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 #include <cudaview/io.hpp>
 
 #include "internal/camera.hpp"
@@ -6,7 +6,7 @@
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include <cudaview/validation.hpp>
-#include <cudaview/engine/vk_cudadevice.hpp>
+#include <cudaview/engine/interop_device.hpp>
 #include <cudaview/engine/vk_framebuffer.hpp>
 #include <cudaview/engine/vk_swapchain.hpp>
 
@@ -37,12 +37,12 @@ glm::vec4 getColor(float4 color)
     return colorvec;
 }
 
-VulkanEngine::VulkanEngine():
+CudaviewEngine::CudaviewEngine():
     shader_path{ io::getDefaultShaderPath() },
     camera{ std::make_unique<Camera>() }
 {}
 
-VulkanEngine::~VulkanEngine()
+CudaviewEngine::~CudaviewEngine()
 {
     if (rendering_thread.joinable())
     {
@@ -67,7 +67,7 @@ VulkanEngine::~VulkanEngine()
     dev.reset();
 }
 
-void VulkanEngine::init(ViewerOptions opts)
+void CudaviewEngine::init(ViewerOptions opts)
 {
     options = opts;
     auto width  = options.window.x;
@@ -77,7 +77,7 @@ void VulkanEngine::init(ViewerOptions opts)
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    window = glfwCreateWindow(width, height, "CudaView", nullptr, nullptr);
+    window = glfwCreateWindow(width, height, "InteropView", nullptr, nullptr);
     deletors.add([=,this] {
         printf("Terminating GLFW\n");
         glfwDestroyWindow(window);
@@ -104,21 +104,21 @@ void VulkanEngine::init(ViewerOptions opts)
     camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
 }
 
-void VulkanEngine::init(int width, int height)
+void CudaviewEngine::init(int width, int height)
 {
     ViewerOptions opts;
     opts.window = {width, height};
     init(opts);
 }
 
-void VulkanEngine::prepare()
+void CudaviewEngine::prepare()
 {
     initUniformBuffers();
     createGraphicsPipelines();
     updateDescriptorSets();
 }
 
-void VulkanEngine::displayAsync()
+void CudaviewEngine::displayAsync()
 {
     prepare();
     running = true;
@@ -135,7 +135,7 @@ void VulkanEngine::displayAsync()
     });
 }
 
-void VulkanEngine::prepareWindow()
+void CudaviewEngine::prepareWindow()
 {
     if (running)
     {
@@ -145,7 +145,7 @@ void VulkanEngine::prepareWindow()
     }
 }
 
-void VulkanEngine::waitKernelStart()
+void CudaviewEngine::waitKernelStart()
 {   
     static uint64_t wait_value = 1;
     cudaExternalSemaphoreWaitParams wait_params{};
@@ -160,7 +160,7 @@ void VulkanEngine::waitKernelStart()
     wait_value += 2;
 }
 
-void VulkanEngine::updateWindow()
+void CudaviewEngine::updateWindow()
 {
     if (running)
     {
@@ -170,7 +170,7 @@ void VulkanEngine::updateWindow()
     }
 }
 
-void VulkanEngine::signalKernelFinish()
+void CudaviewEngine::signalKernelFinish()
 {
     static uint64_t signal_value = 2;
     cudaExternalSemaphoreSignalParams signal_params{};
@@ -185,7 +185,7 @@ void VulkanEngine::signalKernelFinish()
     signal_value += 2;
 }
 
-void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
+void CudaviewEngine::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();    
     running = true;
@@ -210,9 +210,9 @@ void VulkanEngine::display(std::function<void(void)> func, size_t iter_count)
     vkDeviceWaitIdle(dev->logical_device);
 }
 
-CudaView *VulkanEngine::createView(void **ptr_devmem, ViewParams params)
+InteropView *CudaviewEngine::createView(void **ptr_devmem, ViewParams params)
 {
-    CudaView view;
+    InteropView view;
     view.params = params;
 
     dev->initView(view);
@@ -221,17 +221,17 @@ CudaView *VulkanEngine::createView(void **ptr_devmem, ViewParams params)
     return &views.back();
 }
 
-CudaView *VulkanEngine::getView(uint32_t view_index)
+InteropView *CudaviewEngine::getView(uint32_t view_index)
 {
     return &views[view_index];
 }
 
-void VulkanEngine::loadTexture(CudaView *view, void *data)
+void CudaviewEngine::loadTexture(InteropView *view, void *data)
 {
     dev->loadTexture(view, data);
 }
 
-void VulkanEngine::initVulkan()
+void CudaviewEngine::initVulkan()
 {
     createInstance();
     swap = std::make_unique<VulkanSwapchain>();
@@ -284,7 +284,7 @@ void VulkanEngine::initVulkan()
     );
 }
 
-void VulkanEngine::createInstance()
+void CudaviewEngine::createInstance()
 {
     if (validation::enable_layers && !validation::checkValidationLayerSupport())
     {
@@ -293,7 +293,7 @@ void VulkanEngine::createInstance()
 
     VkApplicationInfo app_info{};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_info.pApplicationName   = "CudaView";
+    app_info.pApplicationName   = "InteropView";
     app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     app_info.pEngineName        = "No engine";
     app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
@@ -346,7 +346,7 @@ void VulkanEngine::createInstance()
     }
 }
 
-void VulkanEngine::pickPhysicalDevice()
+void CudaviewEngine::pickPhysicalDevice()
 {
     int cuda_dev_count = 0;
     validation::checkCuda(cudaGetDeviceCount(&cuda_dev_count));
@@ -416,7 +416,7 @@ void VulkanEngine::pickPhysicalDevice()
                 validation::checkCuda(cudaSetDevice(curr_device));
                 VkPhysicalDeviceProperties props{};
                 vkGetPhysicalDeviceProperties(ph_dev, &props);
-                dev = std::make_unique<VulkanCudaDevice>(ph_dev);
+                dev = std::make_unique<InteropDevice>(ph_dev);
                 printf("Selected CUDA-Vulkan device %d: %s\n\n", curr_device, dev_prop.name);
                 break;
             }
@@ -430,7 +430,7 @@ void VulkanEngine::pickPhysicalDevice()
     }
 }
 
-void VulkanEngine::initImgui()
+void CudaviewEngine::initImgui()
 {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -453,7 +453,7 @@ void VulkanEngine::initImgui()
     ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
-void VulkanEngine::createSyncObjects()
+void CudaviewEngine::createSyncObjects()
 {
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
     for (auto& fence : frame_fences)
@@ -464,7 +464,7 @@ void VulkanEngine::createSyncObjects()
     present_semaphore = dev->createSemaphore();
 }
 
-void VulkanEngine::cleanupSwapchain()
+void CudaviewEngine::cleanupSwapchain()
 {
     vkDeviceWaitIdle(dev->logical_device);
     for (auto& view : views)
@@ -479,7 +479,7 @@ void VulkanEngine::cleanupSwapchain()
     fbs.clear();
 }
 
-void VulkanEngine::initSwapchain()
+void CudaviewEngine::initSwapchain()
 {
     int w, h;
     glfwGetFramebufferSize(window, &w, &h);
@@ -537,7 +537,7 @@ void VulkanEngine::initSwapchain()
     }
 }
 
-void VulkanEngine::recreateSwapchain()
+void CudaviewEngine::recreateSwapchain()
 {
     printf("Recreating swapchain\n");
     cleanupSwapchain();
@@ -545,7 +545,7 @@ void VulkanEngine::recreateSwapchain()
     createGraphicsPipelines();
 }
 
-void VulkanEngine::updateDescriptorSets()
+void CudaviewEngine::updateDescriptorSets()
 {
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
@@ -611,7 +611,7 @@ void VulkanEngine::updateDescriptorSets()
     }
 }
 
-void VulkanEngine::renderFrame()
+void CudaviewEngine::renderFrame()
 {
     static chrono_tp start_time = std::chrono::high_resolution_clock::now();
     chrono_tp current_time = std::chrono::high_resolution_clock::now();
@@ -741,7 +741,7 @@ void VulkanEngine::renderFrame()
     }
 }
 
-void VulkanEngine::drawObjects(uint32_t image_idx)
+void CudaviewEngine::drawObjects(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -821,12 +821,12 @@ void VulkanEngine::drawObjects(uint32_t image_idx)
     }
 }
 
-bool VulkanEngine::hasStencil(VkFormat format)
+bool CudaviewEngine::hasStencil(VkFormat format)
 {
     return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
-VkFormat VulkanEngine::findDepthFormat()
+VkFormat CudaviewEngine::findDepthFormat()
 {
     return dev->findSupportedImageFormat(
         {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -835,7 +835,7 @@ VkFormat VulkanEngine::findDepthFormat()
     );
 }
 
-VkRenderPass VulkanEngine::createRenderPass()
+VkRenderPass CudaviewEngine::createRenderPass()
 {
     auto depth = vkinit::attachmentDescription(findDepthFormat());
     depth.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -883,7 +883,7 @@ VkRenderPass VulkanEngine::createRenderPass()
     return render_pass;
 }
 
-void VulkanEngine::createGraphicsPipelines()
+void CudaviewEngine::createGraphicsPipelines()
 {
     auto start = std::chrono::steady_clock::now();
     auto orig_path = std::filesystem::current_path();
@@ -912,7 +912,7 @@ void VulkanEngine::createGraphicsPipelines()
         << " ms\n";
 }
 
-void VulkanEngine::rebuildPipeline(CudaView& view)
+void CudaviewEngine::rebuildPipeline(InteropView& view)
 {
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
@@ -927,7 +927,7 @@ void VulkanEngine::rebuildPipeline(CudaView& view)
     std::filesystem::current_path(orig_path);
 }
 
-void VulkanEngine::initUniformBuffers()
+void CudaviewEngine::initUniformBuffers()
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -948,7 +948,7 @@ void VulkanEngine::initUniformBuffers()
 }
 
 // Update uniform buffers for view at index [view_idx] for frame [image_idx]
-void VulkanEngine::updateUniformBuffers(uint32_t image_idx)
+void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);

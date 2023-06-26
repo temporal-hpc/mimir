@@ -1,4 +1,4 @@
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 
 #include <iostream>
 #include <limits> // std::numeric_limits
@@ -254,7 +254,7 @@ int main(int argc, char *argv[])
     JumpFloodProgram program(point_count, 512, 512);
     try
     {
-        VulkanEngine engine;
+        CudaviewEngine engine;
         engine.init(800, 600);
 
         ViewParams params;

@@ -1,10 +1,10 @@
 #pragma once
 
-#include "cudaview/engine/vk_device.hpp"
+#include "cudaview/engine/vulkan_device.hpp"
 
 #include <cuda_runtime_api.h>
 
-#include <cudaview/engine/cudaview.hpp>
+#include <cudaview/engine/interop_view.hpp>
 #include <cudaview/vk_types.hpp>
 
 struct FrameBarrier
@@ -22,7 +22,7 @@ struct InteropBarrier
 
 // Class for encapsulating Vulkan device functions with Cuda interop 
 // Inherited from VulkanDevice to encapsulate Cuda-related code
-struct VulkanCudaDevice : public VulkanDevice
+struct InteropDevice : public VulkanDevice
 {
     // Use the constructor from the base VulkanDevice class
     using VulkanDevice::VulkanDevice;
@@ -37,7 +37,7 @@ struct VulkanCudaDevice : public VulkanDevice
     InteropBarrier createInteropBarrier();
 
     // View functions
-    void initView(CudaView& view);
-    void updateTexture(CudaView& view);
-    void loadTexture(CudaView *view, void *data);
+    void initView(InteropView& view);
+    void updateTexture(InteropView& view);
+    void loadTexture(InteropView *view, void *data);
 };

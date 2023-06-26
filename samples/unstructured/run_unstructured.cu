@@ -1,4 +1,4 @@
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 
 #include <cuda_runtime_api.h>
 #include <curand_kernel.h>
@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
     try
     {
         // Initialize engine
-        VulkanEngine engine;
+        CudaviewEngine engine;
         engine.init(800, 600);
         ViewParams params;
         params.element_count = program.particle_count;

@@ -11,7 +11,7 @@
 #include <vector> // std::vector
 
 #include <cudaview/deletion_queue.hpp>
-#include <cudaview/engine/vk_cudadevice.hpp>
+#include <cudaview/engine/interop_device.hpp>
 
 namespace
 {
@@ -19,7 +19,7 @@ namespace
 }
 
 struct Camera;
-struct VulkanCudaDevice;
+struct InteropDevice;
 struct VulkanSwapchain;
 struct VulkanFramebuffer;
 
@@ -37,18 +37,18 @@ struct ViewerOptions
     uint report_period     = 5;
 };
 
-class VulkanEngine
+class CudaviewEngine
 {
 
 public:
-    VulkanEngine();
-    ~VulkanEngine();
+    CudaviewEngine();
+    ~CudaviewEngine();
     void init(ViewerOptions opts);
     void init(int width, int height);
     // Main library function, which setups all the visualization interop
-    CudaView *createView(void **ptr_devmem, ViewParams params);
-    CudaView *getView(uint32_t view_index);
-    void loadTexture(CudaView *view, void *data);
+    InteropView *createView(void **ptr_devmem, ViewParams params);
+    InteropView *getView(uint32_t view_index);
+    void loadTexture(InteropView *view, void *data);
 
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
@@ -61,7 +61,7 @@ public:
 
 private:
     ViewerOptions options;
-    std::unique_ptr<VulkanCudaDevice> dev;
+    std::unique_ptr<InteropDevice> dev;
     std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
     GLFWwindow *window = nullptr;
@@ -98,7 +98,7 @@ private:
     uint64_t current_frame = 0;
     std::string shader_path;
 
-    std::vector<CudaView> views;
+    std::vector<InteropView> views;
     std::vector<AllocatedBuffer> uniform_buffers;
 
     float4 bg_color{.5f, .5f, .5f, 1.f};
@@ -122,7 +122,7 @@ private:
     static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
     static void windowCloseCallback(GLFWwindow *window);
 
-    static void addViewObjectGui(CudaView *view_ptr, int uid);
+    static void addViewObjectGui(InteropView *view_ptr, int uid);
     std::unique_ptr<Camera> camera;
     bool show_demo_window = false;
 
@@ -147,7 +147,7 @@ private:
     void cleanupSwapchain();
     void recreateSwapchain();
     void createGraphicsPipelines();
-    void rebuildPipeline(CudaView& view);
+    void rebuildPipeline(InteropView& view);
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);
 

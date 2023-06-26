@@ -12,7 +12,7 @@
 #include "kernel3D.cuh"
 #include "openmp3D.h"
 
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 
 int main(int argc, char **argv){
     if(argc != 8){
@@ -50,7 +50,7 @@ int main(int argc, char **argv){
     int *d1, *d2;
 
     int width = 900, height = 900;
-    VulkanEngine engine;
+    CudaviewEngine engine;
     engine.init(width, height);
 
     // CREACION DE DATOS

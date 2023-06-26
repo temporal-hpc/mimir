@@ -6,7 +6,7 @@
 #include <vector> // std::vector
 
 #include <cudaview/deletion_queue.hpp>
-#include <cudaview/engine/cudaview.hpp>
+#include <cudaview/engine/interop_view.hpp>
 
 struct VulkanSwapchain
 {

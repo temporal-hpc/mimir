@@ -11,7 +11,7 @@
 #include <thread> // std::thread
 
 #include "helper_math.h"
-#include <cudaview/vk_engine.hpp>
+#include <cudaview/cudaview.hpp>
 #include <cudaview/validation.hpp> // checkCuda
 using namespace validation; // checkCuda
 
@@ -189,7 +189,7 @@ int main(int argc, char *argv[])
   printf("Loaded '%s', '%d'x'%d pixels \n", filepath.c_str(), img_width, img_height);
 
   int width = 900, height = 900;
-  VulkanEngine engine;
+  CudaviewEngine engine;
   engine.init(width, height);
 
   // TODO: Unused, should be a texture handle
