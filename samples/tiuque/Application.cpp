@@ -23,37 +23,61 @@
 //										//
 //////////////////////////////////////////////////////////////////////////////////
 
+#include <cleap_private.h> // Include first to avoid GL/GLEW order compile errors
 #include "Application.h"
-#include <iostream>
+
+#include <cudaview/validation.hpp> // checkCuda
+
 using namespace std;
 Application::Application(){
+    myMesh = 0;
+    
     ViewerOptions viewer_opts;
-    viewer_opts.window_title = "Tiuque";
+    viewer_opts.window_title = "Tiuque"; // Top-level window.
     viewer_opts.window_size = {1920, 1080};
     viewer_opts.present = PresentOptions::VSync;
     engine.init(viewer_opts);
-    std::cout << "Hello world\n";
-
-    // Top-level window.
-    //set_title("Tiuque");
-    // Get automatically redrawn if any of their children changed allocation.
-    //set_reallocate_redraws(true);
-    myMesh = 0;
+    engine.setBackgroundColor({0.f,0.f,0.f,1.f});
 
     // TODO: Move this to file_open
-	std::string file_string = "/home/francisco/Downloads/tiuque/chica0.off";
-	this->myMesh = new Mesh(file_string.c_str());
+	std::string filename = "/home/francisco/Downloads/tiuque/chica5.off";
 
-    std::vector<uint3> triangles;
-    int3 *d_triangles     = nullptr;
+    // TODO: Fix dptr in kernels
+	this->myMesh = new Mesh(filename.c_str());
+    auto interop_mesh = this->myMesh->my_cleap_mesh;
+    auto dmesh = interop_mesh->dm;
 
-    ViewParams params;
-    params.element_count  = triangles.size();
-    params.element_size   = sizeof(float3);
-    params.data_domain    = DataDomain::Domain3D;
-    params.resource_type  = ResourceType::UnstructuredBuffer;
-    params.primitive_type = PrimitiveType::Edges;
-    engine.createView((void**)&d_triangles, params);
+    float3 *d_vertices = nullptr;
+    uint3 *d_triangles = nullptr;
+
+    // NOTE: Cudaview code
+    ViewParams vert;
+    vert.element_count  = cleap_get_vertex_count(interop_mesh);
+    vert.element_size   = sizeof(float3);
+    vert.data_domain    = DataDomain::Domain3D;
+    vert.resource_type  = ResourceType::UnstructuredBuffer;
+    vert.primitive_type = PrimitiveType::Points;
+    vert.options.visible = false;
+    engine.createView((void**)&d_vertices, vert);
+
+    validation::checkCuda(cudaMemcpy(d_vertices, interop_mesh->vnc_data.v,
+        vert.element_count * vert.element_size, cudaMemcpyHostToDevice)
+    );
+
+    ViewParams tri;
+    tri.element_count  = cleap_get_face_count(interop_mesh);
+    tri.element_size   = sizeof(uint3);
+    tri.data_domain    = DataDomain::Domain3D;
+    tri.resource_type  = ResourceType::UnstructuredBuffer;
+    tri.primitive_type = PrimitiveType::Edges;
+    tri.options.color  = {0.f, 1.f, 0.f, 1.f};
+    engine.createView((void**)&d_triangles, tri);
+
+    validation::checkCuda(cudaMemcpy(d_triangles, interop_mesh->triangles,
+        tri.element_count * tri.element_size, cudaMemcpyHostToDevice)
+    );
+
+    engine.displayAsync();
 }
 
 Application::~Application(){

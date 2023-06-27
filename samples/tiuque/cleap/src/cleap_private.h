@@ -28,8 +28,8 @@ struct cleap_edge_data{
     int2 *op;
 };
 struct cleap_device_mesh {
-	struct cudaGraphicsResource *vbo_v_cuda, *vbo_n_cuda, *vbo_c_cuda, *eab_cuda;
-	GLuint vbo_v, vbo_n, vbo_c, eab;
+	//struct cudaGraphicsResource *vbo_v_cuda, *vbo_n_cuda, *vbo_c_cuda, *eab_cuda;
+	//GLuint vbo_v, vbo_n, vbo_c, eab;
 	int2 *d_edges_n, *d_edges_a, *d_edges_b, *d_edges_op;
 	int *d_trirel, *d_trireservs, *d_listo;
 	CLEAP_RESULT status;

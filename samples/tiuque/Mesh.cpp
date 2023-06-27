@@ -31,6 +31,7 @@ Mesh::Mesh(cleap_mesh* m){
     init();
     this->my_cleap_mesh = m;
 }
+// These should be handled by cudaview now
 Mesh::Mesh(const char *filename){
     cleap_init();
     this->my_cleap_mesh = cleap_load_mesh(filename);

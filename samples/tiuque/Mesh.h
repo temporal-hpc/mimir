@@ -41,10 +41,10 @@
 class Mesh{
     private:
         //private fields
-        cleap_mesh* my_cleap_mesh;
         const char* default_filename;
         int accumflips;
     public:
+        cleap_mesh* my_cleap_mesh;
         //constructors & destructor
         Mesh();
         Mesh(const char* filename);
