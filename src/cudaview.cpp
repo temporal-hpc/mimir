@@ -48,7 +48,7 @@ CudaviewEngine::~CudaviewEngine()
     {
         rendering_thread.join();
     }
-    vkDeviceWaitIdle(dev->logical_device);
+    if (dev) vkDeviceWaitIdle(dev->logical_device);
 
     if (stream != nullptr)
     {
@@ -60,9 +60,12 @@ CudaviewEngine::~CudaviewEngine()
         vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
     }
 
-    cleanupSwapchain();
+    if (dev)
+    {
+        cleanupSwapchain();
+        ImGui_ImplVulkan_Shutdown();
+    }
 
-    ImGui_ImplVulkan_Shutdown();
     swap.reset();
     dev.reset();
 }
@@ -70,14 +73,14 @@ CudaviewEngine::~CudaviewEngine()
 void CudaviewEngine::init(ViewerOptions opts)
 {
     options = opts;
-    auto width  = options.window.x;
-    auto height = options.window.y;
+    auto width  = options.window_size.x;
+    auto height = options.window_size.y;
     
     // Initialize GLFW context and window
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    window = glfwCreateWindow(width, height, "InteropView", nullptr, nullptr);
+    window = glfwCreateWindow(width, height, options.window_title.c_str(), nullptr, nullptr);
     deletors.add([=,this] {
         printf("Terminating GLFW\n");
         glfwDestroyWindow(window);
@@ -107,7 +110,7 @@ void CudaviewEngine::init(ViewerOptions opts)
 void CudaviewEngine::init(int width, int height)
 {
     ViewerOptions opts;
-    opts.window = {width, height};
+    opts.window_size = {width, height};
     init(opts);
 }
 
@@ -293,7 +296,7 @@ void CudaviewEngine::createInstance()
 
     VkApplicationInfo app_info{};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_info.pApplicationName   = "InteropView";
+    app_info.pApplicationName   = "CudaView";
     app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     app_info.pEngineName        = "No engine";
     app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
@@ -975,7 +978,7 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
         auto extent = view.params.extent;
         scene.bg_color = getColor(bg_color);
         scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
-        scene.resolution = glm::ivec2{options.window.x, options.window.y};
+        scene.resolution = glm::ivec2{options.window_size.x, options.window_size.y};
         scene.camera_pos = camera->position;
 
         char *data = nullptr;

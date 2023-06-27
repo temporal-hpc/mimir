@@ -55,7 +55,6 @@ char CLEAP_AUTHOR[] = "Cristobal A. Navarro";
 // cuda textures
 //texture<GLuint, 1, cudaReadModeElementType> tex_triangles;
 //texture<int, 1, cudaReadModeElementType> tex_edges;
-cudaTextureObject_t tex_triangles, tex_edges;
 
 int cleap_mesh_is_wireframe(_cleap_mesh *m){
 	return m->wireframe;
@@ -126,7 +125,7 @@ _cleap_mesh* cleap_load_mesh(const char* filename){
 
 	_cleap_mesh *m = new _cleap_mesh();	// create mew mesh
 	_cleap_host_load_mesh(m, filename);	// load host part
-	_cleap_device_load_mesh(m);		// load device part
+	//_cleap_device_load_mesh(m);		// load device part
 
 	return m;
 }
@@ -616,12 +615,13 @@ CLEAP_RESULT _cleap_normalize_normals(_cleap_mesh *m){
 }
 
 
-CLEAP_RESULT _cleap_device_load_mesh(_cleap_mesh* m){
-
-
+CLEAP_RESULT _cleap_device_load_mesh(_cleap_mesh* m)
+{
 	// CLEAP::DEVICE_LOAD:: create instance of device_mesh struct
 	m->dm = new cleap_device_mesh();
 	cleap_device_mesh *dmesh = m->dm;
+
+/*
 	cudaError_t err;
 	// CLEAP::DEVICE_LOAD:: get sizes of _cleap_mesh arrays, in bytes
 	GLintptr size = cleap_get_vertex_count(m) *4* sizeof(float);
@@ -666,6 +666,7 @@ CLEAP_RESULT _cleap_device_load_mesh(_cleap_mesh* m){
 	err = cudaGraphicsGLRegisterBuffer(&dmesh->eab_cuda, dmesh->eab, cudaGraphicsMapFlagsNone);
 	if( err != cudaSuccess )
 		printf("CLEAP::device_load_mesh::cudaGraphicsRegisterBuffer::eab:: %s\n", cudaGetErrorString(err));
+*/
 
 	// CLEAP::DEVICE_LOAD:: edges data
 	// CLEAP::DEVICE_LOAD:: malloc mesh and aux arrays

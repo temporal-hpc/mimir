@@ -25,7 +25,7 @@ add_executable(run_texture texture_cudaarray/main.cu)
 target_include_directories(run_texture SYSTEM PRIVATE include)
 target_link_libraries(run_texture PRIVATE cudaview)
 
-add_subdirectory(cleap)
+add_subdirectory(tiuque)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL

@@ -31,10 +31,11 @@ struct AllocatedBuffer
 
 struct ViewerOptions
 {
-    int2 window            = { 800, 600 };
-    PresentOptions present = PresentOptions::TripleBuffering;
-    bool show_metrics      = false;
-    uint report_period     = 5;
+    std::string window_title = "CudaView";
+    int2 window_size         = { 800, 600 };
+    PresentOptions present   = PresentOptions::VSync;
+    bool show_metrics        = false;
+    uint report_period       = 5;
 };
 
 class CudaviewEngine

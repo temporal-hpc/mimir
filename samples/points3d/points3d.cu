@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
     }
 
     ViewerOptions options;
-    options.window = {width,height}; // Starting window size
+    options.window_size = {width,height}; // Starting window size
     options.show_metrics = false; // Show metrics window in GUI
     options.report_period = 30; // Print relevant usage stats every N seconds
     CudaviewEngine engine;
