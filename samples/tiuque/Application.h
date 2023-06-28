@@ -30,8 +30,12 @@ class Application
     private:
         CudaviewEngine engine;
         Mesh* myMesh;
-        bool toggle_wireframe, toggle_solid;
-        bool educational_mode;
+        bool toggle_solid;
+        bool toggle_wireframe = true;
+        bool educational_mode = true;
+        // CudaView interop buffers
+        float3 *d_vertices = nullptr;
+        uint3 *d_triangles = nullptr;        
 
     public:
         Application();

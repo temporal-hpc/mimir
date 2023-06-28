@@ -59,6 +59,7 @@ public:
     bool should_resize = false;
 
     void setBackgroundColor(float4 color);
+    void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 
 private:
     ViewerOptions options;
@@ -75,6 +76,7 @@ private:
     std::vector<VkCommandBuffer> command_buffers;
     std::vector<VkDescriptorSet> descriptor_sets;
     DeletionQueue deletors;
+    std::function<void(void)> gui_callback = []() { return; };
 
     // Depth buffer
     VkImage depth_image = VK_NULL_HANDLE;

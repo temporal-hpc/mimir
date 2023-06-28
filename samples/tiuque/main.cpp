@@ -30,5 +30,6 @@
 int main (int argc, char **argv)
 {
   Application myApp;
+  myApp.init();
   return 0;
 }

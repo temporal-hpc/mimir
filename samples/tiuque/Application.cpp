@@ -27,8 +27,10 @@
 #include "Application.h"
 
 #include <cudaview/validation.hpp> // checkCuda
+#include <imgui.h>
+#include <ImGuiFileDialog.h>
+#include <iostream>
 
-using namespace std;
 Application::Application(){
     myMesh = 0;
     
@@ -36,6 +38,7 @@ Application::Application(){
     viewer_opts.window_title = "Tiuque"; // Top-level window.
     viewer_opts.window_size = {1920, 1080};
     viewer_opts.present = PresentOptions::VSync;
+    viewer_opts.report_period = 180;
     engine.init(viewer_opts);
     engine.setBackgroundColor({0.f,0.f,0.f,1.f});
 
@@ -44,25 +47,19 @@ Application::Application(){
 
     // TODO: Fix dptr in kernels
 	this->myMesh = new Mesh(filename.c_str());
-    auto interop_mesh = this->myMesh->my_cleap_mesh;
-    auto dmesh = interop_mesh->dm;
-
-    float3 *d_vertices = nullptr;
-    uint3 *d_triangles = nullptr;
+    auto interop_mesh = this->myMesh->my_cleap_mesh;  
 
     // NOTE: Cudaview code
+
+    // TODO: Delete views
     ViewParams vert;
-    vert.element_count  = cleap_get_vertex_count(interop_mesh);
-    vert.element_size   = sizeof(float3);
-    vert.data_domain    = DataDomain::Domain3D;
-    vert.resource_type  = ResourceType::UnstructuredBuffer;
-    vert.primitive_type = PrimitiveType::Points;
+    vert.element_count   = cleap_get_vertex_count(interop_mesh);
+    vert.element_size    = sizeof(float3);
+    vert.data_domain     = DataDomain::Domain3D;
+    vert.resource_type   = ResourceType::UnstructuredBuffer;
+    vert.primitive_type  = PrimitiveType::Points;
     vert.options.visible = false;
     engine.createView((void**)&d_vertices, vert);
-
-    validation::checkCuda(cudaMemcpy(d_vertices, interop_mesh->vnc_data.v,
-        vert.element_count * vert.element_size, cudaMemcpyHostToDevice)
-    );
 
     ViewParams tri;
     tri.element_count  = cleap_get_face_count(interop_mesh);
@@ -72,12 +69,6 @@ Application::Application(){
     tri.primitive_type = PrimitiveType::Edges;
     tri.options.color  = {0.f, 1.f, 0.f, 1.f};
     engine.createView((void**)&d_triangles, tri);
-
-    validation::checkCuda(cudaMemcpy(d_triangles, interop_mesh->triangles,
-        tri.element_count * tri.element_size, cudaMemcpyHostToDevice)
-    );
-
-    engine.displayAsync();
 }
 
 Application::~Application(){
@@ -148,7 +139,64 @@ void Application::on_hscale_size_change_value(){
     //my_gl_window->redraw();
 }
 
-void Application::init(){
+void Application::init()
+{
+    engine.setGuiCallback([=,this]
+    {
+        if (ImGui::BeginMainMenuBar())
+        {
+            if (ImGui::BeginMenu("File"))
+            {
+                if (ImGui::MenuItem("Open Mesh", "Ctrl+O"))
+                {
+                    ImGuiFileDialog::Instance()->OpenDialog("LoadFileDialog", "Load mesh file", ".off", ".");
+                }
+                if (ImGui::MenuItem("Save", "Ctrl+S"))
+                {
+                    on_menu_file_save();
+                }
+                if (ImGui::MenuItem("Save As.."))
+                {
+                    ImGuiFileDialog::Instance()->OpenDialog("SaveFileDialog", "Save mesh file", ".off", ".");
+                }
+                ImGui::Separator();
+                if (ImGui::BeginMenu("Options"))
+                {
+                    // TODO: Handle flag value changes
+                    ImGui::MenuItem("Toggle Wireframe", "", &toggle_wireframe);
+                    ImGui::MenuItem("Educational Mode", "", &educational_mode);
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Quit", "Alt+F4"))
+                {
+                    // TODO: Add exit function to cudaview
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMainMenuBar();
+        }
+        if (ImGuiFileDialog::Instance()->Display("LoadFileDialog"))
+        {
+            if (ImGuiFileDialog::Instance()->IsOk())
+            {
+                std::string filename = ImGuiFileDialog::Instance()->GetFilePathName();
+                load_mesh(filename.c_str());
+            }
+            ImGuiFileDialog::Instance()->Close();
+        }
+        if (ImGuiFileDialog::Instance()->Display("SaveFileDialog"))
+        {
+            if (ImGuiFileDialog::Instance()->IsOk())
+            {
+                std::string filename = ImGuiFileDialog::Instance()->GetFilePathName();
+                save_mesh(filename.c_str());
+            }
+            ImGuiFileDialog::Instance()->Close();
+        }        
+    });
+    engine.displayAsync();
+
     //! linking widgets to logic
     // gl window -- important to be first
     /*ref_builder->get_widget_derived("widget_gl_window", //my_gl_window );
@@ -220,7 +268,8 @@ void Application::init(){
     }*/
 }
 
-void Application::on_menu_file_open(){
+void Application::on_menu_file_open()
+{
 /*
 	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog("Open Mesh", Gtk::FILE_CHOOSER_ACTION_OPEN);
   	dialog->set_transient_for(*this);
@@ -255,7 +304,8 @@ void Application::on_menu_file_open(){
 */
 }
 
-void Application::on_menu_file_save_as(){
+void Application::on_menu_file_save_as()
+{
     printf("Tiuque::save_as::");
     if(this->myMesh){
         /*Gtk::FileChooserDialog dialog("Save as", Gtk::FILE_CHOOSER_ACTION_SAVE);
@@ -270,7 +320,7 @@ void Application::on_menu_file_save_as(){
         dialog.add_filter(filter_geomview);
         int result=dialog.run();
         if (result==Gtk::RESPONSE_OK){
-            //myMesh->save_mesh(dialog.get_filename().c_str());
+            myMesh->save_mesh(dialog.get_filename().c_str());
             printf("ok\n");
         }
         else{
@@ -296,4 +346,26 @@ void Application::on_menu_file_save(){
         printf("nothing to save... have you loaded a mesh?.\n");
         return;
     }
+}
+
+int Application::load_mesh(const char* filename)
+{
+    this->myMesh = new Mesh(filename);
+    auto m = this->myMesh->my_cleap_mesh;
+
+    validation::checkCuda(cudaMemcpy(d_vertices, m->vnc_data.v,
+        cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)
+    );
+    validation::checkCuda(cudaMemcpy(d_triangles, m->triangles,
+        cleap_get_face_count(m) * sizeof(uint3), cudaMemcpyHostToDevice)
+    );
+    return 0;
+}
+
+int Application::save_mesh(const char* filename)
+{
+    printf("Tiuque::save_as::");
+    myMesh->save_mesh(filename);
+    printf("ok\n");
+    return 0;
 }

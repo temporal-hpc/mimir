@@ -4,8 +4,10 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
+#include <ImGuiFileDialog.h>
 
 #include <algorithm> // std::clamp
+#include <iostream>
 
 std::string to_string(DataDomain x)
 {
@@ -84,6 +86,29 @@ void CudaviewEngine::drawGui()
     if (show_demo_window) { ImGui::ShowDemoWindow(); }
     if (options.show_metrics) { ImGui::ShowMetricsWindow(); }
     
+    /*if (ImGui::BeginMainMenuBar())
+    {
+        if (ImGui::BeginMenu("File"))
+        {
+            if (ImGui::MenuItem("Open", "Ctrl+O"))
+            {
+                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".off", ".");
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+    }
+    if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey"))
+    {
+        if (ImGuiFileDialog::Instance()->IsOk())
+        {
+            std::string file_name = ImGuiFileDialog::Instance()->GetFilePathName();
+            std::string curr_path = ImGuiFileDialog::Instance()->GetCurrentPath();
+            //file_handler(file_name, curr_path);
+        }
+        ImGuiFileDialog::Instance()->Close();
+    }*/
+
     {
         ImGui::Begin("Scene parameters");
         //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
@@ -98,8 +123,11 @@ void CudaviewEngine::drawGui()
         }
         ImGui::End();
     }
+
+    gui_callback();
     ImGui::Render();
 }
+
 
 CudaviewEngine *getHandler(GLFWwindow *window)
 {
