@@ -29,7 +29,7 @@ target_compile_options(cudaview PRIVATE -Wall -Wextra
 
 find_package(Vulkan REQUIRED COMPONENTS glslc)
 find_package(CUDAToolkit)
-target_link_libraries(cudaview PUBLIC Vulkan::Vulkan CUDA::cudart glfw imgui slang)
+target_link_libraries(cudaview PUBLIC Vulkan::Vulkan CUDA::cudart slang glfw imgui ImGuiFileDialog)
 
 install(
     TARGETS cudaview

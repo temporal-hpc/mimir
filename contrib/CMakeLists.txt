@@ -9,3 +9,5 @@ target_sources(imgui PRIVATE
     imgui/backends/imgui_impl_glfw.cpp
     imgui/backends/imgui_impl_vulkan.cpp
 )
+
+add_subdirectory(imgui_file_dialog)
