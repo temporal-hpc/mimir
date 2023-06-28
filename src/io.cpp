@@ -74,7 +74,7 @@ void loadTriangleMesh(const std::string& filename,
 std::string getDefaultShaderPath()
 {
     // If shaders are installed in library path, set working directory there
-    /*Dl_info dl_info;
+    Dl_info dl_info;
     dladdr((void*)getDefaultShaderPath, &dl_info);
     auto lib_pathname = dl_info.dli_fname;
     if (lib_pathname != nullptr)
@@ -82,10 +82,10 @@ std::string getDefaultShaderPath()
         std::filesystem::path lib_path(lib_pathname);
         return lib_path.parent_path().string();
     }
-    else // Use executable path as working dir*/
+    else // Use executable path as working dir
     {
         auto exe_folder = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
-        return exe_folder.parent_path().parent_path();
+        return exe_folder;
     }
 }
 
