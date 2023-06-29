@@ -140,7 +140,7 @@ void CudaviewEngine::displayAsync()
 
 void CudaviewEngine::prepareWindow()
 {
-    if (running)
+    if (options.enable_sync && running)
     {
         //printf("Kernel is starting\n");
         kernel_working = true;
@@ -149,7 +149,7 @@ void CudaviewEngine::prepareWindow()
 }
 
 void CudaviewEngine::waitKernelStart()
-{   
+{
     static uint64_t wait_value = 1;
     cudaExternalSemaphoreWaitParams wait_params{};
     wait_params.flags = 0;
@@ -165,7 +165,7 @@ void CudaviewEngine::waitKernelStart()
 
 void CudaviewEngine::updateWindow()
 {
-    if (running)
+    if (options.enable_sync && running)
     {
         //printf("Kernel has ended\n");
         signalKernelFinish();
@@ -632,7 +632,7 @@ void CudaviewEngine::renderFrame()
     bool advance_timeline = false;
     std::vector<VkSemaphore> waits;
     std::vector<VkSemaphore> signals;
-    if (kernel_working)
+    if (options.enable_sync && kernel_working)
     {
         VkSemaphoreWaitInfo wait_info{};
         wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;

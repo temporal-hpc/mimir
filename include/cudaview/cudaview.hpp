@@ -34,6 +34,7 @@ struct ViewerOptions
     std::string window_title = "CudaView";
     int2 window_size         = { 800, 600 };
     PresentOptions present   = PresentOptions::VSync;
+    bool enable_sync         = true;
     bool show_metrics        = false;
     uint report_period       = 5;
 };

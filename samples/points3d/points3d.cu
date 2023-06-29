@@ -74,6 +74,8 @@ int main(int argc, char *argv[])
     options.window_size = {width,height}; // Starting window size
     options.show_metrics = false; // Show metrics window in GUI
     options.report_period = 30; // Print relevant usage stats every N seconds
+    options.enable_sync = true;
+    options.present = PresentOptions::VSync;
     CudaviewEngine engine;
     engine.init(options);
 
