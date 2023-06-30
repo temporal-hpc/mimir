@@ -114,6 +114,13 @@ void CudaviewEngine::init(int width, int height)
     init(opts);
 }
 
+void CudaviewEngine::exit()
+{
+    printf("Exiting...\n");
+    glfwSetWindowShouldClose(window, GL_TRUE);
+    glfwPollEvents();
+}
+
 void CudaviewEngine::prepare()
 {
     initUniformBuffers();
@@ -734,11 +741,9 @@ void CudaviewEngine::renderFrame()
         signal_value += 2;
     }
 
-    if (frame_time > options.report_period)
+    if (options.report_period > 0 && frame_time > options.report_period)
     {
         printf("Report at %d seconds:\n", options.report_period);
-        auto framerate = ImGui::GetIO().Framerate;
-        printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
         showMetrics();
         last_time = current_time;
     }

@@ -269,6 +269,9 @@ void CudaviewEngine::windowCloseCallback(GLFWwindow *window)
 
 void CudaviewEngine::showMetrics()
 {
+    auto framerate = ImGui::GetIO().Framerate;
+    printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
+
     dev->updateMemoryProperties();
     auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
     printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());

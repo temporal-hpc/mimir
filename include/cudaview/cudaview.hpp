@@ -36,7 +36,7 @@ struct ViewerOptions
     PresentOptions present   = PresentOptions::VSync;
     bool enable_sync         = true;
     bool show_metrics        = false;
-    uint report_period       = 5;
+    uint report_period       = 0;
 };
 
 class CudaviewEngine
@@ -57,7 +57,7 @@ public:
     void prepareWindow();
     void updateWindow();
     void showMetrics();
-    bool should_resize = false;
+    void exit();
 
     void setBackgroundColor(float4 color);
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
@@ -91,6 +91,7 @@ private:
     InteropBarrier timeline;
 
     // CPU thread synchronization variables
+    bool should_resize = false;
     bool running = false;
     bool kernel_working = false;
     std::thread rendering_thread;

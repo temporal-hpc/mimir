@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
     {
-        if (i == iter_count / 2) engine.showMetrics();
+        if (i == iter_count / 2) { engine.showMetrics(); engine.exit(); }
         if (display) engine.prepareWindow();
         integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
