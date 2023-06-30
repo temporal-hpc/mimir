@@ -42,33 +42,36 @@ Application::Application(){
     engine.init(viewer_opts);
     engine.setBackgroundColor({0.f,0.f,0.f,1.f});
 
-    // TODO: Move this to file_open
-	std::string filename = "/home/francisco/Downloads/tiuque/chica5.off";
-
     // TODO: Fix dptr in kernels
-	this->myMesh = new Mesh(filename.c_str());
-    auto interop_mesh = this->myMesh->my_cleap_mesh;  
+	this->myMesh = new Mesh("/home/francisco/Downloads/tiuque/chica5.off");
+    auto m = this->myMesh->my_cleap_mesh;  
 
     // NOTE: Cudaview code
-
     // TODO: Delete views
     ViewParams vert;
-    vert.element_count   = cleap_get_vertex_count(interop_mesh);
-    vert.element_size    = sizeof(float3);
+    vert.element_count   = cleap_get_vertex_count(m);
+    vert.element_size    = sizeof(float4);
     vert.data_domain     = DataDomain::Domain3D;
     vert.resource_type   = ResourceType::UnstructuredBuffer;
     vert.primitive_type  = PrimitiveType::Points;
     vert.options.visible = false;
-    engine.createView((void**)&d_vertices, vert);
+    engine.createView((void**)&m->dm->d_vbo_v, vert);
 
     ViewParams tri;
-    tri.element_count  = cleap_get_face_count(interop_mesh);
+    tri.element_count  = cleap_get_face_count(m);
     tri.element_size   = sizeof(uint3);
     tri.data_domain    = DataDomain::Domain3D;
     tri.resource_type  = ResourceType::UnstructuredBuffer;
     tri.primitive_type = PrimitiveType::Edges;
     tri.options.color  = {0.f, 1.f, 0.f, 1.f};
-    engine.createView((void**)&d_triangles, tri);
+    engine.createView((void**)&m->dm->d_eab, tri);
+
+    validation::checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
+        cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)
+    );
+    validation::checkCuda(cudaMemcpy(m->dm->d_eab, m->triangles,
+        cleap_get_face_count(m) * sizeof(uint3), cudaMemcpyHostToDevice)
+    );
 }
 
 Application::~Application(){
@@ -85,13 +88,13 @@ void Application::on_menu_help_about(){
 
 void Application::on_button_delaunay_2d_clicked(){
     if(myMesh){
-        engine.prepareWindow();
+        //engine.prepareWindow();
         if (educational_mode) //if(check_button_educational_mode->get_active())
         	myMesh->delaunay_transformation_interactive(CLEAP_MODE_2D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_2D);
 
-        engine.updateWindow(); ////my_gl_window->redraw();
+        //engine.updateWindow(); ////my_gl_window->redraw();
     }
 }
 
@@ -104,13 +107,13 @@ void Application::on_button_clear_clicked(){
 
 void Application::on_button_delaunay_3d_clicked(){
     if(myMesh){
-        engine.prepareWindow();
+        //engine.prepareWindow();
         if (educational_mode) //if(check_button_educational_mode->get_active())
             myMesh->delaunay_transformation_interactive(CLEAP_MODE_3D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_3D);
 
-        engine.updateWindow(); //my_gl_window->redraw();
+        //engine.updateWindow(); //my_gl_window->redraw();
     }
 }
 
@@ -160,20 +163,32 @@ void Application::init()
                     ImGuiFileDialog::Instance()->OpenDialog("SaveFileDialog", "Save mesh file", ".off", ".");
                 }
                 ImGui::Separator();
+                if (ImGui::MenuItem("Quit", "Alt+F4"))
+                {
+                    engine.exit();
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Run"))
+            {
+                if (ImGui::MenuItem("MDT-2D", "Ctrl+2"))
+                {
+                    on_button_delaunay_2d_clicked();
+                }
+                if (ImGui::MenuItem("MDT-3D", "Ctrl+3"))
+                {
+                    on_button_delaunay_3d_clicked();
+                }
+                ImGui::Separator();
                 if (ImGui::BeginMenu("Options"))
                 {
                     // TODO: Handle flag value changes
                     ImGui::MenuItem("Toggle Wireframe", "", &toggle_wireframe);
                     ImGui::MenuItem("Educational Mode", "", &educational_mode);
                     ImGui::EndMenu();
-                }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Quit", "Alt+F4"))
-                {
-                    // TODO: Add exit function to cudaview
-                }
+                }                
                 ImGui::EndMenu();
-            }
+            }            
             ImGui::EndMainMenuBar();
         }
         if (ImGuiFileDialog::Instance()->Display("LoadFileDialog"))
@@ -350,7 +365,7 @@ void Application::on_menu_file_save(){
 
 int Application::load_mesh(const char* filename)
 {
-    this->myMesh = new Mesh(filename);
+    /*this->myMesh = new Mesh(filename);
     auto m = this->myMesh->my_cleap_mesh;
 
     validation::checkCuda(cudaMemcpy(d_vertices, m->vnc_data.v,
@@ -358,7 +373,7 @@ int Application::load_mesh(const char* filename)
     );
     validation::checkCuda(cudaMemcpy(d_triangles, m->triangles,
         cleap_get_face_count(m) * sizeof(uint3), cudaMemcpyHostToDevice)
-    );
+    );*/
     return 0;
 }
 

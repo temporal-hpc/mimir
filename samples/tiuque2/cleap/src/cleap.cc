@@ -128,6 +128,7 @@ CLEAP_RESULT _cleap_generate_edges_hash(_cleap_mesh *m, FILE *off, float prog, f
 	}
 	edge_vector.clear();
 	printf("ok\n"); fflush(stdout);
+    return CLEAP_SUCCESS;
 }
 
 CLEAP_RESULT _cleap_host_load_mesh(_cleap_mesh *m, const char* filename){

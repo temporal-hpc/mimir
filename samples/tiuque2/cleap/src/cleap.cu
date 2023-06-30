@@ -293,9 +293,11 @@ void cleap_print_mesh( _cleap_mesh *m ){
 CLEAP_RESULT cleap_delaunay_transformation(_cleap_mesh *m, int mode){
 
 	printf("CLEAP::delaunay_transformation_%id::", mode);
-	float4 *d_vbo_v;
-	GLuint *d_eab;
+	//float4 *d_vbo_v;
+	//GLuint *d_eab;
 	//size_t bytes=0;
+    float4 *d_vbo_v = m->dm->d_vbo_v;
+    uint *d_eab = m->dm->d_eab;
 	int *h_listo, it=0;
 	// Map resources
 	//cudaGraphicsMapResources(1, &m->dm->vbo_v_cuda, 0);
@@ -379,9 +381,11 @@ CLEAP_RESULT cleap_delaunay_transformation(_cleap_mesh *m, int mode){
 
 CLEAP_RESULT cleap_delaunay_transformation_interactive(_cleap_mesh *m, int mode){
 
-	float4 *d_vbo_v;
-	GLuint *d_eab;
+	//float4 *d_vbo_v;
+	//GLuint *d_eab;
 	//size_t bytes=0;
+    float4 *d_vbo_v = m->dm->d_vbo_v;
+    uint *d_eab = m->dm->d_eab;
 	int *h_listo, it=0;
 
 	//cudaGraphicsMapResources(1, &m->dm->vbo_v_cuda, 0);
