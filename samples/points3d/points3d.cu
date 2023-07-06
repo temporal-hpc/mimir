@@ -1,10 +1,11 @@
 #include <cudaview/cudaview.hpp>
 
 #include <curand_kernel.h>
-
 #include <string> // std::stoul
 #include <cudaview/validation.hpp>
 using namespace validation; // checkCuda
+
+#include "nvmlPower.hpp"
 
 __global__ void initSystem(float *coords, size_t point_count,
     curandState *global_states, uint3 extent, unsigned seed)
@@ -105,6 +106,8 @@ int main(int argc, char *argv[])
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
+    GPUPowerBegin("gpu", 100);
+    CPUPowerBegin("cpu", 100);
     cudaEventRecord(start);
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
@@ -116,6 +119,9 @@ int main(int argc, char *argv[])
     }
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
+    GPUPowerEnd();
+    CPUPowerEnd();
+
     cudaEventElapsedTime(&timems, start, stop);    
     printf("Kernel elapsed time (s): %.2f\n", timems / 1000.f);
     engine.showMetrics();

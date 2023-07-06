@@ -12,8 +12,8 @@ target_link_libraries(image PRIVATE cudaview)
 add_executable(mesh3d mesh3d/mesh3d.cu)
 target_link_libraries(mesh3d PRIVATE cudaview)
 
-add_executable(points3d points3d/points3d.cu)
-target_link_libraries(points3d PRIVATE cudaview)
+add_executable(points3d points3d/points3d.cu points3d/nvmlPower.cpp points3d/Rapl.cpp)
+target_link_libraries(points3d PRIVATE cudaview nvidia-ml)
 
 add_executable(run_structured structured/run_structured.cu)
 target_link_libraries(run_structured PRIVATE cudaview)
