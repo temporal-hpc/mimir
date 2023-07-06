@@ -271,12 +271,16 @@ void CudaviewEngine::showMetrics()
 {
     auto framerate = ImGui::GetIO().Framerate;
     printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
+    /*int w, h;
+    glfwGetFramebufferSize(window, &w, &h);
+    printf("fb_size: %dx%d\n", w, h);*/
 
     dev->updateMemoryProperties();
     auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
     printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());
     auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
     printf("GPU memory budget: %.2f %s\n", gpu_budget.data, gpu_budget.units.c_str());
+    //this->exit();
 
     /*
     auto props = dev->budget_properties;

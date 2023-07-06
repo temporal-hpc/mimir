@@ -80,7 +80,9 @@ void CudaviewEngine::init(ViewerOptions opts)
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     window = glfwCreateWindow(width, height, options.window_title.c_str(), nullptr, nullptr);
+    //glfwSetWindowSize(window, width, height);
     deletors.add([=,this] {
         printf("Terminating GLFW\n");
         glfwDestroyWindow(window);

@@ -100,15 +100,25 @@ int main(int argc, char *argv[])
     initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
     checkCuda(cudaDeviceSynchronize());
 
+    float timems;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start);
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
     {
-        if (i == iter_count / 2) { engine.showMetrics(); engine.exit(); }
         if (display) engine.prepareWindow();
         integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
         if (display) engine.updateWindow();
     }
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&timems, start, stop);    
+    printf("Kernel elapsed time (s): %.2f\n", timems / 1000.f);
+    engine.showMetrics();
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
