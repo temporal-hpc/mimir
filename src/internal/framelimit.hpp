@@ -1,0 +1,1 @@
+void frameStall(unsigned target_rate);

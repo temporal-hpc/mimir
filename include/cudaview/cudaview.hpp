@@ -37,6 +37,7 @@ struct ViewerOptions
     bool enable_sync         = true;
     bool show_metrics        = false;
     uint report_period       = 0;
+    uint target_fps          = 0;
 };
 
 class CudaviewEngine
@@ -130,6 +131,7 @@ private:
     static void addViewObjectGui(InteropView *view_ptr, int uid);
     std::unique_ptr<Camera> camera;
     bool show_demo_window = false;
+    long target_frame_time = 0;
 
     void initVulkan();
     void initImgui();

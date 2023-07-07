@@ -158,6 +158,11 @@ void GPUPowerEnd(){
 	GPUpollThreadStatus = false;
 	pthread_join(GPUpowerPollThread, NULL);
 
+    double ckWh = 3600000.0;
+    printf("GPU Avg. Power:       %f W\n", gpuAveragePower);
+    printf("GPU Total Energy:     %f J = %f kWh\n", gpuTotalEnergy, gpuTotalEnergy/ckWh);
+    printf("GPU Total Time:       %f secs\n", gpuTotalTime);
+
 	nvmlResult = nvmlShutdown();
 	if (NVML_SUCCESS != nvmlResult)
 	{

@@ -2,6 +2,7 @@
 #include <cudaview/io.hpp>
 
 #include "internal/camera.hpp"
+#include "internal/framelimit.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
@@ -73,6 +74,8 @@ CudaviewEngine::~CudaviewEngine()
 void CudaviewEngine::init(ViewerOptions opts)
 {
     options = opts;
+    target_frame_time = 1000000000 / options.target_fps;
+
     auto width  = options.window_size.x;
     auto height = options.window_size.y;
     
@@ -724,6 +727,9 @@ void CudaviewEngine::renderFrame()
     // Return image result back to swapchain for presentation on screen
     auto present_info = vkinit::presentInfo(&image_idx, &swap->swapchain, &present_semaphore);
     result = vkQueuePresentKHR(dev->present.queue, &present_info);
+
+    // Limit frame if it was configured
+    frameStall(target_frame_time);
 
     // Resize should be done after presentation to ensure semaphore consistency
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR

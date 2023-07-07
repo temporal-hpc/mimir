@@ -76,7 +76,8 @@ int main(int argc, char *argv[])
     options.show_metrics = false; // Show metrics window in GUI
     options.report_period = 30; // Print relevant usage stats every N seconds
     options.enable_sync = true;
-    options.present = PresentOptions::VSync;
+    options.present = PresentOptions::Immediate;
+    options.target_fps = 144;
     CudaviewEngine engine;
     engine.init(options);
 
@@ -107,7 +108,6 @@ int main(int argc, char *argv[])
     cudaEventCreate(&stop);
 
     GPUPowerBegin("gpu", 100);
-    CPUPowerBegin("cpu", 100);
     cudaEventRecord(start);
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
@@ -119,12 +119,11 @@ int main(int argc, char *argv[])
     }
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
-    GPUPowerEnd();
-    CPUPowerEnd();
-
+    
     cudaEventElapsedTime(&timems, start, stop);    
     printf("Kernel elapsed time (s): %.2f\n", timems / 1000.f);
     engine.showMetrics();
+    GPUPowerEnd();
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
