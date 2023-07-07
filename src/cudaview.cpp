@@ -74,7 +74,10 @@ CudaviewEngine::~CudaviewEngine()
 void CudaviewEngine::init(ViewerOptions opts)
 {
     options = opts;
-    target_frame_time = 1000000000 / options.target_fps;
+    if (options.target_fps > 0)
+    {
+        target_frame_time = 1000000000 / options.target_fps;
+    }
 
     auto width  = options.window_size.x;
     auto height = options.window_size.y;
