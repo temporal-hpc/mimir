@@ -125,6 +125,23 @@ int main(int argc, char *argv[])
     cudaEventElapsedTime(&timems, start, stop);    
     printf("Kernel elapsed time (s): %.2f\n", timems / 1000.f);
     engine.showMetrics();
+
+    // Nvml memory report
+    {
+        nvmlMemory_v2_t meminfo;
+        meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
+        
+        constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
+        double freemem = meminfo.free / gigabyte;
+        double reserved = meminfo.reserved / gigabyte;
+        double totalmem = meminfo.total / gigabyte;
+        double usedmem = meminfo.used / gigabyte;
+        printf("Device memory report (GB):\n  free: %.2lf\n  reserved: %.2lf\n  total: %.2lf\n  used: %.2lf\n",
+            freemem, reserved, totalmem, usedmem
+        );
+    }
+
     GPUPowerEnd();
 
     checkCuda(cudaFree(d_states));

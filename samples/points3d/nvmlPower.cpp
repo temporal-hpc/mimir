@@ -274,3 +274,8 @@ void* CPUpowerPollingFunc(void *ptr){
     fclose(fp);
 	pthread_exit(0);
 }
+
+nvmlDevice_t getNvmlDevice()
+{
+    return nvmlDeviceID;
+}

@@ -27,6 +27,7 @@ Header file including necessary nvml headers.
 // GPU power measure functions
 void GPUPowerBegin(const char *alg, int ms);
 void GPUPowerEnd();
+nvmlDevice_t getNvmlDevice();
 
 // CPU power measure functions
 void CPUPowerBegin(const char *alg, int ms);
