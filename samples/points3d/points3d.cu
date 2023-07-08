@@ -56,15 +56,17 @@ int main(int argc, char *argv[])
     uint3 extent          = {200, 200, 200};
 
     // Default values for this program
-    size_t point_count = 100;
-    size_t iter_count  = 10000;
-    size_t target_fps  = 0;
     int width = 1280;
     int height = 720;
+    size_t point_count = 100;
+    size_t iter_count  = 10000;
+    PresentOptions present_mode = PresentOptions::Immediate;
+    size_t target_fps  = 0;
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
     if (argc >= 4) point_count = std::stoul(argv[3]);
     if (argc >= 5) iter_count = std::stoul(argv[4]);
-    if (argc >= 6) target_fps = std::stoul(argv[5]);
+    if (argc >= 6) present_mode = static_cast<PresentOptions>(std::stoi(argv[5]));
+    if (argc >= 7) target_fps = std::stoul(argv[6]);
 
     bool display = true;
     if (width == 0 || height == 0)
@@ -78,7 +80,7 @@ int main(int argc, char *argv[])
     options.show_metrics = false; // Show metrics window in GUI
     options.report_period = 0; // Print relevant usage stats every N seconds
     options.enable_sync = true;
-    options.present = PresentOptions::Immediate;
+    options.present = present_mode;
     options.target_fps = target_fps;
     CudaviewEngine engine;
     engine.init(options);

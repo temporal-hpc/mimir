@@ -5,7 +5,7 @@
 
 #include <string> // std::string
 
-enum class PresentOptions { Immediate, VSync, TripleBuffering };
+enum class PresentOptions { Immediate, TripleBuffering, VSync };
 
 // Specifies the number of spatial dimensions of the view
 enum class DataDomain    { Domain2D, Domain3D };
