@@ -86,11 +86,12 @@ void CudaviewEngine::init(ViewerOptions opts)
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
     //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    window = glfwCreateWindow(width, height, options.window_title.c_str(), nullptr, nullptr);
+    window = glfwCreateWindow(width, height, options.window_title.c_str(), glfwGetPrimaryMonitor(), nullptr);
     //glfwSetWindowSize(window, width, height);
     deletors.add([=,this] {
-        printf("Terminating GLFW\n");
+        //printf("Terminating GLFW\n");
         glfwDestroyWindow(window);
         glfwTerminate();
     });
@@ -124,7 +125,7 @@ void CudaviewEngine::init(int width, int height)
 
 void CudaviewEngine::exit()
 {
-    printf("Exiting...\n");
+    //printf("Exiting...\n");
     glfwSetWindowShouldClose(window, GL_TRUE);
     glfwPollEvents();
 }
@@ -372,7 +373,7 @@ void CudaviewEngine::pickPhysicalDevice()
     {
         throw std::runtime_error("could not find devices supporting CUDA");
     }
-    printf("Enumerating CUDA devices:\n");
+    /*printf("Enumerating CUDA devices:\n");
     for (int dev_id = 0; dev_id < cuda_dev_count; ++dev_id)
     {
         cudaDeviceProp dev_prop;
@@ -380,7 +381,7 @@ void CudaviewEngine::pickPhysicalDevice()
         printf("* ID: %d\n  Name: %s\n  Capability: %d.%d\n",
             dev_id, dev_prop.name, dev_prop.major, dev_prop.minor
         );
-    }
+    }*/
 
     uint32_t vulkan_dev_count = 0;
     vkEnumeratePhysicalDevices(instance, &vulkan_dev_count, nullptr);
@@ -390,13 +391,13 @@ void CudaviewEngine::pickPhysicalDevice()
     }
     std::vector<VkPhysicalDevice> devices(vulkan_dev_count);
     vkEnumeratePhysicalDevices(instance, &vulkan_dev_count, devices.data());
-    printf("Enumerating Vulkan devices:\n");
+    /*printf("Enumerating Vulkan devices:\n");
     for (const auto& dev : devices)
     {
         VkPhysicalDeviceProperties props{};
         vkGetPhysicalDeviceProperties(dev, &props);
         printf("* ID: %u\n  Name: %s\n", props.deviceID, props.deviceName);
-    }
+    }*/
 
     auto fpGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)
         vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2");
@@ -435,7 +436,7 @@ void CudaviewEngine::pickPhysicalDevice()
                 VkPhysicalDeviceProperties props{};
                 vkGetPhysicalDeviceProperties(ph_dev, &props);
                 dev = std::make_unique<InteropDevice>(ph_dev);
-                printf("Selected CUDA-Vulkan device %d: %s\n\n", curr_device, dev_prop.name);
+                //printf("Selected CUDA-Vulkan device %d: %s\n\n", curr_device, dev_prop.name);
                 break;
             }
         }
@@ -557,7 +558,7 @@ void CudaviewEngine::initSwapchain()
 
 void CudaviewEngine::recreateSwapchain()
 {
-    printf("Recreating swapchain\n");
+    //printf("Recreating swapchain\n");
     cleanupSwapchain();
     initSwapchain();
     createGraphicsPipelines();
@@ -738,9 +739,9 @@ void CudaviewEngine::renderFrame()
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
         || should_resize)
     {
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) printf("Outdated present\n");
-        if (result == VK_SUBOPTIMAL_KHR) printf("Suboptimal\n");
-        if (should_resize) printf("Resizing\n");
+        //if (result == VK_ERROR_OUT_OF_DATE_KHR) printf("Outdated present\n");
+        //if (result == VK_SUBOPTIMAL_KHR) printf("Suboptimal\n");
+        //if (should_resize) printf("Resizing\n");
         recreateSwapchain();
         should_resize = false;
     }
@@ -894,7 +895,7 @@ VkRenderPass CudaviewEngine::createRenderPass()
     std::array<VkAttachmentDescription, 2> attachments{ color, depth };
     auto pass_info = vkinit::renderPassCreateInfo(attachments, &subpass, &dependency);
 
-    printf("render pass attachment count: %lu\n", attachments.size());
+    //printf("render pass attachment count: %lu\n", attachments.size());
     VkRenderPass render_pass = VK_NULL_HANDLE;
     validation::checkVulkan(
         vkCreateRenderPass(dev->logical_device, &pass_info, nullptr, &render_pass)
@@ -917,7 +918,7 @@ void CudaviewEngine::createGraphicsPipelines()
         builder.addPipeline(view.params, dev.get());
     }
     auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
-    std::cout << pipelines.size() << " pipeline(s) created\n";
+    //printf("%lu pipeline(s) created\n", pipelines.size());
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
         views[i].pipeline = pipelines[i];
@@ -926,9 +927,8 @@ void CudaviewEngine::createGraphicsPipelines()
     // Restore original working directory
     std::filesystem::current_path(orig_path);
     auto end = std::chrono::steady_clock::now();
-    std::cout << "Creation time for all pipelines: "
-        << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
-        << " ms\n";
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    //printf("Creation time for all pipelines: %lu ms\n", elapsed);
 }
 
 void CudaviewEngine::rebuildPipeline(InteropView& view)

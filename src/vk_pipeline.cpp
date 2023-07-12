@@ -308,12 +308,12 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
 
     std::vector<VkPipelineShaderStageCreateInfo> stages;
     if (!ext_shaders.empty()) {
-        printf("Loading external shaders\n");
+        //printf("Loading external shaders\n");
         stages = loadExternalShaders(dev, ext_shaders);
     }
     else
     {
-        printf("Compiling slang shaders\n");
+        //printf("Compiling slang shaders\n");
         stages = compileSlang(dev, compile_params);
     }
     

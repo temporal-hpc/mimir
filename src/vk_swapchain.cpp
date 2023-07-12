@@ -125,7 +125,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
         device, &create_info, nullptr, &swapchain)
     );
     aux_deletors.add([=,this](){
-        printf("destroying swapchain\n");
+        //printf("destroying swapchain\n");
         vkDestroySwapchainKHR(device, swapchain, nullptr);
     });
 

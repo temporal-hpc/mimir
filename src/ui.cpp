@@ -261,7 +261,7 @@ void CudaviewEngine::handleKey(int key, int scancode, int action, int mods)
 
 void CudaviewEngine::windowCloseCallback(GLFWwindow *window)
 {
-    printf("Handling window close\n");
+    //printf("Handling window close\n");
     auto engine = getHandler(window);
     engine->running = false;
     engine->signalKernelFinish();
@@ -271,8 +271,15 @@ void CudaviewEngine::showMetrics()
 {
     int w, h;
     glfwGetFramebufferSize(window, &w, &h);
-    printf("Framebuffer size: %dx%d\n", w, h);
     auto framerate = ImGui::GetIO().Framerate;
+    dev->updateMemoryProperties();
+    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage, "MB");
+    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget, "GB");
+
+    printf("%dx%d_%d,%f,%f,%f,", w,h,options.target_fps,
+        framerate,gpu_usage.data,gpu_budget.data
+    );
+    /*printf("Framebuffer size: %dx%d\n", w, h);
     printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
 
     dev->updateMemoryProperties();
@@ -291,5 +298,5 @@ void CudaviewEngine::showMetrics()
         printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
         auto heap_flags = dev->memory_properties2.memoryProperties.memoryHeaps[i].flags;
         printf("Heap %d flags: %s\n", i, dev->readMemoryHeapFlags(heap_flags).c_str());
-    }
+    }*/
 }

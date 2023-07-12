@@ -36,6 +36,7 @@ struct ViewerOptions
     PresentOptions present   = PresentOptions::VSync;
     bool enable_sync         = true;
     bool show_metrics        = false;
+    bool fullscreen          = true;
     uint report_period       = 0;
     uint target_fps          = 0;
 };

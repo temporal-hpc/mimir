@@ -1,6 +1,8 @@
 #include <cudaview/cudaview.hpp>
 
 #include <curand_kernel.h>
+#include <iostream> // std::cout
+#include <fstream> // std::ofstream
 #include <string> // std::stoul
 #include <cudaview/validation.hpp>
 using namespace validation; // checkCuda
@@ -106,13 +108,14 @@ int main(int argc, char *argv[])
     initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
     checkCuda(cudaDeviceSynchronize());
 
-    float timems;
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    //float timems;
+    //cudaEvent_t start, stop;
+    //cudaEventCreate(&start);
+    //cudaEventCreate(&stop);
 
+    printf("%lu,", point_count);
     GPUPowerBegin("gpu", 100);
-    cudaEventRecord(start);
+    //cudaEventRecord(start);
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
     {
@@ -121,11 +124,11 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
         if (display) engine.updateWindow();
     }
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
+    //cudaEventRecord(stop);
+    //cudaEventSynchronize(stop);
     
-    cudaEventElapsedTime(&timems, start, stop);    
-    printf("Kernel elapsed time (s): %.2f\n", timems / 1000.f);
+    //cudaEventElapsedTime(&timems, start, stop);    
+    //printf("Kernel elapsed time (s): %.2f\n", timems / 1000.f);
     engine.showMetrics();
 
     // Nvml memory report
@@ -139,13 +142,15 @@ int main(int argc, char *argv[])
         double reserved = meminfo.reserved / gigabyte;
         double totalmem = meminfo.total / gigabyte;
         double usedmem = meminfo.used / gigabyte;
-        printf("Device memory report (GB):\n  free: %.2lf\n  reserved: %.2lf\n  total: %.2lf\n  used: %.2lf\n",
+        printf("%lf,%lf,", freemem, usedmem);
+        /*printf("Device memory report (GB):\n  free: %.2lf\n  reserved: %.2lf\n  total: %.2lf\n  used: %.2lf\n",
             freemem, reserved, totalmem, usedmem
-        );
+        );*/
     }
 
     GPUPowerEnd();
 
+    engine.exit();
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
 

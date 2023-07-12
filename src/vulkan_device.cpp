@@ -31,7 +31,7 @@ VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
 
 VulkanDevice::~VulkanDevice()
 {
-    std::cout << "Liberating resources...\n";
+    //printf("Liberating resources...\n");
     deletors.flush();
 }
 
@@ -481,11 +481,25 @@ void VulkanDevice::transitionImageLayout(VkImage image,
     });
 }
 
-ConvertedMemory VulkanDevice::formatMemory(uint64_t memsize) const
+ConvertedMemory VulkanDevice::formatMemory(uint64_t memsize, const std::string& units) const
 {
+    constexpr float kilobyte = 1024.f;
+    constexpr float megabyte = kilobyte * 1024.f;
+    constexpr float gigabyte = megabyte * 1024.f;
+
     ConvertedMemory converted{};
     auto memory = static_cast<float>(memsize);
-    if (memory < kilobyte)
+    if (units == "MB")
+    {
+        converted.data = memory / megabyte;
+        converted.units = "MB";
+    }
+    else if (units == "GB")
+    {
+        converted.data = memory / gigabyte;
+        converted.units = "GB";
+    }
+    /*if (memory < kilobyte)
     {
         converted.data = memory;
         converted.units = "B";
@@ -504,7 +518,7 @@ ConvertedMemory VulkanDevice::formatMemory(uint64_t memsize) const
     {
         converted.data = memory / gigabyte;
         converted.units = "GB";
-    }
+    }*/
     return converted;
 }
 

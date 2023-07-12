@@ -5,7 +5,7 @@
 
 VulkanFramebuffer::~VulkanFramebuffer()
 {
-    printf("framebuffer flush\n");
+    //printf("framebuffer flush\n");
     deletors.flush();
 }
 
@@ -23,12 +23,12 @@ uint32_t VulkanFramebuffer::addAttachment(VkDevice device,
         vkCreateImageView(device, &view_info, nullptr, &attachment.view)
     );
     deletors.add([=,this](){
-        printf("destroying attachment imageview\n");
+        //printf("destroying attachment imageview\n");
         vkDestroyImageView(device, attachment.view, nullptr);
     });
 
     attachments.push_back(attachment);
-    printf("Adding attachment\n");
+    //printf("Adding attachment\n");
 
     return 0;
 }
@@ -36,7 +36,7 @@ uint32_t VulkanFramebuffer::addAttachment(VkDevice device,
 void VulkanFramebuffer::create(VkDevice device,
   VkRenderPass render_pass, VkExtent2D extent, VkImageView depth_view)
 {
-    printf("creating framebuffer\n");
+    //printf("creating framebuffer\n");
     std::vector<VkImageView> attachment_views;
     for (auto attachment : attachments)
     {
@@ -47,13 +47,13 @@ void VulkanFramebuffer::create(VkDevice device,
     auto fb_info = vkinit::framebufferCreateInfo(render_pass, extent);
     fb_info.pAttachments    = attachment_views.data();
     fb_info.attachmentCount = attachment_views.size();
-    printf("attachment size %lu\n", attachment_views.size());
+    //printf("attachment size %lu\n", attachment_views.size());
 
     validation::checkVulkan(
         vkCreateFramebuffer(device, &fb_info, nullptr, &framebuffer)
     );
     deletors.add([=,this](){
-        printf("destroying framebuffer\n");
+        //printf("destroying framebuffer\n");
         vkDestroyFramebuffer(device, framebuffer, nullptr);
     });
 }
