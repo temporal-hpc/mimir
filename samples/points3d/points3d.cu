@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
     if (argc >= 5) iter_count = std::stoul(argv[4]);
     if (argc >= 6) present_mode = static_cast<PresentOptions>(std::stoi(argv[5]));
     if (argc >= 7) target_fps = std::stoul(argv[6]);
-    if (argc >= 8) enable_sync = static_cast<bool>(argv[7]);
+    if (argc >= 8) enable_sync = static_cast<bool>(std::stoi(argv[7]));
 
     bool display = true;
     if (width == 0 || height == 0)
@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
     //cudaEventCreate(&start);
     //cudaEventCreate(&stop);
 
-    printf("%lu,", point_count);
+    printf("%d,%lu,", enable_sync, point_count);
     GPUPowerBegin("gpu", 100);
     //cudaEventRecord(start);
     if (display) engine.displayAsync();
