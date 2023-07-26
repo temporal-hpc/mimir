@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
     auto point_count = points.size();
 
     CudaviewEngine engine;
-    engine.init(1600, 900);
+    engine.init(1920, 1080);
     ViewParams params;
     params.element_count = point_count;
     params.element_size = sizeof(float3);

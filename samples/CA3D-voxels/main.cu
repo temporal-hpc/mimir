@@ -49,7 +49,7 @@ int main(int argc, char **argv){
     // punteros GPU (3D)
     int *d1, *d2;
 
-    int width = 900, height = 900;
+    int width = 1920, height = 1080;
     CudaviewEngine engine;
     engine.init(width, height);
 

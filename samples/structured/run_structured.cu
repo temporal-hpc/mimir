@@ -255,7 +255,7 @@ int main(int argc, char *argv[])
     try
     {
         CudaviewEngine engine;
-        engine.init(800, 600);
+        engine.init(1920, 1080);
 
         ViewParams params;
         params.element_count = program.element_count;
