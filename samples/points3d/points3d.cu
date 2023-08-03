@@ -58,8 +58,8 @@ int main(int argc, char *argv[])
     uint3 extent          = {200, 200, 200};
 
     // Default values for this program
-    int width = 1280;
-    int height = 720;
+    int width = 1920;
+    int height = 1080;
     size_t point_count = 100;
     size_t iter_count  = 10000;
     PresentOptions present_mode = PresentOptions::Immediate;

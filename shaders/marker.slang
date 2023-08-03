@@ -169,12 +169,13 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
     float4 center = mul(input[0].center, view_proj);
+    //float4 center = input[0].center;
 
     MarkerData output;
     output.size = SQRT_2*primitive.size  + 2 * (v_linewidth + 1.5*u_antialias);
 
-    float4 dx = view_proj[0] * (output.size / scene.resolution.x);
-    float4 dy = view_proj[1] * (output.size / scene.resolution.y);
+    float4 dx = float4(1,0,0,0) * (output.size / scene.resolution.x);
+    float4 dy = float4(0,1,0,0) * (output.size / scene.resolution.y);
 
     float4 vertex_offsets[4] = {(-dx-dy), (+dx-dy), (-dx+dy), (+dx+dy)};
     float2 texcoords[4] = {{0,0}, {1,0}, {0,1}, {1,1}};
