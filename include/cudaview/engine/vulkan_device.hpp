@@ -7,7 +7,8 @@
 
 #include "cudaview/deletion_queue.hpp"
 
-struct ConvertedMemory {
+struct ConvertedMemory
+{
     float data;
     std::string units;
 };
@@ -83,7 +84,7 @@ struct VulkanDevice
     
     VkFence createFence(VkFenceCreateFlags flags);
     VkSemaphore createSemaphore(const void *extensions = nullptr);
-    ConvertedMemory formatMemory(uint64_t memsize, const std::string& units) const; 
+    ConvertedMemory formatMemory(uint64_t memsize) const; 
     std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
     void updateMemoryProperties();
     void listExtensions();

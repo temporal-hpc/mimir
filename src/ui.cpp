@@ -273,8 +273,8 @@ void CudaviewEngine::showMetrics()
     glfwGetFramebufferSize(window, &w, &h);
     auto framerate = ImGui::GetIO().Framerate;
     dev->updateMemoryProperties();
-    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage, "MB");
-    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget, "GB");
+    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
+    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
 
     printf("%dx%d_%d,%f,%f,%f,", w,h,options.target_fps,
         framerate,gpu_usage.data,gpu_budget.data

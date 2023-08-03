@@ -110,14 +110,8 @@ int main(int argc, char *argv[])
     initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
     checkCuda(cudaDeviceSynchronize());
 
-    //float timems;
-    //cudaEvent_t start, stop;
-    //cudaEventCreate(&start);
-    //cudaEventCreate(&stop);
-
     printf("%d,%lu,", enable_sync, point_count);
     GPUPowerBegin("gpu", 100);
-    //cudaEventRecord(start);
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
     {
@@ -126,11 +120,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
         if (display) engine.updateWindow();
     }
-    //cudaEventRecord(stop);
-    //cudaEventSynchronize(stop);
-    
-    //cudaEventElapsedTime(&timems, start, stop);    
-    //printf("Kernel elapsed time (s): %.2f\n", timems / 1000.f);
+
     engine.showMetrics();
 
     // Nvml memory report

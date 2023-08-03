@@ -332,6 +332,7 @@ double Rapl::pp1_current_power() {
 		double t = time_delta(&(prev_state[i]->tsc), &(current_state[i]->tsc));
 		p += power(prev_state[i]->pp1, current_state[i]->pp1, t);
 	}
+    return p;
 }
 
 double Rapl::dram_current_power() {
