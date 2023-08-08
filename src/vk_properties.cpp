@@ -75,10 +75,11 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
     // Find at least one queue family that supports VK_QUEUE_GRAPHICS_BIT
     for (uint32_t i = 0; i < queue_family_count; ++i)
     {
-        if (queue_families[i].queueCount > 0)
+        auto family = queue_families[i];
+        if (family.queueCount > 0)
         {
-            if (graphics_family == family_empty && queue_families[i].queueFlags &
-                VK_QUEUE_GRAPHICS_BIT)
+            if (graphics_family == family_empty && family.queueFlags & VK_QUEUE_GRAPHICS_BIT
+                && family.timestampValidBits > 0)
             {
                 graphics_family = i;
             }

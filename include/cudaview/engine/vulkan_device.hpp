@@ -35,6 +35,7 @@ struct VulkanDevice
     VkPhysicalDeviceMemoryProperties memory_properties = {};
     VkPhysicalDeviceMemoryProperties2 memory_properties2 = {};
     VkPhysicalDeviceMemoryBudgetPropertiesEXT budget_properties = {};
+    uint32_t timestamp_valid_bits = 0;
     
     VkDevice logical_device = VK_NULL_HANDLE;
     VkCommandPool command_pool = VK_NULL_HANDLE;
@@ -88,6 +89,7 @@ struct VulkanDevice
     std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
     void updateMemoryProperties();
     void listExtensions();
+    VkQueryPool createQueryPool(uint32_t query_count);
 };
 
 uint32_t getAlignedSize(size_t original_size, size_t min_alignment);

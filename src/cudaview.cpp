@@ -51,9 +51,9 @@ CudaviewEngine::~CudaviewEngine()
     }
     if (dev) vkDeviceWaitIdle(dev->logical_device);
 
-    if (stream != nullptr)
+    if (interop.cuda_stream != nullptr)
     {
-        validation::checkCuda(cudaStreamSynchronize(stream));
+        validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
     }
     for (auto& ubo : uniform_buffers)
     {
@@ -158,7 +158,7 @@ void CudaviewEngine::prepareWindow()
 {
     if (options.enable_sync && running)
     {
-        //printf("Kernel is starting\n");
+        cudaEventRecord(interop.start, interop.cuda_stream);
         kernel_working = true;
         waitKernelStart();
     }
@@ -174,7 +174,7 @@ void CudaviewEngine::waitKernelStart()
     // Wait for Vulkan to complete its work
     //printf("Waiting for value %lu to vulkan to finish\n", wait_value);
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
-        &timeline.cuda_semaphore, &wait_params, 1, stream)
+        &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
     wait_value += 2;
 }
@@ -184,6 +184,11 @@ void CudaviewEngine::updateWindow()
     if (options.enable_sync && running)
     {
         //printf("Kernel has ended\n");
+        float timems = 0;
+        cudaEventRecord(interop.stop, interop.cuda_stream);
+        cudaEventSynchronize(interop.stop);
+        cudaEventElapsedTime(&timems, interop.start, interop.stop);    
+        interop.total_process_time += timems;
         signalKernelFinish();
         kernel_working = false;
     }
@@ -199,7 +204,7 @@ void CudaviewEngine::signalKernelFinish()
     // Signal Vulkan to continue with the updated buffers
     //printf("Signaling with value %lu that CUDA has ended\n", signal_value);
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
-        &timeline.cuda_semaphore, &signal_params, 1, stream)
+        &interop.cuda_semaphore, &signal_params, 1, interop.cuda_stream)
     );
     signal_value += 2;
 }
@@ -479,7 +484,7 @@ void CudaviewEngine::createSyncObjects()
     {
         fence = dev->createFence(VK_FENCE_CREATE_SIGNALED_BIT);
     }
-    timeline = dev->createInteropBarrier();
+    interop = dev->createInteropBarrier();
     present_semaphore = dev->createSemaphore();
 }
 
@@ -506,8 +511,10 @@ void CudaviewEngine::initSwapchain()
     uint32_t height = h;
     std::vector queue_indices{dev->graphics.family_index, dev->present.family_index};
     swap->create(width, height, options.present, queue_indices, dev->physical_device, dev->logical_device);
-    command_buffers = dev->createCommandBuffers(swap->image_count);
     render_pass = createRenderPass();
+    command_buffers = dev->createCommandBuffers(swap->image_count);
+    pipeline_times.resize(swap->image_count);
+    query_pool = dev->createQueryPool(2 * command_buffers.size());
 
     auto images = swap->createImages(dev->logical_device);
 
@@ -652,14 +659,14 @@ void CudaviewEngine::renderFrame()
     {
         VkSemaphoreWaitInfo wait_info{};
         wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-        wait_info.pSemaphores = &timeline.vk_semaphore;
+        wait_info.pSemaphores = &interop.vk_semaphore;
         wait_info.semaphoreCount = 1;
         wait_info.pValues = &wait_value;
         //printf("Frame %lu will wait for semaphore value %lu\n", frame_idx, wait_value);
         vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
 
-        waits.push_back(timeline.vk_semaphore);
-        signals.push_back(timeline.vk_semaphore);
+        waits.push_back(interop.vk_semaphore);
+        signals.push_back(interop.vk_semaphore);
         //printf("Frame %lu will signal semaphore value %lu\n", frame_idx, signal_value);
         advance_timeline = true;
     }
@@ -689,6 +696,14 @@ void CudaviewEngine::renderFrame()
     //printf("Frame %lu will wait for fence\n", frame_idx);
     validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
     //printf("Frame %lu passed fence\n", frame_idx);
+    if (current_frame > MAX_FRAMES_IN_FLIGHT)
+    {
+        fetchRenderTimeResults(frame_idx);
+        auto timestamp_period = dev->properties.limits.timestampPeriod;
+        const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
+        auto device_secs = static_cast<double>(pipeline_times[frame_idx]) * seconds_per_tick;
+        printf("Image %lu: %.9f seconds elapsed on device\n", frame_idx, device_secs);
+    }
 
     // Retrieve a command buffer and start recording to it
     auto cmd = command_buffers[frame_idx];
@@ -706,12 +721,17 @@ void CudaviewEngine::renderFrame()
     render_pass_info.clearValueCount = clear_values.size();
     render_pass_info.pClearValues    = clear_values.data();
 
+    // Start of render pass and timestamp query
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
     drawObjects(frame_idx);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 
+    // End of render pass and timestamp query
     vkCmdEndRenderPass(cmd);
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, frame_idx * 2 + 1);
+
     // Finalize command buffer recording, so it can be executed
     validation::checkVulkan(vkEndCommandBuffer(cmd));
 
@@ -731,10 +751,6 @@ void CudaviewEngine::renderFrame()
     // Return image result back to swapchain for presentation on screen
     auto present_info = vkinit::presentInfo(&image_idx, &swap->swapchain, &present_semaphore);
     result = vkQueuePresentKHR(dev->present.queue, &present_info);
-
-    // Limit frame if it was configured
-    frameStall(target_frame_time);
-
     // Resize should be done after presentation to ensure semaphore consistency
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
         || should_resize)
@@ -746,6 +762,8 @@ void CudaviewEngine::renderFrame()
         should_resize = false;
     }
 
+    // Limit frame if it was configured
+    frameStall(target_frame_time);
     current_frame++;
     if (advance_timeline)
     {
@@ -759,6 +777,7 @@ void CudaviewEngine::renderFrame()
         showMetrics();
         last_time = current_time;
     }
+    //if (current_frame > 2 && frame_idx == 0) getTimeResults();
 }
 
 void CudaviewEngine::drawObjects(uint32_t image_idx)
@@ -1004,5 +1023,29 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
         std::memcpy(data + size_mvp, &primitive, sizeof(primitive));
         std::memcpy(data + size_mvp + size_primitive, &scene, sizeof(scene));
         vkUnmapMemory(dev->logical_device, memory);
+    }
+}
+
+void CudaviewEngine::fetchRenderTimeResults(uint32_t cmd_idx)
+{
+    uint64_t buffer[2];
+    validation::checkVulkan(vkGetQueryPoolResults(dev->logical_device, query_pool,
+        2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT)
+    );
+    pipeline_times[cmd_idx] = buffer[1] - buffer[0];
+    //vkResetQueryPool(dev->logical_device, query_pool, cmd_idx * 2, 2);
+}
+
+void CudaviewEngine::getTimeResults()
+{
+    auto timestamp_period = dev->properties.limits.timestampPeriod;
+    const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
+    printf("\n");
+    for (size_t i = 0; i < pipeline_times.size(); ++i)
+    {
+        fetchRenderTimeResults(i);
+        //TODO: pipeline_times[i] &= timestamp_mask;
+        auto device_secs = static_cast<double>(pipeline_times[i]) * seconds_per_tick;
+        printf("Image %lu: %.9f seconds elapsed on device\n", i, device_secs);
     }
 }

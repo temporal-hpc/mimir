@@ -60,14 +60,21 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     device_features.fillModeNonSolid  = VK_TRUE; // Enable wireframe
     device_features.geometryShader    = VK_TRUE;
 
+    // Enable resetting queries from the host
+    VkPhysicalDeviceHostQueryResetFeatures resetFeatures{};
+    resetFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES;
+    resetFeatures.pNext = nullptr;
+    resetFeatures.hostQueryReset = VK_TRUE;
+
     // Explicitly enable timeline semaphores, or validation layer will complain
-    VkPhysicalDeviceVulkan12Features features{};
-    features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    features.timelineSemaphore = true;
+    VkPhysicalDeviceVulkan12Features vk12features{};
+    vk12features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    vk12features.pNext = &resetFeatures;
+    vk12features.timelineSemaphore = true;
 
     VkDeviceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    create_info.pNext = &features;
+    create_info.pNext = &vk12features;
     create_info.queueCreateInfoCount = queue_create_infos.size();
     create_info.pQueueCreateInfos    = queue_create_infos.data();
     create_info.pEnabledFeatures     = &device_features;
@@ -535,4 +542,20 @@ void VulkanDevice::listExtensions()
     {
         printf("  %s\n", extension.extensionName);
     }
+}
+
+VkQueryPool VulkanDevice::createQueryPool(uint32_t query_count)
+{
+    VkQueryPoolCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    info.pNext = nullptr;
+    info.flags = 0;
+    info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    // Number of queries is twice the number of command buffers, to store space
+    // for queries before and after rendering
+    info.queryCount = query_count; //command_buffers.size() * 2;
+
+    VkQueryPool pool = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateQueryPool(logical_device, &info, nullptr, &pool));
+    return pool;
 }

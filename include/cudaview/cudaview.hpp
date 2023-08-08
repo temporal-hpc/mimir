@@ -15,7 +15,7 @@
 
 namespace
 {
-     static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
+    static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
 }
 
 struct Camera;
@@ -90,7 +90,6 @@ private:
     //std::vector<VkFence> images_inflight;
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> frame_fences;
     VkSemaphore present_semaphore = VK_NULL_HANDLE;
-    InteropBarrier timeline;
 
     // CPU thread synchronization variables
     bool should_resize = false;
@@ -101,7 +100,7 @@ private:
     chrono_tp last_time = {};
 
     // Cuda interop data
-    cudaStream_t stream = 0; // TODO: Remove
+    InteropBarrier interop;
     uint64_t current_frame = 0;
     std::string shader_path;
 
@@ -162,4 +161,10 @@ private:
     // Depth buffering
     bool hasStencil(VkFormat format);
     VkFormat findDepthFormat();
+
+    // Benchmarking
+    VkQueryPool query_pool = VK_NULL_HANDLE;
+    std::vector<uint64_t> pipeline_times;
+    void fetchRenderTimeResults(uint32_t cmd_idx);
+    void getTimeResults();
 };
