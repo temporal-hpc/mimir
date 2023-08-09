@@ -6,6 +6,7 @@ target_sources(cudaview PRIVATE
     camera.cpp
     framelimit.cpp
     io.cpp
+    performance_monitor.cpp
     ui.cpp
     validation.cpp
     interop_device.cpp

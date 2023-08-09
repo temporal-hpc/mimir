@@ -7,7 +7,6 @@
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include <cudaview/validation.hpp>
-#include <cudaview/engine/interop_device.hpp>
 #include <cudaview/engine/vk_framebuffer.hpp>
 #include <cudaview/engine/vk_swapchain.hpp>
 
@@ -158,7 +157,7 @@ void CudaviewEngine::prepareWindow()
 {
     if (options.enable_sync && running)
     {
-        cudaEventRecord(interop.start, interop.cuda_stream);
+        perf.startCuda();
         kernel_working = true;
         waitKernelStart();
     }
@@ -184,11 +183,7 @@ void CudaviewEngine::updateWindow()
     if (options.enable_sync && running)
     {
         //printf("Kernel has ended\n");
-        float timems = 0;
-        cudaEventRecord(interop.stop, interop.cuda_stream);
-        cudaEventSynchronize(interop.stop);
-        cudaEventElapsedTime(&timems, interop.start, interop.stop);    
-        interop.total_process_time += timems;
+        perf.endCuda();
         signalKernelFinish();
         kernel_working = false;
     }
@@ -513,7 +508,6 @@ void CudaviewEngine::initSwapchain()
     swap->create(width, height, options.present, queue_indices, dev->physical_device, dev->logical_device);
     render_pass = createRenderPass();
     command_buffers = dev->createCommandBuffers(swap->image_count);
-    pipeline_times.resize(swap->image_count);
     query_pool = dev->createQueryPool(2 * command_buffers.size());
 
     auto images = swap->createImages(dev->logical_device);
@@ -698,11 +692,7 @@ void CudaviewEngine::renderFrame()
     //printf("Frame %lu passed fence\n", frame_idx);
     if (current_frame > MAX_FRAMES_IN_FLIGHT)
     {
-        fetchRenderTimeResults(frame_idx);
-        auto timestamp_period = dev->properties.limits.timestampPeriod;
-        const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
-        auto device_secs = static_cast<double>(pipeline_times[frame_idx]) * seconds_per_tick;
-        printf("Image %lu: %.9f seconds elapsed on device\n", frame_idx, device_secs);
+        total_graphics_time += getRenderTimeResults(frame_idx);
     }
 
     // Retrieve a command buffer and start recording to it
@@ -777,7 +767,6 @@ void CudaviewEngine::renderFrame()
         showMetrics();
         last_time = current_time;
     }
-    //if (current_frame > 2 && frame_idx == 0) getTimeResults();
 }
 
 void CudaviewEngine::drawObjects(uint32_t image_idx)
@@ -1026,26 +1015,17 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
     }
 }
 
-void CudaviewEngine::fetchRenderTimeResults(uint32_t cmd_idx)
-{
-    uint64_t buffer[2];
-    validation::checkVulkan(vkGetQueryPoolResults(dev->logical_device, query_pool,
-        2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT)
-    );
-    pipeline_times[cmd_idx] = buffer[1] - buffer[0];
-    //vkResetQueryPool(dev->logical_device, query_pool, cmd_idx * 2, 2);
-}
-
-void CudaviewEngine::getTimeResults()
+double CudaviewEngine::getRenderTimeResults(uint32_t cmd_idx)
 {
     auto timestamp_period = dev->properties.limits.timestampPeriod;
     const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
-    printf("\n");
-    for (size_t i = 0; i < pipeline_times.size(); ++i)
-    {
-        fetchRenderTimeResults(i);
-        //TODO: pipeline_times[i] &= timestamp_mask;
-        auto device_secs = static_cast<double>(pipeline_times[i]) * seconds_per_tick;
-        printf("Image %lu: %.9f seconds elapsed on device\n", i, device_secs);
-    }
+
+    uint64_t buffer[2];
+    validation::checkVulkan(vkGetQueryPoolResults(dev->logical_device, query_pool,
+        2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t), 
+        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT)
+    );
+    vkResetQueryPool(dev->logical_device, query_pool, cmd_idx * 2, 2);
+    // TODO: apply time &= timestamp_mask;
+    return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
 }

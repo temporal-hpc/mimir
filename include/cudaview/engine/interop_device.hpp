@@ -1,9 +1,8 @@
 #pragma once
 
-#include "cudaview/engine/vulkan_device.hpp"
-
 #include <cuda_runtime_api.h>
 
+#include <cudaview/engine/vulkan_device.hpp>
 #include <cudaview/engine/interop_view.hpp>
 #include <cudaview/vk_types.hpp>
 
@@ -16,10 +15,8 @@ struct FrameBarrier
 
 struct InteropBarrier
 {
-    double total_process_time = 0;
-    VkSemaphore vk_semaphore = VK_NULL_HANDLE;
     cudaStream_t cuda_stream = 0;
-    cudaEvent_t start = nullptr, stop = nullptr;
+    VkSemaphore vk_semaphore = VK_NULL_HANDLE;
     cudaExternalSemaphore_t cuda_semaphore = nullptr;
 };
 

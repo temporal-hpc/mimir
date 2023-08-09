@@ -12,6 +12,7 @@
 
 #include <cudaview/deletion_queue.hpp>
 #include <cudaview/engine/interop_device.hpp>
+#include <cudaview/engine/performance_monitor.hpp>
 
 namespace
 {
@@ -163,8 +164,8 @@ private:
     VkFormat findDepthFormat();
 
     // Benchmarking
+    PerformanceMonitor perf;
     VkQueryPool query_pool = VK_NULL_HANDLE;
-    std::vector<uint64_t> pipeline_times;
-    void fetchRenderTimeResults(uint32_t cmd_idx);
-    void getTimeResults();
+    double total_graphics_time = 0;
+    double getRenderTimeResults(uint32_t cmd_idx);
 };

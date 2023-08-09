@@ -276,10 +276,10 @@ void CudaviewEngine::showMetrics()
     auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
     auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
 
-    printf("%dx%d_%d,%f,total %f,%f,%f", w,h,options.target_fps,
-        framerate,interop.total_process_time,gpu_usage.data,gpu_budget.data
+    printf("%dx%d_%d,%f,compute %f, graphics %lf, %f,%f", w,h,options.target_fps,
+        framerate,perf.total_compute_time,total_graphics_time,gpu_usage.data,gpu_budget.data
     );
-    getTimeResults();
+    //getTimeResults();
     /*printf("Framebuffer size: %dx%d\n", w, h);
     printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
 

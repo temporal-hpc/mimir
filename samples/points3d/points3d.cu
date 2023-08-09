@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
     initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
     checkCuda(cudaDeviceSynchronize());
 
-    printf("%d,%lu,", enable_sync, point_count);
+    printf("%s,%lu,", enable_sync? "sync" : "desync", point_count);
     GPUPowerBegin("gpu", 100);
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)

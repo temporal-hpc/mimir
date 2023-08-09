@@ -442,8 +442,6 @@ InteropBarrier InteropDevice::createInteropBarrier()
     deletors.add([=,this]{
         validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));
     });
-    cudaEventCreate(&barrier.start);
-    cudaEventCreate(&barrier.stop);
 
     return barrier;
 }
