@@ -144,7 +144,7 @@ void CudaviewEngine::displayAsync()
     {
         while(!glfwWindowShouldClose(window))
         {
-            glfwPollEvents(); // TODO: Move to main thread
+            glfwPollEvents();
             drawGui();
             renderFrame();
         }
@@ -692,7 +692,7 @@ void CudaviewEngine::renderFrame()
     //printf("Frame %lu passed fence\n", frame_idx);
     if (current_frame > MAX_FRAMES_IN_FLIGHT)
     {
-        total_graphics_time += getRenderTimeResults(frame_idx);
+        total_pipeline_time += getRenderTimeResults(frame_idx);
     }
 
     // Retrieve a command buffer and start recording to it
@@ -742,18 +742,20 @@ void CudaviewEngine::renderFrame()
     auto present_info = vkinit::presentInfo(&image_idx, &swap->swapchain, &present_semaphore);
     result = vkQueuePresentKHR(dev->present.queue, &present_info);
     // Resize should be done after presentation to ensure semaphore consistency
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR
-        || should_resize)
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
     {
-        //if (result == VK_ERROR_OUT_OF_DATE_KHR) printf("Outdated present\n");
-        //if (result == VK_SUBOPTIMAL_KHR) printf("Suboptimal\n");
-        //if (should_resize) printf("Resizing\n");
         recreateSwapchain();
         should_resize = false;
     }
 
     // Limit frame if it was configured
     frameStall(target_frame_time);
+
+    total_frame_count++;
+    total_graphics_time += frame_time;
+    frame_times[current_frame % frame_times.size()] = frame_time;
+    last_time = current_time;
+
     current_frame++;
     if (advance_timeline)
     {
@@ -761,12 +763,12 @@ void CudaviewEngine::renderFrame()
         signal_value += 2;
     }
 
-    if (options.report_period > 0 && frame_time > options.report_period)
+    /*if (options.report_period > 0 && frame_time > options.report_period)
     {
         printf("Report at %d seconds:\n", options.report_period);
         showMetrics();
         last_time = current_time;
-    }
+    }*/
 }
 
 void CudaviewEngine::drawObjects(uint32_t image_idx)
@@ -913,7 +915,7 @@ VkRenderPass CudaviewEngine::createRenderPass()
 
 void CudaviewEngine::createGraphicsPipelines()
 {
-    auto start = std::chrono::steady_clock::now();
+    //auto start = std::chrono::steady_clock::now();
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
 
@@ -934,8 +936,8 @@ void CudaviewEngine::createGraphicsPipelines()
 
     // Restore original working directory
     std::filesystem::current_path(orig_path);
-    auto end = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    //auto end = std::chrono::steady_clock::now();
+    //auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     //printf("Creation time for all pipelines: %lu ms\n", elapsed);
 }
 

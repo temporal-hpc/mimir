@@ -64,6 +64,7 @@ public:
 
     void setBackgroundColor(float4 color);
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
+    float getTotalTime() { return total_graphics_time; }
 
 private:
     ViewerOptions options;
@@ -166,6 +167,9 @@ private:
     // Benchmarking
     PerformanceMonitor perf;
     VkQueryPool query_pool = VK_NULL_HANDLE;
-    double total_graphics_time = 0;
+    double total_pipeline_time = 0;
     double getRenderTimeResults(uint32_t cmd_idx);
+    std::array<float,240> frame_times{};
+    float total_graphics_time = 0;
+    uint32_t total_frame_count = 0;
 };

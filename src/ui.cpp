@@ -271,14 +271,27 @@ void CudaviewEngine::showMetrics()
 {
     int w, h;
     glfwGetFramebufferSize(window, &w, &h);
-    auto framerate = ImGui::GetIO().Framerate;
+    float total_frame_time = 0;
+    for (auto time : frame_times) total_frame_time += time;
+    auto framerate = frame_times.size() / total_frame_time;
+    //float min_fps = 1 / max_frame_time;
+    //float max_fps = 1 / min_frame_time;
+    
     dev->updateMemoryProperties();
     auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
     auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
 
-    printf("%dx%d_%d,%f,compute %f, graphics %lf, %f,%f", w,h,options.target_fps,
-        framerate,perf.total_compute_time,total_graphics_time,gpu_usage.data,gpu_budget.data
+    std::string label;
+    if (w == 1920 && h == 1080) label = "FHD";
+    if (w == 2560 && h == 1440) label = "QHD";
+    if (w == 3840 && h == 2160) label = "UHD";
+
+    printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.target_fps,
+        framerate,perf.total_compute_time,total_pipeline_time,
+        total_graphics_time,gpu_usage.data,gpu_budget.data
     );
+
+    //auto fps = ImGui::GetIO().Framerate; printf("\nFPS %f\n", fps);
     //getTimeResults();
     /*printf("Framebuffer size: %dx%d\n", w, h);
     printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);

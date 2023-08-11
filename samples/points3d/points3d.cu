@@ -61,13 +61,13 @@ int main(int argc, char *argv[])
     int width = 1920;
     int height = 1080;
     size_t point_count = 100;
-    size_t iter_count  = 10000;
+    int iter_count = 10000;
     PresentOptions present_mode = PresentOptions::Immediate;
-    size_t target_fps  = 0;
-    bool enable_sync   = true;
+    size_t target_fps = 0;
+    bool enable_sync = true;
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
     if (argc >= 4) point_count = std::stoul(argv[3]);
-    if (argc >= 5) iter_count = std::stoul(argv[4]);
+    if (argc >= 5) iter_count = std::stoi(argv[4]);
     if (argc >= 6) present_mode = static_cast<PresentOptions>(std::stoi(argv[5]));
     if (argc >= 7) target_fps = std::stoul(argv[6]);
     if (argc >= 8) enable_sync = static_cast<bool>(std::stoi(argv[7]));
