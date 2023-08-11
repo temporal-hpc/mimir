@@ -15,6 +15,10 @@ target_link_libraries(mesh3d PRIVATE cudaview)
 add_executable(points3d points3d/points3d.cu points3d/nvmlPower.cpp points3d/Rapl.cpp)
 target_link_libraries(points3d PRIVATE cudaview nvidia-ml)
 
+add_executable(points3dcpu points3dcpu/points3dcpu.cpp points3dcpu/nvmlPower.cpp points3dcpu/Rapl.cpp)
+target_compile_features(points3dcpu PUBLIC cxx_std_20)
+target_link_libraries(points3dcpu PRIVATE cudaview nvidia-ml OpenMP::OpenMP_CXX)
+
 add_executable(run_structured structured/run_structured.cu)
 target_link_libraries(run_structured PRIVATE cudaview)
 
