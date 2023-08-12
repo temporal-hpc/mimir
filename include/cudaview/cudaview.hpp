@@ -171,5 +171,5 @@ private:
     double getRenderTimeResults(uint32_t cmd_idx);
     std::array<float,240> frame_times{};
     float total_graphics_time = 0;
-    uint32_t total_frame_count = 0;
+    size_t total_frame_count = 0;
 };

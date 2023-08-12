@@ -271,8 +271,10 @@ void CudaviewEngine::showMetrics()
 {
     int w, h;
     glfwGetFramebufferSize(window, &w, &h);
+
+    auto frame_sample_size = std::min(frame_times.size(), total_frame_count);
     float total_frame_time = 0;
-    for (auto time : frame_times) total_frame_time += time;
+    for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
     auto framerate = frame_times.size() / total_frame_time;
     //float min_fps = 1 / max_frame_time;
     //float max_fps = 1 / min_frame_time;
@@ -282,9 +284,10 @@ void CudaviewEngine::showMetrics()
     auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
 
     std::string label;
-    if (w == 1920 && h == 1080) label = "FHD";
-    if (w == 2560 && h == 1440) label = "QHD";
-    if (w == 3840 && h == 2160) label = "UHD";
+    if (w == 0 && h == 0) label = "None";
+    else if (w == 1920 && h == 1080) label = "FHD";
+    else if (w == 2560 && h == 1440) label = "QHD";
+    else if (w == 3840 && h == 2160) label = "UHD";
 
     printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.target_fps,
         framerate,perf.total_compute_time,total_pipeline_time,

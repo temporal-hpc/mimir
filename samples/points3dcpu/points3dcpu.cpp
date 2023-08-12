@@ -34,6 +34,7 @@ void initSystem(std::span<float3> coords, RNG& rng, uint3 extent)
 
 void integrate3d(std::span<float3> coords, RNG& rng, uint3 extent)
 {
+    #pragma omp parallel for
     for (int i = 0; i < coords.size(); ++i)
     {
         auto p = coords[i];
@@ -111,7 +112,7 @@ int main(int argc, char *argv[])
     auto memsize = sizeof(float3) * point_count;
     checkCuda(cudaMemcpy(d_coords, coords.data(), memsize, cudaMemcpyHostToDevice));
 
-    printf("%s,%lu,", enable_sync? "sync" : "desync", point_count);
+    printf("%s,%lu,", "host", point_count);
     GPUPowerBegin("gpu", 100);
     if (display) engine.displayAsync();
 
@@ -137,9 +138,6 @@ int main(int argc, char *argv[])
         double totalmem = meminfo.total / gigabyte;
         double usedmem = meminfo.used / gigabyte;
         printf("%lf,%lf,", freemem, usedmem);
-        /*printf("Device memory report (GB):\n  free: %.2lf\n  reserved: %.2lf\n  total: %.2lf\n  used: %.2lf\n",
-            freemem, reserved, totalmem, usedmem
-        );*/
     }
 
     GPUPowerEnd();

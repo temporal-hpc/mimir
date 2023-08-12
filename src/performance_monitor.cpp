@@ -16,8 +16,8 @@ float PerformanceMonitor::endCuda()
 {
     cudaEventRecord(stop, monitored_stream);
     cudaEventSynchronize(stop);
-    float elapsed = 0;
-    cudaEventElapsedTime(&elapsed, start, stop);    
-    total_compute_time += elapsed;
-    return elapsed;
+    float timems = 0;
+    cudaEventElapsedTime(&timems, start, stop);    
+    total_compute_time += timems / 1000.f;
+    return timems;
 }
