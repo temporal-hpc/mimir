@@ -74,6 +74,12 @@ int main(int argc, char *argv[])
     if (argc >= 8) enable_sync = static_cast<bool>(std::stoi(argv[7]));
     if (argc >= 9) use_interop = static_cast<bool>(std::stoi(argv[8]));
 
+    // Determine execution mode for benchmarking
+    std::string mode;
+    if (width == 0 && height == 0) mode = use_interop? "interop" : "cudaMalloc";
+    else mode = enable_sync? "sync" : "desync";
+    printf("%s,%lu,", mode.c_str(), point_count);
+
     bool display = true;
     if (width == 0 || height == 0)
     {
@@ -81,6 +87,7 @@ int main(int argc, char *argv[])
         display = false;
     }
 
+    printf("w %d h %d INTEROP %d\n", width, height, use_interop);
     ViewerOptions options;
     options.window_size = {width,height}; // Starting window size
     options.show_metrics = false; // Show metrics window in GUI
@@ -112,12 +119,6 @@ int main(int argc, char *argv[])
     initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
     checkCuda(cudaDeviceSynchronize());
 
-    // Determine execution mode for benchmarking
-    std::string mode;
-    if (width == 0 && height == 0) mode = use_interop? "interop" : "cudaMalloc";
-    else mode = enable_sync? "sync" : "desync";
-    printf("%s,%lu,", mode.c_str(), point_count);
-
     GPUPowerBegin("gpu", 100);
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
@@ -127,7 +128,6 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
         if (display) engine.updateWindow();
     }
-
     engine.showMetrics();
 
     // Nvml memory report
