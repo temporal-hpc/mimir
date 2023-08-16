@@ -87,7 +87,6 @@ int main(int argc, char *argv[])
         display = false;
     }
 
-    printf("w %d h %d INTEROP %d\n", width, height, use_interop);
     ViewerOptions options;
     options.window_size = {width,height}; // Starting window size
     options.show_metrics = false; // Show metrics window in GUI
