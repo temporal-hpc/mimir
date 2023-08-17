@@ -157,9 +157,9 @@ void CudaviewEngine::prepareWindow()
 {
     if (options.enable_sync && running)
     {
-        perf.startCuda();
         kernel_working = true;
         waitKernelStart();
+        perf.startCuda();
     }
 }
 
