@@ -1,0 +1,5 @@
+find_package(CUDAToolkit REQUIRED)
+add_library(powermon STATIC)
+target_sources(powermon PRIVATE nvmlPower.cpp Rapl.cpp)
+target_include_directories(powermon PUBLIC include)
+target_link_libraries(powermon PUBLIC CUDA::cudart nvidia-ml)

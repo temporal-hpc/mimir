@@ -9,6 +9,7 @@ target_sources(cleap PRIVATE cleap/src/cleap.cu cleap/src/cleap.cc)
 target_include_directories(cleap PUBLIC cleap/src)
 target_link_directories(cleap PRIVATE CUDA::cudart)
 
+add_executable(tiuque)
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)
 target_link_libraries(tiuque PRIVATE
     cudaview cleap OpenGL::OpenGL OpenGL::GLX GLEW::GLEW X11

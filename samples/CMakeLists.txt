@@ -1,3 +1,5 @@
+add_subdirectory(powermon)
+
 add_executable(run_automata3d CA3D-voxels/main.cu)
 find_package(OpenMP)
 target_link_libraries(run_automata3d PRIVATE cudaview OpenMP::OpenMP_CXX)
@@ -12,12 +14,12 @@ target_link_libraries(image PRIVATE cudaview)
 add_executable(mesh3d mesh3d/mesh3d.cu)
 target_link_libraries(mesh3d PRIVATE cudaview)
 
-add_executable(points3d points3d/points3d.cu points3d/nvmlPower.cpp points3d/Rapl.cpp)
-target_link_libraries(points3d PRIVATE cudaview nvidia-ml)
+add_executable(points3d points3d/points3d.cu)
+target_link_libraries(points3d PRIVATE cudaview powermon)
 
-add_executable(points3dcpu points3dcpu/points3dcpu.cpp points3dcpu/nvmlPower.cpp points3dcpu/Rapl.cpp)
+add_executable(points3dcpu points3dcpu/points3dcpu.cpp)
 target_compile_features(points3dcpu PUBLIC cxx_std_20)
-target_link_libraries(points3dcpu PRIVATE cudaview nvidia-ml OpenMP::OpenMP_CXX)
+target_link_libraries(points3dcpu PRIVATE cudaview powermon OpenMP::OpenMP_CXX)
 
 add_executable(run_structured structured/run_structured.cu)
 target_link_libraries(run_structured PRIVATE cudaview)
@@ -29,8 +31,8 @@ add_executable(run_texture texture_cudaarray/main.cu)
 target_include_directories(run_texture SYSTEM PRIVATE include)
 target_link_libraries(run_texture PRIVATE cudaview)
 
-add_executable(tiuque)
-add_subdirectory(tiuque2)
+add_subdirectory(tiuque)
+add_subdirectory(pointsgl)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL
