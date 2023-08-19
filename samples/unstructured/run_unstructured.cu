@@ -126,11 +126,11 @@ int main(int argc, char *argv[])
         params.primitive_type = PrimitiveType::Points;
         params.cuda_stream = program.stream;
         params.options.size = 20.f;
-        /*params.options.external_shaders = {
+        params.options.external_shaders = {
             {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
             {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
             {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-        };*/
+        };
         engine.createView((void**)&program.d_coords, params);
 
         // Cannot make CUDA calls that use the target device memory before

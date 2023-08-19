@@ -8,6 +8,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include "nvmlPower.hpp"
+#include "camera.hpp"
 
 #include <curand_kernel.h>
 #include <cuda_gl_interop.h>
@@ -69,9 +70,9 @@ __global__ void integrate3d(float *coords, size_t point_count,
     }
 }
 
-GLuint loadShader(const std::string& spirv_path, GLenum shader_type)
+GLuint loadShader(const std::string& shader_path, GLenum shader_type)
 {
-    std::ifstream file(spirv_path, std::ios::ate | std::ios::binary);
+    std::ifstream file(shader_path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
     {
         throw std::runtime_error("failed to open file!");
@@ -79,44 +80,35 @@ GLuint loadShader(const std::string& spirv_path, GLenum shader_type)
 
     // Use read position to determine filesize and allocate output buffer
     auto filesize = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(filesize);
-
+    std::string buffer(filesize, ' ');
     file.seekg(0);
-    file.read(buffer.data(), filesize);
+    file.read(&buffer[0], filesize);
     file.close();
+    const char *shader_code = buffer.c_str();
 
     auto shader_id = glCreateShader(shader_type);
+    glShaderSource(shader_id, 1, &shader_code, nullptr);
+    glCompileShader(shader_id);
     // Compile SPIR-V code
-    glShaderBinary(1, &shader_id, GL_SHADER_BINARY_FORMAT_SPIR_V_ARB, buffer.data(), buffer.size());
-    glSpecializeShader(shader_id, "main", 0, 0, 0);
+    //glShaderBinary(1, &shader_id, GL_SHADER_BINARY_FORMAT_SPIR_V_ARB, buffer.data(), buffer.size());
+    //glSpecializeShader(shader_id, "main", 0, 0, 0);
 
-    
     int compiled = 0;
     glGetShaderiv(shader_id, GL_COMPILE_STATUS, &compiled);
     if (!compiled)
     {
-        printf("Could not compile shader %s\n", spirv_path.c_str());
+        GLchar infolog[1024];
+        glGetShaderInfoLog(shader_id, 1024, nullptr, infolog);
+        printf("Could not compile shader %s: %s\n", shader_path.c_str(), infolog);
         throw std::runtime_error("Shader compilation error!");
     }
 
     return shader_id;
 }
 
-void renderFrame(GLFWwindow *window, GLuint shader_program, GLuint vao, size_t point_count)
-{
-    glClearColor(.5f, .5f, .5f, 1.f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glUseProgram(shader_program);
-    glBindVertexArray(vao);
-    glDrawArrays(GL_POINTS, 0, 3);
- 
-    glfwSwapBuffers(window);
-}
-
 int main(int argc, char *argv[])
 {
-    cudaGraphicsResource *resource;
+    cudaGraphicsResource *vbo_res;
     GLuint shader_program;
     GLuint vao;
 
@@ -129,7 +121,7 @@ int main(int argc, char *argv[])
     // Default values for this program
     int width = 1920;
     int height = 1080;
-    size_t point_count = 100;
+    size_t point_count = 1000;
     int iter_count = 10000;
     //PresentOptions present_mode = PresentOptions::Immediate;
     //size_t target_fps = 0;
@@ -149,13 +141,6 @@ int main(int argc, char *argv[])
     else mode = enable_sync? "sync" : "desync";
     printf("%s,%lu,", mode.c_str(), point_count);
 
-    /*bool display = true;
-    if (width == 0 || height == 0)
-    {
-        width = height = 10;
-        display = false;
-    }*/
-
     GLFWwindow *window = nullptr;
     // Here we would call engine.init(options);
     {
@@ -170,14 +155,17 @@ int main(int argc, char *argv[])
         int gl_device_id;
         uint gl_device_count;
         checkCuda(cudaGLGetDevices(&gl_device_count, &gl_device_id, 1, cudaGLDeviceListAll));
-        checkCuda(cudaSetDevice(0));
+        checkCuda(cudaSetDevice(gl_device_id));
+
+        glClearColor(.5f, .5f, .5f, 1.f);
+        glEnable(GL_DEPTH_TEST);
     }
 
     if (use_interop)
     {
-        auto vert_shader = loadShader("marker_vertexMain.spv", GL_VERTEX_SHADER);
-        auto geom_shader = loadShader("marker_geometryMain.spv", GL_GEOMETRY_SHADER);
-        auto frag_shader = loadShader("marker_fragmentMain.spv", GL_FRAGMENT_SHADER);
+        auto vert_shader = loadShader("../shaders/marker_vert.glsl", GL_VERTEX_SHADER);
+        auto frag_shader = loadShader("../shaders/marker_geom.glsl", GL_GEOMETRY_SHADER);
+        auto geom_shader = loadShader("../shaders/marker_frag.glsl", GL_FRAGMENT_SHADER);
         shader_program = glCreateProgram();
         glAttachShader(shader_program, vert_shader);
         glAttachShader(shader_program, frag_shader);
@@ -187,6 +175,9 @@ int main(int argc, char *argv[])
         glGetProgramiv(shader_program, GL_LINK_STATUS, &success);
         if (!success)
         {
+            GLchar infolog[1024];
+            glGetProgramInfoLog(shader_program, 1024, nullptr, infolog);
+            printf("Could not link shader program: %s\n", infolog);
             throw std::runtime_error("Shader program error!");
         }
 
@@ -196,69 +187,38 @@ int main(int argc, char *argv[])
         glDeleteShader(geom_shader);
 
         // TODO: Set uniforms
+        Camera camera;
+        camera.type = Camera::CameraType::LookAt;
+        //camera.flipY = true;
+        camera.setPosition(glm::vec3(0.f, 0.f, -2.85f)); //(glm::vec3(0.f, 0.f, -3.75f));
+        camera.setRotation(glm::vec3(1.5f, -2.5f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
+        camera.setRotationSpeed(0.5f);
+        camera.setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
 
-/*const char *vertexShaderSource = "#version 330 core\n"
-    "layout (location = 0) in vec3 aPos;\n"
-    "void main()\n"
-    "{\n"
-    "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-    "}\0";
-const char *fragmentShaderSource = "#version 330 core\n"
-    "out vec4 FragColor;\n"
-    "void main()\n"
-    "{\n"
-    "   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
-    "}\n\0";
+        ModelViewProjection mvp{};
+        mvp.model = glm::mat4(1.f);
+        mvp.view  = glm::transpose(camera.matrices.view);
+        mvp.proj  = glm::transpose(camera.matrices.perspective);
 
-    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-    glCompileShader(vertexShader);
-    // check for shader compile errors
-    int success;
-    char infoLog[512];
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-    if (!success)
-    {
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
-    // fragment shader
-    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-    glCompileShader(fragmentShader);
-    // check for shader compile errors
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-    if (!success)
-    {
-        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
-    // link shaders
-    shader_program = glCreateProgram();
-    glAttachShader(shader_program, vertexShader);
-    glAttachShader(shader_program, fragmentShader);
-    glLinkProgram(shader_program);
-    // check for linking errors
-    glGetProgramiv(shader_program, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(shader_program, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-    }
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);*/
+        GLuint ubo;
+        glGenBuffers(1, &ubo);
+        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+        glBufferData(GL_UNIFORM_BUFFER, 2 * sizeof(glm::mat4), nullptr, GL_STATIC_DRAW);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        glBindBufferRange(GL_UNIFORM_BUFFER, 0, ubo, 0, 2 * sizeof(glm::mat4));
 
-    float vertices[] = {
-        -0.5f, -0.5f, 0.0f, // left  
-         0.5f, -0.5f, 0.0f, // right 
-         0.0f,  0.5f, 0.0f  // top   
-    }; 
+        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4), glm::value_ptr(mvp.view));
+        glBufferSubData(GL_UNIFORM_BUFFER, sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(mvp.proj));
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
         // Setup VBO
         GLuint vbo;
         glGenBuffers(1, &vbo);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-        //glBufferData(GL_ARRAY_BUFFER, sizeof(float3) * point_count, nullptr, GL_DYNAMIC_DRAW);
+        //glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(float3) * point_count, nullptr, GL_DYNAMIC_DRAW);
+        checkCuda(cudaGraphicsGLRegisterBuffer(&vbo_res, vbo, cudaGraphicsRegisterFlagsNone));
         
         // Setup VAO
         glGenVertexArrays(1, &vao);
@@ -266,46 +226,56 @@ const char *fragmentShaderSource = "#version 330 core\n"
         GLuint attr_idx = 0;
         glVertexAttribPointer(attr_idx, 3, GL_FLOAT, GL_FALSE, sizeof(float3), (void*)0);
         glEnableVertexAttribArray(attr_idx);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-        checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
-        /*checkCuda(cudaGraphicsGLRegisterBuffer(&resource, vbo, cudaGraphicsRegisterFlagsNone));
-        checkCuda(cudaGraphicsMapResources(1, &resource));
-        size_t buffer_size;
-        checkCuda(cudaGraphicsResourceGetMappedPointer((void**)&d_coords, &buffer_size, resource));
-        checkCuda(cudaGraphicsUnmapResources(1, &resource));*/
+        //checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
     }
     else // Run the simulation without display
     {
         checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
     }
 
+    checkCuda(cudaGraphicsMapResources(1, &vbo_res));
+    size_t buffer_size;
+    checkCuda(cudaGraphicsResourceGetMappedPointer((void**)&d_coords, &buffer_size, vbo_res));
+
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     unsigned grid_size = (point_count + block_size - 1) / block_size;
     initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
     checkCuda(cudaDeviceSynchronize());
+    checkCuda(cudaGraphicsUnmapResources(1, &vbo_res)); 
 
     GPUPowerBegin("gpu", 100);
 
-    // Here we would call engine.displayAsync();
-    glfwMakeContextCurrent(nullptr);
-    auto rendering_thread = std::thread([&]()
+    // Here we would call engine.display();
+    int iter_idx = 0;
+    while (!glfwWindowShouldClose(window))
     {
-        glfwMakeContextCurrent(window);
-        while (!glfwWindowShouldClose(window))
-        {
-            glfwPollEvents();
-            renderFrame(window, shader_program, vao, point_count);
-        }
-        glfwMakeContextCurrent(nullptr);
-    });
+        glfwPollEvents();
 
-    for (size_t i = 0; i < iter_count; ++i)
-    {
-        //if (display) engine.prepareWindow();
-        integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
-        checkCuda(cudaDeviceSynchronize());
-        //if (display) engine.updateWindow();
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glUseProgram(shader_program);
+        glBindVertexArray(vao);
+        glDrawArrays(GL_POINTS, 0, point_count);    
+        glfwSwapBuffers(window);
+
+        if (iter_idx < iter_count)
+        {
+            //if (display) engine.prepareWindow();
+            float *d_coords = nullptr;
+            checkCuda(cudaGraphicsMapResources(1, &vbo_res));
+            size_t buffer_size;
+            checkCuda(cudaGraphicsResourceGetMappedPointer((void**)&d_coords, &buffer_size, vbo_res));
+
+            integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
+            checkCuda(cudaDeviceSynchronize());
+            iter_idx++;
+
+            //if (display) engine.updateWindow();
+            checkCuda(cudaGraphicsUnmapResources(1, &vbo_res));
+        }
     }
+    glfwMakeContextCurrent(nullptr);
     //engine.showMetrics();
 
     // Nvml memory report
@@ -326,7 +296,6 @@ const char *fragmentShaderSource = "#version 330 core\n"
 
     // Here we would call engine.exit();
     {
-        rendering_thread.join();
         glfwMakeContextCurrent(window);
         glfwDestroyWindow(window);
         glfwTerminate();

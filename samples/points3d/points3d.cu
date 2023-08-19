@@ -106,6 +106,7 @@ int main(int argc, char *argv[])
         params.data_domain = DataDomain::Domain3D;
         params.resource_type = ResourceType::UnstructuredBuffer;
         params.primitive_type = PrimitiveType::Points;
+        params.options.size = 1.f;
         engine.createView((void**)&d_coords, params);
     }
     else // Run the simulation without display
