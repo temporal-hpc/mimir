@@ -123,24 +123,11 @@ int main(int argc, char *argv[])
     int height = 1080;
     size_t point_count = 1000;
     int iter_count = 10000;
-    //PresentOptions present_mode = PresentOptions::Immediate;
-    //size_t target_fps = 0;
-    bool enable_sync = true;
-    bool use_interop = true;
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
     if (argc >= 4) point_count = std::stoul(argv[3]);
     if (argc >= 5) iter_count = std::stoi(argv[4]);
-    //if (argc >= 6) present_mode = static_cast<PresentOptions>(std::stoi(argv[5]));
-    //if (argc >= 7) target_fps = std::stoul(argv[6]);
-    if (argc >= 8) enable_sync = static_cast<bool>(std::stoi(argv[7]));
-    if (argc >= 9) use_interop = static_cast<bool>(std::stoi(argv[8]));
 
-    // Determine execution mode for benchmarking
-    std::string mode;
-    if (width == 0 && height == 0) mode = use_interop? "interop" : "cudaMalloc";
-    else mode = enable_sync? "sync" : "desync";
-    printf("%s,%lu,", mode.c_str(), point_count);
-
+    printf("opengl,%lu,", point_count);
     GLFWwindow *window = nullptr;
     // Here we would call engine.init(options);
     {
@@ -161,11 +148,10 @@ int main(int argc, char *argv[])
         glEnable(GL_DEPTH_TEST);
     }
 
-    if (use_interop)
     {
-        auto vert_shader = loadShader("../shaders/marker_vert.glsl", GL_VERTEX_SHADER);
-        auto frag_shader = loadShader("../shaders/marker_geom.glsl", GL_GEOMETRY_SHADER);
-        auto geom_shader = loadShader("../shaders/marker_frag.glsl", GL_FRAGMENT_SHADER);
+        auto vert_shader = loadShader("cudaview/build/samples/shaders/marker_vert.glsl", GL_VERTEX_SHADER);
+        auto frag_shader = loadShader("cudaview/build/samples/shaders/marker_geom.glsl", GL_GEOMETRY_SHADER);
+        auto geom_shader = loadShader("cudaview/build/samples/shaders/marker_frag.glsl", GL_FRAGMENT_SHADER);
         shader_program = glCreateProgram();
         glAttachShader(shader_program, vert_shader);
         glAttachShader(shader_program, frag_shader);
@@ -230,10 +216,6 @@ int main(int argc, char *argv[])
 
         //checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
     }
-    else // Run the simulation without display
-    {
-        checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
-    }
 
     checkCuda(cudaGraphicsMapResources(1, &vbo_res));
     size_t buffer_size;
@@ -248,8 +230,7 @@ int main(int argc, char *argv[])
     GPUPowerBegin("gpu", 100);
 
     // Here we would call engine.display();
-    int iter_idx = 0;
-    while (!glfwWindowShouldClose(window))
+    for (int i = 0; i < iter_count; ++i)
     {
         glfwPollEvents();
 
@@ -259,24 +240,18 @@ int main(int argc, char *argv[])
         glDrawArrays(GL_POINTS, 0, point_count);    
         glfwSwapBuffers(window);
 
-        if (iter_idx < iter_count)
-        {
-            //if (display) engine.prepareWindow();
-            float *d_coords = nullptr;
-            checkCuda(cudaGraphicsMapResources(1, &vbo_res));
-            size_t buffer_size;
-            checkCuda(cudaGraphicsResourceGetMappedPointer((void**)&d_coords, &buffer_size, vbo_res));
+        //if (display) engine.prepareWindow();
+        float *d_coords = nullptr;
+        checkCuda(cudaGraphicsMapResources(1, &vbo_res));
+        size_t buffer_size;
+        checkCuda(cudaGraphicsResourceGetMappedPointer((void**)&d_coords, &buffer_size, vbo_res));
 
-            integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
-            checkCuda(cudaDeviceSynchronize());
-            iter_idx++;
+        integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
+        checkCuda(cudaDeviceSynchronize());
 
-            //if (display) engine.updateWindow();
-            checkCuda(cudaGraphicsUnmapResources(1, &vbo_res));
-        }
+        //if (display) engine.updateWindow();
+        checkCuda(cudaGraphicsUnmapResources(1, &vbo_res));
     }
-    glfwMakeContextCurrent(nullptr);
-    //engine.showMetrics();
 
     // Nvml memory report
     {

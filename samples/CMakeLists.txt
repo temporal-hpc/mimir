@@ -33,6 +33,7 @@ target_link_libraries(run_texture PRIVATE cudaview)
 
 add_subdirectory(tiuque)
 add_subdirectory(pointsgl)
+add_subdirectory(pointspcl)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL
