@@ -60,17 +60,12 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     device_features.fillModeNonSolid  = VK_TRUE; // Enable wireframe
     device_features.geometryShader    = VK_TRUE;
 
-    // Enable resetting queries from the host
-    VkPhysicalDeviceHostQueryResetFeatures resetFeatures{};
-    resetFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES;
-    resetFeatures.pNext = nullptr;
-    resetFeatures.hostQueryReset = VK_TRUE;
-
     // Explicitly enable timeline semaphores, or validation layer will complain
     VkPhysicalDeviceVulkan12Features vk12features{};
     vk12features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    vk12features.pNext = &resetFeatures;
+    vk12features.pNext = nullptr;
     vk12features.timelineSemaphore = true;
+    vk12features.hostQueryReset = true;
 
     VkDeviceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -557,5 +552,9 @@ VkQueryPool VulkanDevice::createQueryPool(uint32_t query_count)
 
     VkQueryPool pool = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateQueryPool(logical_device, &info, nullptr, &pool));
+    deletors.add([=,this]{
+        vkDestroyQueryPool(logical_device, pool, nullptr);
+    });
+    vkResetQueryPool(logical_device, pool, 0, query_count);
     return pool;
 }

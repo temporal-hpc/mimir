@@ -106,7 +106,7 @@ private:
     uint64_t current_frame = 0;
     std::string shader_path;
 
-    std::vector<InteropView> views;
+    std::vector<std::unique_ptr<InteropView>> views;
     std::vector<AllocatedBuffer> uniform_buffers;
 
     float4 bg_color{.5f, .5f, .5f, 1.f};

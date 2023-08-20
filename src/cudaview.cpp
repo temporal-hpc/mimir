@@ -17,8 +17,6 @@
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
 
-constexpr size_t max_view_count = 256;
-
 void setColor(float *vk_color, float4 color)
 {
     vk_color[0] = color.x;
@@ -105,7 +103,6 @@ void CudaviewEngine::init(ViewerOptions opts)
     glfwSetWindowCloseCallback(window, windowCloseCallback);
 
     initVulkan();
-    views.reserve(max_view_count); // Temp hack
 
     camera->type = Camera::CameraType::LookAt;
     //camera->flipY = true;
@@ -231,18 +228,18 @@ void CudaviewEngine::display(std::function<void(void)> func, size_t iter_count)
 
 InteropView *CudaviewEngine::createView(void **ptr_devmem, ViewParams params)
 {
-    InteropView view;
-    view.params = params;
+    auto view_handle = std::unique_ptr<InteropView>(new InteropView());
+    view_handle->params = params;
 
-    dev->initView(view);
-    views.push_back(view);
-    *ptr_devmem = view.cuda_ptr;
-    return &views.back();
+    dev->initView(*view_handle);
+    *ptr_devmem = view_handle->cuda_ptr;
+    views.push_back(std::move(view_handle));
+    return views.back().get();
 }
 
 InteropView *CudaviewEngine::getView(uint32_t view_index)
 {
-    return &views[view_index];
+    return views[view_index].get();
 }
 
 void CudaviewEngine::loadTexture(InteropView *view, void *data)
@@ -488,7 +485,7 @@ void CudaviewEngine::cleanupSwapchain()
     vkDeviceWaitIdle(dev->logical_device);
     for (auto& view : views)
     {
-        vkDestroyPipeline(dev->logical_device, view.pipeline, nullptr);
+        vkDestroyPipeline(dev->logical_device, view->pipeline, nullptr);
     }
     /*vkFreeCommandBuffers(dev->logical_device, dev->command_pool,
         command_buffers.size(), command_buffers.data()
@@ -602,13 +599,13 @@ void CudaviewEngine::updateDescriptorSets()
 
         for (const auto& view : views)
         {
-            if (view.params.resource_type == ResourceType::TextureLinear ||
-                view.params.resource_type == ResourceType::Texture)
+            if (view->params.resource_type == ResourceType::TextureLinear ||
+                view->params.resource_type == ResourceType::Texture)
             {
                 VkDescriptorImageInfo img_info{};
                 img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                img_info.imageView   = view.vk_view;
-                img_info.sampler     = view.vk_sampler;
+                img_info.imageView   = view->vk_view;
+                img_info.sampler     = view->vk_sampler;
 
                 auto write_img = vkinit::writeDescriptorImage(set,
                     3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
@@ -617,8 +614,8 @@ void CudaviewEngine::updateDescriptorSets()
 
                 VkDescriptorImageInfo samp_info{};
                 samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                samp_info.imageView   = view.vk_view;
-                samp_info.sampler     = view.vk_sampler;
+                samp_info.imageView   = view->vk_view;
+                samp_info.sampler     = view->vk_sampler;
 
                 auto write_samp = vkinit::writeDescriptorImage(set,
                     4, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
@@ -788,58 +785,58 @@ void CudaviewEngine::drawObjects(uint32_t image_idx)
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );
-        if (!view.params.options.visible) continue;
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view.pipeline);
-        if (view.params.resource_type == ResourceType::TextureLinear ||
-            view.params.resource_type == ResourceType::Texture)
+        if (!view->params.options.visible) continue;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
+        if (view->params.resource_type == ResourceType::TextureLinear ||
+            view->params.resource_type == ResourceType::Texture)
         {
-            if (view.params.primitive_type == PrimitiveType::Voxels)
+            if (view->params.primitive_type == PrimitiveType::Voxels)
             {
-                VkBuffer vertex_buffers[] = { view.data_buffer };
+                VkBuffer vertex_buffers[] = { view->data_buffer };
                 VkDeviceSize offsets[] = { 0 };
                 auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
                 vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-                vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
             }
             else
             {
                 VkDeviceSize offsets[1] = {0};
-                vkCmdBindVertexBuffers(cmd, 0, 1, &view.aux_buffer, offsets);
-                vkCmdBindIndexBuffer(cmd, view.aux_buffer, view.index_offset, VK_INDEX_TYPE_UINT16);
+                vkCmdBindVertexBuffers(cmd, 0, 1, &view->aux_buffer, offsets);
+                vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, VK_INDEX_TYPE_UINT16);
                 vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
             }
         }
-        else if (view.params.resource_type == ResourceType::StructuredBuffer)
+        else if (view->params.resource_type == ResourceType::StructuredBuffer)
         {
-            if (view.params.primitive_type == PrimitiveType::Voxels)
+            if (view->params.primitive_type == PrimitiveType::Voxels)
             {
-                VkBuffer vertex_buffers[] = { view.aux_buffer, view.data_buffer };
+                VkBuffer vertex_buffers[] = { view->aux_buffer, view->data_buffer };
                 VkDeviceSize offsets[] = { 0, 0 };
                 auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
                 vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-                vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
             }
         }
-        else if (view.params.resource_type == ResourceType::UnstructuredBuffer)
+        else if (view->params.resource_type == ResourceType::UnstructuredBuffer)
         {
-            switch (view.params.primitive_type)
+            switch (view->params.primitive_type)
             {
                 case PrimitiveType::Points:
                 {
-                    VkBuffer vertex_buffers[] = { view.data_buffer };
+                    VkBuffer vertex_buffers[] = { view->data_buffer };
                     VkDeviceSize offsets[] = { 0 };
                     auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
                     vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-                    vkCmdDraw(cmd, view.params.element_count, 1, 0, 0);
+                    vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
                     break;
                 }
                 case PrimitiveType::Edges:
                 {
-                    VkBuffer vertexBuffers[] = { views[0].data_buffer };
+                    VkBuffer vertexBuffers[] = { views[0]->data_buffer };
                     VkDeviceSize offsets[] = {0};
                     vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-                    vkCmdBindIndexBuffer(cmd, view.data_buffer, 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdDrawIndexed(cmd, 3 * view.params.element_count, 1, 0, 0, 0);
+                    vkCmdBindIndexBuffer(cmd, view->data_buffer, 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
                     break;
                 }
                 case PrimitiveType::Voxels:
@@ -925,13 +922,13 @@ void CudaviewEngine::createGraphicsPipelines()
     // TODO: This does not allow adding views at runtime
     for (auto& view : views)
     {
-        builder.addPipeline(view.params, dev.get());
+        builder.addPipeline(view->params, dev.get());
     }
     auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
     //printf("%lu pipeline(s) created\n", pipelines.size());
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
-        views[i].pipeline = pipelines[i];
+        views[i]->pipeline = pipelines[i];
     }
 
     // Restore original working directory
@@ -996,12 +993,12 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
         mvp.proj  = camera->matrices.perspective;
 
         PrimitiveParams primitive{};
-        primitive.color = getColor(view.params.options.color);
-        primitive.size = view.params.options.size;
-        primitive.depth = view.params.options.depth;
+        primitive.color = getColor(view->params.options.color);
+        primitive.size = view->params.options.size;
+        primitive.depth = view->params.options.depth;
 
         SceneParams scene{};
-        auto extent = view.params.extent;
+        auto extent = view->params.extent;
         scene.bg_color = getColor(bg_color);
         scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
         scene.resolution = glm::ivec2{options.window_size.x, options.window_size.y};

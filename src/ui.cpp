@@ -119,7 +119,7 @@ void CudaviewEngine::drawGui()
         ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
         for (size_t i = 0; i < views.size(); ++i)
         {
-            addViewObjectGui(&views[i], i);
+            addViewObjectGui(views[i].get(), i);
         }
         ImGui::End();
     }
