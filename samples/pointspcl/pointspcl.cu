@@ -1,15 +1,14 @@
 #include <experimental/source_location> // std::source_location
 #include <curand_kernel.h>
+#include <chrono> // std::chrono
 #include <string> // std::stoul
 
 #include "nvmlPower.hpp"
 #include <pcl/point_types.h>
 #include <pcl/visualization/cloud_viewer.h>
 
+using chrono_tp = std::chrono::time_point<std::chrono::high_resolution_clock>;
 using source_location = std::experimental::source_location;
-
-#include <iostream>
-using namespace std;
 
 constexpr void checkCuda(cudaError_t code, bool panic = true,
     source_location src = source_location::current())
@@ -79,7 +78,7 @@ int main(int argc, char *argv[])
     int iter_count = 10000;
     if (argc >= 2) point_count = std::stoul(argv[1]);
     if (argc >= 3) iter_count = std::stoi(argv[2]);
-    printf("opencv,%lu,", point_count);
+    printf("pcl,%lu,", point_count);
 
     checkCuda(cudaMalloc((void**)&d_coords, sizeof(float4) * point_count));
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
@@ -98,21 +97,37 @@ int main(int argc, char *argv[])
         sizeof(float4) * point_count, cudaMemcpyDeviceToHost)
     );
 
-    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer ("3D Viewer"));
+    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer ("3D Viewer", true));
     viewer->setBackgroundColor (0.5, 0.5, 0.5);
     viewer->addPointCloud<pcl::PointXYZ> (cloud, "points3d");
     viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "points3d");
     viewer->addCoordinateSystem (1.0);
     viewer->initCameraParameters ();
+    viewer->setSize(1920, 1080);
     viewer->setCameraPosition(-199.419, 277.404, 279.833, 56.991, 13.6156, 47.422, 0, 0, 1);
     //viewer->setFullScreen(true); // Produces segmentation fault
 
+    // Main loop variables
     int iter_idx = 0;
+    float total_graphics_time = 0;
+    chrono_tp last_time = {};
+    std::array<float,240> frame_times{};
+    size_t total_frame_count = 0;
+
     GPUPowerBegin("gpu", 100);
     while (!viewer->wasStopped())
     {
         if (iter_idx < iter_count)
         {
+            // Measure frame time
+            static chrono_tp start_time = std::chrono::high_resolution_clock::now();
+            chrono_tp current_time = std::chrono::high_resolution_clock::now();
+            if (iter_idx == 0)
+            {
+                last_time = start_time;
+            }
+            float frame_time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - last_time).count();
+
             viewer->removeAllPointClouds();
 
             integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
@@ -125,7 +140,40 @@ int main(int argc, char *argv[])
             viewer->addPointCloud(cloud, "points3d");
             viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "points3d");
             viewer->spinOnce(100);
+
             iter_idx++;
+            total_frame_count++;
+            total_graphics_time += frame_time;
+            frame_times[iter_idx % frame_times.size()] = frame_time;
+            last_time = current_time;
+        } else {
+            auto frame_sample_size = std::min(frame_times.size(), total_frame_count);
+            float total_frame_time = 0;
+            for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
+            auto framerate = frame_times.size() / total_frame_time;
+
+            // Nvml memory report
+            {
+                nvmlMemory_v2_t meminfo;
+                meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+                nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
+                
+                constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
+                double freemem = meminfo.free / gigabyte;
+                double reserved = meminfo.reserved / gigabyte;
+                double totalmem = meminfo.total / gigabyte;
+                double usedmem = meminfo.used / gigabyte;
+                printf("%f,%lf,%lf,", framerate, freemem, usedmem);
+            }
+
+            GPUPowerEnd();
+            checkCuda(cudaFree(d_states));
+            checkCuda(cudaFree(d_coords));
+
+            // Flush output before segmentation fault
+            std::flush(std::cout);
+
+            viewer->close(); // This causes segfault :(
         }
         /*std::vector<pcl::visualization::Camera> cam; 
         viewer->getCameras(cam); 
@@ -135,24 +183,6 @@ int main(int argc, char *argv[])
             cam[0].focal[0], cam[0].focal[1], cam[0].focal[2]
         );*/
     }
-
-    // Nvml memory report
-    {
-        nvmlMemory_v2_t meminfo;
-        meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
-        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
-        
-        constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
-        double freemem = meminfo.free / gigabyte;
-        double reserved = meminfo.reserved / gigabyte;
-        double totalmem = meminfo.total / gigabyte;
-        double usedmem = meminfo.used / gigabyte;
-        printf("%lf,%lf,", freemem, usedmem);
-    }
-
-    GPUPowerEnd();
-    checkCuda(cudaFree(d_states));
-    checkCuda(cudaFree(d_coords));
 
     return EXIT_SUCCESS;
 }

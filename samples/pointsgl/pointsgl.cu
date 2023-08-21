@@ -1,4 +1,5 @@
 #include <experimental/source_location> // std::source_location
+#include <chrono> // std::chrono
 #include <fstream> // std::ifstream
 #include <iostream> // std::cout
 #include <string> // std::stoul
@@ -13,6 +14,7 @@
 #include <curand_kernel.h>
 #include <cuda_gl_interop.h>
 
+using chrono_tp = std::chrono::time_point<std::chrono::high_resolution_clock>;
 using source_location = std::experimental::source_location;
 
 constexpr void checkCuda(cudaError_t code, bool panic = true,
@@ -230,15 +232,33 @@ int main(int argc, char *argv[])
     GPUPowerBegin("gpu", 100);
 
     // Here we would call engine.display();
+    float total_graphics_time = 0;
+    chrono_tp last_time = {};
+    std::array<float,240> frame_times{};
+    size_t total_frame_count = 0;
     for (int i = 0; i < iter_count; ++i)
     {
         glfwPollEvents();
+
+        // Measure frame time
+        static chrono_tp start_time = std::chrono::high_resolution_clock::now();
+        chrono_tp current_time = std::chrono::high_resolution_clock::now();
+        if (i == 0)
+        {
+            last_time = start_time;
+        }
+        float frame_time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - last_time).count();
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glUseProgram(shader_program);
         glBindVertexArray(vao);
         glDrawArrays(GL_POINTS, 0, point_count);    
         glfwSwapBuffers(window);
+
+        total_frame_count++;
+        total_graphics_time += frame_time;
+        frame_times[i % frame_times.size()] = frame_time;
+        last_time = current_time;
 
         //if (display) engine.prepareWindow();
         float *d_coords = nullptr;
@@ -253,6 +273,11 @@ int main(int argc, char *argv[])
         checkCuda(cudaGraphicsUnmapResources(1, &vbo_res));
     }
 
+    auto frame_sample_size = std::min(frame_times.size(), total_frame_count);
+    float total_frame_time = 0;
+    for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
+    auto framerate = frame_times.size() / total_frame_time;
+
     // Nvml memory report
     {
         nvmlMemory_v2_t meminfo;
@@ -264,7 +289,7 @@ int main(int argc, char *argv[])
         double reserved = meminfo.reserved / gigabyte;
         double totalmem = meminfo.total / gigabyte;
         double usedmem = meminfo.used / gigabyte;
-        printf("%lf,%lf,", freemem, usedmem);
+        printf("%f,%lf,%lf,", framerate, freemem, usedmem);
     }
 
     GPUPowerEnd();
