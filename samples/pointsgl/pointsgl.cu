@@ -9,10 +9,22 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include "nvmlPower.hpp"
-#include "camera.hpp"
 
 #include <curand_kernel.h>
 #include <cuda_gl_interop.h>
+
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <mat4x4.hpp>
+#include <gtc/matrix_transform.hpp>
+#include <gtc/type_ptr.hpp>
+
+struct ModelViewProjection
+{
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
 
 using chrono_tp = std::chrono::time_point<std::chrono::high_resolution_clock>;
 using source_location = std::experimental::source_location;
@@ -137,9 +149,10 @@ int main(int argc, char *argv[])
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        window = glfwCreateWindow(width, height, "OpenGL/CUDA Interop", nullptr, nullptr);        
+        window = glfwCreateWindow(width, height, "OpenGL/CUDA Interop", nullptr, nullptr);
         glfwMakeContextCurrent(window);
         gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+        glViewport(0, 0, width, height);
 
         int gl_device_id;
         uint gl_device_count;
@@ -174,19 +187,10 @@ int main(int argc, char *argv[])
         glDeleteShader(frag_shader);
         glDeleteShader(geom_shader);
 
-        // TODO: Set uniforms
-        Camera camera;
-        camera.type = Camera::CameraType::LookAt;
-        //camera.flipY = true;
-        camera.setPosition(glm::vec3(0.f, 0.f, -2.85f)); //(glm::vec3(0.f, 0.f, -3.75f));
-        camera.setRotation(glm::vec3(1.5f, -2.5f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
-        camera.setRotationSpeed(0.5f);
-        camera.setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
-
         ModelViewProjection mvp{};
         mvp.model = glm::mat4(1.f);
-        mvp.view  = glm::transpose(camera.matrices.view);
-        mvp.proj  = glm::transpose(camera.matrices.perspective);
+        mvp.view  = glm::mat4(1.f);
+        mvp.proj  = glm::perspective(glm::radians(45.0f), (float)width/(float)height, 0.1f, 100.0f);
 
         GLuint ubo;
         glGenBuffers(1, &ubo);
@@ -204,7 +208,6 @@ int main(int argc, char *argv[])
         GLuint vbo;
         glGenBuffers(1, &vbo);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        //glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
         glBufferData(GL_ARRAY_BUFFER, sizeof(float3) * point_count, nullptr, GL_DYNAMIC_DRAW);
         checkCuda(cudaGraphicsGLRegisterBuffer(&vbo_res, vbo, cudaGraphicsRegisterFlagsNone));
         
