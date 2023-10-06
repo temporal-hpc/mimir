@@ -1943,6 +1943,7 @@ extern "C"
         SLANG_TYPE_KIND_MESH_OUTPUT,
         SLANG_TYPE_KIND_SPECIALIZED,
         SLANG_TYPE_KIND_FEEDBACK,
+        SLANG_TYPE_KIND_POINTER,
         SLANG_TYPE_KIND_COUNT,
     };
 
@@ -2476,6 +2477,7 @@ namespace slang
             OutputStream = SLANG_TYPE_KIND_OUTPUT_STREAM,
             Specialized = SLANG_TYPE_KIND_SPECIALIZED,
             Feedback = SLANG_TYPE_KIND_FEEDBACK,
+            Pointer = SLANG_TYPE_KIND_POINTER,
         };
 
         enum ScalarType : SlangScalarTypeIntegral
@@ -4126,6 +4128,9 @@ namespace slang
 
         virtual SLANG_NO_THROW void SLANG_MCALL setReportDownstreamTime(bool value) = 0;
 
+        virtual SLANG_NO_THROW void SLANG_MCALL setReportPerfBenchmark(bool value) = 0;
+
+
     };
 
     #define SLANG_UUID_ICompileRequest ICompileRequest::getTypeGuid()
@@ -4507,6 +4512,18 @@ namespace slang
             SlangInt    targetIndex,
             IBlob**     outCode,
             IBlob**     outDiagnostics = nullptr) = 0;
+
+            /** Get the compilation result as a file system.
+
+            Has the same requirements as getEntryPointCode.
+
+            The result is not written to the actual OS file system, but is made avaiable as an
+            in memory representation.
+            */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getResultAsFileSystem(
+            SlangInt    entryPointIndex,
+            SlangInt    targetIndex, 
+            ISlangMutableFileSystem** outFileSystem) = 0;
 
             /** Compute a hash for the entry point at `entryPointIndex` for the chosen `targetIndex`.
 
