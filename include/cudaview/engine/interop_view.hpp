@@ -14,7 +14,7 @@ enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture, Textur
 // Specifies the type of primitive that will be visualized 
 enum class PrimitiveType { Points, Edges, Voxels };
 // Specifies the datatype stored in the texture corresponding to a view
-enum class TextureFormat { Uint8, Int32, Float32, Rgba32 };
+enum class TextureFormat { Int1, Int2, Int3, Int4, Float1, Float2, Float3, Float4, Char1, Char2, Char3, Char4 };
 
 struct ShaderInfo
 {

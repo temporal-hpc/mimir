@@ -272,7 +272,7 @@ int main(int argc, char *argv[])
         params.element_count = program.extent.x * program.extent.y;
         params.element_size = sizeof(float);
         params.resource_type = ResourceType::TextureLinear;
-        params.texture_format = TextureFormat::Float32;
+        params.texture_format = TextureFormat::Float1;
         engine.createView((void**)&program.d_distances, params);
         //cudaMalloc((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
 

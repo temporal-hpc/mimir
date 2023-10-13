@@ -31,11 +31,11 @@ VkFormat getVulkanFormat(TextureFormat format)
 {
     switch (format)
     {
-        case TextureFormat::Uint8:   return VK_FORMAT_R8_UNORM;
-        case TextureFormat::Int32:   return VK_FORMAT_R32_SINT;
-        case TextureFormat::Float32: return VK_FORMAT_R32_SFLOAT;
-        case TextureFormat::Rgba32:  return VK_FORMAT_R8G8B8A8_SRGB;
-        default:                     return VK_FORMAT_UNDEFINED;
+        //case TextureFormat::Uint8:   return VK_FORMAT_R8_UNORM;
+        case TextureFormat::Int1:   return VK_FORMAT_R32_SINT;
+        case TextureFormat::Float1: return VK_FORMAT_R32_SFLOAT;
+        case TextureFormat::Char4:  return VK_FORMAT_R8G8B8A8_SRGB;
+        default:                    return VK_FORMAT_UNDEFINED;
     }
 }
 

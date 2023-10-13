@@ -5,6 +5,22 @@
 #include <cudaview/validation.hpp>
 #include "internal/vk_initializers.hpp"
 
+const char* getTextureFormat(TextureFormat type)
+{
+    switch (type)
+    {
+        case TextureFormat::Int1: return "Int1";
+        case TextureFormat::Int2: return "Int2";
+        case TextureFormat::Int3: return "Int3";
+        case TextureFormat::Int4: return "Int4";
+        case TextureFormat::Float1: case TextureFormat::Char1: return "Float1";
+        case TextureFormat::Float2: case TextureFormat::Char2: return "Float2";
+        case TextureFormat::Float3: case TextureFormat::Char3: return "Float3";
+        case TextureFormat::Float4: case TextureFormat::Char4: return "Float4";
+        default: return "unknown";
+    }
+}
+
 ShaderCompileParameters getShaderCompileParams(ViewParams view)
 {
     ShaderCompileParameters params;
@@ -18,14 +34,20 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         {
             params.specializations.push_back("RawColor");
         }
+        std::string vert_entry = "vertex";
+        std::string frag_entry = "frag";
         if (view.data_domain == DataDomain::Domain2D)
         {
-            params.entrypoints = {"vertex2dMain", "fragment2dMain"};
+            vert_entry += "2dMain";
+            frag_entry += "2d_";
         }
         else if (view.data_domain == DataDomain::Domain3D)
         {
-            params.entrypoints = {"vertex3dMain", "fragment3dMain"};
+            vert_entry += "3dMain";
+            frag_entry += "3d_";
         }
+        frag_entry += getTextureFormat(view.texture_format);
+        params.entrypoints = { vert_entry, frag_entry };
     }
     else if (view.primitive_type == PrimitiveType::Points)
     {

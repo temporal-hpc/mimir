@@ -201,7 +201,7 @@ int main(int argc, char *argv[])
   params.extent         = {unsigned(img_width), unsigned(img_height), 1};
   params.data_domain    = DataDomain::Domain2D;
   params.resource_type  = ResourceType::Texture;
-  params.texture_format = TextureFormat::Rgba32;
+  params.texture_format = TextureFormat::Char4;
   auto view = engine.createView((void**)&d_image, params);
   engine.loadTexture(view, img_data);
 
