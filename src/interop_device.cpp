@@ -27,15 +27,15 @@ VkBufferUsageFlags getUsageFlags(PrimitiveType p, ResourceType r)
 }
 
 // Converts a InteropView texture type to its Vulkan equivalent
-VkFormat getVulkanFormat(TextureFormat format)
+VkFormat getTextureFormat(DataType type)
 {
-    switch (format)
+    switch (type)
     {
-        //case TextureFormat::Uint8:   return VK_FORMAT_R8_UNORM;
-        case TextureFormat::Int1:   return VK_FORMAT_R32_SINT;
-        case TextureFormat::Float1: return VK_FORMAT_R32_SFLOAT;
-        case TextureFormat::Char4:  return VK_FORMAT_R8G8B8A8_SRGB;
-        default:                    return VK_FORMAT_UNDEFINED;
+        //case DataType::Uint8:   return VK_FORMAT_R8_UNORM;
+        case DataType::Int1:   return VK_FORMAT_R32_SINT;
+        case DataType::Float1: return VK_FORMAT_R32_SFLOAT;
+        case DataType::Char4:  return VK_FORMAT_R8G8B8A8_SRGB;
+        default:               return VK_FORMAT_UNDEFINED;
     }
 }
 
@@ -73,7 +73,8 @@ VkImageTiling getImageTiling(ResourceType type)
 void InteropDevice::initView(InteropView& view)
 {
     const auto params = view.params;
-    view.vk_format = getVulkanFormat(params.texture_format);
+    const auto element_size = getDataSize(params.data_type);
+    view.vk_format = getTextureFormat(params.data_type);
     view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
     VkMemoryRequirements memreq{};
@@ -116,7 +117,7 @@ void InteropDevice::initView(InteropView& view)
         }
 
         // Create view buffers
-        VkDeviceSize memsize = params.element_size * params.element_count;
+        VkDeviceSize memsize = element_size * params.element_count;
         auto usage = getUsageFlags(params.primitive_type, params.resource_type);
         VkExternalMemoryBufferCreateInfo extmem_info{};
         extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
@@ -137,7 +138,7 @@ void InteropDevice::initView(InteropView& view)
         ext_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
         ext_info.pNext = nullptr;
         ext_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-        auto img_format = getVulkanFormat(params.texture_format);
+        auto img_format = getTextureFormat(params.data_type);
         VkExtent3D img_extent = {params.extent.x, params.extent.y, params.extent.z};
         auto tiling = getImageTiling(params.resource_type);
         auto usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -166,7 +167,7 @@ void InteropDevice::initView(InteropView& view)
         params.resource_type == ResourceType::UnstructuredBuffer)
     {
         vkBindBufferMemory(logical_device, view.data_buffer, view.memory, 0);
-        VkDeviceSize memsize = params.element_size * params.element_count;
+        VkDeviceSize memsize = element_size * params.element_count;
         cudaExternalMemoryBufferDesc buffer_desc{};
         buffer_desc.offset = 0;
         buffer_desc.size   = memsize;
@@ -228,7 +229,7 @@ void InteropDevice::initView(InteropView& view)
         // Init texture memory (TODO: Refactor)
         if (params.resource_type == ResourceType::TextureLinear)
         {
-            VkDeviceSize memsize = params.element_size * params.element_count;
+            VkDeviceSize memsize = element_size * params.element_count;
             cudaExternalMemoryBufferDesc buffer_desc{};
             buffer_desc.offset = 0;
             buffer_desc.size   = memsize;
@@ -321,7 +322,7 @@ void InteropDevice::loadTexture(InteropView *view, void *img_data)
     vkBindBufferMemory(logical_device, staging_buffer, staging_memory, 0);
 
     char *data = nullptr;
-    VkDeviceSize memsize = params.element_size * params.element_count;
+    VkDeviceSize memsize = getDataSize(params.data_type) * params.element_count;
     vkMapMemory(logical_device, staging_memory, 0, memsize, 0, (void**)&data);
     memcpy(data, img_data, static_cast<size_t>(memsize));
     vkUnmapMemory(logical_device, staging_memory);

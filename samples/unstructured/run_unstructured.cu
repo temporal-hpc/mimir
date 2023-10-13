@@ -119,8 +119,8 @@ int main(int argc, char *argv[])
         engine.init(1920, 1080);
         ViewParams params;
         params.element_count = program.particle_count;
-        params.element_size = sizeof(float2);
         params.extent = {200, 200, 1};
+        params.data_type = DataType::Float2;
         params.data_domain = DataDomain::Domain2D;
         params.resource_type = ResourceType::UnstructuredBuffer;
         params.primitive_type = PrimitiveType::Points;

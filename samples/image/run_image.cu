@@ -37,11 +37,10 @@ int main(int argc, char *argv[])
     engine.init(1920, 1080);
     ViewParams params;
     params.element_count = width * height;
-    params.element_size = sizeof(uchar4);
     params.extent = {(unsigned)width, (unsigned)height, 1};
+    params.data_type = DataType::Char4;
     params.data_domain = DataDomain::Domain2D;
     params.resource_type = ResourceType::TextureLinear;
-    params.texture_format = TextureFormat::Char4;
     engine.createView((void**)&d_pixels, params);
 
     auto tex_size = sizeof(uchar4) * width * height;

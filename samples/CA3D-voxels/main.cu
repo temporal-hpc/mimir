@@ -68,11 +68,11 @@ int main(int argc, char **argv){
     ViewParams params;
     // TODO CAMBIAR A 2D
     params.element_count = n*n*n;
-    params.element_size = sizeof(int);
 
     // TODO: 2D --> {n, n, 1}
     params.extent = {(unsigned)n, (unsigned)n, (unsigned)n};
     // TODO: CAMBIAR A DOMAIN 2D
+    params.data_type = DataType::Int1;
     params.data_domain = DataDomain::Domain3D;
     params.resource_type = ResourceType::StructuredBuffer;
     params.primitive_type = PrimitiveType::Voxels;

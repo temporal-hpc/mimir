@@ -14,7 +14,7 @@ enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture, Textur
 // Specifies the type of primitive that will be visualized 
 enum class PrimitiveType { Points, Edges, Voxels };
 // Specifies the datatype stored in the texture corresponding to a view
-enum class TextureFormat { Int1, Int2, Int3, Int4, Float1, Float2, Float3, Float4, Char1, Char2, Char3, Char4 };
+enum class DataType { Int1, Int2, Int3, Int4, Float1, Float2, Float3, Float4, Char1, Char2, Char3, Char4 };
 
 struct ShaderInfo
 {
@@ -47,12 +47,11 @@ struct ViewParams
 {
     cudaStream_t cuda_stream = 0;
     size_t element_count = 0;
-    size_t element_size = 0;
     uint3 extent = {1, 1, 1};
     DataDomain data_domain;
     ResourceType resource_type;
     PrimitiveType primitive_type;
-    TextureFormat texture_format;
+    DataType data_type;
     ViewOptions options;
 };
 
@@ -95,3 +94,24 @@ struct InteropView
         return params.options.visible;
     }
 };
+
+constexpr size_t getDataSize(DataType t)
+{
+    switch (t)
+    {
+
+        case DataType::Int1: return sizeof(int);
+        case DataType::Int2: return sizeof(int2);
+        case DataType::Int3: return sizeof(int3);
+        case DataType::Int4: return sizeof(int4);
+        case DataType::Float1: return sizeof(float);
+        case DataType::Float2: return sizeof(float2);
+        case DataType::Float3: return sizeof(float3);
+        case DataType::Float4: return sizeof(float4);
+        case DataType::Char1: return sizeof(char);
+        case DataType::Char2: return sizeof(char2);
+        case DataType::Char3: return sizeof(char3);
+        case DataType::Char4: return sizeof(char4);
+        default: return 0;
+    }
+}
