@@ -69,9 +69,6 @@ struct VulkanDevice
     VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
         const void *extmem_info = nullptr
     );
-    VkImage createImage(VkImageType type, VkFormat format, VkExtent3D extent,
-        VkImageTiling tiling, VkImageUsageFlags usage, const void *extmem_info = nullptr
-    );
     VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
     VkFormat findSupportedImageFormat(const std::vector<VkFormat>& candidates,
         VkImageTiling tiling, VkFormatFeatureFlags features

@@ -82,7 +82,7 @@ struct InteropView
 
     // Image members
     cudaMipmappedArray_t mipmap_array = nullptr;
-    VkImage image = VK_NULL_HANDLE;
+    VkImage image        = VK_NULL_HANDLE;
     VkImageView vk_view  = VK_NULL_HANDLE;
     VkSampler vk_sampler = VK_NULL_HANDLE;
     VkFormat vk_format   = VK_FORMAT_UNDEFINED;

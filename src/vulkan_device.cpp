@@ -211,25 +211,6 @@ VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
     return buffer;
 }
 
-VkImage VulkanDevice::createImage(VkImageType type, VkFormat format,
-    VkExtent3D extent, VkImageTiling tiling, VkImageUsageFlags usage,
-    const void *extmem_info)
-{
-    // TODO: Check if texture is within bounds
-    //auto max_img_dim = properties.limits.maxImageDimension3D;
-
-    auto info = vkinit::imageCreateInfo(type, format, extent, usage);
-    info.pNext         = extmem_info;
-    info.flags         = 0;
-    info.tiling        = tiling;
-    info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    VkImage image = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateImage(logical_device, &info, nullptr, &image));
-    return image;
-}
-
 VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)
 {
     auto info = vkinit::samplerCreateInfo(filter);

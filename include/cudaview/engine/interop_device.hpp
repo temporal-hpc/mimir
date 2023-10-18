@@ -6,13 +6,6 @@
 #include <cudaview/engine/interop_view.hpp>
 #include <cudaview/vk_types.hpp>
 
-struct FrameBarrier
-{
-    VkSemaphore present_semaphore = VK_NULL_HANDLE;
-    VkSemaphore render_semaphore  = VK_NULL_HANDLE;
-    VkFence render_fence = VK_NULL_HANDLE;
-};
-
 struct InteropBarrier
 {
     cudaStream_t cuda_stream = 0;
@@ -27,7 +20,9 @@ struct InteropDevice : public VulkanDevice
     // Use the constructor from the base VulkanDevice class
     using VulkanDevice::VulkanDevice;
 
-    void importCudaExternalMemory(cudaExternalMemory_t& cuda_mem, VkDeviceMemory& vk_mem, VkDeviceSize size);
+    cudaExternalMemory_t importCudaExternalMemory(
+        VkDeviceMemory vk_mem, VkDeviceSize size
+    );
     void *getMemoryHandle(VkDeviceMemory memory,
         VkExternalMemoryHandleTypeFlagBits handle_type
     );
@@ -37,6 +32,7 @@ struct InteropDevice : public VulkanDevice
     InteropBarrier createInteropBarrier();
 
     // View functions
+    void initTextureQuad(VkBuffer& buf, VkDeviceMemory& mem);
     void initView(InteropView& view);
     void updateTexture(InteropView& view);
     void loadTexture(InteropView *view, void *data);
