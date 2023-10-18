@@ -790,7 +790,7 @@ void CudaviewEngine::drawObjects(uint32_t image_idx)
         if (view->params.resource_type == ResourceType::TextureLinear ||
             view->params.resource_type == ResourceType::Texture)
         {
-            if (view->params.primitive_type == PrimitiveType::Voxels)
+            if (view->params.element_type == ElementType::Voxels)
             {
                 VkBuffer vertex_buffers[] = { view->data_buffer };
                 VkDeviceSize offsets[] = { 0 };
@@ -808,7 +808,7 @@ void CudaviewEngine::drawObjects(uint32_t image_idx)
         }
         else if (view->params.resource_type == ResourceType::StructuredBuffer)
         {
-            if (view->params.primitive_type == PrimitiveType::Voxels)
+            if (view->params.element_type == ElementType::Voxels)
             {
                 VkBuffer vertex_buffers[] = { view->aux_buffer, view->data_buffer };
                 VkDeviceSize offsets[] = { 0, 0 };
@@ -819,9 +819,9 @@ void CudaviewEngine::drawObjects(uint32_t image_idx)
         }
         else if (view->params.resource_type == ResourceType::UnstructuredBuffer)
         {
-            switch (view->params.primitive_type)
+            switch (view->params.element_type)
             {
-                case PrimitiveType::Points:
+                case ElementType::Points:
                 {
                     VkBuffer vertex_buffers[] = { view->data_buffer };
                     VkDeviceSize offsets[] = { 0 };
@@ -830,7 +830,7 @@ void CudaviewEngine::drawObjects(uint32_t image_idx)
                     vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
                     break;
                 }
-                case PrimitiveType::Edges:
+                case ElementType::Edges:
                 {
                     VkBuffer vertexBuffers[] = { views[0]->data_buffer };
                     VkDeviceSize offsets[] = {0};
@@ -839,7 +839,7 @@ void CudaviewEngine::drawObjects(uint32_t image_idx)
                     vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
                     break;
                 }
-                case PrimitiveType::Voxels:
+                case ElementType::Voxels:
                 {
                     // TODO: Check what to do here
                 }

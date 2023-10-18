@@ -54,7 +54,7 @@ Application::Application(){
     vert.channel_count     = 4;
     vert.data_domain     = DataDomain::Domain3D;
     vert.resource_type   = ResourceType::UnstructuredBuffer;
-    vert.primitive_type  = PrimitiveType::Points;
+    vert.element_type  = ElementType::Points;
     vert.options.visible = false;
     engine.createView((void**)&m->dm->d_vbo_v, vert);
 
@@ -64,7 +64,7 @@ Application::Application(){
     tri.channel_count    = 3;
     tri.data_domain    = DataDomain::Domain3D;
     tri.resource_type  = ResourceType::UnstructuredBuffer;
-    tri.primitive_type = PrimitiveType::Edges;
+    tri.element_type = ElementType::Edges;
     tri.options.color  = {0.f, 1.f, 0.f, 1.f};
     engine.createView((void**)&m->dm->d_eab, tri);
 

@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
         params.channel_count = 3;
         params.data_domain = DataDomain::Domain3D;
         params.resource_type = ResourceType::UnstructuredBuffer;
-        params.primitive_type = PrimitiveType::Points;
+        params.element_type = ElementType::Points;
         engine.createView((void**)&d_coords, params);
     }
     else // Run the simulation without display

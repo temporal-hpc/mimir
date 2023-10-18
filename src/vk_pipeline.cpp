@@ -36,7 +36,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         printf("%s\n", frag_entry.c_str());
         params.entrypoints = { vert_entry, frag_entry };
     }
-    else if (view.primitive_type == PrimitiveType::Points)
+    else if (view.element_type == ElementType::Points)
     {
         params.source_path = "shaders/marker.slang";
         params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
@@ -45,7 +45,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         else if (view.data_domain == DataDomain::Domain3D) { spec += "3"; }
         params.specializations.push_back(spec);
     }
-    else if (view.primitive_type == PrimitiveType::Edges)
+    else if (view.element_type == ElementType::Edges)
     {
         params.source_path = "shaders/mesh.slang";
         if (view.data_domain == DataDomain::Domain2D)
@@ -57,7 +57,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
             params.entrypoints = {"vertex3dMain", "fragmentMain"};
         }    
     }
-    else if (view.primitive_type == PrimitiveType::Voxels)
+    else if (view.element_type == ElementType::Voxels)
     {
         params.source_path = "shaders/voxel.slang";
         if (view.resource_type == ResourceType::StructuredBuffer)
@@ -72,7 +72,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     return params;
 }
 
-VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type, PrimitiveType primitive)
+VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type, ElementType primitive)
 {
     VertexDescription desc;
 
@@ -90,7 +90,7 @@ VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type,
     }
     else
     {
-        if (primitive == PrimitiveType::Voxels)
+        if (primitive == ElementType::Voxels)
         {
             desc.binding.push_back(vkinit::vertexBindingDescription(
                 0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
@@ -136,20 +136,20 @@ VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type,
     return desc;
 }
 
-VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ResourceType res_type, PrimitiveType primitive)
+VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ResourceType res_type, ElementType primitive)
 {
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-    if (res_type == ResourceType::Texture || res_type == ResourceType::TextureLinear || primitive == PrimitiveType::Edges)
+    if (res_type == ResourceType::Texture || res_type == ResourceType::TextureLinear || primitive == ElementType::Edges)
     {
         topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     }
     return vkinit::inputAssemblyCreateInfo(topology);
 }
 
-VkPipelineRasterizationStateCreateInfo getRasterizationInfo(PrimitiveType primitive)
+VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ElementType primitive)
 {
     VkPolygonMode poly_mode = VK_POLYGON_MODE_FILL;
-    if (primitive == PrimitiveType::Edges)
+    if (primitive == ElementType::Edges)
     {
         poly_mode = VK_POLYGON_MODE_LINE;
     }
@@ -328,11 +328,11 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
     
     info.shader_stages = stages;
     info.vertex_input_info = getVertexDescription(
-        params.data_domain, params.resource_type, params.primitive_type
+        params.data_domain, params.resource_type, params.element_type
     );
-    info.input_assembly = getAssemblyInfo(params.resource_type, params.primitive_type);
+    info.input_assembly = getAssemblyInfo(params.resource_type, params.element_type);
     info.depth_stencil = getDepthInfo(params.data_domain);
-    info.rasterizer = getRasterizationInfo(params.primitive_type);
+    info.rasterizer = getRasterizationInfo(params.element_type);
     info.multisampling = vkinit::multisampleStateCreateInfo();
     auto col_blend = vkinit::colorBlendAttachmentState();
     col_blend.blendEnable         = VK_TRUE;

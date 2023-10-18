@@ -7,40 +7,6 @@
 #include <ImGuiFileDialog.h>
 
 #include <algorithm> // std::clamp
-#include <iostream>
-
-std::string to_string(DataDomain x)
-{
-    switch (x)
-    {
-        case DataDomain::Domain2D: return "2D";
-        case DataDomain::Domain3D: return "3D";
-        default: return "Unknown";
-    }
-}
-
-std::string to_string(ResourceType x)
-{
-    switch (x)
-    {
-        case ResourceType::UnstructuredBuffer: return "Buffer (unstructured)";
-        case ResourceType::StructuredBuffer: return "Buffer (structured)";
-        case ResourceType::Texture: return "Texture";
-        case ResourceType::TextureLinear: return "Texture (with linear buffer)";        
-        default: return "Unknown";
-    }
-}
-
-std::string to_string(PrimitiveType x)
-{
-    switch (x)
-    {
-        case PrimitiveType::Points: return "Markers";
-        case PrimitiveType::Edges: return "Edges";
-        case PrimitiveType::Voxels: return "Voxels";
-        default: return "Unknown";
-    }
-}
 
 void addTableRow(const std::string& key, const std::string& value)
 {
@@ -62,9 +28,9 @@ void CudaviewEngine::addViewObjectGui(InteropView *view_ptr, int uid)
         auto& info = view_ptr->params;
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {
-            addTableRow("Data domain", to_string(info.data_domain));
-            addTableRow("Resource type", to_string(info.resource_type));
-            addTableRow("Primitive type", to_string(info.primitive_type));
+            addTableRow("Data domain", getDataDomain(info.data_domain));
+            addTableRow("Resource type", getResourceType(info.resource_type));
+            addTableRow("Primitive type", getElementType(info.element_type));
             addTableRow("Element count", std::to_string(info.element_count));
 
             ImGui::EndTable();

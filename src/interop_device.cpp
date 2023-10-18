@@ -8,17 +8,17 @@
 #include <cudaview/validation.hpp>
 #include "internal/vk_initializers.hpp"
 
-VkBufferUsageFlags getUsageFlags(PrimitiveType p, ResourceType r)
+VkBufferUsageFlags getUsageFlags(ElementType p, ResourceType r)
 {
     if (r == ResourceType::TextureLinear) return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     switch (p)
     {
-        case PrimitiveType::Points: case PrimitiveType::Voxels:
+        case ElementType::Points: case ElementType::Voxels:
         {
             return usage | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         }
-        case PrimitiveType::Edges:
+        case ElementType::Edges:
         {
             return usage | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         }
@@ -230,7 +230,7 @@ void InteropDevice::initView(InteropView& view)
 
         // Create view buffers
         VkDeviceSize memsize = element_size * params.element_count;
-        auto usage = getUsageFlags(params.primitive_type, params.resource_type);
+        auto usage = getUsageFlags(params.element_type, params.resource_type);
         VkExternalMemoryBufferCreateInfo extmem_info{};
         extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
         extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;

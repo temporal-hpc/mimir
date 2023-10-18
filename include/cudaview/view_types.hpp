@@ -1,15 +1,13 @@
 #pragma once
 
-enum class PresentOptions { Immediate, TripleBuffering, VSync };
-
 // Specifies the number of spatial dimensions of the view
-enum class DataDomain    { Domain2D, Domain3D };
+enum class DataDomain   { Domain2D, Domain3D };
 // Specifies the data layout
-enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture, TextureLinear };
+enum class ResourceType { UnstructuredBuffer, StructuredBuffer, Texture, TextureLinear };
 // Specifies the type of primitive that will be visualized 
-enum class PrimitiveType { Points, Edges, Voxels };
+enum class ElementType  { Points, Edges, Voxels };
 // Specifies the DataType stored in the texture corresponding to a view
-enum class DataType { Int, Float, Char };
+enum class DataType     { Int, Float, Char };
 
 constexpr size_t getDataSize(DataType t, uint channel_count)
 {
@@ -26,9 +24,48 @@ constexpr char* getDataType(DataType type)
 {
     switch (type)
     {
-        case DataType::Int:   return "Int";
-        case DataType::Float: return "Float";
-        case DataType::Char:  return "Char";     
+#define STR(r) case DataType::r: return #r
+        STR(Int);
+        STR(Float);
+        STR(Char);
+#undef STR
+        default: return "unknown";
+    }
+}
+
+constexpr char* getDataDomain(DataDomain x)
+{
+    switch (x)
+    {
+        case DataDomain::Domain2D: return "2D";
+        case DataDomain::Domain3D: return "3D";
+        default: return "unknown";
+    }
+}
+
+constexpr char* getResourceType(ResourceType x)
+{
+    switch (x)
+    {
+#define STR(r) case ResourceType::r: return #r
+        STR(UnstructuredBuffer);
+        STR(StructuredBuffer);
+        STR(Texture);
+        STR(TextureLinear);
+#undef STR
+        default: return "unknown";
+    }
+}
+
+constexpr char* getElementType(ElementType x)
+{
+    switch (x)
+    {
+#define STR(r) case ElementType::r: return #r
+        STR(Points);
+        STR(Edges);
+        STR(Voxels);
+#undef STR
         default: return "unknown";
     }
 }

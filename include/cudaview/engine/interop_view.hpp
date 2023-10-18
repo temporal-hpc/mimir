@@ -7,6 +7,8 @@
 
 #include <cudaview/view_types.hpp>
 
+enum class PresentOptions { Immediate, TripleBuffering, VSync };
+
 struct ShaderInfo
 {
     std::string filepath;
@@ -43,7 +45,7 @@ struct ViewParams
     uint3 extent = {1, 1, 1};
     DataDomain data_domain;
     ResourceType resource_type;
-    PrimitiveType primitive_type;
+    ElementType element_type;
     ViewOptions options;
 };
 

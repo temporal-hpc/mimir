@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
         params.extent = extent;
         params.data_domain = DataDomain::Domain3D;
         params.resource_type = ResourceType::UnstructuredBuffer;
-        params.primitive_type = PrimitiveType::Points;
+        params.element_type = ElementType::Points;
         //params.options.size = 1.f;
         engine.createView((void**)&d_coords, params);
     }

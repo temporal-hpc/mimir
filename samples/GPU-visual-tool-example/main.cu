@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
     params.channel_count = 2;
     params.data_domain = DataDomain::Domain2D;
     params.resource_type = ResourceType::UnstructuredBuffer;
-    params.primitive_type = PrimitiveType::Points;
+    params.element_type = ElementType::Points;
     engine.createView((void**)&dPoints, params);
 
     /* SIMULATION */

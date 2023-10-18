@@ -264,7 +264,7 @@ int main(int argc, char *argv[])
         params.channel_count = 2;
         params.data_domain = DataDomain::Domain2D;
         params.resource_type = ResourceType::UnstructuredBuffer;
-        params.primitive_type = PrimitiveType::Points;
+        params.element_type = ElementType::Points;
         params.cuda_stream = program.stream;
         params.options.color = {0,0,1,1};
         engine.createView((void**)&program.d_coords, params);
