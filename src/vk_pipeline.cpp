@@ -1,5 +1,7 @@
 #include "internal/vk_pipeline.hpp"
 
+#include <cstring> // to_string
+
 #include <cudaview/io.hpp>
 #include <cudaview/shader_types.hpp>
 #include <cudaview/validation.hpp>
@@ -30,7 +32,8 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
             vert_entry += "3dMain";
             frag_entry += "3d_";
         }
-        frag_entry += getDataType(view.data_type);
+        frag_entry += "Float" + std::to_string(view.channel_count);
+        printf("%s\n", frag_entry.c_str());
         params.entrypoints = { vert_entry, frag_entry };
     }
     else if (view.primitive_type == PrimitiveType::Points)

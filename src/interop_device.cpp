@@ -27,15 +27,35 @@ VkBufferUsageFlags getUsageFlags(PrimitiveType p, ResourceType r)
 }
 
 // Converts a InteropView texture type to its Vulkan equivalent
-VkFormat getTextureFormat(DataType type)
+VkFormat getTextureFormat(DataType type, uint channel_count)
 {
     switch (type)
     {
-        //case DataType::Uint8:   return VK_FORMAT_R8_UNORM;
-        case DataType::int1:   return VK_FORMAT_R32_SINT;
-        case DataType::float1: return VK_FORMAT_R32_SFLOAT;
-        case DataType::char4:  return VK_FORMAT_R8G8B8A8_SRGB;
-        default:               return VK_FORMAT_UNDEFINED;
+        case DataType::Int: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R32_SINT;
+            case 2: return VK_FORMAT_R32G32_SINT;
+            case 3: return VK_FORMAT_R32G32B32_SINT;
+            case 4: return VK_FORMAT_R32G32B32A32_SINT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::Float: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R32_SFLOAT;
+            case 2: return VK_FORMAT_R32G32_SFLOAT;
+            case 3: return VK_FORMAT_R32G32B32_SFLOAT;
+            case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::Char: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R8_SRGB;;
+            case 2: return VK_FORMAT_R8G8_SRGB;;
+            case 3: return VK_FORMAT_R8G8B8_SRGB;
+            case 4: return VK_FORMAT_R8G8B8A8_SRGB;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        default: return VK_FORMAT_UNDEFINED;
     }
 }
 
@@ -126,7 +146,7 @@ void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, 
 VkImage createImage(VkDevice dev, ViewParams params)
 {
     auto img_type = getImageType(params.data_domain);
-    auto format = getTextureFormat(params.data_type);
+    auto format = getTextureFormat(params.data_type, params.channel_count);
     VkExtent3D extent = {params.extent.x, params.extent.y, params.extent.z};
     auto tiling = getImageTiling(params.resource_type);
     auto usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -182,8 +202,8 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, ViewPar
 void InteropDevice::initView(InteropView& view)
 {
     const auto params = view.params;
-    const auto element_size = getDataSize(params.data_type);
-    view.vk_format = getTextureFormat(params.data_type);
+    const auto element_size = getDataSize(params.data_type, params.channel_count);
+    view.vk_format = getTextureFormat(params.data_type, params.channel_count);
     view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
     VkMemoryRequirements memreq{};
@@ -354,7 +374,7 @@ void InteropDevice::loadTexture(InteropView *view, void *img_data)
     vkBindBufferMemory(logical_device, staging_buffer, staging_memory, 0);
 
     char *data = nullptr;
-    VkDeviceSize memsize = getDataSize(params.data_type) * params.element_count;
+    VkDeviceSize memsize = getDataSize(params.data_type, params.channel_count) * params.element_count;
     vkMapMemory(logical_device, staging_memory, 0, memsize, 0, (void**)&data);
     memcpy(data, img_data, static_cast<size_t>(memsize));
     vkUnmapMemory(logical_device, staging_memory);

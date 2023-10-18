@@ -48,14 +48,15 @@ int main(int argc, char *argv[])
     engine.init(1920, 1080);
     ViewParams params;
     params.element_count = point_count;
-    params.data_type = DataType::float3;
+    params.data_type = DataType::Float;
+    params.channel_count = 3;
     params.data_domain = DataDomain::Domain3D;
     params.resource_type = ResourceType::UnstructuredBuffer;
     params.primitive_type = PrimitiveType::Points;
     engine.createView((void**)&d_coords, params);
 
     params.element_count = triangles.size();
-    params.data_type = DataType::int3;
+    params.data_type = DataType::Int;
     params.primitive_type = PrimitiveType::Edges;
     engine.createView((void**)&d_triangles, params);
 

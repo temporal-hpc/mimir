@@ -120,7 +120,8 @@ int main(int argc, char *argv[])
         ViewParams params;
         params.element_count = program.particle_count;
         params.extent = {200, 200, 1};
-        params.data_type = DataType::float2;
+        params.data_type = DataType::Float;
+        params.channel_count = 2;
         params.data_domain = DataDomain::Domain2D;
         params.resource_type = ResourceType::UnstructuredBuffer;
         params.primitive_type = PrimitiveType::Points;

@@ -198,7 +198,8 @@ int main(int argc, char *argv[])
   ViewParams params;
   params.element_count  = img_width * img_height;
   params.extent         = {unsigned(img_width), unsigned(img_height), 1};
-  params.data_type      = DataType::char4;
+  params.data_type      = DataType::Char;
+  params.channel_count  = 4;
   params.data_domain    = DataDomain::Domain2D;
   params.resource_type  = ResourceType::Texture;
   auto view = engine.createView((void**)&d_image, params);

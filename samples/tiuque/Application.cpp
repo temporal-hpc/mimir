@@ -50,7 +50,8 @@ Application::Application(){
     // TODO: Delete views
     ViewParams vert;
     vert.element_count   = cleap_get_vertex_count(m);
-    vert.data_type       = DataType::float4;
+    vert.data_type    = DataType::Float;
+    vert.channel_count     = 4;
     vert.data_domain     = DataDomain::Domain3D;
     vert.resource_type   = ResourceType::UnstructuredBuffer;
     vert.primitive_type  = PrimitiveType::Points;
@@ -59,7 +60,8 @@ Application::Application(){
 
     ViewParams tri;
     tri.element_count  = cleap_get_face_count(m);
-    tri.data_type      = DataType::int3;
+    tri.data_type   = DataType::Int;
+    tri.channel_count    = 3;
     tri.data_domain    = DataDomain::Domain3D;
     tri.resource_type  = ResourceType::UnstructuredBuffer;
     tri.primitive_type = PrimitiveType::Edges;
