@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
     ViewParams params;
     params.element_count = n;
-    params.data_type = DataType::Float2;
+    params.data_type = DataType::float2;
     params.data_domain = DataDomain::Domain2D;
     params.resource_type = ResourceType::UnstructuredBuffer;
     params.primitive_type = PrimitiveType::Points;

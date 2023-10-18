@@ -101,7 +101,7 @@ int main(int argc, char *argv[])
     {
         ViewParams params;
         params.element_count = point_count;
-        params.data_type = DataType::Float3;
+        params.data_type = DataType::float3;
         params.extent = extent;
         params.data_domain = DataDomain::Domain3D;
         params.resource_type = ResourceType::UnstructuredBuffer;

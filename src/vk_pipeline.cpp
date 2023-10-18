@@ -9,14 +9,14 @@ const char* getDataType(DataType type)
 {
     switch (type)
     {
-        case DataType::Int1: return "Int1";
-        case DataType::Int2: return "Int2";
-        case DataType::Int3: return "Int3";
-        case DataType::Int4: return "Int4";
-        case DataType::Float1: case DataType::Char1: return "Float1";
-        case DataType::Float2: case DataType::Char2: return "Float2";
-        case DataType::Float3: case DataType::Char3: return "Float3";
-        case DataType::Float4: case DataType::Char4: return "Float4";
+        case DataType::int1: return "Int1";
+        case DataType::int2: return "Int2";
+        case DataType::int3: return "Int3";
+        case DataType::int4: return "Int4";
+        case DataType::float1: case DataType::char1: return "Float1";
+        case DataType::float2: case DataType::char2: return "Float2";
+        case DataType::float3: case DataType::char3: return "Float3";
+        case DataType::float4: case DataType::char4: return "Float4";
         default: return "unknown";
     }
 }

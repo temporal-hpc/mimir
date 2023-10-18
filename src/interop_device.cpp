@@ -32,9 +32,9 @@ VkFormat getTextureFormat(DataType type)
     switch (type)
     {
         //case DataType::Uint8:   return VK_FORMAT_R8_UNORM;
-        case DataType::Int1:   return VK_FORMAT_R32_SINT;
-        case DataType::Float1: return VK_FORMAT_R32_SFLOAT;
-        case DataType::Char4:  return VK_FORMAT_R8G8B8A8_SRGB;
+        case DataType::int1:   return VK_FORMAT_R32_SINT;
+        case DataType::float1: return VK_FORMAT_R32_SFLOAT;
+        case DataType::char4:  return VK_FORMAT_R8G8B8A8_SRGB;
         default:               return VK_FORMAT_UNDEFINED;
     }
 }

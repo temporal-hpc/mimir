@@ -14,7 +14,7 @@ enum class ResourceType  { UnstructuredBuffer, StructuredBuffer, Texture, Textur
 // Specifies the type of primitive that will be visualized 
 enum class PrimitiveType { Points, Edges, Voxels };
 // Specifies the datatype stored in the texture corresponding to a view
-enum class DataType { Int1, Int2, Int3, Int4, Float1, Float2, Float3, Float4, Char1, Char2, Char3, Char4 };
+enum class DataType { int1, int2, int3, int4, float1, float2, float3, float4, char1, char2, char3, char4 };
 
 struct ShaderInfo
 {
@@ -88,6 +88,8 @@ struct InteropView
     VkFormat vk_format   = VK_FORMAT_UNDEFINED;
     VkExtent3D vk_extent = {0, 0, 0};
 
+    // Switches view visibility from visible to invisible and viceversa.
+    // Does not modify view data in any way
     bool toggleVisibility()
     {
         params.options.visible = !params.options.visible;
@@ -99,19 +101,20 @@ constexpr size_t getDataSize(DataType t)
 {
     switch (t)
     {
-
-        case DataType::Int1: return sizeof(int);
-        case DataType::Int2: return sizeof(int2);
-        case DataType::Int3: return sizeof(int3);
-        case DataType::Int4: return sizeof(int4);
-        case DataType::Float1: return sizeof(float);
-        case DataType::Float2: return sizeof(float2);
-        case DataType::Float3: return sizeof(float3);
-        case DataType::Float4: return sizeof(float4);
-        case DataType::Char1: return sizeof(char);
-        case DataType::Char2: return sizeof(char2);
-        case DataType::Char3: return sizeof(char3);
-        case DataType::Char4: return sizeof(char4);
+#define CONVERT(r) case DataType::r: return sizeof(r)        
+        CONVERT(int1);
+        CONVERT(int2);
+        CONVERT(int3);
+        CONVERT(int4);
+        CONVERT(float1);
+        CONVERT(float2);
+        CONVERT(float3);
+        CONVERT(float4);
+        CONVERT(char1);
+        CONVERT(char2);
+        CONVERT(char3);
+        CONVERT(char4);
+#undef CONVERT
         default: return 0;
     }
 }

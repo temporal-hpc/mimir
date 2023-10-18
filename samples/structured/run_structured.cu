@@ -260,7 +260,7 @@ int main(int argc, char *argv[])
         ViewParams params;
         params.element_count = program.element_count;
         params.extent = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
-        params.data_type = DataType::Float2;
+        params.data_type = DataType::float2;
         params.data_domain = DataDomain::Domain2D;
         params.resource_type = ResourceType::UnstructuredBuffer;
         params.primitive_type = PrimitiveType::Points;
@@ -271,7 +271,7 @@ int main(int argc, char *argv[])
 
         params.element_count = program.extent.x * program.extent.y;
         params.resource_type = ResourceType::TextureLinear;
-        params.data_type = DataType::Float1;
+        params.data_type = DataType::float1;
         engine.createView((void**)&program.d_distances, params);
         //cudaMalloc((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
 
