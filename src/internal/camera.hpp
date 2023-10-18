@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cudaview/vk_types.hpp"
+#include <cudaview/shader_types.hpp>
 
 class Camera
 {

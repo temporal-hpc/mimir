@@ -4,7 +4,6 @@
 
 #include <cudaview/engine/vulkan_device.hpp>
 #include <cudaview/engine/interop_view.hpp>
-#include <cudaview/vk_types.hpp>
 
 struct InteropBarrier
 {

@@ -4,7 +4,7 @@
 
 #include <cstring> // std::memcpy
 
-#include <cudaview/vk_types.hpp>
+#include <cudaview/shader_types.hpp>
 #include <cudaview/validation.hpp>
 #include "internal/vk_initializers.hpp"
 
