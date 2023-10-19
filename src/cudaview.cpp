@@ -85,7 +85,7 @@ void CudaviewEngine::init(ViewerOptions opts)
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
     //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    window = glfwCreateWindow(width, height, options.window_title.c_str(), glfwGetPrimaryMonitor(), nullptr);
+    window = glfwCreateWindow(width, height, options.window_title.c_str(), nullptr, nullptr);
     //glfwSetWindowSize(window, width, height);
     deletors.add([=,this] {
         //printf("Terminating GLFW\n");

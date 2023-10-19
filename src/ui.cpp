@@ -81,9 +81,11 @@ void CudaviewEngine::addViewObjectGui(InteropView *view_ptr, int uid)
     if (node_open)
     {
         auto& info = view_ptr->params;
+        ImGui::Checkbox("show", &info.options.visible);
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {
             addTableRow("Element count", std::to_string(info.element_count));
+            addTableRow("Channel count", std::to_string(info.channel_count));
             addTableRow("Data domain", getDataDomain(info.data_domain));
             bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
                 &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
@@ -100,10 +102,9 @@ void CudaviewEngine::addViewObjectGui(InteropView *view_ptr, int uid)
 
             ImGui::EndTable();
         }
-        ImGui::Checkbox("show", &info.options.visible);
-        ImGui::SliderFloat("Primitive size (px)", &info.options.size, 1.f, 100.f);
-        ImGui::ColorEdit4("Primitive color", (float*)&info.options.color);
-        ImGui::SliderFloat("depth", &info.options.depth, 0.f, 1.f);
+        ImGui::SliderFloat("Element size (px)", &info.options.size, 1.f, 100.f);
+        ImGui::ColorEdit4("Element color", (float*)&info.options.color);
+        //ImGui::SliderFloat("depth", &info.options.depth, 0.f, 1.f);
         ImGui::TreePop();
     }
     ImGui::PopID();
@@ -116,29 +117,6 @@ void CudaviewEngine::drawGui()
     ImGui::NewFrame();
     if (show_demo_window) { ImGui::ShowDemoWindow(); }
     if (options.show_metrics) { ImGui::ShowMetricsWindow(); }
-    
-    /*if (ImGui::BeginMainMenuBar())
-    {
-        if (ImGui::BeginMenu("File"))
-        {
-            if (ImGui::MenuItem("Open", "Ctrl+O"))
-            {
-                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".off", ".");
-            }
-            ImGui::EndMenu();
-        }
-        ImGui::EndMainMenuBar();
-    }
-    if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey"))
-    {
-        if (ImGuiFileDialog::Instance()->IsOk())
-        {
-            std::string file_name = ImGuiFileDialog::Instance()->GetFilePathName();
-            std::string curr_path = ImGuiFileDialog::Instance()->GetCurrentPath();
-            //file_handler(file_name, curr_path);
-        }
-        ImGuiFileDialog::Instance()->Close();
-    }*/
 
     {
         ImGui::Begin("Scene parameters");

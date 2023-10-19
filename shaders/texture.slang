@@ -81,59 +81,7 @@ struct Grayscale : IPicker
 [[vk::binding(3)]] Texture3D<float3> Tex3d_Float3;
 [[vk::binding(3)]] Texture3D<float4> Tex3d_Float4;
 
-[[vk::binding(3)]] Texture2D<half1> Tex2d_Half1;
-[[vk::binding(3)]] Texture2D<half2> Tex2d_Half2;
-[[vk::binding(3)]] Texture2D<half3> Tex2d_Half3;
-[[vk::binding(3)]] Texture2D<half4> Tex2d_Half4;
-
-[[vk::binding(3)]] Texture3D<half1> Tex3d_Half1;
-[[vk::binding(3)]] Texture3D<half2> Tex3d_Half2;
-[[vk::binding(3)]] Texture3D<half3> Tex3d_Half3;
-[[vk::binding(3)]] Texture3D<half4> Tex3d_Half4;
-
-[[vk::binding(3)]] Texture2D<int1> Tex2d_Int1;
-[[vk::binding(3)]] Texture2D<int2> Tex2d_Int2;
-[[vk::binding(3)]] Texture2D<int3> Tex2d_Int3;
-[[vk::binding(3)]] Texture2D<int4> Tex2d_Int4;
-
-[[vk::binding(3)]] Texture3D<int1> Tex3d_Int1;
-[[vk::binding(3)]] Texture3D<int2> Tex3d_Int2;
-[[vk::binding(3)]] Texture3D<int3> Tex3d_Int3;
-[[vk::binding(3)]] Texture3D<int4> Tex3d_Int4;
-
-
 [[vk::binding(4)]] SamplerState Sampler;
-
-
-///////////////////////////////////////////////////////////////////////
-
-[shader("fragment")]
-float4 frag2d_Int1<U:IPicker>(VertexData input) : SV_Target
-{
-    float4 samp = float4(Tex2d_Int1.Sample(Sampler, input.uv).rrr, 1);
-    return U.getColor(samp);
-}
-
-[shader("fragment")]
-float4 frag2d_Int2<U:IPicker>(VertexData input) : SV_Target
-{
-    var samp = float4(Tex2d_Int2.Sample(Sampler, input.uv).rg, 0, 1);
-    return U.getColor(samp);
-}
-
-[shader("fragment")]
-float4 frag2d_Int3<U:IPicker>(VertexData input) : SV_Target
-{
-    var samp = float4(Tex2d_Int3.Sample(Sampler, input.uv), 1);
-    return U.getColor(samp);
-}
-
-[shader("fragment")]
-float4 frag2d_Int4<U:IPicker>(VertexData input) : SV_Target
-{
-    var samp = Tex2d_Int4.Sample(Sampler, input.uv);
-    return U.getColor(samp);
-}
 
 ///////////////////////////////////////////////////////////////////////
 
@@ -168,38 +116,29 @@ float4 frag2d_Float4<U:IPicker>(VertexData input) : SV_Target
 ///////////////////////////////////////////////////////////////////////
 
 [shader("fragment")]
-float4 frag2d_Half1<U:IPicker>(VertexData input) : SV_Target
+float4 frag3d_Float1<U:IPicker>(VertexData3d input) : SV_Target
 {
-    float4 samp = float4(Tex2d_Half1.Sample(Sampler, input.uv).rrr, 1);
+    float4 samp = float4(Tex3d_Float1.Sample(Sampler, input.uv).rrr, 1);
     return U.getColor(samp);
 }
 
 [shader("fragment")]
-float4 frag2d_Half2<U:IPicker>(VertexData input) : SV_Target
+float4 frag3d_Float2<U:IPicker>(VertexData3d input) : SV_Target
 {
-    var samp = float4(Tex2d_Half2.Sample(Sampler, input.uv).rg, 0, 1);
+    float4 samp = float4(Tex3d_Float2.Sample(Sampler, input.uv).rrr, 1);
     return U.getColor(samp);
 }
 
 [shader("fragment")]
-float4 frag2d_Half3<U:IPicker>(VertexData input) : SV_Target
+float4 frag3d_Float3<U:IPicker>(VertexData3d input) : SV_Target
 {
-    var samp = float4(Tex2d_Half3.Sample(Sampler, input.uv), 1);
+    float4 samp = float4(Tex3d_Float3.Sample(Sampler, input.uv).rrr, 1);
     return U.getColor(samp);
 }
 
 [shader("fragment")]
-float4 frag2d_Half4<U:IPicker>(VertexData input) : SV_Target
+float4 frag3d_Float4<U:IPicker>(VertexData3d input) : SV_Target
 {
-    var samp = Tex2d_Half4.Sample(Sampler, input.uv);
+    float4 samp = float4(Tex3d_Float4.Sample(Sampler, input.uv).rrr, 1);
     return U.getColor(samp);
-}
-
-///////////////////////////////////////////////////////////////////////
-
-[shader("fragment")]
-float4 frag3d_Int4(VertexData3d input) : SV_Target
-{
-    var samp = Tex3d_Int4.Sample(Sampler, input.uv);
-    return float4(samp.rrr, 1.0);
 }

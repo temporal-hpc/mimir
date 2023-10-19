@@ -146,6 +146,29 @@ void Application::on_hscale_size_change_value(){
 
 void Application::init()
 {
+    /*if (ImGui::BeginMainMenuBar())
+    {
+        if (ImGui::BeginMenu("File"))
+        {
+            if (ImGui::MenuItem("Open", "Ctrl+O"))
+            {
+                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".off", ".");
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+    }
+    if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey"))
+    {
+        if (ImGuiFileDialog::Instance()->IsOk())
+        {
+            std::string file_name = ImGuiFileDialog::Instance()->GetFilePathName();
+            std::string curr_path = ImGuiFileDialog::Instance()->GetCurrentPath();
+            //file_handler(file_name, curr_path);
+        }
+        ImGuiFileDialog::Instance()->Close();
+    }*/
+
     engine.setGuiCallback([=,this]
     {
         if (ImGui::BeginMainMenuBar())
