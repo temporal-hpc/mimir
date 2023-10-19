@@ -73,7 +73,7 @@ bool addTableRowCombo(const std::string& key, int* current_item,
     return ImGui::Combo(key.c_str(), current_item, items_getter, data, items_count);
 }
 
-void CudaviewEngine::addViewObjectGui(InteropView *view_ptr, int uid)
+void addViewObjectGui(InteropView *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
     bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
@@ -136,7 +136,6 @@ void CudaviewEngine::drawGui()
     gui_callback();
     ImGui::Render();
 }
-
 
 CudaviewEngine *getHandler(GLFWwindow *window)
 {

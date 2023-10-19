@@ -130,7 +130,6 @@ private:
     static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
     static void windowCloseCallback(GLFWwindow *window);
 
-    static void addViewObjectGui(InteropView *view_ptr, int uid);
     std::unique_ptr<Camera> camera;
     bool show_demo_window = false;
     long target_frame_time = 0;
