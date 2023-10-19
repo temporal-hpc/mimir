@@ -271,7 +271,8 @@ int main(int argc, char *argv[])
         //cudaMalloc((void**)&program.d_coords, sizeof(float2) * point_count);
 
         params.element_count = program.extent.x * program.extent.y;
-        params.resource_type = ResourceType::TextureLinear;
+        params.resource_type = ResourceType::StructuredBuffer;
+        params.element_type = ElementType::Texels;
         params.data_type = DataType::Float;
         params.channel_count = 1;
         engine.createView((void**)&program.d_distances, params);

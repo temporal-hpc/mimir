@@ -599,7 +599,7 @@ void CudaviewEngine::updateDescriptorSets()
 
         for (const auto& view : views)
         {
-            if (view->params.resource_type == ResourceType::TextureLinear ||
+            if (view->params.element_type == ElementType::Texels ||
                 view->params.resource_type == ResourceType::Texture)
             {
                 VkDescriptorImageInfo img_info{};
@@ -712,7 +712,7 @@ void CudaviewEngine::renderFrame()
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-    drawObjects(frame_idx);
+    drawElements(frame_idx);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 
     // End of render pass and timestamp query
@@ -768,7 +768,7 @@ void CudaviewEngine::renderFrame()
     }*/
 }
 
-void CudaviewEngine::drawObjects(uint32_t image_idx)
+void CudaviewEngine::drawElements(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -787,7 +787,7 @@ void CudaviewEngine::drawObjects(uint32_t image_idx)
         );
         if (!view->params.options.visible) continue;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
-        if (view->params.resource_type == ResourceType::TextureLinear ||
+        if (view->params.element_type == ElementType::Texels ||
             view->params.resource_type == ResourceType::Texture)
         {
             if (view->params.element_type == ElementType::Voxels)

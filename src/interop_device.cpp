@@ -10,7 +10,7 @@
 
 VkBufferUsageFlags getUsageFlags(ElementType p, ResourceType r)
 {
-    if (r == ResourceType::TextureLinear) return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (p == ElementType::Texels) return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     switch (p)
     {
@@ -242,7 +242,7 @@ void InteropDevice::initView(InteropView& view)
         vkGetBufferMemoryRequirements(logical_device, view.data_buffer, &memreq);
     }
     if (params.resource_type == ResourceType::Texture ||
-        params.resource_type == ResourceType::TextureLinear)
+        params.element_type == ElementType::Texels)
     {
         // Init texture memory
         view.image = createImage(logical_device, params);
@@ -280,7 +280,7 @@ void InteropDevice::initView(InteropView& view)
         );
     }
     if (params.resource_type == ResourceType::Texture ||
-        params.resource_type == ResourceType::TextureLinear)
+        params.element_type == ElementType::Texels)
     {
         initTextureQuad(view.aux_buffer, view.aux_memory);
         deletors.add([=,this]{
@@ -301,7 +301,7 @@ void InteropDevice::initView(InteropView& view)
         });
 
         // Init texture memory (TODO: Refactor)
-        if (params.resource_type == ResourceType::TextureLinear)
+        if (params.element_type == ElementType::Texels)
         {
             VkDeviceSize memsize = element_size * params.element_count;
             cudaExternalMemoryBufferDesc buffer_desc{};

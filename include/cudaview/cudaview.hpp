@@ -139,7 +139,7 @@ private:
     void initImgui();
     void prepare();
     void renderFrame();
-    void drawObjects(uint32_t image_idx);
+    void drawElements(uint32_t image_idx);
     void drawGui();
     void signalKernelFinish();
     void waitKernelStart();

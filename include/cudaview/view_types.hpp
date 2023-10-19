@@ -3,9 +3,9 @@
 // Specifies the number of spatial dimensions of the view
 enum class DataDomain   { Domain2D, Domain3D };
 // Specifies the data layout
-enum class ResourceType { UnstructuredBuffer, StructuredBuffer, Texture, TextureLinear };
+enum class ResourceType { UnstructuredBuffer, StructuredBuffer, Texture };
 // Specifies the type of primitive that will be visualized 
-enum class ElementType  { Points, Edges, Voxels };
+enum class ElementType  { Points, Edges, Voxels, Texels };
 // Specifies the DataType stored in the texture corresponding to a view
 enum class DataType     { Int, Float, Char };
 
@@ -51,7 +51,6 @@ constexpr char* getResourceType(ResourceType x)
         STR(UnstructuredBuffer);
         STR(StructuredBuffer);
         STR(Texture);
-        STR(TextureLinear);
 #undef STR
         default: return "unknown";
     }
@@ -65,6 +64,7 @@ constexpr char* getElementType(ElementType x)
         STR(Points);
         STR(Edges);
         STR(Voxels);
+        STR(Texels);
 #undef STR
         default: return "unknown";
     }

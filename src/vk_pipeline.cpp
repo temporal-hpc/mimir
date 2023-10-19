@@ -11,7 +11,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
 {
     ShaderCompileParameters params;
     params.specializations = view.options.specializations;
-    if (view.resource_type == ResourceType::Texture || view.resource_type == ResourceType::TextureLinear)
+    if (view.resource_type == ResourceType::Texture || view.element_type == ElementType::Texels)
     {
         params.source_path = "shaders/texture.slang";
         // The texture shader needs a specialization for the way to interpret its content
@@ -33,7 +33,6 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
             frag_entry += "3d_";
         }
         frag_entry += "Float" + std::to_string(view.channel_count);
-        printf("%s\n", frag_entry.c_str());
         params.entrypoints = { vert_entry, frag_entry };
     }
     else if (view.element_type == ElementType::Points)
@@ -72,11 +71,11 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     return params;
 }
 
-VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type, ElementType primitive)
+VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type, ElementType ele_type)
 {
     VertexDescription desc;
 
-    if (res_type == ResourceType::Texture || res_type == ResourceType::TextureLinear)
+    if (res_type == ResourceType::Texture || ele_type == ElementType::Texels)
     {
         desc.binding.push_back(vkinit::vertexBindingDescription(
             0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
@@ -90,7 +89,7 @@ VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type,
     }
     else
     {
-        if (primitive == ElementType::Voxels)
+        if (ele_type == ElementType::Voxels)
         {
             desc.binding.push_back(vkinit::vertexBindingDescription(
                 0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
@@ -136,20 +135,20 @@ VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type,
     return desc;
 }
 
-VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ResourceType res_type, ElementType primitive)
+VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ResourceType res_type, ElementType ele_type)
 {
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-    if (res_type == ResourceType::Texture || res_type == ResourceType::TextureLinear || primitive == ElementType::Edges)
+    if (res_type == ResourceType::Texture || ele_type == ElementType::Texels || ele_type == ElementType::Edges)
     {
         topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     }
     return vkinit::inputAssemblyCreateInfo(topology);
 }
 
-VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ElementType primitive)
+VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ElementType ele_type)
 {
     VkPolygonMode poly_mode = VK_POLYGON_MODE_FILL;
-    if (primitive == ElementType::Edges)
+    if (ele_type == ElementType::Edges)
     {
         poly_mode = VK_POLYGON_MODE_LINE;
     }

@@ -41,7 +41,8 @@ int main(int argc, char *argv[])
     params.data_type = DataType::Char;
     params.channel_count = 4;
     params.data_domain = DataDomain::Domain2D;
-    params.resource_type = ResourceType::TextureLinear;
+    params.resource_type = ResourceType::StructuredBuffer;
+    params.element_type = ElementType::Texels;
     engine.createView((void**)&d_pixels, params);
 
     auto tex_size = sizeof(uchar4) * width * height;
