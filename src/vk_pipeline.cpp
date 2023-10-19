@@ -71,11 +71,11 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     return params;
 }
 
-VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type, ElementType ele_type)
+VertexDescription getVertexDescription(const ViewParams params)
 {
     VertexDescription desc;
 
-    if (res_type == ResourceType::Texture || ele_type == ElementType::Texels)
+    if (params.resource_type == ResourceType::Texture || params.element_type == ElementType::Texels)
     {
         desc.binding.push_back(vkinit::vertexBindingDescription(
             0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
@@ -89,7 +89,9 @@ VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type,
     }
     else
     {
-        if (ele_type == ElementType::Voxels)
+        auto stride = getDataSize(params.data_type, params.channel_count);
+        auto format = getDataFormat(params.data_type, params.channel_count);
+        if (params.element_type == ElementType::Voxels)
         {
             desc.binding.push_back(vkinit::vertexBindingDescription(
                 0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
@@ -98,33 +100,33 @@ VertexDescription getVertexDescription(DataDomain domain, ResourceType res_type,
                 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0
             ));
             desc.binding.push_back(vkinit::vertexBindingDescription(
-                1, sizeof(int), VK_VERTEX_INPUT_RATE_VERTEX
+                1, stride, VK_VERTEX_INPUT_RATE_VERTEX
             ));
             desc.attribute.push_back(vkinit::vertexAttributeDescription(
-                1, 1, VK_FORMAT_R32_SINT, 0
+                1, 1, format, 0
             ));
         }
         else
         {
-            switch (domain)
+            switch (params.data_domain)
             {
                 case DataDomain::Domain2D:
                 {
                     desc.binding.push_back(vkinit::vertexBindingDescription(
-                        0, sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX
+                        0, stride, VK_VERTEX_INPUT_RATE_VERTEX
                     ));
                     desc.attribute.push_back(vkinit::vertexAttributeDescription(
-                        0, 0, VK_FORMAT_R32G32_SFLOAT, 0
+                        0, 0, format, 0
                     ));
                     break;
                 }
                 case DataDomain::Domain3D:
                 {
                     desc.binding.push_back(vkinit::vertexBindingDescription(
-                        0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
+                        0, stride, VK_VERTEX_INPUT_RATE_VERTEX
                     ));
                     desc.attribute.push_back(vkinit::vertexAttributeDescription(
-                        0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0
+                        0, 0, format, 0
                     ));
                     break;
                 }
@@ -326,9 +328,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
     }
     
     info.shader_stages = stages;
-    info.vertex_input_info = getVertexDescription(
-        params.data_domain, params.resource_type, params.element_type
-    );
+    info.vertex_input_info = getVertexDescription(params);
     info.input_assembly = getAssemblyInfo(params.resource_type, params.element_type);
     info.depth_stencil = getDepthInfo(params.data_domain);
     info.rasterizer = getRasterizationInfo(params.element_type);

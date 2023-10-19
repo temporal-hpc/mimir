@@ -90,3 +90,36 @@ struct InteropView
         return params.options.visible;
     }
 };
+
+// Converts a InteropView texture type to its Vulkan equivalent
+constexpr VkFormat getDataFormat(DataType type, uint channel_count)
+{
+    switch (type)
+    {
+        case DataType::Int: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R32_SINT;
+            case 2: return VK_FORMAT_R32G32_SINT;
+            case 3: return VK_FORMAT_R32G32B32_SINT;
+            case 4: return VK_FORMAT_R32G32B32A32_SINT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::Float: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R32_SFLOAT;
+            case 2: return VK_FORMAT_R32G32_SFLOAT;
+            case 3: return VK_FORMAT_R32G32B32_SFLOAT;
+            case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::Char: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R8_SRGB;;
+            case 2: return VK_FORMAT_R8G8_SRGB;;
+            case 3: return VK_FORMAT_R8G8B8_SRGB;
+            case 4: return VK_FORMAT_R8G8B8A8_SRGB;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        default: return VK_FORMAT_UNDEFINED;
+    }
+}

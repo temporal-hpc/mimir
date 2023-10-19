@@ -26,39 +26,6 @@ VkBufferUsageFlags getUsageFlags(ElementType p, ResourceType r)
     }
 }
 
-// Converts a InteropView texture type to its Vulkan equivalent
-VkFormat getTextureFormat(DataType type, uint channel_count)
-{
-    switch (type)
-    {
-        case DataType::Int: switch (channel_count)
-        {
-            case 1: return VK_FORMAT_R32_SINT;
-            case 2: return VK_FORMAT_R32G32_SINT;
-            case 3: return VK_FORMAT_R32G32B32_SINT;
-            case 4: return VK_FORMAT_R32G32B32A32_SINT;
-            default: return VK_FORMAT_UNDEFINED;
-        }
-        case DataType::Float: switch (channel_count)
-        {
-            case 1: return VK_FORMAT_R32_SFLOAT;
-            case 2: return VK_FORMAT_R32G32_SFLOAT;
-            case 3: return VK_FORMAT_R32G32B32_SFLOAT;
-            case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
-            default: return VK_FORMAT_UNDEFINED;
-        }
-        case DataType::Char: switch (channel_count)
-        {
-            case 1: return VK_FORMAT_R8_SRGB;;
-            case 2: return VK_FORMAT_R8G8_SRGB;;
-            case 3: return VK_FORMAT_R8G8B8_SRGB;
-            case 4: return VK_FORMAT_R8G8B8A8_SRGB;
-            default: return VK_FORMAT_UNDEFINED;
-        }
-        default: return VK_FORMAT_UNDEFINED;
-    }
-}
-
 // Converts a InteropView image type to its Vulkan equivalent
 VkImageType getImageType(DataDomain domain)
 {
@@ -146,7 +113,7 @@ void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, 
 VkImage createImage(VkDevice dev, ViewParams params)
 {
     auto img_type = getImageType(params.data_domain);
-    auto format = getTextureFormat(params.data_type, params.channel_count);
+    auto format = getDataFormat(params.data_type, params.channel_count);
     VkExtent3D extent = {params.extent.x, params.extent.y, params.extent.z};
     auto tiling = getImageTiling(params.resource_type);
     auto usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -203,7 +170,7 @@ void InteropDevice::initView(InteropView& view)
 {
     const auto params = view.params;
     const auto element_size = getDataSize(params.data_type, params.channel_count);
-    view.vk_format = getTextureFormat(params.data_type, params.channel_count);
+    view.vk_format = getDataFormat(params.data_type, params.channel_count);
     view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
     VkMemoryRequirements memreq{};
