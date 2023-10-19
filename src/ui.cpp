@@ -9,21 +9,46 @@
 #include <array> // std::array
 #include <algorithm> // std::clamp
 
-std::array<ResourceType, 3> kAllResourceTypes = {
+std::array<ResourceType, 3> kAllResources = {
     ResourceType::UnstructuredBuffer,
     ResourceType::StructuredBuffer,
     ResourceType::Texture
 };
-std::array<ElementType, 4> AllElementTypes = {
+std::array<ElementType, 4> kAllElements = {
     ElementType::Markers,
     ElementType::Edges,
     ElementType::Voxels,
     ElementType::Texels
 };
-std::array<DataType, 3> AllDataTypes = {
+std::array<DataType, 3> kAllDataTypes = {
     DataType::Int,
     DataType::Float,
     DataType::Char
+};
+
+struct AllResources
+{
+    static bool ItemGetter(void* data, int n, const char** out_str)
+    {
+        *out_str = getResourceType(((ResourceType*)data)[n]);
+        return true;
+    }
+};
+struct AllElemTypes
+{
+    static bool ItemGetter(void* data, int n, const char** out_str)
+    {
+        *out_str = getElementType(((ElementType*)data)[n]);
+        return true;
+    }
+};
+struct AllDataTypes
+{
+    static bool ItemGetter(void* data, int n, const char** out_str)
+    {
+        *out_str = getDataType(((DataType*)data)[n]);
+        return true;
+    }
 };
 
 void addTableRow(const std::string& key, const std::string& value)
@@ -36,6 +61,18 @@ void addTableRow(const std::string& key, const std::string& value)
     ImGui::Text("%s", value.c_str());
 }
 
+bool addTableRowCombo(const std::string& key, int* current_item,
+    bool(*items_getter)(void* data, int idx, const char** out_text),
+    void* data, int items_count)
+{
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", key.c_str());
+    ImGui::TableSetColumnIndex(1);
+    return ImGui::Combo(key.c_str(), current_item, items_getter, data, items_count);
+}
+
 void CudaviewEngine::addViewObjectGui(InteropView *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
@@ -46,10 +83,20 @@ void CudaviewEngine::addViewObjectGui(InteropView *view_ptr, int uid)
         auto& info = view_ptr->params;
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {
-            addTableRow("Data domain", getDataDomain(info.data_domain));
-            addTableRow("Resource type", getResourceType(info.resource_type));
-            addTableRow("Element type", getElementType(info.element_type));
             addTableRow("Element count", std::to_string(info.element_count));
+            addTableRow("Data domain", getDataDomain(info.data_domain));
+            bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
+                &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
+            );
+            if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
+            bool elem_check = addTableRowCombo("Element type", (int*)&info.element_type,
+                &AllElemTypes::ItemGetter, kAllElements.data(), kAllElements.size()
+            );
+            if (elem_check) printf("View %d: switched element type to %s\n", uid, getElementType(info.element_type));
+            bool data_check = addTableRowCombo("Data type", (int*)&info.data_type,
+                &AllDataTypes::ItemGetter, kAllDataTypes.data(), kAllDataTypes.size()
+            );
+            if (data_check) printf("View %d: switched data type to %s\n", uid, getDataType(info.data_type));
 
             ImGui::EndTable();
         }
