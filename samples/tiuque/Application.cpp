@@ -54,7 +54,7 @@ Application::Application(){
     vert.channel_count     = 4;
     vert.data_domain     = DataDomain::Domain3D;
     vert.resource_type   = ResourceType::UnstructuredBuffer;
-    vert.element_type  = ElementType::Points;
+    vert.element_type  = ElementType::Markers;
     vert.options.visible = false;
     engine.createView((void**)&m->dm->d_vbo_v, vert);
 

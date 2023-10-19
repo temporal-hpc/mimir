@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     params.channel_count = 3;
     params.data_domain = DataDomain::Domain3D;
     params.resource_type = ResourceType::UnstructuredBuffer;
-    params.element_type = ElementType::Points;
+    params.element_type = ElementType::Markers;
     engine.createView((void**)&d_coords, params);
 
     params.element_count = triangles.size();

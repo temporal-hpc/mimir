@@ -14,7 +14,7 @@ VkBufferUsageFlags getUsageFlags(ElementType p, ResourceType r)
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     switch (p)
     {
-        case ElementType::Points: case ElementType::Voxels:
+        case ElementType::Markers: case ElementType::Voxels:
         {
             return usage | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         }

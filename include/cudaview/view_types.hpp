@@ -5,7 +5,7 @@ enum class DataDomain   { Domain2D, Domain3D };
 // Specifies the data layout
 enum class ResourceType { UnstructuredBuffer, StructuredBuffer, Texture };
 // Specifies the type of primitive that will be visualized 
-enum class ElementType  { Points, Edges, Voxels, Texels };
+enum class ElementType  { Markers, Edges, Voxels, Texels };
 // Specifies the DataType stored in the texture corresponding to a view
 enum class DataType     { Int, Float, Char };
 
@@ -61,7 +61,7 @@ constexpr char* getElementType(ElementType x)
     switch (x)
     {
 #define STR(r) case ElementType::r: return #r
-        STR(Points);
+        STR(Markers);
         STR(Edges);
         STR(Voxels);
         STR(Texels);

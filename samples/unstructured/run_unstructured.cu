@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
         params.channel_count = 2;
         params.data_domain = DataDomain::Domain2D;
         params.resource_type = ResourceType::UnstructuredBuffer;
-        params.element_type = ElementType::Points;
+        params.element_type = ElementType::Markers;
         params.cuda_stream = program.stream;
         params.options.size = 20.f;
         /*params.options.external_shaders = {

@@ -35,7 +35,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         frag_entry += "Float" + std::to_string(view.channel_count);
         params.entrypoints = { vert_entry, frag_entry };
     }
-    else if (view.element_type == ElementType::Points)
+    else if (view.element_type == ElementType::Markers)
     {
         params.source_path = "shaders/marker.slang";
         params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};

@@ -821,7 +821,7 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
         {
             switch (view->params.element_type)
             {
-                case ElementType::Points:
+                case ElementType::Markers:
                 {
                     VkBuffer vertex_buffers[] = { view->data_buffer };
                     VkDeviceSize offsets[] = { 0 };

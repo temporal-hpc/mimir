@@ -6,7 +6,25 @@
 #include <backends/imgui_impl_vulkan.h>
 #include <ImGuiFileDialog.h>
 
+#include <array> // std::array
 #include <algorithm> // std::clamp
+
+std::array<ResourceType, 3> kAllResourceTypes = {
+    ResourceType::UnstructuredBuffer,
+    ResourceType::StructuredBuffer,
+    ResourceType::Texture
+};
+std::array<ElementType, 4> AllElementTypes = {
+    ElementType::Markers,
+    ElementType::Edges,
+    ElementType::Voxels,
+    ElementType::Texels
+};
+std::array<DataType, 3> AllDataTypes = {
+    DataType::Int,
+    DataType::Float,
+    DataType::Char
+};
 
 void addTableRow(const std::string& key, const std::string& value)
 {
@@ -30,7 +48,7 @@ void CudaviewEngine::addViewObjectGui(InteropView *view_ptr, int uid)
         {
             addTableRow("Data domain", getDataDomain(info.data_domain));
             addTableRow("Resource type", getResourceType(info.resource_type));
-            addTableRow("Primitive type", getElementType(info.element_type));
+            addTableRow("Element type", getElementType(info.element_type));
             addTableRow("Element count", std::to_string(info.element_count));
 
             ImGui::EndTable();
