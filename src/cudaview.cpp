@@ -71,10 +71,7 @@ CudaviewEngine::~CudaviewEngine()
 void CudaviewEngine::init(ViewerOptions opts)
 {
     options = opts;
-    if (options.target_fps > 0)
-    {
-        target_frame_time = 1000000000 / options.target_fps;
-    }
+    target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
 
     auto width  = options.window_size.x;
     auto height = options.window_size.y;
@@ -746,7 +743,7 @@ void CudaviewEngine::renderFrame()
     }
 
     // Limit frame if it was configured
-    frameStall(target_frame_time);
+    if (options.enable_fps_limit) frameStall(target_frame_time);
 
     total_frame_count++;
     total_graphics_time += frame_time;

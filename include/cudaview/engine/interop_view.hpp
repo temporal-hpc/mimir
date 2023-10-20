@@ -41,8 +41,8 @@ struct ViewParams
     cudaStream_t cuda_stream = 0;
     size_t element_count = 0;
     uint channel_count = 1;
-    DataType data_type;
     uint3 extent = {1, 1, 1};
+    DataType data_type;
     DataDomain data_domain;
     ResourceType resource_type;
     ElementType element_type;

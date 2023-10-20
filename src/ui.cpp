@@ -1,5 +1,6 @@
 #include <cudaview/cudaview.hpp>
 #include "internal/camera.hpp"
+#include "internal/framelimit.hpp"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -126,6 +127,21 @@ void CudaviewEngine::drawGui()
         ImGui::Text("Camera position: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
         auto rot = camera->rotation;
         ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
+
+        // Use a separate flag for choosing whether to enable the FPS limit target value
+        // This avoids the unpleasant feeling of going from 0 (no FPS limit)
+        // to 1 (the lowest value) in a single step
+        if (ImGui::Checkbox("Enable FPS limit", &options.enable_fps_limit))
+        {
+            target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
+        }
+        if (!options.enable_fps_limit) ImGui::BeginDisabled(true);
+        if (ImGui::SliderInt("FPS target", &options.target_fps, 1, 300, "%d%", ImGuiSliderFlags_AlwaysClamp))
+        {
+            target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
+        }
+        if (!options.enable_fps_limit) ImGui::EndDisabled();
+
         for (size_t i = 0; i < views.size(); ++i)
         {
             addViewObjectGui(views[i].get(), i);
@@ -180,51 +196,25 @@ void CudaviewEngine::handleMouseButton(int button, int action, [[maybe_unused]] 
 {
     // Perform action only if GUI does not want to use mouse input
     // (if not hovering over a menu item)
-    auto& io = ImGui::GetIO();
-    if (!io.WantCaptureMouse)
+    if (!ImGui::GetIO().WantCaptureMouse)
     {
-        switch (action)
+        if (action == GLFW_PRESS)
         {
-            case GLFW_PRESS:
-                switch (button)
-                {
-                    case GLFW_MOUSE_BUTTON_LEFT:
-                        mouse_buttons.left = true;
-                        break;
-                    case GLFW_MOUSE_BUTTON_MIDDLE:
-                        mouse_buttons.middle = true;
-                        break;
-                    case GLFW_MOUSE_BUTTON_RIGHT:
-                        mouse_buttons.right = true;
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            case GLFW_RELEASE:
-                switch (button)
-                {
-                    case GLFW_MOUSE_BUTTON_LEFT:
-                        mouse_buttons.left = false;
-                        break;
-                    case GLFW_MOUSE_BUTTON_MIDDLE:
-                        mouse_buttons.middle = false;
-                        break;
-                    case GLFW_MOUSE_BUTTON_RIGHT:
-                        mouse_buttons.right = false;
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            default:
-                break;
+            if (button == GLFW_MOUSE_BUTTON_MIDDLE) mouse_buttons.middle = true;
+            else if (button == GLFW_MOUSE_BUTTON_LEFT) mouse_buttons.left = true;
+            else if (button == GLFW_MOUSE_BUTTON_RIGHT) mouse_buttons.right = true;
+        }
+        else if (action == GLFW_RELEASE)
+        {
+            if (button == GLFW_MOUSE_BUTTON_MIDDLE) mouse_buttons.middle = false;
+            else if (button == GLFW_MOUSE_BUTTON_LEFT) mouse_buttons.left = false;
+            else if (button == GLFW_MOUSE_BUTTON_RIGHT) mouse_buttons.right = false;
         }
     }
 }
 
 // Translates GLFW mouse scroll into values for detecting camera zoom in/out 
-void CudaviewEngine::handleScroll([[maybe_unused]] float xoffset, float yoffset)
+void CudaviewEngine::handleScroll([[maybe_unused]] float xoffset, [[maybe_unused]] float yoffset)
 {
     // depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
     // printf("depth= %f, offset= %f\n", depth, yoffset);
@@ -254,7 +244,7 @@ void CudaviewEngine::keyCallback(GLFWwindow *window, int key, int scancode, int 
     app->handleKey(key, scancode, action, mods);
 }
 
-void CudaviewEngine::handleKey(int key, int scancode, int action, int mods)
+void CudaviewEngine::handleKey(int key, [[maybe_unused]] int scancode, int action, int mods)
 {
     // Toggle demo window
     if (key == GLFW_KEY_D && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)

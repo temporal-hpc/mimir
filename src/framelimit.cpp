@@ -58,3 +58,8 @@ void frameStall(unsigned target_rate)
     }
     old_time = getNanotime();
 }
+
+int getTargetFrameTime(bool enable, int target_fps)
+{
+    return (enable && target_fps > 0)? 1000000000 / target_fps : 0;
+}
