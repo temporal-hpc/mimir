@@ -141,6 +141,7 @@ private:
     void renderFrame();
     void drawElements(uint32_t image_idx);
     void drawGui();
+    void displayEngineGUI();
     void signalKernelFinish();
     void waitKernelStart();
 

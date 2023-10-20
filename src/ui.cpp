@@ -3,8 +3,6 @@
 #include "internal/framelimit.hpp"
 
 #include <imgui.h>
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_vulkan.h>
 #include <ImGuiFileDialog.h>
 
 #include <array> // std::array
@@ -111,46 +109,35 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
     ImGui::PopID();
 }
 
-void CudaviewEngine::drawGui()
+void CudaviewEngine::displayEngineGUI()
 {
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    if (show_demo_window) { ImGui::ShowDemoWindow(); }
-    if (options.show_metrics) { ImGui::ShowMetricsWindow(); }
+    ImGui::Begin("Scene parameters");
+    //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
+    ImGui::ColorEdit3("Clear color", (float*)&bg_color);
+    auto pos = camera->position;
+    ImGui::Text("Camera position: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
+    auto rot = camera->rotation;
+    ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
 
+    // Use a separate flag for choosing whether to enable the FPS limit target value
+    // This avoids the unpleasant feeling of going from 0 (no FPS limit)
+    // to 1 (the lowest value) in a single step
+    if (ImGui::Checkbox("Enable FPS limit", &options.enable_fps_limit))
     {
-        ImGui::Begin("Scene parameters");
-        //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
-        ImGui::ColorEdit3("Clear color", (float*)&bg_color);
-        auto pos = camera->position;
-        ImGui::Text("Camera position: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
-        auto rot = camera->rotation;
-        ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
-
-        // Use a separate flag for choosing whether to enable the FPS limit target value
-        // This avoids the unpleasant feeling of going from 0 (no FPS limit)
-        // to 1 (the lowest value) in a single step
-        if (ImGui::Checkbox("Enable FPS limit", &options.enable_fps_limit))
-        {
-            target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
-        }
-        if (!options.enable_fps_limit) ImGui::BeginDisabled(true);
-        if (ImGui::SliderInt("FPS target", &options.target_fps, 1, max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
-        {
-            target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
-        }
-        if (!options.enable_fps_limit) ImGui::EndDisabled();
-
-        for (size_t i = 0; i < views.size(); ++i)
-        {
-            addViewObjectGui(views[i].get(), i);
-        }
-        ImGui::End();
+        target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
     }
+    if (!options.enable_fps_limit) ImGui::BeginDisabled(true);
+    if (ImGui::SliderInt("FPS target", &options.target_fps, 1, max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
+    {
+        target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
+    }
+    if (!options.enable_fps_limit) ImGui::EndDisabled();
 
-    gui_callback();
-    ImGui::Render();
+    for (size_t i = 0; i < views.size(); ++i)
+    {
+        addViewObjectGui(views[i].get(), i);
+    }
+    ImGui::End();
 }
 
 CudaviewEngine *getHandler(GLFWwindow *window)

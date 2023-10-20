@@ -245,6 +245,18 @@ void CudaviewEngine::loadTexture(InteropView *view, void *data)
     dev->loadTexture(view, data);
 }
 
+void CudaviewEngine::drawGui()
+{
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    if (show_demo_window) { ImGui::ShowDemoWindow(); }
+    if (options.show_metrics) { ImGui::ShowMetricsWindow(); }
+    displayEngineGUI(); // Display the builtin GUI  
+    gui_callback(); // Display user-provided addons
+    ImGui::Render();
+}
+
 void CudaviewEngine::initVulkan()
 {
     createInstance();
