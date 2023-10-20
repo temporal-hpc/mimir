@@ -165,6 +165,7 @@ private:
     VkFormat findDepthFormat();
 
     // Benchmarking
+    int max_fps = 0;
     PerformanceMonitor perf;
     VkQueryPool query_pool = VK_NULL_HANDLE;
     double total_pipeline_time = 0;

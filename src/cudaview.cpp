@@ -71,6 +71,7 @@ CudaviewEngine::~CudaviewEngine()
 void CudaviewEngine::init(ViewerOptions opts)
 {
     options = opts;
+    max_fps = options.present == PresentOptions::VSync? 60 : 300;
     target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
 
     auto width  = options.window_size.x;

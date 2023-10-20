@@ -136,7 +136,7 @@ void CudaviewEngine::drawGui()
             target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
         }
         if (!options.enable_fps_limit) ImGui::BeginDisabled(true);
-        if (ImGui::SliderInt("FPS target", &options.target_fps, 1, 300, "%d%", ImGuiSliderFlags_AlwaysClamp))
+        if (ImGui::SliderInt("FPS target", &options.target_fps, 1, max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
         {
             target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
         }

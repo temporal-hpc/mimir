@@ -115,8 +115,11 @@ int main(int argc, char *argv[])
     try
     {
         // Initialize engine
+        ViewerOptions options;
+        options.window_size = {1920,1080}; // Starting window size
+        options.present = PresentOptions::VSync;
         CudaviewEngine engine;
-        engine.init(1920, 1080);
+        engine.init(options);
         ViewParams params;
         params.element_count = program.particle_count;
         params.extent = {200, 200, 1};
