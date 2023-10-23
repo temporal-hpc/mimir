@@ -31,9 +31,9 @@ struct JumpFloodProgram
 __device__
 float4 jumpFloodStep(float2 coord, float4 *seeds, int step_length, int2 extent)
 {
-    int best_cell_idx = -1; 
     float best_dist = max_distance;
     float2 best_coord = make_float2(-1.f, -1.f);
+    float best_point_idx = -1.f; 
 
     for (int y = -1; y <= 1; ++y)
     {
@@ -49,14 +49,14 @@ float4 jumpFloodStep(float2 coord, float4 *seeds, int step_length, int2 extent)
 
                 if ((seed.x != -1.f && seed.y != -1.f) && dist < best_dist)
                 {
-                    best_cell_idx = cell_idx;
                     best_dist = dist;
                     best_coord = make_float2(seed.x, seed.y);
+                    best_point_idx = seed.w;
                 }
             }
         }
     }
-    return {best_coord.x, best_coord.y, best_dist, static_cast<float>(best_cell_idx) };
+    return {best_coord.x, best_coord.y, best_dist, best_point_idx };
 }
 
 __global__
@@ -81,7 +81,10 @@ void kernelDistanceTransform(float3 *output, float4 *seeds, float3 *colors, int2
     if (tx < extent.x && ty < extent.y)
     {
         auto grid_idx = extent.x * ty + tx;
-        output[grid_idx] = colors[static_cast<int>(seeds[grid_idx].w)];
+        auto seed_idx = static_cast<int>(seeds[grid_idx].w);
+        auto seed_color = colors[seed_idx];
+        output[grid_idx] = seed_color;
+        //printf("%d %d %f %f %f\n", grid_idx, seed_idx, seed_color.x, seed_color.y, seed_color.z);
     }
 }
 
@@ -112,33 +115,26 @@ void kernelSetNonSeeds(float4 *seeds, int seed_count)
     auto tx = blockIdx.x * blockDim.x + threadIdx.x;
     if (tx < seed_count)
     {
-        seeds[tx] = make_float4(-1.f, -1.f, 0.f, 0.f);
+        seeds[tx] = make_float4(-1.f, -1.f, 0.f, -1.f);
     }
 }
 
 __global__
-void kernelSetSeeds(float4 *seeds, float *raw_coords, float3 *colors, curandState *states,
-    int coord_count, int2 extent)
+void kernelSetSeeds(float4 *seeds, float *raw_coords, int coord_count, int2 extent)
 {
-    auto tx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tx < coord_count)
+    auto tidx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tidx < coord_count)
     {
-        auto coord = reinterpret_cast<float2*>(raw_coords)[tx];
+        auto coord = reinterpret_cast<float2*>(raw_coords)[tidx];
         int2 point{ (int)coord.x, (int)coord.y };
         if (point.x >= 0 && point.x < extent.x && point.y >= 0 && point.y < extent.y)
         {
-            seeds[extent.x * point.y + point.x] = {coord.x, coord.y, 0.f, 0.f};
-            auto local_state = states[tx];
-            float r = 255.f * curand_uniform(&local_state);
-            float g = 255.f * curand_uniform(&local_state);
-            float b = 255.f * curand_uniform(&local_state);
-            colors[tx] = {r, g, b};
-            states[tx] = local_state;
+            seeds[extent.x * point.y + point.x] = {coord.x, coord.y, 0.f, (float)tidx};
         }
     }
 }
 
-void initJumpFlood(float4 *d_seeds, float *d_coords, float3 *d_colors, curandState *d_states,
+void initJumpFlood(float4 *d_seeds, float *d_coords,
     int coord_count, int2 extent, cudaStream_t stream)
 {
     dim3 threads{128};
@@ -148,12 +144,12 @@ void initJumpFlood(float4 *d_seeds, float *d_coords, float3 *d_colors, curandSta
     kernelSetNonSeeds<<< blocks1, threads, 0, stream >>>(d_seeds, extent.x * extent.y);
     checkCuda(cudaStreamSynchronize(stream));
     kernelSetSeeds<<< blocks2, threads, 0, stream >>>(
-        d_seeds, d_coords, d_colors, d_states, coord_count, extent
+        d_seeds, d_coords, coord_count, extent
     );
     checkCuda(cudaStreamSynchronize(stream));
 }
 
-__global__ void initSystem(float *coords, size_t particle_count,
+__global__ void initSystem(float *coords, float3 *colors, size_t particle_count,
     curandState *global_states, int2 extent, unsigned seed)
 {
     auto particles = reinterpret_cast<float2*>(coords);
@@ -166,6 +162,13 @@ __global__ void initSystem(float *coords, size_t particle_count,
         auto ry = extent.y * curand_uniform(&local_state);
         float2 p{rx, ry};
         particles[tidx] = p;
+
+        float r = curand_uniform(&local_state);
+        float g = curand_uniform(&local_state);
+        float b = curand_uniform(&local_state);
+        colors[tidx] = {r, g, b};
+        //printf("%d %f %f %f\n", tidx, r, g, b);
+        
         global_states[tidx] = local_state;
     }
 }
@@ -209,15 +212,15 @@ void JumpFloodProgram::setInitialState()
 
     dim3 threads{128};
     dim3 blocks { (element_count + threads.x - 1) / threads.x};
-    initSystem<<<blocks, threads>>>(d_coords, element_count, d_states, extent, 1234);
+    initSystem<<<blocks, threads>>>(d_coords, d_colors, element_count, d_states, extent, 1234);
     checkCuda(cudaDeviceSynchronize());
 
-        // Allocate device numeric canvas
+    // Allocate device numeric canvas
     size_t seed_sizes = sizeof(float4) * extent.x * extent.y;
     checkCuda(cudaMalloc(&d_grid[0], seed_sizes));
     checkCuda(cudaMalloc(&d_grid[1], seed_sizes));
     checkCuda(cudaDeviceSynchronize());
-    initJumpFlood(d_grid[1], d_coords, d_colors, d_states, element_count, extent, stream);
+    initJumpFlood(d_grid[1], d_coords, element_count, extent, stream);
 }
 
 void JumpFloodProgram::cleanup()
@@ -240,7 +243,7 @@ void JumpFloodProgram::runTimestep()
 
     integrate2d<<< blocks, threads, 0, stream >>>(d_coords, element_count, d_states, extent);
     checkCuda(cudaDeviceSynchronize());
-    initJumpFlood(d_grid[1], d_coords, d_colors, d_states, element_count, extent, stream);
+    initJumpFlood(d_grid[1], d_coords, element_count, extent, stream);
     jumpFlood(d_result, d_grid, d_colors, extent, stream);
 }
 

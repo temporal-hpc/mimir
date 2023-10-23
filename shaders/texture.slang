@@ -118,27 +118,27 @@ float4 frag2d_Float4<U:IPicker>(VertexData input) : SV_Target
 [shader("fragment")]
 float4 frag3d_Float1<U:IPicker>(VertexData3d input) : SV_Target
 {
-    float4 samp = float4(Tex3d_Float1.Sample(Sampler, input.uv).rrr, 1);
+    float4 samp = float4(Tex3d_Float1.Sample(Sampler, input.uv).r, 0, 0, 1);
     return U.getColor(samp);
 }
 
 [shader("fragment")]
 float4 frag3d_Float2<U:IPicker>(VertexData3d input) : SV_Target
 {
-    float4 samp = float4(Tex3d_Float2.Sample(Sampler, input.uv).rrr, 1);
+    float4 samp = float4(Tex3d_Float2.Sample(Sampler, input.uv), 0, 1);
     return U.getColor(samp);
 }
 
 [shader("fragment")]
 float4 frag3d_Float3<U:IPicker>(VertexData3d input) : SV_Target
 {
-    float4 samp = float4(Tex3d_Float3.Sample(Sampler, input.uv).rrr, 1);
+    float4 samp = float4(Tex3d_Float3.Sample(Sampler, input.uv), 1);
     return U.getColor(samp);
 }
 
 [shader("fragment")]
 float4 frag3d_Float4<U:IPicker>(VertexData3d input) : SV_Target
 {
-    float4 samp = float4(Tex3d_Float4.Sample(Sampler, input.uv).rrr, 1);
+    float4 samp = Tex3d_Float4.Sample(Sampler, input.uv);
     return U.getColor(samp);
 }
