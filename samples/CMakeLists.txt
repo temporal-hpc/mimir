@@ -31,6 +31,9 @@ add_executable(run_texture texture_cudaarray/main.cu)
 target_include_directories(run_texture SYSTEM PRIVATE include)
 target_link_libraries(run_texture PRIVATE cudaview)
 
+add_executable(voronoi voronoi/voronoi.cu)
+target_link_libraries(voronoi PRIVATE cudaview)
+
 add_subdirectory(tiuque)
 add_subdirectory(pointsgl)
 add_subdirectory(pointspcl)
