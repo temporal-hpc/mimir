@@ -12,5 +12,5 @@ target_link_directories(cleap PRIVATE CUDA::cudart)
 add_executable(tiuque)
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)
 target_link_libraries(tiuque PRIVATE
-    cudaview cleap OpenGL::OpenGL OpenGL::GLX GLEW::GLEW X11
+    mimir cleap OpenGL::OpenGL OpenGL::GLX GLEW::GLEW X11
 )

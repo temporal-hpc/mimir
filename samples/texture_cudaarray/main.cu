@@ -12,7 +12,7 @@
 
 #include "helper_math.h"
 
-#include <mimir/cudaview.hpp>
+#include <mimir/mimir.hpp>
 #include <mimir/validation.hpp> // checkCuda
 using namespace mimir;
 using namespace mimir::validation; // checkCuda

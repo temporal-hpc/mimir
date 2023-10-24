@@ -1,4 +1,4 @@
-#include <mimir/cudaview.hpp>
+#include <mimir/mimir.hpp>
 #include <mimir/validation.hpp>
 #include <mimir/engine/vk_framebuffer.hpp>
 #include <mimir/engine/vk_swapchain.hpp>
@@ -341,7 +341,7 @@ void CudaviewEngine::createInstance()
 
     VkApplicationInfo app_info{};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_info.pApplicationName   = "CudaView";
+    app_info.pApplicationName   = "Mimir";
     app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     app_info.pEngineName        = "No engine";
     app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);

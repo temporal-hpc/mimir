@@ -24,7 +24,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "Mesh.h"
 
-#include <mimir/cudaview.hpp>
+#include <mimir/mimir.hpp>
 
 class Application
 {

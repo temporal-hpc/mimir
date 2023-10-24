@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
-project(cudaview VERSION 0.1 LANGUAGES CXX CUDA)
+project(mimir VERSION 0.1 LANGUAGES CXX CUDA)
 
 set(default_build_type "Release")
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)

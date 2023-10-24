@@ -3,7 +3,7 @@
 #include <fstream> // std::ofstream
 #include <string> // std::stoul
 
-#include <mimir/cudaview.hpp>
+#include <mimir/mimir.hpp>
 #include <mimir/validation.hpp> // checkCuda
 using namespace mimir;
 using namespace mimir::validation; // checkCuda

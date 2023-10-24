@@ -2,7 +2,7 @@
 #include <curand_kernel.h>
 #include <limits> // std::numeric_limits
 
-#include <mimir/cudaview.hpp>
+#include <mimir/mimir.hpp>
 #include <mimir/validation.hpp> // checkCuda
 using namespace mimir;
 using namespace mimir::validation; // checkCuda

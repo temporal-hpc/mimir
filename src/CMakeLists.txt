@@ -1,8 +1,7 @@
+add_library(mimir STATIC)
 
-add_library(cudaview STATIC)
-
-target_sources(cudaview PRIVATE
-    cudaview.cpp
+target_sources(mimir PRIVATE
+    engine.cpp
     camera.cpp
     framelimit.cpp
     performance_monitor.cpp
@@ -16,25 +15,25 @@ target_sources(cudaview PRIVATE
     vk_properties.cpp
     vk_swapchain.cpp
 )
-target_include_directories(cudaview SYSTEM PUBLIC ../include)
+target_include_directories(mimir SYSTEM PUBLIC ../include)
 
-set_property(TARGET cudaview PROPERTY CUDA_STANDARD 20)
-target_compile_features(cudaview PUBLIC cxx_std_20)
-target_compile_options(cudaview PRIVATE -Wall -Wextra 
+set_property(TARGET mimir PROPERTY CUDA_STANDARD 20)
+target_compile_features(mimir PUBLIC cxx_std_20)
+target_compile_options(mimir PRIVATE -Wall -Wextra 
     "$<$<CONFIG:Debug>:-g>"
     "$<$<CONFIG:Release>:-O3>"
 )
 # This will print the result of the above generator expression, to check if it is correct
-#add_custom_command(TARGET cudaview POST_BUILD COMMAND ${CMAKE_COMMAND} -E echo 
+#add_custom_command(TARGET mimir POST_BUILD COMMAND ${CMAKE_COMMAND} -E echo 
 #  "-Wall -Wextra $<$<CONFIG:Debug>:-g> $<$<CONFIG:Release>:-O3>")
 
 find_package(Vulkan REQUIRED COMPONENTS glslc)
 find_package(CUDAToolkit)
-target_link_libraries(cudaview PUBLIC Vulkan::Vulkan CUDA::cudart slang glfw imgui ImGuiFileDialog)
+target_link_libraries(mimir PUBLIC Vulkan::Vulkan CUDA::cudart slang glfw imgui ImGuiFileDialog)
 
 install(
-    TARGETS cudaview
-    EXPORT cudaview # TODO: Check if this is right
+    TARGETS mimir
+    EXPORT mimir # TODO: Check if this is right
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
     RUNTIME DESTINATION bin

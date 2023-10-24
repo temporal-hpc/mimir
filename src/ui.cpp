@@ -1,4 +1,4 @@
-#include <mimir/cudaview.hpp>
+#include <mimir/mimir.hpp>
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 

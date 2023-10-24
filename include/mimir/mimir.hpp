@@ -35,7 +35,7 @@ struct AllocatedBuffer
 
 struct ViewerOptions
 {
-    std::string window_title = "CudaView";
+    std::string window_title = "Mimir";
     int2 window_size         = { 800, 600 };
     PresentOptions present   = PresentOptions::VSync;
     bool enable_sync         = true;

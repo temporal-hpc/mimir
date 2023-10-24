@@ -1,4 +1,4 @@
-# cudaview
+# Mìmir
 Library for visualization of CUDA code with Vulkan
 
 # Dependencies
