@@ -1,14 +1,34 @@
 #include "internal/vk_pipeline.hpp"
 
 #include <cstring> // to_string
+#include <fstream> // std::ifstream
 
-#include <mimir/io.hpp>
 #include <mimir/shader_types.hpp>
 #include <mimir/validation.hpp>
 #include "internal/vk_initializers.hpp"
 
 namespace mimir
 {
+
+// DEPRECATED: Loads a file and returns its data buffer
+// Was used for loading compiled shader files, but slang made this obsolete
+std::vector<char> readFile(const std::string& filename)
+{
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+    if (!file.is_open())
+    {
+        throw std::runtime_error("failed to open file!");
+    }
+
+    // Use read position to determine filesize and allocate output buffer
+    auto filesize = static_cast<size_t>(file.tellg());
+    std::vector<char> buffer(filesize);
+
+    file.seekg(0);
+    file.read(buffer.data(), filesize);
+    file.close();
+    return buffer;
+}
 
 ShaderCompileParameters getShaderCompileParams(ViewParams view)
 {
@@ -306,7 +326,7 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::loadExternalShader
     std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
     for (const auto& info : shaders)
     {
-        auto shader_module = createShaderModule(io::readFile(info.filepath), dev);
+        auto shader_module = createShaderModule(readFile(info.filepath), dev);
         auto shader_info = vkinit::pipelineShaderStageCreateInfo(info.stage, shader_module);
         compiled_stages.push_back(shader_info);
     }

@@ -1,19 +1,18 @@
 #include <mimir/cudaview.hpp>
-#include <mimir/io.hpp>
+#include <mimir/validation.hpp>
+#include <mimir/engine/vk_framebuffer.hpp>
+#include <mimir/engine/vk_swapchain.hpp>
 
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
-#include <mimir/validation.hpp>
-#include <mimir/engine/vk_framebuffer.hpp>
-#include <mimir/engine/vk_swapchain.hpp>
 
+#include <dlfcn.h> // dladdr
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
-
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
 
@@ -38,8 +37,28 @@ glm::vec4 getColor(float4 color)
     return colorvec;
 }
 
+// Setup the shader path so that the library can actually load them
+// Hack-ish, but works for now
+std::string getDefaultShaderPath()
+{
+    // If shaders are installed in library path, set working directory there
+    Dl_info dl_info;
+    dladdr((void*)getDefaultShaderPath, &dl_info);
+    auto lib_pathname = dl_info.dli_fname;
+    if (lib_pathname != nullptr)
+    {
+        std::filesystem::path lib_path(lib_pathname);
+        return lib_path.parent_path().string();
+    }
+    else // Use executable path as working dir
+    {
+        auto exe_folder = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
+        return exe_folder;
+    }
+}
+
 CudaviewEngine::CudaviewEngine():
-    shader_path{ io::getDefaultShaderPath() },
+    shader_path{ getDefaultShaderPath() },
     camera{ std::make_unique<Camera>() }
 {}
 

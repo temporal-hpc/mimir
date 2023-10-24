@@ -5,7 +5,6 @@ target_sources(cudaview PRIVATE
     cudaview.cpp
     camera.cpp
     framelimit.cpp
-    io.cpp
     performance_monitor.cpp
     ui.cpp
     validation.cpp
