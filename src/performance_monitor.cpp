@@ -1,4 +1,7 @@
-#include <cudaview/engine/performance_monitor.hpp>
+#include <mimir/engine/performance_monitor.hpp>
+
+namespace mimir
+{
 
 PerformanceMonitor::PerformanceMonitor(cudaStream_t stream)
     : monitored_stream(stream)
@@ -21,3 +24,5 @@ float PerformanceMonitor::endCuda()
     total_compute_time += timems / 1000.f;
     return timems;
 }
+
+} // namespace mimir

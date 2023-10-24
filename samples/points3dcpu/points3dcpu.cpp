@@ -1,11 +1,12 @@
-#include <cudaview/cudaview.hpp>
-
 #include <algorithm> // std::clamp
 #include <random>
 #include <span> // std::span
 #include <string> // std::stoul
-#include <cudaview/validation.hpp>
-using namespace validation; // checkCuda
+
+#include <mimir/cudaview.hpp>
+#include <mimir/validation.hpp> // checkCuda
+using namespace mimir;
+using namespace mimir::validation; // checkCuda
 
 #include "pcg/pcg_random.hpp"
 #include "nvmlPower.hpp"

@@ -10,9 +10,12 @@
 #include <thread> // std::thread
 #include <vector> // std::vector
 
-#include <cudaview/deletion_queue.hpp>
-#include <cudaview/engine/interop_device.hpp>
-#include <cudaview/engine/performance_monitor.hpp>
+#include <mimir/deletion_queue.hpp>
+#include <mimir/engine/interop_device.hpp>
+#include <mimir/engine/performance_monitor.hpp>
+
+namespace mimir
+{
 
 namespace
 {
@@ -175,3 +178,5 @@ private:
     float total_graphics_time = 0;
     size_t total_frame_count = 0;
 };
+
+} // namespace mimir

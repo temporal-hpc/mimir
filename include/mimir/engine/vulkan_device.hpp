@@ -5,7 +5,10 @@
 #include <string> // std::string
 #include <vector> // std::vector
 
-#include "cudaview/deletion_queue.hpp"
+#include <mimir/deletion_queue.hpp>
+
+namespace mimir
+{
 
 struct ConvertedMemory
 {
@@ -90,3 +93,5 @@ struct VulkanDevice
 };
 
 uint32_t getAlignedSize(size_t original_size, size_t min_alignment);
+
+} // namespace mimir

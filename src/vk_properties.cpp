@@ -5,6 +5,8 @@
 #include <algorithm> // std::clamp
 #include <set> // std::set
 
+namespace mimir
+{
 namespace props
 {
 
@@ -126,3 +128,4 @@ SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKH
 }
 
 } // namespace props
+} // namespace mimir

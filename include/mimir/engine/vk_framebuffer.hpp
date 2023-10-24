@@ -4,7 +4,10 @@
 
 #include <vector> // std::vector
 
-#include "cudaview/deletion_queue.hpp"
+#include <mimir/deletion_queue.hpp>
+
+namespace mimir
+{
 
 struct FramebufferAttachment
 {
@@ -28,3 +31,5 @@ struct VulkanFramebuffer
     );
     uint32_t addAttachment(VkDevice device, VkImage image, VkFormat format);
 };
+
+} // namespace mimir

@@ -1,12 +1,15 @@
-#include <cudaview/engine/interop_device.hpp>
+#include <mimir/engine/interop_device.hpp>
 
 #include <cuda_runtime.h> // make_cudaExtent
 
 #include <cstring> // std::memcpy
 
-#include <cudaview/shader_types.hpp>
-#include <cudaview/validation.hpp>
+#include <mimir/shader_types.hpp>
+#include <mimir/validation.hpp>
 #include "internal/vk_initializers.hpp"
+
+namespace mimir
+{
 
 VkBufferUsageFlags getUsageFlags(ElementType p, ResourceType r)
 {
@@ -467,3 +470,5 @@ InteropBarrier InteropDevice::createInteropBarrier()
 
     return barrier;
 }
+
+} // namespace mimir

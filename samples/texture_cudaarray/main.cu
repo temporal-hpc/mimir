@@ -11,9 +11,11 @@
 #include <thread> // std::thread
 
 #include "helper_math.h"
-#include <cudaview/cudaview.hpp>
-#include <cudaview/validation.hpp> // checkCuda
-using namespace validation; // checkCuda
+
+#include <mimir/cudaview.hpp>
+#include <mimir/validation.hpp> // checkCuda
+using namespace mimir;
+using namespace mimir::validation; // checkCuda
 
 // convert floating point rgba color to 32-bit integer
 __device__ unsigned int rgbaFloatToInt(float4 rgba) {

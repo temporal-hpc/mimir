@@ -1,6 +1,9 @@
 #pragma once
 
-#include <cudaview/shader_types.hpp>
+#include <mimir/shader_types.hpp>
+
+namespace mimir
+{
 
 class Camera
 {
@@ -55,3 +58,5 @@ public:
     void setRotationSpeed(float rot_speed);
     void setMovementSpeed(float mov_speed);
 };
+
+} // namespace mimir

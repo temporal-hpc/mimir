@@ -1,5 +1,8 @@
 #include <cuda_runtime_api.h>
 
+namespace mimir
+{
+
 struct PerformanceMonitor
 {
     PerformanceMonitor(cudaStream_t stream = 0);
@@ -10,3 +13,5 @@ struct PerformanceMonitor
     float total_compute_time = 0;
     cudaEvent_t start = nullptr, stop = nullptr;
 };
+
+} // namespace mimir

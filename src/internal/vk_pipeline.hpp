@@ -5,8 +5,11 @@
 
 #include <vector> // std::vector
 
-#include "cudaview/engine/interop_view.hpp"
-#include "cudaview/engine/interop_device.hpp"
+#include "mimir/engine/interop_view.hpp"
+#include "mimir/engine/interop_device.hpp"
+
+namespace mimir
+{
 
 struct VertexDescription
 {
@@ -54,3 +57,5 @@ struct PipelineBuilder
     );
     VkShaderModule createShaderModule(const std::vector<char>& code, InteropDevice *dev);
 };
+
+} // namespace mimir

@@ -3,6 +3,9 @@
 #include <time.h> // timespec
 #include <cstdint> // int64_t
 
+namespace mimir
+{
+
 timespec nanotimeToTimespec(int64_t time)
 {
     constexpr int64_t billion = 1000000000;
@@ -63,3 +66,5 @@ int getTargetFrameTime(bool enable, int target_fps)
 {
     return (enable && target_fps > 0)? 1000000000 / target_fps : 0;
 }
+
+} // namespace mimir

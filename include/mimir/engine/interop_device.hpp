@@ -2,8 +2,11 @@
 
 #include <cuda_runtime_api.h>
 
-#include <cudaview/engine/vulkan_device.hpp>
-#include <cudaview/engine/interop_view.hpp>
+#include <mimir/engine/vulkan_device.hpp>
+#include <mimir/engine/interop_view.hpp>
+
+namespace mimir
+{
 
 struct InteropBarrier
 {
@@ -36,3 +39,5 @@ struct InteropDevice : public VulkanDevice
     void updateTexture(InteropView& view);
     void loadTexture(InteropView *view, void *data);
 };
+
+} // namespace mimir

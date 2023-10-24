@@ -1,11 +1,14 @@
-#include "cudaview/engine/vulkan_device.hpp"
+#include "mimir/engine/vulkan_device.hpp"
 
 #include <cstring> // memcpy
 #include <set> // std::set
 
-#include <cudaview/validation.hpp>
+#include <mimir/validation.hpp>
 #include "internal/vk_properties.hpp"
 #include "internal/vk_initializers.hpp"
+
+namespace mimir
+{
 
 uint32_t getAlignedSize(size_t original_size, size_t min_alignment)
 {
@@ -539,3 +542,5 @@ VkQueryPool VulkanDevice::createQueryPool(uint32_t query_count)
     vkResetQueryPool(logical_device, pool, 0, query_count);
     return pool;
 }
+
+} // namespace mimir

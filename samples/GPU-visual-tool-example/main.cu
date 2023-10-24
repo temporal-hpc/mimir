@@ -3,11 +3,13 @@
 
 #include <cuda.h>
 #include <curand_kernel.h>
-
 #include <chrono> // std::chrono
 #include <thread> // std::thread
 
-#include <cudaview/cudaview.hpp>
+#include <mimir/cudaview.hpp>
+#include <mimir/validation.hpp> // checkCuda
+using namespace mimir;
+using namespace mimir::validation; // checkCuda
 
 #define VEL 0.1
 #define BSIZE 256

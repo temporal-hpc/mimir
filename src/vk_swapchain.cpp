@@ -1,10 +1,13 @@
-#include "cudaview/engine/vk_swapchain.hpp"
+#include "mimir/engine/vk_swapchain.hpp"
 
 #include <limits> // std::numeric_limits
 
-#include <cudaview/validation.hpp>
+#include <mimir/validation.hpp>
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_properties.hpp"
+
+namespace mimir
+{
 
 VkPresentModeKHR getDesiredPresentMode(PresentOptions opts)
 {
@@ -139,3 +142,5 @@ std::vector<VkImage> VulkanSwapchain::createImages(VkDevice device)
     vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data());
     return images;
 }
+
+} // namespace mimir

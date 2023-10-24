@@ -2,6 +2,9 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+namespace mimir
+{
+
 void Camera::updateViewMatrix()
 {
     glm::mat4 rotmat(1.f);
@@ -105,3 +108,5 @@ void Camera::setMovementSpeed(float mov_speed)
 {
     this->movement_speed = mov_speed;
 }
+
+} // namespace mimir

@@ -1,7 +1,9 @@
-#include <cudaview/validation.hpp>
+#include <mimir/validation.hpp>
 
 #include <cstring> // strcmp
 
+namespace mimir
+{
 namespace validation
 {
 
@@ -161,3 +163,4 @@ bool checkValidationLayerSupport()
 }
 
 } // namespace validation
+} // namespace mimir

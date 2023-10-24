@@ -1,13 +1,13 @@
-#include <cudaview/cudaview.hpp>
-
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h" // stbi_load
 
 #include <iostream>
 #include <string> // std::string
 
-#include <cudaview/validation.hpp>
-using namespace validation; // checkCuda
+#include <mimir/cudaview.hpp>
+#include <mimir/validation.hpp> // checkCuda
+using namespace mimir;
+using namespace mimir::validation; // checkCuda
 
 int main(int argc, char *argv[])
 {

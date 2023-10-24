@@ -1,14 +1,14 @@
-#include <cudaview/cudaview.hpp>
-#include <cudaview/io.hpp>
+#include <mimir/cudaview.hpp>
+#include <mimir/io.hpp>
 
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
-#include <cudaview/validation.hpp>
-#include <cudaview/engine/vk_framebuffer.hpp>
-#include <cudaview/engine/vk_swapchain.hpp>
+#include <mimir/validation.hpp>
+#include <mimir/engine/vk_framebuffer.hpp>
+#include <mimir/engine/vk_swapchain.hpp>
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -16,6 +16,9 @@
 
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
+
+namespace mimir
+{
 
 void setColor(float *vk_color, float4 color)
 {
@@ -1038,3 +1041,5 @@ double CudaviewEngine::getRenderTimeResults(uint32_t cmd_idx)
     // TODO: apply time &= timestamp_mask;
     return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
 }
+
+} // namespace mimir

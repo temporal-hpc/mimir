@@ -23,12 +23,13 @@
 //										//
 //////////////////////////////////////////////////////////////////////////////////
 #include "Mesh.h"
-#include <cudaview/cudaview.hpp>
+
+#include <mimir/cudaview.hpp>
 
 class Application
 {
     private:
-        CudaviewEngine engine;
+        mimir::CudaviewEngine engine;
         Mesh* myMesh;
         bool toggle_solid;
         bool toggle_wireframe = true;

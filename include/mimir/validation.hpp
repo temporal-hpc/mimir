@@ -9,6 +9,8 @@
 #include <stdexcept> // std::throw
 #include <vector> // std::vector
 
+namespace mimir
+{
 namespace validation
 {
 
@@ -97,3 +99,4 @@ VkDebugUtilsMessengerCreateInfoEXT debugMessengerCreateInfo();
 bool checkValidationLayerSupport();
 
 } // namespace validation
+} // namespace mimir

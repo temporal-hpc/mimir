@@ -2,10 +2,13 @@
 
 #include <cstring> // to_string
 
-#include <cudaview/io.hpp>
-#include <cudaview/shader_types.hpp>
-#include <cudaview/validation.hpp>
+#include <mimir/io.hpp>
+#include <mimir/shader_types.hpp>
+#include <mimir/validation.hpp>
 #include "internal/vk_initializers.hpp"
+
+namespace mimir
+{
 
 ShaderCompileParameters getShaderCompileParams(ViewParams view)
 {
@@ -396,3 +399,5 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     pipeline_infos.clear();
     return pipelines;
 }
+
+} // namespace mimir

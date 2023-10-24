@@ -1,7 +1,10 @@
-#include "cudaview/engine/vk_framebuffer.hpp"
+#include "mimir/engine/vk_framebuffer.hpp"
 
-#include <cudaview/validation.hpp>
+#include <mimir/validation.hpp>
 #include "internal/vk_initializers.hpp"
+
+namespace mimir
+{
 
 VulkanFramebuffer::~VulkanFramebuffer()
 {
@@ -57,3 +60,5 @@ void VulkanFramebuffer::create(VkDevice device,
         vkDestroyFramebuffer(device, framebuffer, nullptr);
     });
 }
+
+} // namespace mimir

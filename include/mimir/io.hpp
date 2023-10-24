@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+namespace mimir
+{
 namespace io
 {
 
@@ -17,3 +19,4 @@ void loadTriangleMesh(const std::string& filename,
 std::string getDefaultShaderPath();
 
 } // namespace io
+} // namespace mimir

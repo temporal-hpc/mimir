@@ -5,7 +5,10 @@
 
 #include <string> // std::string
 
-#include <cudaview/view_types.hpp>
+#include <mimir/view_types.hpp>
+
+namespace mimir
+{
 
 enum class PresentOptions { Immediate, TripleBuffering, VSync };
 
@@ -123,3 +126,5 @@ constexpr VkFormat getDataFormat(DataType type, uint channel_count)
         default: return VK_FORMAT_UNDEFINED;
     }
 }
+
+} // namespace mimir

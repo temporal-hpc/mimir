@@ -5,8 +5,11 @@
 
 #include <vector> // std::vector
 
-#include <cudaview/deletion_queue.hpp>
-#include <cudaview/engine/interop_view.hpp>
+#include <mimir/deletion_queue.hpp>
+#include <mimir/engine/interop_view.hpp>
+
+namespace mimir
+{
 
 struct VulkanSwapchain
 {
@@ -28,3 +31,5 @@ struct VulkanSwapchain
     );
     std::vector<VkImage> createImages(VkDevice device);
 };
+
+} // namespace mimir

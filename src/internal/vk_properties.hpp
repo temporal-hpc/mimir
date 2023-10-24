@@ -5,6 +5,8 @@
 #include <iostream> // std::cout
 #include <vector> // std::vector
 
+namespace mimir
+{
 namespace props
 {
 
@@ -33,3 +35,4 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
 );
 
 } // namespace props
+} // namespace mimir

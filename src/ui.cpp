@@ -1,4 +1,4 @@
-#include <cudaview/cudaview.hpp>
+#include <mimir/cudaview.hpp>
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 
@@ -7,6 +7,9 @@
 
 #include <array> // std::array
 #include <algorithm> // std::clamp
+
+namespace mimir
+{
 
 std::array<ResourceType, 3> kAllResources = {
     ResourceType::UnstructuredBuffer,
@@ -302,3 +305,5 @@ void CudaviewEngine::showMetrics()
         printf("Heap %d flags: %s\n", i, dev->readMemoryHeapFlags(heap_flags).c_str());
     }*/
 }
+
+} // namespace mimir

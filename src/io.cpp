@@ -1,10 +1,13 @@
-#include "cudaview/io.hpp"
+#include "mimir/io.hpp"
 
 #include <dlfcn.h> // dladdr
 
 #include <filesystem> // std::filesystem
 #include <fstream> // std::ifstream
 #include <iostream>
+
+namespace mimir
+{
 namespace io
 {
 
@@ -90,3 +93,4 @@ std::string getDefaultShaderPath()
 }
 
 } // namespace io
+} // namespace mimir

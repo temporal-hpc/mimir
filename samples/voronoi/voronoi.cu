@@ -1,11 +1,11 @@
-#include <cudaview/cudaview.hpp>
-
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 #include <limits> // std::numeric_limits
 
-#include <cudaview/validation.hpp>
-using namespace validation; // checkCuda
+#include <mimir/cudaview.hpp>
+#include <mimir/validation.hpp> // checkCuda
+using namespace mimir;
+using namespace mimir::validation; // checkCuda
 
 constexpr float max_distance = std::numeric_limits<float>::max();
 

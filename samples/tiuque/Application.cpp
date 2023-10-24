@@ -26,10 +26,13 @@
 #include <cleap_private.h> // Include first to avoid GL/GLEW order compile errors
 #include "Application.h"
 
-#include <cudaview/validation.hpp> // checkCuda
 #include <imgui.h>
 #include <ImGuiFileDialog.h>
 #include <iostream>
+
+#include <mimir/validation.hpp> // checkCuda
+using namespace mimir;
+using namespace mimir::validation; // checkCuda
 
 Application::Application(){
     myMesh = 0;
