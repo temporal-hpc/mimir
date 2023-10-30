@@ -296,25 +296,7 @@ void InteropDevice::updateTexture(InteropView& view)
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     );
 
-    VkImageSubresourceLayers subres;
-    subres.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-    subres.mipLevel       = 0;
-    subres.baseArrayLayer = 0;
-    subres.layerCount     = 1;
-
-    VkBufferImageCopy region;
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
-    region.imageSubresource = subres;
-    region.imageOffset = {0, 0, 0};
-    region.imageExtent = view.vk_extent;
-    immediateSubmit([=,this](VkCommandBuffer cmd)
-    {
-        vkCmdCopyBufferToImage(cmd, view.data_buffer, view.image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
-        );
-    });
+    copyBufferToTexture(view.data_buffer, view.image, view.vk_extent);
 
     transitionImageLayout(view.image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
@@ -347,7 +329,19 @@ void InteropDevice::loadTexture(InteropView *view, void *img_data)
     transitionImageLayout(view->image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     );
+    copyBufferToTexture(staging_buffer, view->image, view->vk_extent);
+    
+    vkDestroyBuffer(logical_device, staging_buffer, nullptr);
+    vkFreeMemory(logical_device, staging_memory, nullptr);
 
+    generateMipmaps(view->image, view->vk_format, image_width, image_height, level_count);
+
+    // TODO: Handle this properly
+    validation::checkCuda(cudaDeviceSynchronize());
+}
+
+void InteropDevice::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent)
+{
     VkImageSubresourceLayers subres;
     subres.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
     subres.mipLevel       = 0;
@@ -360,20 +354,13 @@ void InteropDevice::loadTexture(InteropView *view, void *img_data)
     region.bufferImageHeight = 0;
     region.imageSubresource  = subres;
     region.imageOffset       = {0, 0, 0};
-    region.imageExtent       = view->vk_extent;
+    region.imageExtent       = extent;
     immediateSubmit([=,this](VkCommandBuffer cmd)
     {
-        vkCmdCopyBufferToImage(cmd, staging_buffer, view->image,
+        vkCmdCopyBufferToImage(cmd, buffer, image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
         );
     });
-    vkDestroyBuffer(logical_device, staging_buffer, nullptr);
-    vkFreeMemory(logical_device, staging_memory, nullptr);
-
-    generateMipmaps(view->image, view->vk_format, image_width, image_height, level_count);
-
-    // TODO: Handle this properly
-    validation::checkCuda(cudaDeviceSynchronize());
 }
 
 cudaExternalMemory_t InteropDevice::importCudaExternalMemory(

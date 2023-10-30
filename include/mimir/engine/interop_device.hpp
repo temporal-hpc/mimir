@@ -38,6 +38,7 @@ struct InteropDevice : public VulkanDevice
     void initView(InteropView& view);
     void updateTexture(InteropView& view);
     void loadTexture(InteropView *view, void *data);
+    void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);
 };
 
 } // namespace mimir
