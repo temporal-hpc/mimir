@@ -211,7 +211,7 @@ int main(int argc, char *argv[])
     params.channel_count = 1;
     params.resource_type = ResourceType::Buffer;
     params.domain_type   = DomainType::Structured;
-    params.element_type  = ElementType::Texels;
+    params.element_type  = ElementType::Image;
     engine.createView((void**)&d_result, params);
     //cudaMalloc((void**)&d_result, sizeof(float) * extent.x * extent.y);
 

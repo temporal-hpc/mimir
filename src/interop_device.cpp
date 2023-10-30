@@ -12,7 +12,7 @@ namespace mimir
 
 VkBufferUsageFlags getUsageFlags(ElementType p)
 {
-    if (p == ElementType::Texels) return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (p == ElementType::Image) return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     switch (p)
     {
@@ -144,7 +144,7 @@ void InteropDevice::initView(InteropView& view)
     view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
     bool use_image = params.resource_type == ResourceType::Texture ||
-                     params.element_type == ElementType::Texels;
+                     params.element_type == ElementType::Image;
     VkMemoryRequirements memreq{};
 
     // For structured domain views, initialize auxiliary resources and memory

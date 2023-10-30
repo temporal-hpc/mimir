@@ -273,7 +273,7 @@ int main(int argc, char *argv[])
         params.element_count = program.extent.x * program.extent.y;
         params.resource_type = ResourceType::Buffer;
         params.domain_type   = DomainType::Structured;
-        params.element_type  = ElementType::Texels;
+        params.element_type  = ElementType::Image;
         params.data_type     = DataType::Float;
         params.channel_count = 1;
         engine.createView((void**)&program.d_distances, params);

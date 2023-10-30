@@ -34,7 +34,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
 {
     ShaderCompileParameters params;
     params.specializations = view.options.specializations;
-    if (view.resource_type == ResourceType::Texture || view.element_type == ElementType::Texels)
+    if (view.resource_type == ResourceType::Texture || view.element_type == ElementType::Image)
     {
         params.source_path = "shaders/texture.slang";
         // The texture shader needs a specialization for the way to interpret its content
@@ -98,7 +98,7 @@ VertexDescription getVertexDescription(const ViewParams params)
 {
     VertexDescription desc;
 
-    if (params.resource_type == ResourceType::Texture || params.element_type == ElementType::Texels)
+    if (params.resource_type == ResourceType::Texture || params.element_type == ElementType::Image)
     {
         desc.binding.push_back(vkinit::vertexBindingDescription(
             0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
@@ -163,7 +163,7 @@ VertexDescription getVertexDescription(const ViewParams params)
 VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ResourceType res_type, ElementType ele_type)
 {
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-    if (res_type == ResourceType::Texture || ele_type == ElementType::Texels || ele_type == ElementType::Edges)
+    if (res_type == ResourceType::Texture || ele_type == ElementType::Image || ele_type == ElementType::Edges)
     {
         topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     }

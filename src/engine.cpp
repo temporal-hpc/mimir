@@ -631,7 +631,7 @@ void CudaviewEngine::updateDescriptorSets()
 
         for (const auto& view : views)
         {
-            if (view->params.element_type == ElementType::Texels ||
+            if (view->params.element_type == ElementType::Image ||
                 view->params.resource_type == ResourceType::Texture)
             {
                 VkDescriptorImageInfo img_info{};
@@ -820,7 +820,7 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
         if (!view->params.options.visible) continue;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
         if (view->params.resource_type == ResourceType::Texture ||
-            view->params.element_type == ElementType::Texels)
+            view->params.element_type == ElementType::Image)
         {
             if (view->params.element_type == ElementType::Voxels)
             {

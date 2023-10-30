@@ -38,7 +38,7 @@ int main(int argc, char *argv[])
     params.resource_type = ResourceType::Buffer;
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Structured;
-    params.element_type  = ElementType::Texels;
+    params.element_type  = ElementType::Image;
     engine.createView((void**)&d_pixels, params);
 
     auto tex_size = sizeof(uchar4) * width * height;

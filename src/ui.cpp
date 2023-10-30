@@ -23,7 +23,7 @@ std::array<ElementType, 4> kAllElements = {
     ElementType::Markers,
     ElementType::Edges,
     ElementType::Voxels,
-    ElementType::Texels
+    ElementType::Image
 };
 std::array<DataType, 3> kAllDataTypes = {
     DataType::Int,
