@@ -1,9 +1,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h" // stbi_load
 
-#include <iostream>
-#include <string> // std::string
-
 #include <mimir/mimir.hpp>
 #include <mimir/validation.hpp> // checkCuda
 using namespace mimir;
@@ -11,27 +8,25 @@ using namespace mimir::validation; // checkCuda
 
 int main(int argc, char *argv[])
 {
-    std::string filepath;
+    char *filepath = nullptr;
     if (argc == 2)
     {
         filepath = argv[1];
     }
     else
     {
-        std::cerr << "Usage: ./image path/to/image\n";
+        printf("Usage: ./image path/to/image\n");
         return EXIT_FAILURE;
     }
 
     uchar4 *d_pixels = nullptr;
-
     int width, height, chans;
-    auto h_pixels = stbi_load(filepath.c_str(), &width, &height, &chans, STBI_rgb_alpha);
+    auto h_pixels = stbi_load(filepath, &width, &height, &chans, STBI_rgb_alpha);
     if (!h_pixels)
     {
-        printf("failed to load texture image");
+        printf("failed to load texture image: %s\n", filepath);
         return EXIT_FAILURE;
     }
-    std::cerr << chans << "\n";
 
     CudaviewEngine engine;
     engine.init(1920, 1080);
@@ -50,7 +45,6 @@ int main(int argc, char *argv[])
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));
     stbi_image_free(h_pixels);
 
-    engine.updateWindow();
     engine.displayAsync();
     checkCuda(cudaFree(d_pixels));
 

@@ -1,7 +1,6 @@
 #include <mimir/engine/interop_device.hpp>
 
 #include <cuda_runtime.h> // make_cudaExtent
-
 #include <cstring> // std::memcpy
 
 #include <mimir/shader_types.hpp>
