@@ -191,7 +191,7 @@ void InteropDevice::initView(InteropView& view)
             deletors.add([=,this]{
                 vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
                 vkFreeMemory(logical_device, view.aux_memory, nullptr);
-            });            
+            });
             vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
 
             initImplicitCoords(logical_device, view.aux_memory, buffer_size, view.vk_extent);

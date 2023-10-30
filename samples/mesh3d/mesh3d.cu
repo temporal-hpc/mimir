@@ -1,6 +1,4 @@
-#include <curand_kernel.h>
 #include <fstream> // std::ifstream
-#include <iostream> // std::cerr
 #include <string> // std::string
 #include <vector> // std::vector
 
@@ -53,8 +51,6 @@ int main(int argc, char *argv[])
     std::string filepath;
     float *d_coords       = nullptr;
     int3 *d_triangles     = nullptr;
-    curandState *d_states = nullptr;
-    //unsigned block_size   = 256;
 
     if (argc == 2)
     {
@@ -62,7 +58,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        std::cerr << "Usage: ./mesh3d mesh.off (triangular meshes only)\n";
+        printf("Usage: ./mesh3d mesh.off (triangular meshes only)\n");
         return EXIT_FAILURE;
     }
 
@@ -73,6 +69,8 @@ int main(int argc, char *argv[])
 
     CudaviewEngine engine;
     engine.init(1920, 1080);
+    engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
+    
     ViewParams params;
     params.element_count = point_count;
     params.data_type     = DataType::Float;
@@ -88,13 +86,6 @@ int main(int argc, char *argv[])
     params.element_type  = ElementType::Edges;
     engine.createView((void**)&d_triangles, params);
 
-    engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
-
-    checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
-    //unsigned grid_size = (point_count + block_size - 1) / block_size;
-    //initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
-    //checkCuda(cudaDeviceSynchronize());
-
     checkCuda(cudaMemcpy(d_coords, points.data(),
         sizeof(float3) * point_count, cudaMemcpyHostToDevice)
     );
@@ -103,17 +94,7 @@ int main(int argc, char *argv[])
     );
 
     engine.displayAsync();
-    /*for (size_t i = 0; i < iter_count; ++i)
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-        engine.prepareWindow();
-        integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
-        checkCuda(cudaDeviceSynchronize());
-        engine.updateWindow();
-    }*/
-
-    checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_triangles));
 
