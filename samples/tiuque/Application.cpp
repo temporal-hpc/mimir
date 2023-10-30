@@ -53,21 +53,23 @@ Application::Application(){
     // TODO: Delete views
     ViewParams vert;
     vert.element_count   = cleap_get_vertex_count(m);
-    vert.data_type    = DataType::Float;
-    vert.channel_count     = 4;
+    vert.data_type       = DataType::Float;
+    vert.channel_count   = 4;
+    vert.resource_type   = ResourceType::Buffer;
     vert.data_domain     = DataDomain::Domain3D;
-    vert.resource_type   = ResourceType::UnstructuredBuffer;
-    vert.element_type  = ElementType::Markers;
+    vert.domain_type     = DomainType::Unstructured;
+    vert.element_type    = ElementType::Markers;
     vert.options.visible = false;
     engine.createView((void**)&m->dm->d_vbo_v, vert);
 
     ViewParams tri;
     tri.element_count  = cleap_get_face_count(m);
-    tri.data_type   = DataType::Int;
-    tri.channel_count    = 3;
+    tri.data_type      = DataType::Int;
+    tri.channel_count  = 3;
+    tri.resource_type  = ResourceType::Buffer;
     tri.data_domain    = DataDomain::Domain3D;
-    tri.resource_type  = ResourceType::UnstructuredBuffer;
-    tri.element_type = ElementType::Edges;
+    tri.domain_type    = DomainType::Unstructured;
+    tri.element_type   = ElementType::Edges;
     tri.options.color  = {0.f, 1.f, 0.f, 1.f};
     engine.createView((void**)&m->dm->d_eab, tri);
 

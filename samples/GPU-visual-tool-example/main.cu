@@ -89,11 +89,12 @@ int main(int argc, char *argv[]) {
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
     ViewParams params;
     params.element_count = n;
-    params.data_type = DataType::Float;
+    params.data_type     = DataType::Float;
     params.channel_count = 2;
-    params.data_domain = DataDomain::Domain2D;
-    params.resource_type = ResourceType::UnstructuredBuffer;
-    params.element_type = ElementType::Markers;
+    params.resource_type = ResourceType::Buffer;
+    params.data_domain   = DataDomain::Domain2D;
+    params.domain_type   = DomainType::Unstructured;
+    params.element_type  = ElementType::Markers;
     engine.createView((void**)&dPoints, params);
 
     /* SIMULATION */

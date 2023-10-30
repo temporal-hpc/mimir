@@ -75,16 +75,17 @@ int main(int argc, char *argv[])
     engine.init(1920, 1080);
     ViewParams params;
     params.element_count = point_count;
-    params.data_type = DataType::Float;
+    params.data_type     = DataType::Float;
     params.channel_count = 3;
-    params.data_domain = DataDomain::Domain3D;
-    params.resource_type = ResourceType::UnstructuredBuffer;
-    params.element_type = ElementType::Markers;
+    params.resource_type = ResourceType::Buffer;
+    params.data_domain   = DataDomain::Domain3D;
+    params.domain_type   = DomainType::Unstructured;
+    params.element_type  = ElementType::Markers;
     engine.createView((void**)&d_coords, params);
 
     params.element_count = triangles.size();
-    params.data_type = DataType::Int;
-    params.element_type = ElementType::Edges;
+    params.data_type     = DataType::Float;
+    params.element_type  = ElementType::Edges;
     engine.createView((void**)&d_triangles, params);
 
     engine.setBackgroundColor({.5f, .5f, .5f, 1.f});

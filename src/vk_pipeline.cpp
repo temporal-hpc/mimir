@@ -82,7 +82,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     else if (view.element_type == ElementType::Voxels)
     {
         params.source_path = "shaders/voxel.slang";
-        if (view.resource_type == ResourceType::StructuredBuffer)
+        if (view.domain_type == DomainType::Structured)
         {
             params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
         }

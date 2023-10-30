@@ -202,8 +202,9 @@ int main(int argc, char *argv[])
   params.extent         = {unsigned(img_width), unsigned(img_height), 1};
   params.data_type      = DataType::Char;
   params.channel_count  = 4;
-  params.data_domain    = DataDomain::Domain2D;
   params.resource_type  = ResourceType::Texture;
+  params.data_domain    = DataDomain::Domain2D;
+  params.domain_type    = DomainType::Structured;
   auto view = engine.createView((void**)&d_image, params);
   engine.loadTexture(view, img_data);
 

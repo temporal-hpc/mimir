@@ -12,9 +12,12 @@ namespace mimir
 {
 
 std::array<ResourceType, 3> kAllResources = {
-    ResourceType::UnstructuredBuffer,
-    ResourceType::StructuredBuffer,
+    ResourceType::Buffer,
     ResourceType::Texture
+};
+std::array<DomainType, 3> kAllDomains = {
+    DomainType::Structured,
+    DomainType::Unstructured
 };
 std::array<ElementType, 4> kAllElements = {
     ElementType::Markers,
@@ -33,6 +36,14 @@ struct AllResources
     static bool ItemGetter(void* data, int n, const char** out_str)
     {
         *out_str = getResourceType(((ResourceType*)data)[n]);
+        return true;
+    }
+};
+struct AllDomains
+{
+    static bool ItemGetter(void* data, int n, const char** out_str)
+    {
+        *out_str = getDomainType(((DomainType*)data)[n]);
         return true;
     }
 };
@@ -89,6 +100,10 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
             addTableRow("Element count", std::to_string(info.element_count));
             addTableRow("Channel count", std::to_string(info.channel_count));
             addTableRow("Data domain", getDataDomain(info.data_domain));
+            bool dom_check = addTableRowCombo("Domain type", (int*)&info.domain_type,
+                &AllDomains::ItemGetter, kAllDomains.data(), kAllDomains.size()
+            );            
+            if (dom_check) printf("View %d: switched domain type to %s\n", uid, getDomainType(info.domain_type));
             bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
                 &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
             );

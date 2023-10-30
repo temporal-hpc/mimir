@@ -102,12 +102,13 @@ int main(int argc, char *argv[])
     {
         ViewParams params;
         params.element_count = point_count;
-        params.data_type = DataType::Float;
+        params.data_type     = DataType::Float;
         params.channel_count = 3;
-        params.extent = extent;
-        params.data_domain = DataDomain::Domain3D;
-        params.resource_type = ResourceType::UnstructuredBuffer;
-        params.element_type = ElementType::Markers;
+        params.extent        = extent;
+        params.resource_type = ResourceType::Buffer;
+        params.data_domain   = DataDomain::Domain3D;
+        params.domain_type   = DomainType::Unstructured;
+        params.element_type  = ElementType::Markers;
         //params.options.size = 1.f;
         engine.createView((void**)&d_coords, params);
     }

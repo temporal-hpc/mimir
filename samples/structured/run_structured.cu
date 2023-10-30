@@ -258,21 +258,23 @@ int main(int argc, char *argv[])
 
         ViewParams params;
         params.element_count = program.element_count;
-        params.extent = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
-        params.data_type = DataType::Float;
+        params.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
+        params.data_type     = DataType::Float;
         params.channel_count = 2;
-        params.data_domain = DataDomain::Domain2D;
-        params.resource_type = ResourceType::UnstructuredBuffer;
-        params.element_type = ElementType::Markers;
-        params.cuda_stream = program.stream;
+        params.resource_type = ResourceType::Buffer;
+        params.data_domain   = DataDomain::Domain2D;
+        params.domain_type   = DomainType::Unstructured;
+        params.element_type  = ElementType::Markers;
+        params.cuda_stream   = program.stream;
         params.options.color = {0,0,1,1};
         engine.createView((void**)&program.d_coords, params);
         //cudaMalloc((void**)&program.d_coords, sizeof(float2) * point_count);
 
         params.element_count = program.extent.x * program.extent.y;
-        params.resource_type = ResourceType::StructuredBuffer;
-        params.element_type = ElementType::Texels;
-        params.data_type = DataType::Float;
+        params.resource_type = ResourceType::Buffer;
+        params.domain_type   = DomainType::Structured;
+        params.element_type  = ElementType::Texels;
+        params.data_type     = DataType::Float;
         params.channel_count = 1;
         engine.createView((void**)&program.d_distances, params);
         //cudaMalloc((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);

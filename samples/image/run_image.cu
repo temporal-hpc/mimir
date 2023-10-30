@@ -37,12 +37,13 @@ int main(int argc, char *argv[])
     engine.init(1920, 1080);
     ViewParams params;
     params.element_count = width * height;
-    params.extent = {(unsigned)width, (unsigned)height, 1};
-    params.data_type = DataType::Char;
+    params.extent        = {(unsigned)width, (unsigned)height, 1};
+    params.data_type     = DataType::Char;
     params.channel_count = 4;
-    params.data_domain = DataDomain::Domain2D;
-    params.resource_type = ResourceType::StructuredBuffer;
-    params.element_type = ElementType::Texels;
+    params.resource_type = ResourceType::Buffer;
+    params.data_domain   = DataDomain::Domain2D;
+    params.domain_type   = DomainType::Structured;
+    params.element_type  = ElementType::Texels;
     engine.createView((void**)&d_pixels, params);
 
     auto tex_size = sizeof(uchar4) * width * height;

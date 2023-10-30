@@ -122,14 +122,15 @@ int main(int argc, char *argv[])
         engine.init(options);
         ViewParams params;
         params.element_count = program.particle_count;
-        params.extent = {200, 200, 1};
-        params.data_type = DataType::Float;
+        params.extent        = {200, 200, 1};
+        params.data_type     = DataType::Float;
         params.channel_count = 2;
-        params.data_domain = DataDomain::Domain2D;
-        params.resource_type = ResourceType::UnstructuredBuffer;
-        params.element_type = ElementType::Markers;
-        params.cuda_stream = program.stream;
-        params.options.size = 20.f;
+        params.data_domain   = DataDomain::Domain2D;
+        params.resource_type = ResourceType::Buffer;
+        params.domain_type   = DomainType::Unstructured;
+        params.element_type  = ElementType::Markers;
+        params.cuda_stream   = program.stream;
+        params.options.size  = 20.f;
         /*params.options.external_shaders = {
             {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
             {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},

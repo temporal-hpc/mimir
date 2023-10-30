@@ -194,22 +194,24 @@ int main(int argc, char *argv[])
 
     ViewParams params;
     params.element_count = point_count;
-    params.extent = {(unsigned)extent.x, (unsigned)extent.y, 1};
-    params.data_type = DataType::Float;
+    params.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
+    params.data_type     = DataType::Float;
     params.channel_count = 2;
-    params.data_domain = DataDomain::Domain2D;
-    params.resource_type = ResourceType::UnstructuredBuffer;
-    params.element_type = ElementType::Markers;
-    params.cuda_stream = stream;
+    params.resource_type = ResourceType::Buffer;
+    params.data_domain   = DataDomain::Domain2D;
+    params.domain_type   = DomainType::Unstructured;
+    params.element_type  = ElementType::Markers;
+    params.cuda_stream   = stream;
     params.options.color = {0,0,1,1};
     engine.createView((void**)&d_coords, params);
     //cudaMalloc((void**)&d_coords, sizeof(float2) * point_count);
 
     params.element_count = extent.x * extent.y;
-    params.resource_type = ResourceType::StructuredBuffer;
-    params.element_type = ElementType::Texels;
-    params.data_type = DataType::Float;
+    params.data_type     = DataType::Float;
     params.channel_count = 1;
+    params.resource_type = ResourceType::Buffer;
+    params.domain_type   = DomainType::Structured;
+    params.element_type  = ElementType::Texels;
     engine.createView((void**)&d_result, params);
     //cudaMalloc((void**)&d_result, sizeof(float) * extent.x * extent.y);
 

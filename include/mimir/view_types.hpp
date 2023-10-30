@@ -3,10 +3,12 @@
 namespace mimir
 {
 
+// Specifies which cuda resource is mapped to the view
+enum class ResourceType { Buffer, Texture };
 // Specifies the number of spatial dimensions of the view
 enum class DataDomain   { Domain2D, Domain3D };
 // Specifies the data layout
-enum class ResourceType { UnstructuredBuffer, StructuredBuffer, Texture };
+enum class DomainType   { Structured, Unstructured };
 // Specifies the type of primitive that will be visualized 
 enum class ElementType  { Markers, Edges, Voxels, Texels };
 // Specifies the DataType stored in the texture corresponding to a view
@@ -36,9 +38,9 @@ constexpr char* getDataType(DataType type)
     }
 }
 
-constexpr char* getDataDomain(DataDomain x)
+constexpr char* getDataDomain(DataDomain d)
 {
-    switch (x)
+    switch (d)
     {
         case DataDomain::Domain2D: return "2D";
         case DataDomain::Domain3D: return "3D";
@@ -46,22 +48,33 @@ constexpr char* getDataDomain(DataDomain x)
     }
 }
 
-constexpr char* getResourceType(ResourceType x)
+constexpr char* getDomainType(DomainType t)
 {
-    switch (x)
+    switch (t)
+    {
+#define STR(r) case DomainType::r: return #r
+        STR(Structured);
+        STR(Unstructured);
+#undef STR
+        default: return "unknown";
+    }
+}
+
+constexpr char* getResourceType(ResourceType t)
+{
+    switch (t)
     {
 #define STR(r) case ResourceType::r: return #r
-        STR(UnstructuredBuffer);
-        STR(StructuredBuffer);
+        STR(Buffer);
         STR(Texture);
 #undef STR
         default: return "unknown";
     }
 }
 
-constexpr char* getElementType(ElementType x)
+constexpr char* getElementType(ElementType t)
 {
-    switch (x)
+    switch (t)
     {
 #define STR(r) case ElementType::r: return #r
         STR(Markers);

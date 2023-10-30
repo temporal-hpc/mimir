@@ -819,8 +819,8 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
         );
         if (!view->params.options.visible) continue;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
-        if (view->params.element_type == ElementType::Texels ||
-            view->params.resource_type == ResourceType::Texture)
+        if (view->params.resource_type == ResourceType::Texture ||
+            view->params.element_type == ElementType::Texels)
         {
             if (view->params.element_type == ElementType::Voxels)
             {
@@ -838,7 +838,8 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
                 vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
             }
         }
-        else if (view->params.resource_type == ResourceType::StructuredBuffer)
+        else if (view->params.resource_type == ResourceType::Buffer &&
+                 view->params.domain_type == DomainType::Structured)
         {
             if (view->params.element_type == ElementType::Voxels)
             {
@@ -849,7 +850,8 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
                 vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
             }
         }
-        else if (view->params.resource_type == ResourceType::UnstructuredBuffer)
+        else if (view->params.resource_type == ResourceType::Buffer &&
+                 view->params.domain_type == DomainType::Unstructured)
         {
             switch (view->params.element_type)
             {

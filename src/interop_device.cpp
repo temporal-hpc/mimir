@@ -11,7 +11,7 @@
 namespace mimir
 {
 
-VkBufferUsageFlags getUsageFlags(ElementType p, ResourceType r)
+VkBufferUsageFlags getUsageFlags(ElementType p)
 {
     if (p == ElementType::Texels) return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -177,10 +177,9 @@ void InteropDevice::initView(InteropView& view)
     view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
     VkMemoryRequirements memreq{};
-    if (params.resource_type == ResourceType::StructuredBuffer || 
-        params.resource_type == ResourceType::UnstructuredBuffer)
+    if (params.resource_type == ResourceType::Buffer)
     {
-        if (params.resource_type == ResourceType::StructuredBuffer)
+        if (params.domain_type == DomainType::Structured)
         {
             // Allocate memory and bind it to buffers
             auto buffer_size = sizeof(float3) * params.element_count;
@@ -200,7 +199,7 @@ void InteropDevice::initView(InteropView& view)
 
         // Create view buffers
         VkDeviceSize memsize = element_size * params.element_count;
-        auto usage = getUsageFlags(params.element_type, params.resource_type);
+        auto usage = getUsageFlags(params.element_type);
         VkExternalMemoryBufferCreateInfo extmem_info{};
         extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
         extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
@@ -211,8 +210,7 @@ void InteropDevice::initView(InteropView& view)
         });
         vkGetBufferMemoryRequirements(logical_device, view.data_buffer, &memreq);
     }
-    if (params.resource_type == ResourceType::Texture ||
-        params.element_type == ElementType::Texels)
+    if (params.resource_type == ResourceType::Texture || params.element_type == ElementType::Texels)
     {
         // Init texture memory
         view.image = createImage(logical_device, params);
@@ -236,8 +234,7 @@ void InteropDevice::initView(InteropView& view)
         vkFreeMemory(logical_device, view.memory, nullptr);
     });
 
-    if (params.resource_type == ResourceType::StructuredBuffer || 
-        params.resource_type == ResourceType::UnstructuredBuffer)
+    if (params.resource_type == ResourceType::Buffer)
     {
         vkBindBufferMemory(logical_device, view.data_buffer, view.memory, 0);
         VkDeviceSize memsize = element_size * params.element_count;
@@ -249,8 +246,7 @@ void InteropDevice::initView(InteropView& view)
             &view.cuda_ptr, view.cuda_extmem, &buffer_desc)
         );
     }
-    if (params.resource_type == ResourceType::Texture ||
-        params.element_type == ElementType::Texels)
+    if (params.resource_type == ResourceType::Texture || params.element_type == ElementType::Texels)
     {
         initTextureQuad(view.aux_buffer, view.aux_memory);
         deletors.add([=,this]{

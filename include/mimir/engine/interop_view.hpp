@@ -47,6 +47,7 @@ struct ViewParams
     uint3 extent = {1, 1, 1};
     DataType data_type;
     DataDomain data_domain;
+    DomainType domain_type;
     ResourceType resource_type;
     ElementType element_type;
     ViewOptions options;

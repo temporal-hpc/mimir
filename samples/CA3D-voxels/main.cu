@@ -75,10 +75,11 @@ int main(int argc, char **argv){
     // TODO: 2D --> {n, n, 1}
     params.extent = {(unsigned)n, (unsigned)n, (unsigned)n};
     // TODO: CAMBIAR A DOMAIN 2D
-    params.data_type = DataType::Int;
-    params.data_domain = DataDomain::Domain3D;
-    params.resource_type = ResourceType::StructuredBuffer;
-    params.element_type = ElementType::Voxels;
+    params.data_type     = DataType::Int;
+    params.resource_type = ResourceType::Buffer;
+    params.data_domain   = DataDomain::Domain3D;
+    params.domain_type   = DomainType::Structured;
+    params.element_type  = ElementType::Voxels;
     /*params.options.external_shaders = {
         {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/voxel_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
