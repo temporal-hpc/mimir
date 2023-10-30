@@ -34,7 +34,6 @@ struct InteropDevice : public VulkanDevice
     InteropBarrier createInteropBarrier();
 
     // View functions
-    void initTextureQuad(VkBuffer& buf, VkDeviceMemory& mem);
     void initView(InteropView& view);
     void updateTexture(InteropView& view);
     void loadTexture(InteropView *view, void *data);

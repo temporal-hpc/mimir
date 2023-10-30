@@ -59,38 +59,6 @@ VkImageTiling getImageTiling(ResourceType type)
     }
 }
 
-void InteropDevice::initTextureQuad(VkBuffer& buf, VkDeviceMemory& mem)
-{
-    const std::vector<Vertex> vertices{
-        { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
-        { { -1.f,  1.f, 0.f }, { 0.f, 1.f } },
-        { { -1.f, -1.f, 0.f }, { 0.f, 0.f } },
-        { {  1.f, -1.f, 0.f }, { 1.f, 0.f } }
-    };
-    // Indices for a single uv-view quad made from two triangles
-    const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0 };//, 4, 5, 6, 6, 7, 4 };
-
-    uint32_t vert_size = sizeof(Vertex) * vertices.size();
-    uint32_t ids_size = sizeof(uint16_t) * indices.size();
-
-    // Auxiliary buffer for holding a quad and its indices
-    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-    buf = createBuffer(vert_size + ids_size, usage);
-    VkMemoryRequirements memreq{};
-    vkGetBufferMemoryRequirements(logical_device, buf, &memreq);
-
-    // Allocate memory and bind it to buffers
-    auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    mem = allocateMemory(memreq, flags);
-
-    vkBindBufferMemory(logical_device, buf, mem, 0);
-    char *data = nullptr;
-    vkMapMemory(logical_device, mem, 0, vert_size, 0, (void**)&data);
-    std::memcpy(data, vertices.data(), vert_size);
-    std::memcpy(data + vert_size, indices.data(), ids_size);
-    vkUnmapMemory(logical_device, mem);
-}
-
 void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, VkExtent3D extent)
 {
     float3 *data = nullptr;
@@ -115,10 +83,10 @@ void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, 
 VkImage createImage(VkDevice dev, ViewParams params)
 {
     auto img_type = getImageType(params.data_domain);
-    auto format = getDataFormat(params.data_type, params.channel_count);
+    auto format   = getDataFormat(params.data_type, params.channel_count);
+    auto usage    = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    auto tiling   = getImageTiling(params.resource_type);
     VkExtent3D extent = {params.extent.x, params.extent.y, params.extent.z};
-    auto tiling = getImageTiling(params.resource_type);
-    auto usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
     VkExternalMemoryImageCreateInfo extmem_info{};
     extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -178,9 +146,47 @@ void InteropDevice::initView(InteropView& view)
     bool use_image = params.resource_type == ResourceType::Texture ||
                      params.element_type == ElementType::Texels;
     VkMemoryRequirements memreq{};
-    if (params.resource_type == ResourceType::Buffer)
+
+    // For structured domain views, initialize auxiliary resources and memory
+    if (params.domain_type == DomainType::Structured)
     {
-        if (params.domain_type == DomainType::Structured && !use_image)
+        if (use_image)
+        {
+            const std::vector<Vertex> vertices{
+                { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
+                { { -1.f,  1.f, 0.f }, { 0.f, 1.f } },
+                { { -1.f, -1.f, 0.f }, { 0.f, 0.f } },
+                { {  1.f, -1.f, 0.f }, { 1.f, 0.f } }
+            };
+            // Indices for a single uv-view quad made from two triangles
+            const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0 };//, 4, 5, 6, 6, 7, 4 };
+
+            uint32_t vert_size = sizeof(Vertex) * vertices.size();
+            uint32_t ids_size = sizeof(uint16_t) * indices.size();
+
+            // Auxiliary buffer for holding a quad and its indices
+            auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            view.aux_buffer = createBuffer(vert_size + ids_size, usage);
+            VkMemoryRequirements memreq{};
+            vkGetBufferMemoryRequirements(logical_device, view.aux_buffer, &memreq);
+
+            // Allocate memory and bind it to buffers
+            auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            view.aux_memory = allocateMemory(memreq, flags);
+            vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
+
+            // Init image quad coords and indices
+            char *data = nullptr;
+            vkMapMemory(logical_device, view.aux_memory, 0, vert_size, 0, (void**)&data);
+            std::memcpy(data, vertices.data(), vert_size);
+            std::memcpy(data + vert_size, indices.data(), ids_size);
+            vkUnmapMemory(logical_device, view.aux_memory);
+            deletors.add([=,this]{
+                vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
+                vkFreeMemory(logical_device, view.aux_memory, nullptr);
+            });
+        }
+        else if (params.resource_type == ResourceType::Buffer)
         {
             // Allocate memory and bind it to buffers
             auto buffer_size = sizeof(float3) * params.element_count;
@@ -197,7 +203,10 @@ void InteropDevice::initView(InteropView& view)
 
             initImplicitCoords(logical_device, view.aux_memory, buffer_size, view.vk_extent);
         }
+    }
 
+    if (params.resource_type == ResourceType::Buffer)
+    {
         // Create external memory buffers
         VkDeviceSize memsize = element_size * params.element_count;
         auto usage = getUsageFlags(params.element_type);
@@ -219,10 +228,11 @@ void InteropDevice::initView(InteropView& view)
         deletors.add([=,this]{
             vkDestroyImage(logical_device, view.image, nullptr);
         });
-
         vkGetImageMemoryRequirements(logical_device, view.image, &memreq);
     }
 
+    // Create and export (to CUDA) the memory allocated with the
+    // requirements obtained above
     VkExportMemoryAllocateInfoKHR export_info{};
     export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
     export_info.pNext = nullptr;
@@ -235,6 +245,7 @@ void InteropDevice::initView(InteropView& view)
         vkFreeMemory(logical_device, view.memory, nullptr);
     });
 
+    // Bind the resources to the external memory allocated above
     if (params.resource_type == ResourceType::Buffer)
     {
         vkBindBufferMemory(logical_device, view.data_buffer, view.memory, 0);
@@ -249,12 +260,6 @@ void InteropDevice::initView(InteropView& view)
     }
     if (use_image)
     {
-        initTextureQuad(view.aux_buffer, view.aux_memory);
-        deletors.add([=,this]{
-            vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
-            vkFreeMemory(logical_device, view.aux_memory, nullptr);
-        });
-
         view.index_offset = 4 * sizeof(Vertex);
         vkBindImageMemory(logical_device, view.image, view.memory, 0);
 
@@ -267,22 +272,10 @@ void InteropDevice::initView(InteropView& view)
             vkDestroyImageView(logical_device, view.vk_view, nullptr);
         });
 
-        // Init texture memory (TODO: Refactor)
-        if (params.element_type == ElementType::Texels)
-        {
-            VkDeviceSize memsize = element_size * params.element_count;
-            cudaExternalMemoryBufferDesc buffer_desc{};
-            buffer_desc.offset = 0;
-            buffer_desc.size   = memsize;
-            buffer_desc.flags  = 0;
-            validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-                &view.cuda_ptr, view.cuda_extmem, &buffer_desc)
-            );
-            transitionImageLayout(view.image,
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-            );
-        }
-        else if (params.resource_type == ResourceType::Texture)
+        transitionImageLayout(view.image,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        );        
+        if (params.resource_type == ResourceType::Texture)
         {
             view.mipmap_array = createMipmapArray(view.cuda_extmem, params);
             deletors.add([=,this]{
