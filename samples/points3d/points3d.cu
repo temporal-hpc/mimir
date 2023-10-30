@@ -126,10 +126,10 @@ int main(int argc, char *argv[])
     if (display) engine.displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
     {
-        if (display) engine.prepareWindow();
+        if (display) engine.prepareViews();
         integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
-        if (display) engine.updateWindow();
+        if (display) engine.updateViews();
     }
     engine.showMetrics();
 

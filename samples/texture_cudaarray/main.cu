@@ -298,7 +298,7 @@ int main(int argc, char *argv[])
     int nthreads = 128;
     for (int i = 0; i < 999999; i++)
     {
-        engine.prepareWindow();
+        engine.prepareViews();
 
         // Perform 2D box filter on image using CUDA
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
@@ -309,7 +309,7 @@ int main(int argc, char *argv[])
         );
         varySigma();
 
-        engine.updateWindow();
+        engine.updateViews();
     }
 
     checkCuda(cudaDestroyTextureObject(tex_obj));

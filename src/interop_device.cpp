@@ -175,10 +175,12 @@ void InteropDevice::initView(InteropView& view)
     view.vk_format = getDataFormat(params.data_type, params.channel_count);
     view.vk_extent = {params.extent.x, params.extent.y, params.extent.z};
 
+    bool use_image = params.resource_type == ResourceType::Texture ||
+                     params.element_type == ElementType::Texels;
     VkMemoryRequirements memreq{};
     if (params.resource_type == ResourceType::Buffer)
     {
-        if (params.domain_type == DomainType::Structured)
+        if (params.domain_type == DomainType::Structured && !use_image)
         {
             // Allocate memory and bind it to buffers
             auto buffer_size = sizeof(float3) * params.element_count;
@@ -196,7 +198,7 @@ void InteropDevice::initView(InteropView& view)
             initImplicitCoords(logical_device, view.aux_memory, buffer_size, view.vk_extent);
         }
 
-        // Create view buffers
+        // Create external memory buffers
         VkDeviceSize memsize = element_size * params.element_count;
         auto usage = getUsageFlags(params.element_type);
         VkExternalMemoryBufferCreateInfo extmem_info{};
@@ -209,7 +211,7 @@ void InteropDevice::initView(InteropView& view)
         });
         vkGetBufferMemoryRequirements(logical_device, view.data_buffer, &memreq);
     }
-    if (params.resource_type == ResourceType::Texture || params.element_type == ElementType::Texels)
+    if (use_image)
     {
         // Init texture memory
         view.image = createImage(logical_device, params);
@@ -245,7 +247,7 @@ void InteropDevice::initView(InteropView& view)
             &view.cuda_ptr, view.cuda_extmem, &buffer_desc)
         );
     }
-    if (params.resource_type == ResourceType::Texture || params.element_type == ElementType::Texels)
+    if (use_image)
     {
         initTextureQuad(view.aux_buffer, view.aux_memory);
         deletors.add([=,this]{

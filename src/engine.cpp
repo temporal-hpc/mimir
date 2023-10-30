@@ -170,7 +170,7 @@ void CudaviewEngine::displayAsync()
     });
 }
 
-void CudaviewEngine::prepareWindow()
+void CudaviewEngine::prepareViews()
 {
     if (options.enable_sync && running)
     {
@@ -195,7 +195,7 @@ void CudaviewEngine::waitKernelStart()
     wait_value += 2;
 }
 
-void CudaviewEngine::updateWindow()
+void CudaviewEngine::updateViews()
 {
     if (options.enable_sync && running)
     {

@@ -123,7 +123,7 @@ int main(int argc, char **argv){
             cudaEventRecord(start);
 
             // llamada al kernel
-            engine.prepareWindow();
+            engine.prepareViews();
 
             kernel_CA3D<<<grid, block>>>(n, d1, d2);
             gpuErrchk( cudaPeekAtLastError() );
@@ -132,7 +132,7 @@ int main(int argc, char **argv){
             v1->toggleVisibility();
             v2->toggleVisibility();
 
-            engine.updateWindow();
+            engine.updateViews();
 
             // tiempo y print
             cudaEventRecord(stop);

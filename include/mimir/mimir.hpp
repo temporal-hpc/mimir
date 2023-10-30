@@ -61,8 +61,8 @@ public:
 
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
-    void prepareWindow();
-    void updateWindow();
+    void prepareViews();
+    void updateViews();
     void showMetrics();
     void exit();
 

@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
 
     // [VULKAN] II) "PASAR LOS DATOS AL VISUALIZADOR"
     // FLIB_linkData(&dPoints);
-    // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
+    // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
     ViewParams params;
     params.element_count = n;
@@ -107,12 +107,12 @@ int main(int argc, char *argv[]) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en
         // 'dPoints' se ve refleada inmediatamente en la ventana async)
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        engine.prepareWindow();
+        engine.prepareViews();
 
         kernel_random_movement<<<g, b>>>(n, dPoints, dStates);
         cudaDeviceSynchronize();
-        // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateWindow(&dPoints);
-        engine.updateWindow();
+        // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
+        engine.updateViews();
 
         #ifdef DEBUG
             printf("[DEBUG] simulation step %i:\n", i);

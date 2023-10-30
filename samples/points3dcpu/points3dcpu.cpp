@@ -122,9 +122,9 @@ int main(int argc, char *argv[])
     for (size_t i = 0; i < iter_count; ++i)
     {
         integrate3d(coords, rng, extent);
-        if (display) engine.prepareWindow();
+        if (display) engine.prepareViews();
         checkCuda(cudaMemcpy(d_coords, coords.data(), memsize, cudaMemcpyHostToDevice));
-        if (display) engine.updateWindow();
+        if (display) engine.updateViews();
     }
 
     engine.showMetrics();

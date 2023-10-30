@@ -95,13 +95,13 @@ void Application::on_menu_help_about(){
 
 void Application::on_button_delaunay_2d_clicked(){
     if(myMesh){
-        //engine.prepareWindow();
+        //engine.prepareViews();
         if (educational_mode) //if(check_button_educational_mode->get_active())
         	myMesh->delaunay_transformation_interactive(CLEAP_MODE_2D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_2D);
 
-        //engine.updateWindow(); ////my_gl_window->redraw();
+        //engine.updateViews(); ////my_gl_window->redraw();
     }
 }
 
@@ -114,13 +114,13 @@ void Application::on_button_clear_clicked(){
 
 void Application::on_button_delaunay_3d_clicked(){
     if(myMesh){
-        //engine.prepareWindow();
+        //engine.prepareViews();
         if (educational_mode) //if(check_button_educational_mode->get_active())
             myMesh->delaunay_transformation_interactive(CLEAP_MODE_3D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_3D);
 
-        //engine.updateWindow(); //my_gl_window->redraw();
+        //engine.updateViews(); //my_gl_window->redraw();
     }
 }
 
