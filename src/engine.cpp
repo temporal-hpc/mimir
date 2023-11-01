@@ -193,6 +193,15 @@ void CudaviewEngine::waitKernelStart()
         &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
     wait_value += 2;
+
+    for (auto& view : views)
+    {
+        if (view->params.resource_type == ResourceType::Buffer &&
+            view->params.element_type == ElementType::Image)
+        {
+            dev->updateTexture(view.get());
+        }
+    }
 }
 
 void CudaviewEngine::updateViews()

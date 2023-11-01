@@ -60,13 +60,8 @@ struct InteropView
 
     // Rendering pipeline associated to this view
     VkPipeline pipeline = VK_NULL_HANDLE;
-
-    // Auxiliary buffer for storing vertex and index buffers
-    VkBuffer aux_buffer       = VK_NULL_HANDLE;
-    // Auxiliary memory allocation for the above
-    VkDeviceMemory aux_memory = VK_NULL_HANDLE;
-    // Offset in bytes where index buffer starts inside aux_memory
-    VkDeviceSize index_offset = 0;
+    // Cuda external memory handle, provided by the Cuda interop API
+    cudaExternalMemory_t cuda_extmem = nullptr;    
 
     // Raw Cuda pointer which can be passed to the library user
     // for use in kernels, as per cudaMalloc
@@ -75,16 +70,22 @@ struct InteropView
     VkBuffer data_buffer = VK_NULL_HANDLE;
     // Vulkan external device memory
     VkDeviceMemory memory = VK_NULL_HANDLE;  
-    // Cuda external memory handle, provided by the Cuda interop API
-    cudaExternalMemory_t cuda_extmem = nullptr;
 
     // Image members
     cudaMipmappedArray_t mipmap_array = nullptr;
+    VkDeviceMemory image_memory = nullptr;
     VkImage image        = VK_NULL_HANDLE;
     VkImageView vk_view  = VK_NULL_HANDLE;
     VkSampler vk_sampler = VK_NULL_HANDLE;
     VkFormat vk_format   = VK_FORMAT_UNDEFINED;
     VkExtent3D vk_extent = {0, 0, 0};
+
+    // Auxiliary buffer for storing vertex and index buffers
+    VkBuffer aux_buffer       = VK_NULL_HANDLE;
+    // Auxiliary memory allocation for the above
+    VkDeviceMemory aux_memory = VK_NULL_HANDLE;
+    // Offset in bytes where index buffer starts inside aux_memory
+    VkDeviceSize index_offset = 0;    
 
     // Switches view visibility from visible to invisible and viceversa.
     // Does not modify view data in any way

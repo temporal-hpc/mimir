@@ -35,7 +35,7 @@ struct InteropDevice : public VulkanDevice
 
     // View functions
     void initView(InteropView& view);
-    void updateTexture(InteropView& view);
+    void updateTexture(InteropView *view);
     void loadTexture(InteropView *view, void *data);
     void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);
 };

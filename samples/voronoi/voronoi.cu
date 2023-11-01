@@ -59,7 +59,7 @@ void kernelJfa(float4 *result, float4 *grid, const int2 extent, int step_length)
 }
 
 __global__
-void kernelWriteResult(float *output, float4 *grid, float3 *colors, int2 extent)
+void kernelWriteResult(float3 *output, float4 *grid, float3 *colors, int2 extent)
 {
     const int tx = blockDim.x * blockIdx.x + threadIdx.x;
     const int ty = blockDim.y * blockIdx.y + threadIdx.y;
@@ -67,15 +67,15 @@ void kernelWriteResult(float *output, float4 *grid, float3 *colors, int2 extent)
     if (tx < extent.x && ty < extent.y)
     {
         auto grid_idx = getLinearIndex(tx, ty, extent);
-        output[grid_idx] = grid[grid_idx].z / hypotf(extent.x, extent.y);
-        //auto seed_idx = static_cast<int>(grid[grid_idx].w);
-        //auto seed_color = colors[seed_idx];
-        //output[grid_idx] = seed_color;
+        //output[grid_idx] = grid[grid_idx].z / hypotf(extent.x, extent.y);
+        auto seed_idx = static_cast<int>(grid[grid_idx].w);
+        auto seed_color = colors[seed_idx];
+        output[grid_idx] = seed_color;
         //printf("%d %d %f %f %f\n", grid_idx, seed_idx, seed_color.x, seed_color.y, seed_color.z);
     }
 }
 
-void jumpFlood(float *output, float4 *grid[], float3 *colors, int2 extent, cudaStream_t stream)
+void jumpFlood(float3 *output, float4 *grid[], float3 *colors, int2 extent, cudaStream_t stream)
 {
     dim3 threads(32, 32);
     dim3 blocks( (extent.x + threads.x - 1) / threads.x,
@@ -179,7 +179,7 @@ int main(int argc, char *argv[])
     if (argc >= 2) point_count = std::stoul(argv[1]);
     if (argc >= 3) iter_count = std::stoul(argv[2]);
 
-    float *d_result       = nullptr;
+    float3 *d_result       = nullptr;
     float2 *d_coords       = nullptr;
     float4 *d_grid[2]      = {nullptr, nullptr};
     float3 *d_colors       = nullptr;
@@ -208,7 +208,7 @@ int main(int argc, char *argv[])
 
     params.element_count = extent.x * extent.y;
     params.data_type     = DataType::Float;
-    params.channel_count = 1;
+    params.channel_count = 3;
     params.resource_type = ResourceType::Buffer;
     params.domain_type   = DomainType::Structured;
     params.element_type  = ElementType::Image;
