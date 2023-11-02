@@ -52,14 +52,14 @@ void kernelJfa(float4 *result, float4 *grid, const int2 extent, int step_length)
     const int ty = blockDim.y * blockIdx.y + threadIdx.y;
     if (tx < extent.x && ty < extent.y)
     {
-        float2 coord = make_float2(tx, ty);
+        float2 coord = make_float2(tx + .5f, ty + .5f);
         float4 output = jumpFloodStep(coord, grid, step_length, extent);
         result[extent.x * ty + tx] = output;
     }
 }
 
 __global__
-void kernelWriteResult(float3 *vd_colors, float4 *grid, float3 *seed_colors, int2 extent)
+void kernelWriteResult(float *vd_dists, float3 *vd_colors, float4 *grid, float3 *seed_colors, int2 extent)
 {
     const int tx = blockDim.x * blockIdx.x + threadIdx.x;
     const int ty = blockDim.y * blockIdx.y + threadIdx.y;
@@ -71,11 +71,10 @@ void kernelWriteResult(float3 *vd_colors, float4 *grid, float3 *seed_colors, int
         auto seed_idx = static_cast<int>(grid[grid_idx].w);
         auto seed_color = seed_colors[seed_idx];
         vd_colors[grid_idx] = seed_color;
-        //printf("%d %d %f %f %f\n", grid_idx, seed_idx, seed_color.x, seed_color.y, seed_color.z);
     }
 }
 
-void jumpFlood(float3 *vd_colors, float4 *grid[], float3 *colors, int2 extent)
+void jumpFlood(float *vd_dists, float3 *vd_colors, float4 *grid[], float3 *colors, int2 extent)
 {
     dim3 threads(32, 32);
     dim3 blocks( (extent.x + threads.x - 1) / threads.x,
@@ -88,7 +87,7 @@ void jumpFlood(float3 *vd_colors, float4 *grid[], float3 *colors, int2 extent)
         checkCuda(cudaDeviceSynchronize());
         std::swap(out_idx, in_idx);
     }
-    kernelWriteResult<<< blocks, threads >>>(vd_colors, grid[in_idx], colors, extent);
+    kernelWriteResult<<< blocks, threads >>>(vd_dists, vd_colors, grid[in_idx], colors, extent);
     checkCuda(cudaDeviceSynchronize());
 }
 
@@ -177,14 +176,17 @@ int main(int argc, char *argv[])
 {
     unsigned point_count = 100;
     size_t iter_count = 10000;
+    int grid_size = 128;
     if (argc >= 2) point_count = std::stoul(argv[1]);
-    if (argc >= 3) iter_count = std::stoul(argv[2]);
+    if (argc >= 3) grid_size   = std::stoul(argv[2]);
+    if (argc >= 4) iter_count  = std::stod(argv[3]);
 
+    float *d_vd_dists      = nullptr;
     float3 *d_vd_colors    = nullptr;
     float2 *d_coords       = nullptr;
     float4 *d_grid[2]      = {nullptr, nullptr};
     float3 *d_colors       = nullptr;
-    int2 extent            = {512, 512};
+    int2 extent            = {grid_size, grid_size};
     curandState *d_states  = nullptr;
 
     CudaviewEngine engine;
@@ -212,6 +214,14 @@ int main(int argc, char *argv[])
     engine.createView((void**)&d_vd_colors, params);
     //cudaMalloc((void**)&d_vd_colors, sizeof(float) * extent.x * extent.y);
 
+    /*params.element_count = extent.x * extent.y;
+    params.data_type     = DataType::Float;
+    params.channel_count = 1;
+    params.resource_type = ResourceType::Buffer;
+    params.domain_type   = DomainType::Structured;
+    params.element_type  = ElementType::Image;
+    engine.createView((void**)&d_vd_dists, params);*/
+
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     checkCuda(cudaMalloc(&d_colors, sizeof(float3) * point_count));
 
@@ -236,7 +246,7 @@ int main(int argc, char *argv[])
         integrate2d<<< blocks, threads >>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
         initJumpFlood(d_grid[1], d_coords, point_count, extent);
-        jumpFlood(d_vd_colors, d_grid, d_colors, extent);
+        jumpFlood(d_vd_dists, d_vd_colors, d_grid, d_colors, extent);
     };
     engine.display(timestep_function, iter_count);
 
@@ -246,6 +256,7 @@ int main(int argc, char *argv[])
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_colors));
     checkCuda(cudaFree(d_vd_colors));
+    checkCuda(cudaFree(d_vd_dists));
     checkCuda(cudaFree(d_coords));
 
     return EXIT_SUCCESS;
