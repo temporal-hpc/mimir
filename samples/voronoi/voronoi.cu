@@ -59,7 +59,7 @@ void kernelJfa(float4 *result, float4 *grid, const int2 extent, int step_length)
 }
 
 __global__
-void kernelWriteResult(float3 *output, float4 *grid, float3 *colors, int2 extent)
+void kernelWriteResult(float3 *vd_colors, float4 *grid, float3 *seed_colors, int2 extent)
 {
     const int tx = blockDim.x * blockIdx.x + threadIdx.x;
     const int ty = blockDim.y * blockIdx.y + threadIdx.y;
@@ -67,15 +67,15 @@ void kernelWriteResult(float3 *output, float4 *grid, float3 *colors, int2 extent
     if (tx < extent.x && ty < extent.y)
     {
         auto grid_idx = getLinearIndex(tx, ty, extent);
-        //output[grid_idx] = grid[grid_idx].z / hypotf(extent.x, extent.y);
+        //vd_dists[grid_idx] = grid[grid_idx].z / hypotf(extent.x, extent.y);
         auto seed_idx = static_cast<int>(grid[grid_idx].w);
-        auto seed_color = colors[seed_idx];
-        output[grid_idx] = seed_color;
+        auto seed_color = seed_colors[seed_idx];
+        vd_colors[grid_idx] = seed_color;
         //printf("%d %d %f %f %f\n", grid_idx, seed_idx, seed_color.x, seed_color.y, seed_color.z);
     }
 }
 
-void jumpFlood(float3 *output, float4 *grid[], float3 *colors, int2 extent, cudaStream_t stream)
+void jumpFlood(float3 *vd_colors, float4 *grid[], float3 *colors, int2 extent)
 {
     dim3 threads(32, 32);
     dim3 blocks( (extent.x + threads.x - 1) / threads.x,
@@ -84,11 +84,11 @@ void jumpFlood(float3 *output, float4 *grid[], float3 *colors, int2 extent, cuda
     int out_idx = 0, in_idx = 1;
     for (int k = extent.x / 2; k > 0; k = k >> 1)
     {
-        kernelJfa<<< blocks, threads, 0, stream >>>(grid[out_idx], grid[in_idx], extent, k);
+        kernelJfa<<< blocks, threads >>>(grid[out_idx], grid[in_idx], extent, k);
         checkCuda(cudaDeviceSynchronize());
         std::swap(out_idx, in_idx);
     }
-    kernelWriteResult<<< blocks, threads, 0, stream >>>(output, grid[in_idx], colors, extent);
+    kernelWriteResult<<< blocks, threads >>>(vd_colors, grid[in_idx], colors, extent);
     checkCuda(cudaDeviceSynchronize());
 }
 
@@ -103,51 +103,52 @@ void kernelSetNonSeeds(float4 *seeds, int seed_count)
 }
 
 __global__
-void kernelInitSeeds(float4 *grid, float2 *seeds, int coord_count, int2 extent)
+void kernelInitSeeds(float4 *grid, float2 *seeds, int seed_count, int2 extent)
 {
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (tidx < coord_count)
+    if (tidx < seed_count)
     {
         auto coord = seeds[tidx];
         int2 seed{ (int)coord.x, (int)coord.y };
-        grid[getLinearIndex(seed.x, seed.y, extent)] = {coord.x, coord.y, 0.f, (float)tidx};
+        auto grid_idx = getLinearIndex(seed.x, seed.y, extent);
+        grid[grid_idx] = {coord.x, coord.y, 0.f, (float)tidx};
     }
 }
 
-void initJumpFlood(float4 *d_grid, float2 *d_seeds,
-    int coord_count, int2 extent, cudaStream_t stream)
+void initJumpFlood(float4 *d_grid, float2 *d_seeds, int seed_count, int2 extent)
 {
     dim3 threads{128};
     dim3 blocks1{ (extent.x * extent.y + threads.x - 1) / threads.x};
-    dim3 blocks2{ (coord_count + threads.x - 1) / threads.x};
+    dim3 blocks2{ (seed_count + threads.x - 1) / threads.x};
 
-    kernelSetNonSeeds<<< blocks1, threads, 0, stream >>>(d_grid, extent.x * extent.y);
-    checkCuda(cudaStreamSynchronize(stream));
-    kernelInitSeeds<<< blocks2, threads, 0, stream >>>(
-        d_grid, d_seeds, coord_count, extent
+    kernelSetNonSeeds<<< blocks1, threads >>>(d_grid, extent.x * extent.y);
+    checkCuda(cudaDeviceSynchronize());
+    kernelInitSeeds<<< blocks2, threads >>>(
+        d_grid, d_seeds, seed_count, extent
     );
-    checkCuda(cudaStreamSynchronize(stream));
+    checkCuda(cudaDeviceSynchronize());
 }
 
-__global__ void initSystem(float2 *coords, float3 *colors, size_t particle_count,
-    curandState *global_states, int2 extent, unsigned seed)
+__global__
+void initSystem(float2 *seeds, float3 *seed_colors, size_t n,
+    curandState *states, int2 extent, unsigned seed)
 {
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (tidx < particle_count)
+    if (tidx < n)
     {
-        auto local_state = global_states[tidx];
+        auto local_state = states[tidx];
         curand_init(seed, tidx, 0, &local_state);
         auto rx = extent.x * curand_uniform(&local_state);
         auto ry = extent.y * curand_uniform(&local_state);
         float2 p{rx, ry};
-        coords[tidx] = p;
+        seeds[tidx] = p;
 
         float r = curand_uniform(&local_state);
         float g = curand_uniform(&local_state);
         float b = curand_uniform(&local_state);
-        colors[tidx] = {r, g, b};
+        seed_colors[tidx] = {r, g, b};
         
-        global_states[tidx] = local_state;
+        states[tidx] = local_state;
     }
 }
 
@@ -156,19 +157,19 @@ __device__ float clamp(float x, float low, float high)
     return fmaxf(low, fminf(high, x));
 }
 
-__global__ void integrate2d(float2 *coords, size_t particle_count,
-    curandState *global_states, int2 extent)
+__global__
+void integrate2d(float2 *coords, size_t n, curandState *states, int2 extent)
 {
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (tidx < particle_count)
+    if (tidx < n)
     {
-        auto local_state = global_states[tidx];
+        auto local_state = states[tidx];
         auto r = curand_normal2(&local_state);
         auto p = coords[tidx];
         p.x = clamp(p.x + r.x, 1e-6f, extent.x);
         p.y = clamp(p.y + r.y, 1e-6f, extent.y);
         coords[tidx] = p;
-        global_states[tidx] = local_state;
+        states[tidx] = local_state;
     }
 }
 
@@ -179,15 +180,12 @@ int main(int argc, char *argv[])
     if (argc >= 2) point_count = std::stoul(argv[1]);
     if (argc >= 3) iter_count = std::stoul(argv[2]);
 
-    float3 *d_result       = nullptr;
+    float3 *d_vd_colors    = nullptr;
     float2 *d_coords       = nullptr;
     float4 *d_grid[2]      = {nullptr, nullptr};
     float3 *d_colors       = nullptr;
     int2 extent            = {512, 512};
     curandState *d_states  = nullptr;
-    cudaStream_t stream    = nullptr;
-    checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-    checkCuda(cudaSetDevice(0));
 
     CudaviewEngine engine;
     engine.init(1920, 1080);
@@ -201,7 +199,6 @@ int main(int argc, char *argv[])
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Unstructured;
     params.element_type  = ElementType::Markers;
-    params.cuda_stream   = stream;
     params.options.color = {0,0,1,1};
     engine.createView((void**)&d_coords, params);
     //cudaMalloc((void**)&d_coords, sizeof(float2) * point_count);
@@ -212,11 +209,11 @@ int main(int argc, char *argv[])
     params.resource_type = ResourceType::Buffer;
     params.domain_type   = DomainType::Structured;
     params.element_type  = ElementType::Image;
-    engine.createView((void**)&d_result, params);
-    //cudaMalloc((void**)&d_result, sizeof(float) * extent.x * extent.y);
+    engine.createView((void**)&d_vd_colors, params);
+    //cudaMalloc((void**)&d_vd_colors, sizeof(float) * extent.x * extent.y);
 
-    checkCuda(cudaMallocAsync(&d_states, sizeof(curandState) * point_count, stream));
-    checkCuda(cudaMallocAsync(&d_colors, sizeof(float3) * point_count, stream));
+    checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
+    checkCuda(cudaMalloc(&d_colors, sizeof(float3) * point_count));
 
     dim3 threads{128};
     dim3 blocks { (point_count + threads.x - 1) / threads.x};
@@ -228,7 +225,7 @@ int main(int argc, char *argv[])
     checkCuda(cudaMalloc(&d_grid[0], seed_sizes));
     checkCuda(cudaMalloc(&d_grid[1], seed_sizes));
     checkCuda(cudaDeviceSynchronize());
-    initJumpFlood(d_grid[1], d_coords, point_count, extent, stream);
+    initJumpFlood(d_grid[1], d_coords, point_count, extent);
 
     // Start rendering loop
     auto timestep_function = [&]
@@ -236,20 +233,19 @@ int main(int argc, char *argv[])
         dim3 threads{128};
         dim3 blocks { (point_count + threads.x - 1) / threads.x};
 
-        integrate2d<<< blocks, threads, 0, stream >>>(d_coords, point_count, d_states, extent);
+        integrate2d<<< blocks, threads >>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
-        initJumpFlood(d_grid[1], d_coords, point_count, extent, stream);
-        jumpFlood(d_result, d_grid, d_colors, extent, stream);
+        initJumpFlood(d_grid[1], d_coords, point_count, extent);
+        jumpFlood(d_vd_colors, d_grid, d_colors, extent);
     };
     engine.display(timestep_function, iter_count);
 
     checkCuda(cudaDeviceSynchronize());
-    checkCuda(cudaStreamDestroy(stream));
     checkCuda(cudaFree(d_grid[0]));
     checkCuda(cudaFree(d_grid[1]));
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_colors));
-    checkCuda(cudaFree(d_result));
+    checkCuda(cudaFree(d_vd_colors));
     checkCuda(cudaFree(d_coords));
 
     return EXIT_SUCCESS;
