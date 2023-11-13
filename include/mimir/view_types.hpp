@@ -12,15 +12,16 @@ enum class DomainType   { Structured, Unstructured };
 // Specifies the type of primitive that will be visualized 
 enum class ElementType  { Markers, Edges, Voxels, Image };
 // Specifies the DataType stored in the texture corresponding to a view
-enum class DataType     { Int, Float, Char };
+enum class DataType     { Int, Char, Float, Double };
 
 constexpr size_t getDataSize(DataType t, uint channel_count)
 {
     switch (t)
     {
         case DataType::Int:   return sizeof(int) * channel_count;
-        case DataType::Float: return sizeof(float) * channel_count;
         case DataType::Char:  return sizeof(char) * channel_count;
+        case DataType::Float: return sizeof(float) * channel_count;
+        case DataType::Double: return sizeof(double) * channel_count;
         default: return 0;
     }
 }
@@ -31,8 +32,9 @@ constexpr char* getDataType(DataType type)
     {
 #define STR(r) case DataType::r: return #r
         STR(Int);
-        STR(Float);
         STR(Char);
+        STR(Float);
+        STR(Double);
 #undef STR
         default: return "unknown";
     }

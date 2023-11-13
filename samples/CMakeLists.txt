@@ -37,6 +37,7 @@ target_link_libraries(voronoi PRIVATE mimir)
 add_subdirectory(tiuque)
 add_subdirectory(pointsgl)
 add_subdirectory(pointspcl)
+add_subdirectory(colloids)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL
