@@ -142,7 +142,7 @@ int main()
     
     params.source_path = "../samples/shaders/marker.slang";
     params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-    params.specializations = { "Float2" };
+    params.specializations = { "Double2" };
     compileSlang(params, session);
     
     return 0;

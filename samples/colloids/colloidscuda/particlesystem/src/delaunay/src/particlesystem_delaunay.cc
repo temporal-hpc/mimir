@@ -128,8 +128,8 @@ void ParticleSystemDelaunay::runTimestep()
 	updateDelaunay();
 	correctOverlaps();
 
-    //views[0]->toggleVisibility();
-    //views[current_write]->toggleVisibility();
+    views[current_read]->toggleVisibility();
+    views[current_write]->toggleVisibility();
 
     engine.updateViews();
 }
@@ -169,26 +169,29 @@ void ParticleSystemDelaunay::initCommon()
 void ParticleSystemDelaunay::loadOnDevice()
 {
     ViewerOptions viewer_opts;
-    viewer_opts.window_title = "Colloids"; // Top-level window.
+    viewer_opts.window_title = "Colloid"; // Top-level window.
     viewer_opts.window_size = {1920, 1080};
     viewer_opts.present = PresentOptions::VSync;
     engine.init(viewer_opts);
     
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * 2 * sizeof(double);
-	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
-	cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
+    unsigned l = params_.boxlength;
     ViewParams points;
     points.element_count   = params_.num_elements;
+    points.extent          = {l, l, 1};
     points.data_type       = DataType::Double;
     points.channel_count   = 2;
     points.resource_type   = ResourceType::Buffer;
     points.data_domain     = DataDomain::Domain2D;
     points.domain_type     = DomainType::Unstructured;
     points.element_type    = ElementType::Markers;
-    engine.createView((void**)&devicedata_.positions[0], points);
-    //points.options.visible = false;
-    //views[current_write] = engine.createView((void**)&devicedata_.positions[current_write], points);
+
+	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
+	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
+    views[current_read] = engine.createView((void**)&devicedata_.positions[current_read], points);
+    points.options.visible = false;
+    views[current_write] = engine.createView((void**)&devicedata_.positions[current_write], points);
 
 	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_,
 			             pos_bytes, cudaMemcpyHostToDevice));

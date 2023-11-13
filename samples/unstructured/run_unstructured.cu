@@ -74,11 +74,11 @@ int main(int argc, char *argv[])
         params.domain_type   = DomainType::Unstructured;
         params.element_type  = ElementType::Markers;
         params.options.size  = 20.f;
-        /*params.options.external_shaders = {
+        params.options.external_shaders = {
             {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
             {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
             {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-        };*/
+        };
         engine.createView((void**)&d_coords, params);
 
         // Cannot make CUDA calls that use the target device memory before
