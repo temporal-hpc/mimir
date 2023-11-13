@@ -74,11 +74,6 @@ int main(int argc, char *argv[])
         params.domain_type   = DomainType::Unstructured;
         params.element_type  = ElementType::Markers;
         params.options.size  = 20.f;
-        params.options.external_shaders = {
-            {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-            {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
-            {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-        };
         engine.createView((void**)&d_coords, params);
 
         // Cannot make CUDA calls that use the target device memory before
@@ -89,14 +84,16 @@ int main(int argc, char *argv[])
         );
         checkCuda(cudaDeviceSynchronize());
 
-        // Start rendering loop
-        engine.display([&]
+        // Set up the cuda code that updates the view buffer as a lambda function
+        auto cuda_call = [&]
         {
             integrate2d<<< grid_size, block_size >>>(
                 d_coords, point_count, d_states, extent
             );
             checkCuda(cudaDeviceSynchronize());
-        }, iter_count);
+        };
+        // Start rendering loop with the above function
+        engine.display(cuda_call, iter_count);
     }
     catch (const std::exception& e)
     {
