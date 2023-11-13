@@ -58,10 +58,13 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
         queue_create_infos.push_back(queue_create_info);
     }
 
+    // TODO: These features are not always used in every case,
+    // so they should not be always enforced (for greater compatibility)
     VkPhysicalDeviceFeatures device_features{};
     device_features.samplerAnisotropy = VK_TRUE;
     device_features.fillModeNonSolid  = VK_TRUE; // Enable wireframe
     device_features.geometryShader    = VK_TRUE;
+    device_features.shaderFloat64     = VK_TRUE;
 
     // Explicitly enable timeline semaphores, or validation layer will complain
     VkPhysicalDeviceVulkan12Features vk12features{};

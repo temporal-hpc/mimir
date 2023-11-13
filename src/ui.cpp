@@ -25,10 +25,11 @@ std::array<ElementType, 4> kAllElements = {
     ElementType::Voxels,
     ElementType::Image
 };
-std::array<DataType, 3> kAllDataTypes = {
+std::array<DataType, 4> kAllDataTypes = {
     DataType::Int,
     DataType::Float,
-    DataType::Char
+    DataType::Char,
+    DataType::Double
 };
 
 struct AllResources

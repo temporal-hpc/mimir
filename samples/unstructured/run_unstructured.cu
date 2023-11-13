@@ -8,29 +8,29 @@ using namespace mimir;
 using namespace mimir::validation; // checkCuda
 
 __global__
-void initSystem(float2 *coords, size_t point_count, curandState *global_states, int2 extent, unsigned seed)
+void initSystem(double2 *coords, size_t point_count, curandState *global_states, int2 extent, unsigned seed)
 {   
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
     if (tidx < point_count)
     {
         auto local_state = global_states[tidx];
         curand_init(seed, tidx, 0, &local_state);
-        auto rx = extent.x * curand_uniform(&local_state);
-        auto ry = extent.y * curand_uniform(&local_state);
-        float2 p{rx, ry};
+        auto rx = extent.x * curand_uniform_double(&local_state);
+        auto ry = extent.y * curand_uniform_double(&local_state);
+        double2 p{rx, ry};
         coords[tidx] = p;
         global_states[tidx] = local_state;
     }
 }
 
 __global__
-void integrate2d(float2 *coords, size_t point_count, curandState *states, int2 extent)
+void integrate2d(double2 *coords, size_t point_count, curandState *states, int2 extent)
 {
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
     if (tidx < point_count)
     {
         auto local_state = states[tidx];
-        auto r = curand_normal2(&local_state);
+        auto r = curand_normal2_double(&local_state);
         auto p = coords[tidx];
         p.x += r.x;
         if (p.x > extent.x) p.x = extent.x;
@@ -47,7 +47,7 @@ int main(int argc, char *argv[])
 {
     size_t point_count    = 100;
     size_t iter_count     = 10000;
-    float2 *d_coords      = nullptr;
+    double2 *d_coords      = nullptr;
     curandState *d_states = nullptr;
     int2 extent           = {200, 200};
     unsigned block_size   = 256;
@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
         ViewParams params;
         params.element_count = point_count;
         params.extent        = {200, 200, 1};
-        params.data_type     = DataType::Float;
+        params.data_type     = DataType::Double;
         params.channel_count = 2;
         params.data_domain   = DataDomain::Domain2D;
         params.resource_type = ResourceType::Buffer;

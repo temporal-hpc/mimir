@@ -62,7 +62,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     {
         params.source_path = "shaders/marker.slang";
         params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-        std::string spec = "Float";
+        std::string spec = getDataType(view.data_type);
         if (view.data_domain == DataDomain::Domain2D)      { spec += "2"; }
         else if (view.data_domain == DataDomain::Domain3D) { spec += "3"; }
         params.specializations.push_back(spec);
