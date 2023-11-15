@@ -7,15 +7,17 @@
 
 #include <array> // std::array
 #include <algorithm> // std::clamp
+#include <cstdio> // std::sprintf
+#include <stdexcept>// std::runtime_error
 
 namespace mimir
 {
 
-std::array<ResourceType, 3> kAllResources = {
+std::array<ResourceType, 2> kAllResources = {
     ResourceType::Buffer,
     ResourceType::Texture
 };
-std::array<DomainType, 3> kAllDomains = {
+std::array<DomainType, 2> kAllDomains = {
     DomainType::Structured,
     DomainType::Unstructured
 };
@@ -65,6 +67,33 @@ struct AllDataTypes
     }
 };
 
+template<typename ... Args>
+std::string string_format( const std::string& format, Args ... args )
+{
+    int size_s = std::snprintf( nullptr, 0, format.c_str(), args ... ) + 1; // Extra space for '\0'
+    if( size_s <= 0 ){ throw std::runtime_error( "Error during formatting." ); }
+    auto size = static_cast<size_t>( size_s );
+    std::unique_ptr<char[]> buf( new char[ size ] );
+    std::snprintf( buf.get(), size, format.c_str(), args ... );
+    return std::string( buf.get(), buf.get() + size - 1 ); // We don't want the '\0' inside
+}
+
+std::string getExtent(uint3 extent, DataDomain domain)
+{
+    switch (domain)
+    {
+        case DataDomain::Domain2D:
+        {
+            return string_format("(%d,%d)", extent.x, extent.y);
+        }
+        case DataDomain::Domain3D:
+        {
+            return string_format("(%d,%d,%d)", extent.x, extent.y, extent.z);
+        }
+        default: return "unknown";
+    }
+}
+
 void addTableRow(const std::string& key, const std::string& value)
 {
     ImGui::TableNextRow();
@@ -87,42 +116,54 @@ bool addTableRowCombo(const std::string& key, int* current_item,
     return ImGui::Combo(key.c_str(), current_item, items_getter, data, items_count);
 }
 
-void addViewObjectGui(InteropView *view_ptr, int uid)
+void addViewObjectGui(InteropView2 *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
     bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
-
     if (node_open)
     {
-        auto& info = view_ptr->params;
-        ImGui::Checkbox("show", &info.options.visible);
+        auto& params = view_ptr->params;
+        ImGui::Checkbox("show", &params.options.visible);
+        bool type_check = ImGui::Combo("View type", (int*)&params.view_type,
+            &AllElemTypes::ItemGetter, kAllElements.data(), kAllElements.size()
+        );
+        if (type_check) printf("View %d: switched view type to %s\n", uid, getViewType(params.view_type));
+        bool dom_check = ImGui::Combo("Domain type", (int*)&params.domain_type,
+            &AllDomains::ItemGetter, kAllDomains.data(), kAllDomains.size()
+        );       
+        if (dom_check) printf("View %d: switched domain type to %s\n", uid, getDomainType(params.domain_type));
+        ImGui::SliderFloat("Element size (px)", &params.options.default_size, 1.f, 100.f);
+        ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
+        //ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {
-            addTableRow("Element count", std::to_string(info.element_count));
-            addTableRow("Channel count", std::to_string(info.channel_count));
-            addTableRow("Data domain", getDataDomain(info.data_domain));
-            bool dom_check = addTableRowCombo("Domain type", (int*)&info.domain_type,
-                &AllDomains::ItemGetter, kAllDomains.data(), kAllDomains.size()
-            );            
-            if (dom_check) printf("View %d: switched domain type to %s\n", uid, getDomainType(info.domain_type));
-            bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
-                &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
-            );
-            if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
-            bool elem_check = addTableRowCombo("Element type", (int*)&info.element_type,
-                &AllElemTypes::ItemGetter, kAllElements.data(), kAllElements.size()
-            );
-            if (elem_check) printf("View %d: switched element type to %s\n", uid, getElementType(info.element_type));
-            bool data_check = addTableRowCombo("Data type", (int*)&info.data_type,
-                &AllDataTypes::ItemGetter, kAllDataTypes.data(), kAllDataTypes.size()
-            );
-            if (data_check) printf("View %d: switched data type to %s\n", uid, getDataType(info.data_type));
-
+            addTableRow("Data domain", getDataDomain(params.data_domain));
+            addTableRow("Data extent", getExtent(params.extent, params.data_domain));
             ImGui::EndTable();
+        }        
+        for (const auto& attr : params.attributes)
+        {
+            if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+            {
+                auto& info = attr.memory.params;
+                //addTableRow("Element count", std::to_string(info.element_count));
+                addTableRow("Resource type", getResourceType(info.resource_type));
+                addTableRow("Data type", getDataType(info.data_type));
+                addTableRow("Channel count", std::to_string(info.channel_count));
+                addTableRow("Data layout", getDataLayout(info.layout));
+                
+                /*bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
+                    &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
+                );
+                if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
+                bool data_check = addTableRowCombo("Data type", (int*)&info.data_type,
+                    &AllDataTypes::ItemGetter, kAllDataTypes.data(), kAllDataTypes.size()
+                );
+                if (data_check) printf("View %d: switched data type to %s\n", uid, getDataType(info.data_type));*/
+
+                ImGui::EndTable();
+            }
         }
-        ImGui::SliderFloat("Element size (px)", &info.options.size, 1.f, 100.f);
-        ImGui::ColorEdit4("Element color", (float*)&info.options.color);
-        //ImGui::SliderFloat("depth", &info.options.depth, 0.f, 1.f);
         ImGui::TreePop();
     }
     ImGui::PopID();
@@ -152,9 +193,9 @@ void CudaviewEngine::displayEngineGUI()
     }
     if (!options.enable_fps_limit) ImGui::EndDisabled();
 
-    for (size_t i = 0; i < views.size(); ++i)
+    for (size_t i = 0; i < views2.size(); ++i)
     {
-        addViewObjectGui(views[i].get(), i);
+        addViewObjectGui(views2[i].get(), i);
     }
     ImGui::End();
 }

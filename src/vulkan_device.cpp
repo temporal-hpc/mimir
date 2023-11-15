@@ -205,15 +205,18 @@ VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
 VkBuffer VulkanDevice::createBuffer(VkDeviceSize size, 
     VkBufferUsageFlags usage, const void *extmem_info)
 {
-    VkBufferCreateInfo info{};
-    info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    info.size        = size;
-    info.usage       = usage;
-    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    info.pNext       = extmem_info;
-
     VkBuffer buffer = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
+    if (size > 0)
+    {
+        VkBufferCreateInfo info{};
+        info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        info.size        = size;
+        info.usage       = usage;
+        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        info.pNext       = extmem_info;
+
+        validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
+    }
     return buffer;
 }
 

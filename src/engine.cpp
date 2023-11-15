@@ -194,14 +194,14 @@ void CudaviewEngine::waitKernelStart()
     );
     wait_value += 2;
 
-    for (auto& view : views)
+    /*for (auto& view : views)
     {
         if (view->params.resource_type == ResourceType::Buffer &&
             view->params.element_type == ElementType::Image)
         {
             dev->updateTexture(view.get());
         }
-    }
+    }*/
 }
 
 void CudaviewEngine::updateViews()
@@ -255,20 +255,43 @@ void CudaviewEngine::display(std::function<void(void)> func, size_t iter_count)
     vkDeviceWaitIdle(dev->logical_device);
 }
 
+InteropMemory *CudaviewEngine::createBuffer(void **dev_ptr, MemoryParams params)
+{
+    auto mem_handle = std::unique_ptr<InteropMemory>(new InteropMemory());
+    mem_handle->params = params;
+
+    dev->initMemoryBuffer(*mem_handle);
+    *dev_ptr = mem_handle->cuda_ptr;
+    allocations.push_back(std::move(mem_handle));
+    return allocations.back().get();
+}
+
+InteropView2 *CudaviewEngine::createView(ViewParams2 params)
+{
+    auto view_handle = std::unique_ptr<InteropView2>(new InteropView2());
+    view_handle->params = params;
+
+    dev->initViewBuffer(*view_handle);
+    views2.push_back(std::move(view_handle));
+    return views2.back().get();
+}
+
 InteropView *CudaviewEngine::createView(void **ptr_devmem, ViewParams params)
 {
-    auto view_handle = std::unique_ptr<InteropView>(new InteropView());
+    /*auto view_handle = std::unique_ptr<InteropView>(new InteropView());
     view_handle->params = params;
 
     dev->initView(*view_handle);
     *ptr_devmem = view_handle->cuda_ptr;
     views.push_back(std::move(view_handle));
-    return views.back().get();
+    return views.back().get();*/
+    return nullptr;
 }
 
 InteropView *CudaviewEngine::getView(uint32_t view_index)
 {
-    return views[view_index].get();
+    //return views[view_index].get();
+    return nullptr;
 }
 
 void CudaviewEngine::loadTexture(InteropView *view, void *data)
@@ -524,7 +547,7 @@ void CudaviewEngine::createSyncObjects()
 void CudaviewEngine::cleanupSwapchain()
 {
     vkDeviceWaitIdle(dev->logical_device);
-    for (auto& view : views)
+    for (auto& view : views2)
     {
         vkDestroyPipeline(dev->logical_device, view->pipeline, nullptr);
     }
@@ -638,7 +661,7 @@ void CudaviewEngine::updateDescriptorSets()
         );
         updates.push_back(write_scene);
 
-        for (const auto& view : views)
+        /*for (const auto& view : views2)
         {
             if (view->params.element_type == ElementType::Image ||
                 view->params.resource_type == ResourceType::Texture)
@@ -663,7 +686,7 @@ void CudaviewEngine::updateDescriptorSets()
                 );
                 updates.push_back(write_samp);
             }
-        }        
+        }*/
 
         vkUpdateDescriptorSets(dev->logical_device, updates.size(), updates.data(), 0, nullptr);
     }
@@ -818,9 +841,9 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
     auto size_ubo = size_mvp + size_primitive + size_scene;
 
     auto cmd = command_buffers[image_idx];
-    for (uint32_t i = 0; i < views.size(); ++i)
+    for (uint32_t i = 0; i < views2.size(); ++i)
     {
-        auto& view = views[i];
+        auto& view = views2[i];
         std::vector<uint32_t> offsets = { i * size_ubo, i * size_ubo + size_mvp + size_primitive, i * size_ubo + size_mvp };
         // NOTE: Second parameter can be also used to bind a compute pipeline
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -828,7 +851,26 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
         );
         if (!view->params.options.visible) continue;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
-        if (view->params.resource_type == ResourceType::Texture ||
+
+        std::vector<VkBuffer> vert_buffers;
+        std::vector<VkDeviceSize> buffer_offsets;
+        for (const auto& attribute : view->params.attributes)
+        {
+            vert_buffers.push_back(attribute.memory.data_buffer);
+            buffer_offsets.push_back(0);
+        }
+        switch (view->params.view_type)
+        {
+            case ViewType::Markers:
+            {
+                vkCmdBindVertexBuffers(cmd, 0, vert_buffers.size(), vert_buffers.data(), buffer_offsets.data());
+                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
+                break;
+            }
+            default: break;
+        }        
+
+        /*if (view->params.resource_type == ResourceType::Texture ||
             view->params.element_type == ElementType::Image)
         {
             if (view->params.element_type == ElementType::Voxels)
@@ -887,7 +929,7 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
                     // TODO: Check what to do here
                 }
             }
-        }
+        }*/
     }
 }
 
@@ -963,7 +1005,7 @@ void CudaviewEngine::createGraphicsPipelines()
 
     // Iterate through views, generating the corresponding pipelines
     // TODO: This does not allow adding views at runtime
-    for (auto& view : views)
+    for (auto& view : views2)
     {
         builder.addPipeline(view->params, dev.get());
     }
@@ -971,7 +1013,7 @@ void CudaviewEngine::createGraphicsPipelines()
     //printf("%lu pipeline(s) created\n", pipelines.size());
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
-        views[i]->pipeline = pipelines[i];
+        views2[i]->pipeline = pipelines[i];
     }
 
     // Restore original working directory
@@ -1002,7 +1044,7 @@ void CudaviewEngine::initUniformBuffers()
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = (size_mvp + size_primitive + size_scene) * views.size();
+    auto size_ubo = (size_mvp + size_primitive + size_scene) * views2.size();
     
     uniform_buffers.resize(swap->image_count);
     for (auto& ubo : uniform_buffers)
@@ -1026,9 +1068,9 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
     auto size_ubo = size_mvp + size_primitive + size_scene;
     auto memory = uniform_buffers[image_idx].memory;
 
-    for (size_t view_idx = 0; view_idx < views.size(); ++view_idx)
+    for (size_t view_idx = 0; view_idx < views2.size(); ++view_idx)
     {
-        auto& view = views[view_idx];
+        auto& view = views2[view_idx];
 
         ModelViewProjection mvp{};
         mvp.model = glm::mat4(1.f);
@@ -1036,9 +1078,9 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
         mvp.proj  = camera->matrices.perspective;
 
         PrimitiveParams primitive{};
-        primitive.color = getColor(view->params.options.color);
-        primitive.size = view->params.options.size;
-        primitive.depth = view->params.options.depth;
+        primitive.color = getColor(view->params.options.default_color);
+        primitive.size = view->params.options.default_size;
+        //primitive.depth = view->params.options.depth;
 
         SceneParams scene{};
         auto extent = view->params.extent;

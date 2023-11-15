@@ -59,6 +59,9 @@ public:
     InteropView *getView(uint32_t view_index);
     void loadTexture(InteropView *view, void *data);
 
+    InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
+    InteropView2 *createView(ViewParams2 params);
+
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
     void prepareViews();
@@ -110,8 +113,11 @@ private:
     uint64_t current_frame = 0;
     std::string shader_path;
 
-    std::vector<std::unique_ptr<InteropView>> views;
+    //std::vector<std::unique_ptr<InteropView>> views;
     std::vector<AllocatedBuffer> uniform_buffers;
+
+    std::vector<std::unique_ptr<InteropMemory>> allocations;
+    std::vector<std::unique_ptr<InteropView2>> views2;
 
     float4 bg_color{.5f, .5f, .5f, 1.f};
 

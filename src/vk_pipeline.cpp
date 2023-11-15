@@ -94,6 +94,29 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     return params;
 }
 
+ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
+{
+    ShaderCompileParameters compile;
+    compile.specializations = params.options.specializations;
+    if (params.view_type == ViewType::Markers)
+    {
+        compile.source_path = "shaders/marker.slang";
+        compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+        for (const auto& attr : params.attributes)
+        {
+            //std::string spec = getAttributeType(attr.type);
+            std::string spec = getDataType(attr.memory.params.data_type);
+            if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
+            else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
+            compile.specializations.push_back(spec);
+        }
+        //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
+        //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
+    }
+    // TODO: Add rest of view types
+    return compile;
+}
+
 VertexDescription getVertexDescription(const ViewParams params)
 {
     VertexDescription desc;
@@ -365,6 +388,80 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
     col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;  
     info.color_blend_attachment = col_blend;
+
+    pipeline_infos.push_back(info);
+    return pipeline_infos.size() - 1;
+}
+
+VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
+{
+    auto poly_mode = (type == ViewType::Edges)? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+    return vkinit::rasterizationStateCreateInfo(poly_mode);
+}
+
+VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
+{
+    VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    if (view_type == ViewType::Image || view_type == ViewType::Edges)
+    {
+        topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    }
+    return vkinit::inputAssemblyCreateInfo(topology);
+}
+
+VertexDescription getVertexDescription(const ViewParams2 params)
+{
+    VertexDescription desc;
+
+    for (const auto& attr : params.attributes)
+    {
+        auto& mem_params = attr.memory.params;
+        auto stride = getDataSize(mem_params.data_type, mem_params.channel_count);
+        auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);
+        desc.binding.push_back(vkinit::vertexBindingDescription(
+            0, stride, VK_VERTEX_INPUT_RATE_VERTEX
+        ));
+        desc.attribute.push_back(vkinit::vertexAttributeDescription(
+            0, 0, format, 0
+        ));
+    }
+    // TODO: Handle image view type
+
+    return desc;
+}
+
+uint32_t PipelineBuilder::addPipeline(const ViewParams2 params, InteropDevice *dev)
+{
+    PipelineInfo info;
+    auto compile_params = getShaderCompileParams(params);
+    auto ext_shaders = params.options.external_shaders;
+
+    std::vector<VkPipelineShaderStageCreateInfo> stages;
+    if (!ext_shaders.empty()) {
+        //printf("Loading external shaders\n");
+        stages = loadExternalShaders(dev, ext_shaders);
+    }
+    else
+    {
+        //printf("Compiling slang shaders\n");
+        stages = compileSlang(dev, compile_params);
+    }
+    
+    info.shader_stages = stages;
+    info.vertex_input_info = getVertexDescription(params);
+    info.input_assembly = getAssemblyInfo(params.view_type);
+    info.depth_stencil = getDepthInfo(params.data_domain);
+    info.rasterizer = getRasterizationInfo(params.view_type);
+    info.multisampling = vkinit::multisampleStateCreateInfo();
+    auto col_blend = vkinit::colorBlendAttachmentState();
+    col_blend.blendEnable         = VK_TRUE;
+    col_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    col_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    col_blend.colorBlendOp        = VK_BLEND_OP_ADD;
+    col_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;  
+    info.color_blend_attachment   = col_blend;
 
     pipeline_infos.push_back(info);
     return pipeline_infos.size() - 1;
