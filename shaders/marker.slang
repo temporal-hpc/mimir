@@ -2,7 +2,7 @@ import uniforms;
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
-ConstantBuffer<PrimitiveParams> primitive;
+ConstantBuffer<PrimitiveParams> element;
 
 static const float SQRT_2 = 1.4142135623730951;
 static const float u_antialias = 1;
@@ -10,7 +10,7 @@ static const float v_linewidth = 1;
 
 interface ICoord
 {
-    float4 getVertex(int3 extent);
+    float4 getPosition(int3 extent);
 };
 
 struct MarkerInput<T, let N : int>
@@ -20,88 +20,89 @@ struct MarkerInput<T, let N : int>
 
 struct Float2 : ICoord
 {
-    float2 pos : POSITION;
-    float4 getVertex(int3 extent)
+    MarkerInput<float,2> input;
+    float4 getPosition(int3 extent)
     {
-        return getVertexPos2d(pos, extent);
+        float2 pos = convertFloat<2>(input.pos);
+        return getPosition2d(pos, extent);
     }
 };
 
 struct Double2 : ICoord
 {
     MarkerInput<double,2> input;
-    float4 getVertex(int3 extent)
+    float4 getPosition(int3 extent)
     {
         float2 pos = convertDouble<2>(input.pos);
-        return getVertexPos2d(pos, extent);
+        return getPosition2d(pos, extent);
     }
 };
 
 struct Half2 : ICoord
 {
     MarkerInput<half,2> input;
-    float4 getVertex(int3 extent)
+    float4 getPosition(int3 extent)
     {
         float2 pos = convertHalf<2>(input.pos);
-        return getVertexPos2d(pos, extent);
+        return getPosition2d(pos, extent);
     }
 };
 
 struct Int2 : ICoord
 {
     MarkerInput<int,2> input;
-    float4 getVertex(int3 extent)
+    float4 getPosition(int3 extent)
     {
         float2 pos = convertInt<2>(input.pos);
-        return getVertexPos2d(pos, extent);
+        return getPosition2d(pos, extent);
     }
 };
 
 struct Float3 : ICoord
 {
     MarkerInput<float,3> input;
-    float4 getVertex(int3 extent)
+    float4 getPosition(int3 extent)
     {
-        return getVertexPos3d(input.pos, extent);
+        return getPosition3d(input.pos, extent);
     }
 }
 
 struct Double3 : ICoord
 {
     MarkerInput<double,3> input;
-    float4 getVertex(int3 extent)
+    float4 getPosition(int3 extent)
     {
         float3 pos = convertDouble<3>(input.pos);
-        return getVertexPos3d(pos, extent);
+        return getPosition3d(pos, extent);
     }
 };
 
 struct Half3 : ICoord
 {
     MarkerInput<half,3> input;
-    float4 getVertex(int3 extent)
+    float4 getPosition(int3 extent)
     {
         float3 pos = convertHalf<3>(input.pos);
-        return getVertexPos3d(pos, extent);
+        return getPosition3d(pos, extent);
     }
 };
 
 struct Int3 : ICoord
 {
     MarkerInput<int,3> input;
-    float4 getVertex(int3 extent)
+    float4 getPosition(int3 extent)
     {
         float3 pos = convertInt<3>(input.pos);
-        return getVertexPos3d(pos, extent);
+        return getPosition3d(pos, extent);
     }
 };
 
-float4 getVertexPos2d(float2 pos, int3 extent)
+float4 getPosition2d(float2 pos, int3 extent)
 {
     return float4(2 * (pos / extent.xy) - 1, 0, 1);
 };
 
-float4 getVertexPos3d(float3 pos, int3 extent)
+float4 getPosition3d(float3 pos, int3 extent)
 {
     return float4(2 * (pos / extent) - 1, 1);
 };
@@ -150,7 +151,7 @@ struct VertexData
 VertexData vertexMain<T:ICoord>(T input)
 {
     VertexData output;
-    output.center = input.getVertex(scene.extent);
+    output.center = input.getPosition(scene.extent);
     return output;
 }
 
@@ -172,7 +173,7 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
     //float4 center = input[0].center;
 
     MarkerData output;
-    output.size = SQRT_2*primitive.size  + 2 * (v_linewidth + 1.5*u_antialias);
+    output.size = SQRT_2*element.size  + 2 * (v_linewidth + 1.5*u_antialias);
 
     float4 dx = float4(1,0,0,0) * (output.size / scene.resolution.x);
     float4 dy = float4(0,1,0,0) * (output.size / scene.resolution.y);
@@ -328,15 +329,15 @@ FragmentOutput fragmentMain(MarkerData input)
     
     float2 p = 2 * input.uv - 1;
     // if (dot(p, p) > 1) discard;
-    // return primitive.color;
+    // return element.color;
     //float2 p = input.uv - float2(0.5);
     //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
     
     DiscShape shape;
-    float distance = shape.apply(p * input.size, primitive.size);
+    float distance = shape.apply(p * input.size, element.size);
     
     Filled filled;
-    out.color = filled.apply(distance, v_linewidth, u_antialias, primitive.color, scene.bg_color);
+    out.color = filled.apply(distance, v_linewidth, u_antialias, element.color, scene.bg_color);
     //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;
