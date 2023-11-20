@@ -20,9 +20,9 @@ constexpr size_t getDataSize(DataType t, uint channel_count)
 {
     switch (t)
     {
-        case DataType::Int:   return sizeof(int) * channel_count;
-        case DataType::Char:  return sizeof(char) * channel_count;
-        case DataType::Float: return sizeof(float) * channel_count;
+        case DataType::Int:    return sizeof(int) * channel_count;
+        case DataType::Char:   return sizeof(char) * channel_count;
+        case DataType::Float:  return sizeof(float) * channel_count;
         case DataType::Double: return sizeof(double) * channel_count;
         default: return 0;
     }

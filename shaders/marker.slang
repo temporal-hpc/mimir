@@ -69,7 +69,7 @@ struct PositionDouble2 : IPosition
         return getPosition2d(data, extent);
     }
 };
-
+/*
 struct PositionHalf2 : IPosition
 {
     VectorInput<half,2> input : POSITION;
@@ -128,7 +128,7 @@ struct PositionInt3 : IPosition
         return getPosition3d(data, extent);
     }
 };
-
+*/
 float4 getPosition2d(float2 data, int3 extent)
 {
     return float4(2 * (data / extent.xy) - 1, 0, 1);
@@ -149,16 +149,24 @@ struct ColorDefault : IColor
     float4 getColor() { return view.default_color; }
 };
 
-struct ColorMapped : IColor
+struct ColorFloat4 : IColor
 {
-    float4 colors[] = {{1,0,0,1},{0,1,0,1},{0,0,1,1}};
+    VectorInput<float,4> colors;
+    float4 getColor()
+    {
+        return colors.data;
+    }
+};
+
+struct ColorInt1 : IColor
+{
+    float4 colors[] = {{27,158,119,1},{217,95,2,1},{117,112,179,1},{231,41,138,1}};
     VectorInput<int,1> input : COLOR;
     float4 getColor()
     {
         return colors[input.data.x];
     }
 };
-
 
 struct ColorFloat2 : IColor
 {

@@ -153,11 +153,11 @@ VkVertexInputBindingDescription vertexBindingDescription(
 }
 
 VkVertexInputAttributeDescription vertexAttributeDescription(
-    uint32_t binding, uint32_t location, VkFormat format, uint32_t offset)
+    uint32_t location, uint32_t binding, VkFormat format, uint32_t offset)
 {
     VkVertexInputAttributeDescription desc{};
-    desc.binding  = binding;
     desc.location = location;
+    desc.binding  = binding;
     desc.format   = format;
     desc.offset   = offset;
     return desc;

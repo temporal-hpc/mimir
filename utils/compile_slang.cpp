@@ -135,14 +135,14 @@ int main()
     checkSlang(global_session->createSession(session_desc, session.writeRef()));
 
     ShaderCompileParameters params;
-    params.output_path = "../samples/shaders";
+    /*params.output_path = "../samples/shaders";
     params.source_path = "../samples/shaders/voxel.slang";
     params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
-    compileSlang(params, session);
+    compileSlang(params, session);*/
     
     params.source_path = "../samples/shaders/marker.slang";
     params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-    params.specializations = { "Double2" };
+    params.specializations = { "PositionDouble2", "ColorFloat4", "SizeDefault" };
     compileSlang(params, session);
     
     return 0;

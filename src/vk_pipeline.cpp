@@ -121,9 +121,11 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
             required_specs.extract(attr.type);
             std::string spec = getAttributeType(attr.type);
             spec += getDataType(attr.memory.params.data_type);
-            if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
-            else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
+            spec += std::to_string(attr.memory.params.channel_count);
+            //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
+            //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
             compile.specializations.push_back(spec);
+            printf("added spec %s\n", spec.c_str());
         }
 
         // Iterate through the attributes that did not get a specialization,
@@ -132,7 +134,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
         {
             std::string default_spec = getAttributeType(remaining_attr);
             default_spec += "Default";
-            printf("%s\n", default_spec.c_str());
+            printf("added default spec %s\n", default_spec.c_str());
             compile.specializations.push_back(default_spec);
         }
     }
@@ -436,16 +438,18 @@ VertexDescription getVertexDescription(const ViewParams2 params)
 {
     VertexDescription desc;
 
-    for (const auto& attr : params.attributes)
+    for (size_t i = 0; i < params.attributes.size(); ++i)
     {
+        const auto& attr = params.attributes[i];
         auto& mem_params = attr.memory.params;
+        uint32_t location = static_cast<uint32_t>(attr.type);
         auto stride = getDataSize(mem_params.data_type, mem_params.channel_count);
         auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);
         desc.binding.push_back(vkinit::vertexBindingDescription(
-            0, stride, VK_VERTEX_INPUT_RATE_VERTEX
+            i, stride, VK_VERTEX_INPUT_RATE_VERTEX
         ));
         desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            0, 0, format, 0
+            location, i, format, 0
         ));
     }
     // TODO: Handle image view type

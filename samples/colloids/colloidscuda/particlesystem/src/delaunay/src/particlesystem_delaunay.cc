@@ -169,8 +169,27 @@ void ParticleSystemDelaunay::initCommon()
 	       hEdgeLaunch.x, hEdgeLaunch.y);
 }
 
+float4 getTypeColor(int type)
+{
+    switch (type)
+    {
+        case 0: return {27.f / 255,158.f / 255,119.f / 255,1};
+        case 1: return {217.f / 255,95.f / 255,2.f / 255,1};
+        case 2: return {117.f / 255,112.f / 255,179.f / 255,1};
+        case 3: return {231.f / 255,41.f / 255,138.f / 255,1};
+        default: return {0, 0, 0, 1};
+    }
+}
+
 void ParticleSystemDelaunay::loadOnDevice()
 {
+    std::vector<float4> colors;
+    colors.reserve(params_.num_elements);
+    for (unsigned int i = 0; i < params_.num_elements; ++i)
+    {
+        colors.push_back(getTypeColor(types_[i]));
+    }
+    
     ViewerOptions viewer_opts;
     viewer_opts.window_title = "Colloid"; // Top-level window.
     viewer_opts.window_size = {1920, 1080};
@@ -179,6 +198,8 @@ void ParticleSystemDelaunay::loadOnDevice()
     
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * 2 * sizeof(double);
+	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
+	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
     unsigned l = params_.boxlength;
 
     MemoryParams m;
@@ -190,6 +211,15 @@ void ParticleSystemDelaunay::loadOnDevice()
     interop[current_read] = engine.createBuffer((void**)&devicedata_.positions[current_read], m);
     interop[current_write] = engine.createBuffer((void**)&devicedata_.positions[current_write], m);
     
+    /*
+    m.data_type       = DataType::Int;
+    m.channel_count   = 1;
+    interop[2] = engine.createBuffer((void**)&devicedata_.types, m);
+    */
+    m.data_type       = DataType::Float;
+    m.channel_count   = 4;
+    interop[2] = engine.createBuffer((void**)&devicedata_.colors, m);
+
     ViewParams2 v;
     v.element_count = params_.num_elements;
     v.extent        = {l, l, 1};
@@ -197,7 +227,13 @@ void ParticleSystemDelaunay::loadOnDevice()
     v.domain_type   = DomainType::Unstructured;
     v.view_type     = ViewType::Markers;
     v.attributes.push_back({ *interop[current_read], AttributeType::Position });
-    v.options.default_size = 20.f;
+    v.attributes.push_back({ *interop[2], AttributeType::Color });
+    v.options.default_size = 100.f;
+    /*v.options.external_shaders = {
+        {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
+        {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
+        {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
+    };*/ 
     views[current_read] = engine.createView(v);
 
     v.options.visible = false;
@@ -212,19 +248,13 @@ void ParticleSystemDelaunay::loadOnDevice()
 			             pos_bytes, cudaMemcpyHostToDevice));
 
 	// Load particle type data
-    /*ViewParams types;
-    types.element_count   = params_.num_elements;
-    types.extent          = {l, l, 1};
-    types.data_type       = DataType::Double;
-    types.channel_count   = 2;
-    types.resource_type   = ResourceType::Buffer;
-    types.data_domain     = DataDomain::Domain2D;
-    types.domain_type     = DomainType::Unstructured;
-    types.element_type    = ElementType::Markers;*/
-
     auto type_bytes = sizeof(int) * params_.num_elements;
     cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
     cudaCheck(cudaMemcpy(devicedata_.types, types_, type_bytes, cudaMemcpyHostToDevice));
+
+    auto color_bytes = sizeof(float4) * params_.num_elements;
+    //cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));
+    cudaCheck(cudaMemcpy(devicedata_.colors, colors.data(), color_bytes, cudaMemcpyHostToDevice));
 
 	cudaCheck(cudaMalloc(&devicedata_.charges, pos_bytes));
 	cudaCheck(cudaMemcpy(devicedata_.charges, charges_, pos_bytes,
