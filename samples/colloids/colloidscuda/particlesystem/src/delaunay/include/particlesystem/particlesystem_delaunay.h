@@ -148,7 +148,8 @@ private:
 	// should be *hDeviceData if using multiple gpus
 	DeviceData devicedata_;
     mimir::CudaviewEngine engine;
-    mimir::InteropView *views[2];
+    mimir::InteropMemory *interop[3];
+    mimir::InteropView2 *views[2];
 };
 
 } // namespace delaunay

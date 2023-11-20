@@ -26,7 +26,8 @@ ParticleSystemDelaunay::ParticleSystemDelaunay(SimParameters p,
 {
 	positions_ = new double[params_.num_elements * 2];
 	charges_ = new double[params_.num_elements * 2];
-	velocities_ = new double[params_.num_elements * 2];  
+	velocities_ = new double[params_.num_elements * 2];
+    types_ = new int[params_.num_elements];
 
 	initParticles(positions_, charges_, types_, params_, seed);
 	initTriangulationHost();
@@ -48,6 +49,7 @@ ParticleSystemDelaunay::ParticleSystemDelaunay(SimParameters p,
 	positions_ = new double[params_.num_elements * 2];
 	charges_ = new double[params_.num_elements * 2];
 	velocities_ = new double[params_.num_elements * 2];
+    types_ = new int[params_.num_elements];
 
 	readFile(pFileName);
 	initCommon();
@@ -74,6 +76,7 @@ ParticleSystemDelaunay::~ParticleSystemDelaunay()
 	delete [] positions_;
 	delete [] charges_;
 	delete [] velocities_;
+    delete [] types_;
 	delete [] delaunay_.triangles;
 	delete [] delaunay_.edge_idx;
 	delete [] delaunay_.edge_ta;
@@ -177,21 +180,29 @@ void ParticleSystemDelaunay::loadOnDevice()
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * 2 * sizeof(double);
     unsigned l = params_.boxlength;
-    ViewParams points;
-    points.element_count   = params_.num_elements;
-    points.extent          = {l, l, 1};
-    points.data_type       = DataType::Double;
-    points.channel_count   = 2;
-    points.resource_type   = ResourceType::Buffer;
-    points.data_domain     = DataDomain::Domain2D;
-    points.domain_type     = DomainType::Unstructured;
-    points.element_type    = ElementType::Markers;
 
-	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
-	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
-    views[current_read] = engine.createView((void**)&devicedata_.positions[current_read], points);
-    points.options.visible = false;
-    views[current_write] = engine.createView((void**)&devicedata_.positions[current_write], points);
+    MemoryParams m;
+    m.layout          = DataLayout::Layout1D;
+    m.element_count.x = params_.num_elements;
+    m.data_type       = DataType::Double;
+    m.channel_count   = 2;
+    m.resource_type   = ResourceType::Buffer;
+    interop[current_read] = engine.createBuffer((void**)&devicedata_.positions[current_read], m);
+    interop[current_write] = engine.createBuffer((void**)&devicedata_.positions[current_write], m);
+    
+    ViewParams2 v;
+    v.element_count = params_.num_elements;
+    v.extent        = {l, l, 1};
+    v.data_domain   = DataDomain::Domain2D;
+    v.domain_type   = DomainType::Unstructured;
+    v.view_type     = ViewType::Markers;
+    v.attributes.push_back({ *interop[current_read], AttributeType::Position });
+    v.options.default_size = 20.f;
+    views[current_read] = engine.createView(v);
+
+    v.options.visible = false;
+    v.attributes[0].memory = *interop[current_write];
+    views[current_write] = engine.createView(v);
 
 	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_,
 			             pos_bytes, cudaMemcpyHostToDevice));
@@ -201,6 +212,16 @@ void ParticleSystemDelaunay::loadOnDevice()
 			             pos_bytes, cudaMemcpyHostToDevice));
 
 	// Load particle type data
+    /*ViewParams types;
+    types.element_count   = params_.num_elements;
+    types.extent          = {l, l, 1};
+    types.data_type       = DataType::Double;
+    types.channel_count   = 2;
+    types.resource_type   = ResourceType::Buffer;
+    types.data_domain     = DataDomain::Domain2D;
+    types.domain_type     = DomainType::Unstructured;
+    types.element_type    = ElementType::Markers;*/
+
     auto type_bytes = sizeof(int) * params_.num_elements;
     cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
     cudaCheck(cudaMemcpy(devicedata_.types, types_, type_bytes, cudaMemcpyHostToDevice));
