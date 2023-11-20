@@ -8,7 +8,7 @@ static const float SQRT_2 = 1.4142135623730951;
 static const float u_antialias = 1;
 static const float v_linewidth = 1;
 
-interface ICoord
+interface IPosition
 {
     float4 getPosition(int3 extent);
 };
@@ -16,9 +16,9 @@ interface ICoord
 struct MarkerInput<T, let N : int>
 {
     vector<T,N> pos : POSITION;
-}
+};
 
-struct Float2 : ICoord
+struct PositionFloat2 : IPosition
 {
     MarkerInput<float,2> input;
     float4 getPosition(int3 extent)
@@ -28,7 +28,7 @@ struct Float2 : ICoord
     }
 };
 
-struct Double2 : ICoord
+struct PositionDouble2 : IPosition
 {
     MarkerInput<double,2> input;
     float4 getPosition(int3 extent)
@@ -38,7 +38,7 @@ struct Double2 : ICoord
     }
 };
 
-struct Half2 : ICoord
+struct PositionHalf2 : IPosition
 {
     MarkerInput<half,2> input;
     float4 getPosition(int3 extent)
@@ -48,7 +48,7 @@ struct Half2 : ICoord
     }
 };
 
-struct Int2 : ICoord
+struct PositionInt2 : IPosition
 {
     MarkerInput<int,2> input;
     float4 getPosition(int3 extent)
@@ -58,16 +58,16 @@ struct Int2 : ICoord
     }
 };
 
-struct Float3 : ICoord
+struct PositionFloat3 : IPosition
 {
     MarkerInput<float,3> input;
     float4 getPosition(int3 extent)
     {
         return getPosition3d(input.pos, extent);
     }
-}
+};
 
-struct Double3 : ICoord
+struct PositionDouble3 : IPosition
 {
     MarkerInput<double,3> input;
     float4 getPosition(int3 extent)
@@ -77,7 +77,7 @@ struct Double3 : ICoord
     }
 };
 
-struct Half3 : ICoord
+struct PositionHalf3 : IPosition
 {
     MarkerInput<half,3> input;
     float4 getPosition(int3 extent)
@@ -87,7 +87,7 @@ struct Half3 : ICoord
     }
 };
 
-struct Int3 : ICoord
+struct PositionInt3 : IPosition
 {
     MarkerInput<int,3> input;
     float4 getPosition(int3 extent)
@@ -100,12 +100,12 @@ struct Int3 : ICoord
 float4 getPosition2d(float2 pos, int3 extent)
 {
     return float4(2 * (pos / extent.xy) - 1, 0, 1);
-};
+}
 
 float4 getPosition3d(float3 pos, int3 extent)
 {
     return float4(2 * (pos / extent) - 1, 1);
-};
+}
 
 vector<float,N> convertInt<let N:int>(vector<int,N> vec)
 {
@@ -131,6 +131,26 @@ vector<float,N> convertFloat<let N:int>(vector<float,N> vec)
     return res;
 }
 
+interface IColor
+{
+    float4 getColor();
+};
+
+interface ISize
+{
+    float getSize();
+};
+
+struct DefaultColor : IColor
+{
+    float4 getColor() { return element.color; }
+};
+
+struct DefaultSize : ISize
+{
+    float getSize() { return element.size; }
+};
+
 vector<float,N> convertDouble<let N:int>(vector<double,N> vec)
 {
     vector<float,N> res;
@@ -142,25 +162,28 @@ vector<float,N> convertDouble<let N:int>(vector<double,N> vec)
 struct VertexData
 {
     float4 center : POSITION;
+    float4 color  : COLOR;
+    float size    : PSIZE;
     //float4 pos    : SV_Position;
-    //float4 color  : COLOR;
     //float marker_size;
 };
 
 [shader("vertex")]
-VertexData vertexMain<T:ICoord>(T input)
+VertexData vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S in_size)
 {
     VertexData output;
-    output.center = input.getPosition(scene.extent);
+    output.center = in_pos.getPosition(scene.extent);
+    output.color  = in_color.getColor();
+    output.size   = in_size.getSize();
     return output;
 }
 
 struct MarkerData
 {
-    float4 pos : SV_Position;
-    float2 uv  : TEXCOORD;
-    float size : PSIZE;
-    //float4 color : COLOR;
+    float4 pos   : SV_Position;
+    float2 uv    : TEXCOORD;
+    float4 color : COLOR;
+    float size   : PSIZE;
     //float3 normal : NORMAL;
 };
 
@@ -173,7 +196,7 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
     //float4 center = input[0].center;
 
     MarkerData output;
-    output.size = SQRT_2*element.size  + 2 * (v_linewidth + 1.5*u_antialias);
+    output.size = SQRT_2*input[0].size  + 2 * (v_linewidth + 1.5*u_antialias);
 
     float4 dx = float4(1,0,0,0) * (output.size / scene.resolution.x);
     float4 dy = float4(0,1,0,0) * (output.size / scene.resolution.y);
@@ -181,7 +204,7 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
     float4 vertex_offsets[4] = {(-dx-dy), (+dx-dy), (-dx+dy), (+dx+dy)};
     float2 texcoords[4] = {{0,0}, {1,0}, {0,1}, {1,1}};
 
-    //output.color = input[0].color;
+    output.color = input[0].color;
     //output.normal = normal.xyz;
 
     // Add point coordinates
@@ -337,7 +360,7 @@ FragmentOutput fragmentMain(MarkerData input)
     float distance = shape.apply(p * input.size, element.size);
     
     Filled filled;
-    out.color = filled.apply(distance, v_linewidth, u_antialias, element.color, scene.bg_color);
+    out.color = filled.apply(distance, v_linewidth, u_antialias, input.color, scene.bg_color);
     //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;

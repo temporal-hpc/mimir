@@ -104,12 +104,15 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
         compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
         for (const auto& attr : params.attributes)
         {
-            //std::string spec = getAttributeType(attr.type);
-            std::string spec = getDataType(attr.memory.params.data_type);
+            std::string spec = getAttributeType(attr.type);
+            spec += getDataType(attr.memory.params.data_type);
             if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
             else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
+            printf("%s\n", spec.c_str());
             compile.specializations.push_back(spec);
         }
+        compile.specializations.push_back("DefaultColor");
+        compile.specializations.push_back("DefaultSize");
         //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
         //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
     }
@@ -203,7 +206,7 @@ VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ElementType ele_type
     return vkinit::rasterizationStateCreateInfo(poly_mode);
 }
 
-VkPipelineDepthStencilStateCreateInfo getDepthInfo(DataDomain domain)
+VkPipelineDepthStencilStateCreateInfo getDepthInfo([[maybe_unused]] DataDomain domain)
 {
     // TODO: Decide when to apply depth testing
     bool use_depth = true; //(domain == DataDomain::Domain3D);
