@@ -113,6 +113,8 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
 
         // Make a list of the attributes that need specializing, and keep note
         // of the ones that did were not specialized
+        // TODO: Specialization list has to be in proper order, need to use
+        // ordered_map<AttributeType, std::string>
         auto required_specs = std::set(kAllAttributes.begin(), kAllAttributes.end());
         for (const auto& attr : params.attributes)
         {

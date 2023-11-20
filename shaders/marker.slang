@@ -45,98 +45,98 @@ interface IPosition
     float4 getPosition(int3 extent);
 };
 
-struct MarkerInput<T, let N : int>
+struct VectorInput<T, let N : int>
 {
-    vector<T,N> pos : POSITION;
+    vector<T,N> data;
 };
 
 struct PositionFloat2 : IPosition
 {
-    MarkerInput<float,2> input;
+    VectorInput<float,2> input : POSITION;
     float4 getPosition(int3 extent)
     {
-        float2 pos = convertFloat<2>(input.pos);
-        return getPosition2d(pos, extent);
+        float2 data = convertFloat<2>(input.data);
+        return getPosition2d(data, extent);
     }
 };
 
 struct PositionDouble2 : IPosition
 {
-    MarkerInput<double,2> input;
+    VectorInput<double,2> input : POSITION;
     float4 getPosition(int3 extent)
     {
-        float2 pos = convertDouble<2>(input.pos);
-        return getPosition2d(pos, extent);
+        float2 data = convertDouble<2>(input.data);
+        return getPosition2d(data, extent);
     }
 };
 
 struct PositionHalf2 : IPosition
 {
-    MarkerInput<half,2> input;
+    VectorInput<half,2> input : POSITION;
     float4 getPosition(int3 extent)
     {
-        float2 pos = convertHalf<2>(input.pos);
-        return getPosition2d(pos, extent);
+        float2 data = convertHalf<2>(input.data);
+        return getPosition2d(data, extent);
     }
 };
 
 struct PositionInt2 : IPosition
 {
-    MarkerInput<int,2> input;
+    VectorInput<int,2> input : POSITION;
     float4 getPosition(int3 extent)
     {
-        float2 pos = convertInt<2>(input.pos);
-        return getPosition2d(pos, extent);
+        float2 data = convertInt<2>(input.data);
+        return getPosition2d(data, extent);
     }
 };
 
 struct PositionFloat3 : IPosition
 {
-    MarkerInput<float,3> input;
+    VectorInput<float,3> input : POSITION;
     float4 getPosition(int3 extent)
     {
-        return getPosition3d(input.pos, extent);
+        return getPosition3d(input.data, extent);
     }
 };
 
 struct PositionDouble3 : IPosition
 {
-    MarkerInput<double,3> input;
+    VectorInput<double,3> input : POSITION;
     float4 getPosition(int3 extent)
     {
-        float3 pos = convertDouble<3>(input.pos);
-        return getPosition3d(pos, extent);
+        float3 data = convertDouble<3>(input.data);
+        return getPosition3d(data, extent);
     }
 };
 
 struct PositionHalf3 : IPosition
 {
-    MarkerInput<half,3> input;
+    VectorInput<half,3> input : POSITION;
     float4 getPosition(int3 extent)
     {
-        float3 pos = convertHalf<3>(input.pos);
-        return getPosition3d(pos, extent);
+        float3 data = convertHalf<3>(input.data);
+        return getPosition3d(data, extent);
     }
 };
 
 struct PositionInt3 : IPosition
 {
-    MarkerInput<int,3> input;
+    VectorInput<int,3> input : POSITION;
     float4 getPosition(int3 extent)
     {
-        float3 pos = convertInt<3>(input.pos);
-        return getPosition3d(pos, extent);
+        float3 data = convertInt<3>(input.data);
+        return getPosition3d(data, extent);
     }
 };
 
-float4 getPosition2d(float2 pos, int3 extent)
+float4 getPosition2d(float2 data, int3 extent)
 {
-    return float4(2 * (pos / extent.xy) - 1, 0, 1);
+    return float4(2 * (data / extent.xy) - 1, 0, 1);
 }
 
-float4 getPosition3d(float3 pos, int3 extent)
+float4 getPosition3d(float3 data, int3 extent)
 {
-    return float4(2 * (pos / extent) - 1, 1);
+    return float4(2 * (data / extent) - 1, 1);
 }
 
 interface IColor
@@ -144,14 +144,121 @@ interface IColor
     float4 getColor();
 };
 
+struct ColorDefault : IColor
+{
+    float4 getColor() { return element.color; }
+};
+
+
+struct ColorFloat2 : IColor
+{
+    VectorInput<float,2> input : POSITION;
+    float4 getColor()
+    {
+        float2 data = convertFloat<2>(input.data);
+        return getColorVec2(data);
+    }
+};
+
+struct ColorDouble2 : IColor
+{
+    VectorInput<double,2> input : POSITION;
+    float4 getColor()
+    {
+        float2 data = convertDouble<2>(input.data);
+        return getColorVec2(data);
+    }
+};
+
+struct ColorHalf2 : IColor
+{
+    VectorInput<half,2> input : POSITION;
+    float4 getColor()
+    {
+        float2 data = convertHalf<2>(input.data);
+        return getColorVec2(data);
+    }
+};
+
+struct ColorInt2 : IColor
+{
+    VectorInput<int,2> input : POSITION;
+    float4 getColor()
+    {
+        float2 data = convertInt<2>(input.data);
+        return getColorVec2(data);
+    }
+};
+
+struct ColorFloat3 : IColor
+{
+    VectorInput<float,3> input : POSITION;
+    float4 getColor()
+    {
+        return getColorVec3(input.data);
+    }
+};
+
+struct ColorDouble3 : IColor
+{
+    VectorInput<double,3> input : POSITION;
+    float4 getColor()
+    {
+        float3 data = convertDouble<3>(input.data);
+        return getColorVec3(data);
+    }
+};
+
+struct ColorHalf3 : IColor
+{
+    VectorInput<half,3> input : POSITION;
+    float4 getColor()
+    {
+        float3 data = convertHalf<3>(input.data);
+        return getColorVec3(data);
+    }
+};
+
+struct ColorInt3 : IColor
+{
+    VectorInput<int,3> input : POSITION;
+    float4 getColor()
+    {
+        float3 data = convertInt<3>(input.data);
+        return getColorVec3(data);
+    }
+};
+
+float4 getColorVec2(float2 data) { return float4(data, 0, 1); }
+float4 getColorVec3(float3 data) { return float4(data, 1); }
+
 interface ISize
 {
     float getSize();
 };
 
-struct ColorDefault : IColor
+struct SizeInt : ISize
 {
-    float4 getColor() { return element.color; }
+    VectorInput<int,1> input : PSIZE;
+    float getSize() { return convertInt<1>(input.data).x; }
+};
+
+struct SizeFloat : ISize
+{
+    VectorInput<float,1> input : PSIZE;
+    float getSize() { return convertFloat<1>(input.data).x; }
+};
+
+struct SizeDouble : ISize
+{
+    VectorInput<double,1> input : PSIZE;
+    float getSize() { return convertDouble<1>(input.data).x; }
+};
+
+struct SizeHalf : ISize
+{
+    VectorInput<half,1> input : PSIZE;
+    float getSize() { return convertHalf<1>(input.data).x; }
 };
 
 struct SizeDefault : ISize
