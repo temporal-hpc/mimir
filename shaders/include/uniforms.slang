@@ -13,9 +13,9 @@ struct SceneParams
     float3 camera_pos;
 };
 
-struct PrimitiveParams
+struct ViewParams
 {
-    float4 color;
-    float size;
+    float4 default_color;
+    float default_size;
     float depth;
 };

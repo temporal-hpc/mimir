@@ -2,7 +2,7 @@ import uniforms;
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
-ConstantBuffer<PrimitiveParams> element;
+ConstantBuffer<ViewParams> view;
 
 static const float SQRT_2 = 1.4142135623730951;
 static const float u_antialias = 1;
@@ -146,7 +146,7 @@ interface IColor
 
 struct ColorDefault : IColor
 {
-    float4 getColor() { return element.color; }
+    float4 getColor() { return view.default_color; }
 };
 
 
@@ -263,7 +263,7 @@ struct SizeHalf : ISize
 
 struct SizeDefault : ISize
 {
-    float getSize() { return element.size; }
+    float getSize() { return view.default_size; }
 };
 
 struct VertexData
@@ -289,6 +289,7 @@ struct MarkerData
     float2 uv    : TEXCOORD;
     float4 color : COLOR;
     float size   : PSIZE;
+    float ele_size;
     //float3 normal : NORMAL;
 };
 
@@ -310,6 +311,7 @@ void geometryMain(point VertexData input[1], inout TriangleStream<MarkerData> st
     float2 texcoords[4] = {{0,0}, {1,0}, {0,1}, {1,1}};
 
     output.color = input[0].color;
+    output.ele_size = input[0].size;
     //output.normal = normal.xyz;
 
     // Add point coordinates
@@ -462,7 +464,7 @@ FragmentOutput fragmentMain(MarkerData input)
     //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
     
     DiscShape shape;
-    float distance = shape.apply(p * input.size, element.size);
+    float distance = shape.apply(p * input.size, input.ele_size);
     
     Filled filled;
     out.color = filled.apply(distance, v_linewidth, u_antialias, input.color, scene.bg_color);

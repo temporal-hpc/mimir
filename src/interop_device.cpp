@@ -142,7 +142,6 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
     const auto params = interop.params;
     const auto element_size = getDataSize(params.data_type, params.channel_count);
     const auto element_count = getElementCount(params.element_count, params.layout);
-    printf("ELEM COUNT %lu SIZE %lu\n", element_count, element_size);
 
     // Create external memory buffers
     VkDeviceSize memsize = element_size * element_count;
