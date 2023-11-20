@@ -2,6 +2,7 @@
 
 #include <cstring> // to_string
 #include <fstream> // std::ifstream
+#include <set> // std::set
 
 #include <mimir/shader_types.hpp>
 #include <mimir/validation.hpp>
@@ -94,27 +95,44 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     return params;
 }
 
+std::array<AttributeType, 3> kAllAttributes = {
+    AttributeType::Position,
+    AttributeType::Color,
+    AttributeType::Size
+};
+
 ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
 {
     ShaderCompileParameters compile;
     compile.specializations = params.options.specializations;
     if (params.view_type == ViewType::Markers)
     {
+        // Select source code file and entry points for the view shader
         compile.source_path = "shaders/marker.slang";
         compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+
+        // Make a list of the attributes that need specializing, and keep note
+        // of the ones that did were not specialized
+        auto required_specs = std::set(kAllAttributes.begin(), kAllAttributes.end());
         for (const auto& attr : params.attributes)
         {
+            required_specs.extract(attr.type);
             std::string spec = getAttributeType(attr.type);
             spec += getDataType(attr.memory.params.data_type);
             if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
             else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
-            printf("%s\n", spec.c_str());
             compile.specializations.push_back(spec);
         }
-        compile.specializations.push_back("DefaultColor");
-        compile.specializations.push_back("DefaultSize");
-        //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
-        //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
+
+        // Iterate through the attributes that did not get a specialization,
+        // and use the default specialization for them 
+        for (auto& remaining_attr : required_specs)
+        {
+            std::string default_spec = getAttributeType(remaining_attr);
+            default_spec += "Default";
+            printf("%s\n", default_spec.c_str());
+            compile.specializations.push_back(default_spec);
+        }
     }
     // TODO: Add rest of view types
     return compile;

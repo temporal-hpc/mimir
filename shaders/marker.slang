@@ -8,6 +8,38 @@ static const float SQRT_2 = 1.4142135623730951;
 static const float u_antialias = 1;
 static const float v_linewidth = 1;
 
+vector<float,N> convertInt<let N:int>(vector<int,N> vec)
+{
+    vector<float,N> res;
+    [unroll]
+    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
+    return res;
+}
+
+vector<float,N> convertHalf<let N:int>(vector<half,N> vec)
+{
+    vector<float,N> res;
+    [unroll]
+    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
+    return res;
+}
+
+vector<float,N> convertFloat<let N:int>(vector<float,N> vec)
+{
+    vector<float,N> res;
+    [unroll]
+    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
+    return res;
+}
+
+vector<float,N> convertDouble<let N:int>(vector<double,N> vec)
+{
+    vector<float,N> res;
+    [unroll]
+    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
+    return res;
+}
+
 interface IPosition
 {
     float4 getPosition(int3 extent);
@@ -107,30 +139,6 @@ float4 getPosition3d(float3 pos, int3 extent)
     return float4(2 * (pos / extent) - 1, 1);
 }
 
-vector<float,N> convertInt<let N:int>(vector<int,N> vec)
-{
-    vector<float,N> res;
-    [unroll]
-    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
-    return res;
-}
-
-vector<float,N> convertHalf<let N:int>(vector<half,N> vec)
-{
-    vector<float,N> res;
-    [unroll]
-    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
-    return res;
-}
-
-vector<float,N> convertFloat<let N:int>(vector<float,N> vec)
-{
-    vector<float,N> res;
-    [unroll]
-    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
-    return res;
-}
-
 interface IColor
 {
     float4 getColor();
@@ -141,31 +149,21 @@ interface ISize
     float getSize();
 };
 
-struct DefaultColor : IColor
+struct ColorDefault : IColor
 {
     float4 getColor() { return element.color; }
 };
 
-struct DefaultSize : ISize
+struct SizeDefault : ISize
 {
     float getSize() { return element.size; }
 };
-
-vector<float,N> convertDouble<let N:int>(vector<double,N> vec)
-{
-    vector<float,N> res;
-    [unroll]
-    for (int i = 0; i < N; ++i) { res[i] = float(vec[i]); }
-    return res;
-}
 
 struct VertexData
 {
     float4 center : POSITION;
     float4 color  : COLOR;
     float size    : PSIZE;
-    //float4 pos    : SV_Position;
-    //float marker_size;
 };
 
 [shader("vertex")]

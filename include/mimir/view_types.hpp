@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array> // std::array
+
 namespace mimir
 {
 
@@ -79,6 +81,67 @@ constexpr char* getElementType(ElementType t)
     switch (t)
     {
 #define STR(r) case ElementType::r: return #r
+        STR(Markers);
+        STR(Edges);
+        STR(Voxels);
+        STR(Image);
+#undef STR
+        default: return "unknown";
+    }
+}
+
+union DataSize
+{
+    int x;
+    int2 xy;
+    int3 xyz; 
+};
+
+enum class DataLayout { Layout1D, Layout2D, Layout3D };
+
+constexpr size_t getElementCount(DataSize size, DataLayout layout)
+{
+    switch (layout)
+    {
+        case DataLayout::Layout1D: return size.x;
+        case DataLayout::Layout2D: return size.xy.x * size.xy.y;
+        case DataLayout::Layout3D: return size.xyz.x * size.xyz.y * size.xyz.z;
+        default: return 0;
+    }
+};
+
+enum class AttributeType { Position, Color, Size };
+enum class ViewType { Markers, Edges, Voxels, Image };
+
+constexpr char* getDataLayout(DataLayout l)
+{
+    switch (l)
+    {
+        case DataLayout::Layout1D: return "1D";
+        case DataLayout::Layout2D: return "2D";
+        case DataLayout::Layout3D: return "3D";
+        default: return "unknown";
+    }
+}
+
+constexpr char* getAttributeType(AttributeType type)
+{
+    switch (type)
+    {
+#define STR(r) case AttributeType::r: return #r
+        STR(Position);
+        STR(Color);
+        STR(Size);
+#undef STR
+        default: return "unknown";
+    }
+}
+
+constexpr char* getViewType(ViewType type)
+{
+    switch (type)
+    {
+#define STR(r) case ViewType::r: return #r
         STR(Markers);
         STR(Edges);
         STR(Voxels);
