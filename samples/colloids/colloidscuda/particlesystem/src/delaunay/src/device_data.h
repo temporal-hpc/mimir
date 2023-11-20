@@ -27,6 +27,7 @@ struct DeviceData
 	double2* positions[2];   // Buffer for particle positions
 	double2* charges;       // Array of (alpha, mu) pairs for each particle
 	double2* velocities;
+    int* types;              // Particle types corresponding to (alpha,mu) tuples
 	curandState* rng_states; // Array of random number generator states
 	unsigned int* triangles; // Array of particle indices that conform each triangle
 	int2* edge_idx;          // Array of pairs of indices that make edges in the triangulation

@@ -22,6 +22,7 @@ protected:
 
 	double* positions_; // Array of particle descriptions (x, y, alpha, mu)
 	double* charges_;
+    int* types_;
 };
 
 } // namespace particlesystem

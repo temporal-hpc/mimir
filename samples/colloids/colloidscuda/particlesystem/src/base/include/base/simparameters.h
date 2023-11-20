@@ -28,8 +28,9 @@ typedef struct
 SimParameters;
 
 void initParameters(SimParameters &params);
-void initParticles(double* positions, double* alpha_mu, SimParameters params,
-                   unsigned long long seed);
+void initParticles(double* positions, double* alpha_mu, int *types,
+    SimParameters params, unsigned long long seed
+);
 
 } // namespace particlesystem
 

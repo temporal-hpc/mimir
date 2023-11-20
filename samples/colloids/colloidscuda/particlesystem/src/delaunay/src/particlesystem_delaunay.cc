@@ -28,7 +28,7 @@ ParticleSystemDelaunay::ParticleSystemDelaunay(SimParameters p,
 	charges_ = new double[params_.num_elements * 2];
 	velocities_ = new double[params_.num_elements * 2];  
 
-	initParticles(positions_, charges_, params_, seed);
+	initParticles(positions_, charges_, types_, params_, seed);
 	initTriangulationHost();
 	initCommon();
 	initCuda(seed);
@@ -201,6 +201,10 @@ void ParticleSystemDelaunay::loadOnDevice()
 			             pos_bytes, cudaMemcpyHostToDevice));
 
 	// Load particle type data
+    auto type_bytes = sizeof(int) * params_.num_elements;
+    cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
+    cudaCheck(cudaMemcpy(devicedata_.types, types_, type_bytes, cudaMemcpyHostToDevice));
+
 	cudaCheck(cudaMalloc(&devicedata_.charges, pos_bytes));
 	cudaCheck(cudaMemcpy(devicedata_.charges, charges_, pos_bytes,
 			             cudaMemcpyHostToDevice));

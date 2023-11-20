@@ -28,7 +28,7 @@ ParticleSystemVerlet::ParticleSystemVerlet(SimParameters p, VerletParameters vp,
 	charges_ = new double[params_.num_elements * 2];
 	hParticleCounter = new int[params_.num_elements];
 
-	initParticles(positions_, charges_, params_, seed);
+	initParticles(positions_, charges_, types_, params_, seed);
 	initCommon();
 	initCuda(seed);
 	loadOnDevice();

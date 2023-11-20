@@ -69,8 +69,8 @@ void reservoirSample(T *dst, const T *src, int ndst, int nsrc, RandGen<T> *rng)
 }
 
 template <typename T>
-void assignAlphaMu(T *alpha_mu, const T *conc, const T *alpha, const T *mu,
-                   unsigned int arr_size, RandGen<T> *rng)
+void assignAlphaMu(T *alpha_mu, int *types, const T *conc,
+    const T *alpha, const T *mu, unsigned int arr_size, RandGen<T> *rng)
 {
 	T partialSum[NUM_TYPES];
 	std::partial_sum(conc, conc + NUM_TYPES, partialSum);
@@ -84,14 +84,15 @@ void assignAlphaMu(T *alpha_mu, const T *conc, const T *alpha, const T *mu,
 			{
 				alpha_mu[2*i] = alpha[j];
 				alpha_mu[2*i+1] = mu[j];
+                types[i] = j;
 				break;
 			}
 		}
 	}
 }
 
-void initParticles(double* positions, double* alpha_mu, SimParameters params,
-                   unsigned long long seed)
+void initParticles(double* positions, double* alpha_mu, int *types,
+                   SimParameters params, unsigned long long seed)
 {
 	double noisePos = 0.01;
 	double boxLength = params.boxlength;
@@ -129,8 +130,9 @@ void initParticles(double* positions, double* alpha_mu, SimParameters params,
 	std::cerr << "#NDiscos " << numParticles << " j " << j << std::endl;
 
 	reservoirSample<double>(positions, tempPos, numParticles, nTemp, rng);
-	assignAlphaMu<double>(alpha_mu, params.conc, params.alpha, params.mu,
-			              params.num_elements, rng);
+	assignAlphaMu<double>(alpha_mu, types, params.conc,
+        params.alpha, params.mu, params.num_elements, rng
+    );
 
 	delete [] tempPos;
 	delete rng;
