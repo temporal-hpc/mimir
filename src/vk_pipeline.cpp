@@ -2,7 +2,7 @@
 
 #include <cstring> // to_string
 #include <fstream> // std::ifstream
-#include <set> // std::set
+#include <map> // std::map
 
 #include <mimir/shader_types.hpp>
 #include <mimir/validation.hpp>
@@ -95,12 +95,6 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
     return params;
 }
 
-std::array<AttributeType, 3> kAllAttributes = {
-    AttributeType::Position,
-    AttributeType::Color,
-    AttributeType::Size
-};
-
 ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
 {
     ShaderCompileParameters compile;
@@ -111,31 +105,28 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
         compile.source_path = "shaders/marker.slang";
         compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
 
-        // Make a list of the attributes that need specializing, and keep note
-        // of the ones that did were not specialized
-        // TODO: Specialization list has to be in proper order, need to use
-        // ordered_map<AttributeType, std::string>
-        auto required_specs = std::set(kAllAttributes.begin(), kAllAttributes.end());
+        // Make a dictionary of the attributes that need specializing,
+        // while keeping note of the ones that were not specialized
+        std::map<AttributeType, std::string> specs{
+            {AttributeType::Position, "PositionDefault"},
+            {AttributeType::Color, "ColorDefault"},
+            {AttributeType::Size, "SizeDefault"}
+        };
         for (const auto& attr : params.attributes)
         {
-            required_specs.extract(attr.type);
             std::string spec = getAttributeType(attr.type);
             spec += getDataType(attr.memory.params.data_type);
             spec += std::to_string(attr.memory.params.channel_count);
             //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
             //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
-            compile.specializations.push_back(spec);
-            printf("added spec %s\n", spec.c_str());
+            specs[attr.type] = spec;
         }
 
-        // Iterate through the attributes that did not get a specialization,
-        // and use the default specialization for them 
-        for (auto& remaining_attr : required_specs)
+        // Get the list of specialization names 
+        for (const auto& spec : specs)
         {
-            std::string default_spec = getAttributeType(remaining_attr);
-            default_spec += "Default";
-            printf("added default spec %s\n", default_spec.c_str());
-            compile.specializations.push_back(default_spec);
+            compile.specializations.push_back(spec.second);
+            printf("added spec %s\n", spec.second.c_str());
         }
     }
     // TODO: Add rest of view types

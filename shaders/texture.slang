@@ -2,7 +2,7 @@ import uniforms;
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
-ConstantBuffer<PrimitiveParams> primitive;
+ConstantBuffer<ViewParams> view;
 
 struct VertexInput
 {
@@ -40,11 +40,11 @@ VertexData3d vertex3dMain(VertexInput input)
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
     float4 pos = float4(input.pos, 1);
-    pos.z = pos.z - primitive.depth;
+    pos.z = pos.z - view.depth;
 
     VertexData3d output;
     output.pos = mul(pos, view_proj);
-    output.uv  = float3(input.uv, primitive.depth);
+    output.uv  = float3(input.uv, view.depth);
 
     return output;
 }

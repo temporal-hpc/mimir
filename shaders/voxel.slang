@@ -2,7 +2,7 @@ import uniforms;
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
-ConstantBuffer<PrimitiveParams> primitive;
+ConstantBuffer<ViewParams> view;
 
 struct VertexData
 {
@@ -20,7 +20,7 @@ VertexData vertexMain(VertexInput input)
 {
     VertexData output;
     output.center = float4(2 * (input.pos / scene.extent) - 1, 1);
-    output.color = primitive.color;
+    output.color = view.default_color;
 
     return output;
 }
@@ -63,7 +63,7 @@ void geometryMain(point VertexData input[1], inout TriangleStream<VoxelData> str
     }
 
     // Compute offsets for block (voxel) vertices
-    float3 vox_size = .001 * float3(primitive.size);
+    float3 vox_size = .001 * float3(view.default_size);
     float4 offsets[3] = {
         model_view[0] * vox_size.x,
         model_view[1] * vox_size.y,
@@ -141,6 +141,6 @@ float4 fragmentMain(VoxelData input) : SV_Target
 
     return float4(ambient_light + color_front + color_up, input.color.w);
     // float2 p = 2 * input.uv - 1;
-    // float distance = disc(p * 10, primitive.size);
-    // return filled(distance, 1, 1, primitive.color, scene.bg_color);
+    // float distance = disc(p * 10, view.size);
+    // return filled(distance, 1, 1, view.color, scene.bg_color);
 }

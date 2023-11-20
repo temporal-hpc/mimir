@@ -152,10 +152,7 @@ struct ColorDefault : IColor
 struct ColorFloat4 : IColor
 {
     VectorInput<float,4> colors;
-    float4 getColor()
-    {
-        return colors.data;
-    }
+    float4 getColor() { return colors.data; }
 };
 
 struct ColorInt1 : IColor
