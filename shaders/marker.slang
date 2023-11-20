@@ -69,7 +69,7 @@ struct PositionDouble2 : IPosition
         return getPosition2d(data, extent);
     }
 };
-/*
+
 struct PositionHalf2 : IPosition
 {
     VectorInput<half,2> input : POSITION;
@@ -128,7 +128,7 @@ struct PositionInt3 : IPosition
         return getPosition3d(data, extent);
     }
 };
-*/
+
 float4 getPosition2d(float2 data, int3 extent)
 {
     return float4(2 * (data / extent.xy) - 1, 0, 1);
@@ -160,7 +160,12 @@ struct ColorFloat4 : IColor
 
 struct ColorInt1 : IColor
 {
-    float4 colors[] = {{27,158,119,1},{217,95,2,1},{117,112,179,1},{231,41,138,1}};
+    static const float4 colors[] = {
+        {27/255.f,158/255.f,119/255.f,1},
+        {217/255.f,95/255.f,2/255.f,1},
+        {117/255.f,112/255.f,179/255.f,1},
+        {231/255.f,41/255.f,138/255.f,1}
+    };
     VectorInput<int,1> input : COLOR;
     float4 getColor()
     {

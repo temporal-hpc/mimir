@@ -211,14 +211,12 @@ void ParticleSystemDelaunay::loadOnDevice()
     interop[current_read] = engine.createBuffer((void**)&devicedata_.positions[current_read], m);
     interop[current_write] = engine.createBuffer((void**)&devicedata_.positions[current_write], m);
     
-    /*
     m.data_type       = DataType::Int;
     m.channel_count   = 1;
     interop[2] = engine.createBuffer((void**)&devicedata_.types, m);
-    */
-    m.data_type       = DataType::Float;
-    m.channel_count   = 4;
-    interop[2] = engine.createBuffer((void**)&devicedata_.colors, m);
+    //m.data_type       = DataType::Float;
+    //m.channel_count   = 4;
+    //interop[2] = engine.createBuffer((void**)&devicedata_.colors, m);
 
     ViewParams2 v;
     v.element_count = params_.num_elements;
@@ -249,11 +247,11 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	// Load particle type data
     auto type_bytes = sizeof(int) * params_.num_elements;
-    cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
+    //cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
     cudaCheck(cudaMemcpy(devicedata_.types, types_, type_bytes, cudaMemcpyHostToDevice));
 
     auto color_bytes = sizeof(float4) * params_.num_elements;
-    //cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));
+    cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));
     cudaCheck(cudaMemcpy(devicedata_.colors, colors.data(), color_bytes, cudaMemcpyHostToDevice));
 
 	cudaCheck(cudaMalloc(&devicedata_.charges, pos_bytes));
