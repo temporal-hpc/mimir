@@ -527,7 +527,7 @@ void CudaviewEngine::initImgui()
     init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
     ImGui_ImplVulkan_Init(&init_info, render_pass);
 
-    dev->immediateSubmit([=,this](VkCommandBuffer cmd) {
+    dev->immediateSubmit([=](VkCommandBuffer cmd) {
         ImGui_ImplVulkan_CreateFontsTexture(cmd);
     });
     ImGui_ImplVulkan_DestroyFontUploadObjects();

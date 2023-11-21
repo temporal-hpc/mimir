@@ -25,7 +25,7 @@ uint32_t VulkanFramebuffer::addAttachment(VkDevice device,
     validation::checkVulkan(
         vkCreateImageView(device, &view_info, nullptr, &attachment.view)
     );
-    deletors.add([=,this](){
+    deletors.add([=](){
         //printf("destroying attachment imageview\n");
         vkDestroyImageView(device, attachment.view, nullptr);
     });

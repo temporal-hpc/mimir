@@ -288,7 +288,7 @@ VkShaderModule PipelineBuilder::createShaderModule(
         vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
     );
     // TODO: Move to vulkandevice deletor queue (likely a new one)
-    dev->deletors.add([=,this]{
+    dev->deletors.add([=]{
         vkDestroyShaderModule(dev->logical_device, module, nullptr);
     });
     return module;
@@ -363,7 +363,7 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
         validation::checkVulkan(
             vkCreateShaderModule(dev->logical_device, &info, nullptr, &shader_module)
         );
-        dev->deletors.add([=,this]{
+        dev->deletors.add([=]{
             vkDestroyShaderModule(dev->logical_device, shader_module, nullptr);
         });
         auto shader_info = vkinit::pipelineShaderStageCreateInfo(stage, shader_module);

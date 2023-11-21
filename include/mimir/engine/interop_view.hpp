@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 
 #include <string> // std::string
+#include <vector> // std::vector
 
 #include <mimir/view_types.hpp>
 

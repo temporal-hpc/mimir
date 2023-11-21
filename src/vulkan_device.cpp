@@ -271,7 +271,7 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
         throw std::runtime_error("texture image format does not support linear blitting!");
     }
 
-    immediateSubmit([=,this](VkCommandBuffer cmd)
+    immediateSubmit([=](VkCommandBuffer cmd)
     {
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -467,7 +467,7 @@ void VulkanDevice::transitionImageLayout(VkImage image,
         throw std::invalid_argument("unsupported layout transition");
     }
 
-    immediateSubmit([=,this](VkCommandBuffer cmd)
+    immediateSubmit([=](VkCommandBuffer cmd)
     {
         vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     });

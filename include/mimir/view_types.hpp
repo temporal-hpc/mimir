@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cuda_runtime_api.h>
 #include <array> // std::array
 
 namespace mimir
@@ -17,7 +18,7 @@ enum class ElementType  { Markers, Edges, Voxels, Image };
 // TODO: Change name to ComponentType
 enum class DataType     { Int, Long, Short, Char, Float, Double };
 
-constexpr size_t getDataSize(DataType t, uint channel_count)
+constexpr size_t getDataSize(DataType t, unsigned channel_count)
 {
     switch (t)
     {
@@ -35,7 +36,7 @@ constexpr char* getDataType(DataType type)
 {
     switch (type)
     {
-#define STR(r) case DataType::r: return #r
+#define STR(r) case DataType::r: return (char*)#r
         STR(Int);
         STR(Long);
         STR(Short);
@@ -43,7 +44,7 @@ constexpr char* getDataType(DataType type)
         STR(Float);
         STR(Double);
 #undef STR
-        default: return "unknown";
+        default: return (char*)"unknown";
     }
 }
 
@@ -51,9 +52,9 @@ constexpr char* getDataDomain(DataDomain d)
 {
     switch (d)
     {
-        case DataDomain::Domain2D: return "2D";
-        case DataDomain::Domain3D: return "3D";
-        default: return "unknown";
+        case DataDomain::Domain2D: return (char*)"2D";
+        case DataDomain::Domain3D: return (char*)"3D";
+        default: return (char*)"unknown";
     }
 }
 
@@ -61,11 +62,11 @@ constexpr char* getDomainType(DomainType t)
 {
     switch (t)
     {
-#define STR(r) case DomainType::r: return #r
+#define STR(r) case DomainType::r: return (char*)#r
         STR(Structured);
         STR(Unstructured);
 #undef STR
-        default: return "unknown";
+        default: return (char*)"unknown";
     }
 }
 
@@ -73,12 +74,12 @@ constexpr char* getResourceType(ResourceType t)
 {
     switch (t)
     {
-#define STR(r) case ResourceType::r: return #r
+#define STR(r) case ResourceType::r: return (char*)#r
         STR(Buffer);
         STR(IndexBuffer);
         STR(Texture);
 #undef STR
-        default: return "unknown";
+        default: return (char*)"unknown";
     }
 }
 
@@ -86,13 +87,13 @@ constexpr char* getElementType(ElementType t)
 {
     switch (t)
     {
-#define STR(r) case ElementType::r: return #r
+#define STR(r) case ElementType::r: return (char*)#r
         STR(Markers);
         STR(Edges);
         STR(Voxels);
         STR(Image);
 #undef STR
-        default: return "unknown";
+        default: return (char*)"unknown";
     }
 }
 
@@ -123,10 +124,10 @@ constexpr char* getDataLayout(DataLayout l)
 {
     switch (l)
     {
-        case DataLayout::Layout1D: return "1D";
-        case DataLayout::Layout2D: return "2D";
-        case DataLayout::Layout3D: return "3D";
-        default: return "unknown";
+        case DataLayout::Layout1D: return (char*)"1D";
+        case DataLayout::Layout2D: return (char*)"2D";
+        case DataLayout::Layout3D: return (char*)"3D";
+        default: return (char*)"unknown";
     }
 }
 
@@ -134,13 +135,13 @@ constexpr char* getAttributeType(AttributeType type)
 {
     switch (type)
     {
-#define STR(r) case AttributeType::r: return #r
+#define STR(r) case AttributeType::r: return (char*)#r
         STR(Position);
         STR(Color);
         STR(Size);
         STR(Index);
 #undef STR
-        default: return "unknown";
+        default: return (char*)"unknown";
     }
 }
 
@@ -148,13 +149,13 @@ constexpr char* getViewType(ViewType type)
 {
     switch (type)
     {
-#define STR(r) case ViewType::r: return #r
+#define STR(r) case ViewType::r: return (char*)#r
         STR(Markers);
         STR(Edges);
         STR(Voxels);
         STR(Image);
 #undef STR
-        default: return "unknown";
+        default: return (char*)"unknown";
     }
 }
 

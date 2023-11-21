@@ -215,7 +215,7 @@ void InteropDevice::initViewBuffer(InteropView2& view)
         vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
 
         initImplicitCoords(logical_device, view.aux_memory, buffer_size, params.extent);
-    }    
+    }
 }
 
 void InteropDevice::initMemoryImage(InteropMemory& interop)
@@ -435,7 +435,7 @@ void InteropDevice::initView(InteropView& view)
             export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
             view.image_memory = allocateMemory(memreq, memflags, &export_info);
             view.cuda_extmem = importCudaExternalMemory(view.image_memory, memreq.size);
-            deletors.add([=,this]{
+            deletors.add([=]{
                 validation::checkCuda(cudaDestroyExternalMemory(view.cuda_extmem));
             });
         }
@@ -481,7 +481,7 @@ void InteropDevice::initView(InteropView& view)
         if (params.resource_type == ResourceType::Texture)
         {
             view.mipmap_array = createMipmapArray(view.cuda_extmem, params);
-            deletors.add([=,this]{
+            deletors.add([=]{
                 validation::checkCuda(cudaFreeMipmappedArray(view.mipmap_array));
             });
         }
@@ -553,7 +553,7 @@ void InteropDevice::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent
     region.imageSubresource  = subres;
     region.imageOffset       = {0, 0, 0};
     region.imageExtent       = extent;
-    immediateSubmit([=,this](VkCommandBuffer cmd)
+    immediateSubmit([=](VkCommandBuffer cmd)
     {
         vkCmdCopyBufferToImage(cmd, buffer, image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
@@ -644,7 +644,7 @@ InteropBarrier InteropDevice::createInteropBarrier()
     desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(barrier.vk_semaphore, handle_type);
     desc.flags = 0;
     validation::checkCuda(cudaImportExternalSemaphore(&barrier.cuda_semaphore, &desc));
-    deletors.add([=,this]{
+    deletors.add([=]{
         validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));
     });
 
