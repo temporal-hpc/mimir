@@ -75,10 +75,10 @@ int main(int argc, char **argv){
     params.data_domain   = DataDomain::Domain3D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Voxels;
-    params.attributes.push_back({ *buffer1, AttributeType::Color });
+    params.attributes[AttributeType::Color] = *buffer1;
     auto v1 = engine.createView(params);
 
-    params.attributes[0].memory = *buffer2;
+    params.attributes[AttributeType::Color] = *buffer2;
     params.options.visible = false;
     auto v2 = engine.createView(params);
 

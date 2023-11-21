@@ -859,16 +859,16 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
         VkIndexType idx_type;
         std::vector<VkBuffer> vert_buffers;
         std::vector<VkDeviceSize> buffer_offsets;
-        for (const auto& attribute : view->params.attributes)
+        for (const auto &[attr, memory] : view->params.attributes)
         {
-            if (attribute.type == AttributeType::Index)
+            if (attr == AttributeType::Index)
             {
-                idx_buffer = attribute.memory.data_buffer;
-                idx_type = getIndexType(attribute.memory.params.data_type);
+                idx_buffer = memory.data_buffer;
+                idx_type = getIndexType(memory.params.data_type);
             }
             else
             {
-                vert_buffers.push_back(attribute.memory.data_buffer);
+                vert_buffers.push_back(memory.data_buffer);
                 buffer_offsets.push_back(0);
             }
         }

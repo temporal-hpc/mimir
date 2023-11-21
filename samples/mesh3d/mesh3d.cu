@@ -90,12 +90,12 @@ int main(int argc, char *argv[])
     params.data_domain   = DataDomain::Domain3D;
     params.domain_type   = DomainType::Unstructured;
     params.view_type     = ViewType::Markers;
-    params.attributes.push_back({ *pointsmem, AttributeType::Position });
+    params.attributes[AttributeType::Position] = *pointsmem;
     engine.createView(params);
 
     params.element_count = triangles.size();
     params.view_type     = ViewType::Edges;
-    params.attributes.push_back({ *trimem, AttributeType::Index });
+    params.attributes[AttributeType::Index] = *trimem;
     engine.createView(params);
 
     /*ViewParams params;

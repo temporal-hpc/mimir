@@ -3,6 +3,7 @@
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
 
+#include <map> // std::map
 #include <string> // std::string
 #include <vector> // std::vector
 
@@ -206,6 +207,8 @@ struct ViewOptions2
     std::vector<std::string> specializations;        
 };
 
+using AttributeDict = std::map<AttributeType, InteropMemory>;
+
 struct ViewParams2
 {
     size_t element_count = 0;
@@ -214,7 +217,7 @@ struct ViewParams2
     DomainType domain_type;
     ViewType view_type;
     ViewOptions2 options;
-    std::vector<ViewAttribute> attributes;
+    AttributeDict attributes;
 };
 
 struct InteropView2

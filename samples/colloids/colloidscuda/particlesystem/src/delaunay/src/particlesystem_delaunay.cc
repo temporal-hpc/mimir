@@ -224,8 +224,8 @@ void ParticleSystemDelaunay::loadOnDevice()
     v.data_domain   = DataDomain::Domain2D;
     v.domain_type   = DomainType::Unstructured;
     v.view_type     = ViewType::Markers;
-    v.attributes.push_back({ *interop[current_read], AttributeType::Position });
-    v.attributes.push_back({ *interop[2], AttributeType::Color });
+    v.attributes[AttributeType::Position] = *interop[current_read];
+    v.attributes[AttributeType::Color] = *interop[2];
     v.options.default_size = 100.f;
     /*v.options.external_shaders = {
         {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
@@ -235,7 +235,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     views[current_read] = engine.createView(v);
 
     v.options.visible = false;
-    v.attributes[0].memory = *interop[current_write];
+    v.attributes[AttributeType::Position] = *interop[current_write];
     views[current_write] = engine.createView(v);
 
 	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_,

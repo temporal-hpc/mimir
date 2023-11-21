@@ -44,7 +44,8 @@ int main(int argc, char *argv[])
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Image;
-    params.attributes.push_back({ *pixels, AttributeType::Color });
+    
+    params.attributes[AttributeType::Color] = *pixels;
     engine.createView(params);
 
     /*ViewParams params;

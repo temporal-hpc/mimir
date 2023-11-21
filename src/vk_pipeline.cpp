@@ -114,16 +114,16 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
                 {AttributeType::Color, "ColorDefault"},
                 {AttributeType::Size, "SizeDefault"}
             };
-            for (const auto& attr : params.attributes)
+            for (const auto &[attr, memory] : params.attributes)
             {
-                if (attr.type != AttributeType::Index)
+                if (attr != AttributeType::Index)
                 {
-                    std::string spec = getAttributeType(attr.type);
-                    spec += getDataType(attr.memory.params.data_type);
-                    spec += std::to_string(attr.memory.params.channel_count);
+                    std::string spec = getAttributeType(attr);
+                    spec += getDataType(memory.params.data_type);
+                    spec += std::to_string(memory.params.channel_count);
                     //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
                     //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
-                    specs[attr.type] = spec;
+                    specs[attr] = spec;
                 }
             }
 
@@ -472,14 +472,13 @@ VertexDescription getVertexDescription(const ViewParams2 params)
         binding++;
     }
 
-    for (size_t i = 0; i < params.attributes.size(); ++i)
+    for (const auto &[attr, memory] : params.attributes)
     {
-        const auto& attr = params.attributes[i];
-        auto& mem_params = attr.memory.params;
-        uint32_t location = static_cast<uint32_t>(attr.type);
+        auto& mem_params = memory.params;
+        uint32_t location = static_cast<uint32_t>(attr);
         auto stride = getDataSize(mem_params.data_type, mem_params.channel_count);
         auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);        
-        switch (attr.type)
+        switch (attr)
         {
             case AttributeType::Position:
             case AttributeType::Color:

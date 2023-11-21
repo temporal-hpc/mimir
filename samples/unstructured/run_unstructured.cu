@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
             {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
             {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
         };*/
-        params.attributes.push_back({ *points, AttributeType::Position });
+        params.attributes[AttributeType::Position] = *points;
         engine.createView(params);
 
         // Cannot make CUDA calls that use the target device memory before

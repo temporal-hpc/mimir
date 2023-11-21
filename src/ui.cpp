@@ -144,11 +144,11 @@ void addViewObjectGui(InteropView2 *view_ptr, int uid)
             addTableRow("Data extent", getExtent(params.extent, params.data_domain));
             ImGui::EndTable();
         }        
-        for (const auto& attr : params.attributes)
+        for (const auto &[attr, memory] : params.attributes)
         {
             if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
             {
-                auto& info = attr.memory.params;
+                auto& info = memory.params;
                 //addTableRow("Element count", std::to_string(info.element_count));
                 addTableRow("Resource type", getResourceType(info.resource_type));
                 addTableRow("Data type", getDataType(info.data_type));
