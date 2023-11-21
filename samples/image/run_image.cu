@@ -30,7 +30,24 @@ int main(int argc, char *argv[])
 
     CudaviewEngine engine;
     engine.init(1920, 1080);
-    ViewParams params;
+    
+    MemoryParams m;
+    m.layout           = DataLayout::Layout2D;
+    m.element_count.xy = {width, height};
+    m.data_type        = DataType::Char;
+    m.channel_count    = 4;
+    m.resource_type    = ResourceType::Buffer;
+    auto pixels = engine.createBuffer((void**)&d_pixels, m);
+
+    ViewParams2 params;
+    params.element_count = width * height;
+    params.data_domain   = DataDomain::Domain2D;
+    params.domain_type   = DomainType::Structured;
+    params.view_type     = ViewType::Image;
+    params.attributes.push_back({ *pixels, AttributeType::Color });
+    engine.createView(params);
+
+    /*ViewParams params;
     params.element_count = width * height;
     params.extent        = {(unsigned)width, (unsigned)height, 1};
     params.data_type     = DataType::Char;
@@ -39,7 +56,7 @@ int main(int argc, char *argv[])
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Structured;
     params.element_type  = ElementType::Image;
-    engine.createView((void**)&d_pixels, params);
+    engine.createView((void**)&d_pixels, params);*/
 
     auto tex_size = sizeof(uchar4) * width * height;
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));

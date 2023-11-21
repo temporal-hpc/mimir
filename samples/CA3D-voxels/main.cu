@@ -61,14 +61,28 @@ int main(int argc, char **argv){
     t1 = omp_get_wtime();
     init_prob(n, original, seed, prob);
 
-    /*engine.createViewStructured((void**)&d1, extent, sizeof(int),
-      DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
-    );*/
-    /*engine.createViewStructured((void**)&d2, extent, sizeof(int),
-      DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Voxels
-    );*/
+    MemoryParams m;
+    m.layout            = DataLayout::Layout3D;
+    m.element_count.xyz = {(int)n, (int)n, (int)n};
+    m.data_type         = DataType::Int;
+    m.channel_count     = 1;
+    m.resource_type     = ResourceType::Buffer;
+    auto buffer1 = engine.createBuffer((void**)&d1, m);
+    auto buffer2 = engine.createBuffer((void**)&d2, m);
 
-    ViewParams params;
+    ViewParams2 params;
+    params.element_count = n * n * n;
+    params.data_domain   = DataDomain::Domain3D;
+    params.domain_type   = DomainType::Structured;
+    params.view_type     = ViewType::Voxels;
+    params.attributes.push_back({ *buffer1, AttributeType::Color });
+    auto v1 = engine.createView(params);
+
+    params.attributes[0].memory = *buffer2;
+    params.options.visible = false;
+    auto v2 = engine.createView(params);
+
+    /*ViewParams params;
     // TODO CAMBIAR A 2D
     params.element_count = n*n*n;
 
@@ -80,24 +94,16 @@ int main(int argc, char **argv){
     params.data_domain   = DataDomain::Domain3D;
     params.domain_type   = DomainType::Structured;
     params.element_type  = ElementType::Voxels;
-    /*params.options.external_shaders = {
-        {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-        {"shaders/voxel_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
-        {"shaders/voxel_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };*/
 
     //params.resource_type = ResourceType::TextureLinear;
     //params.texture_format = TextureFormat::Int32;
     auto v1 = engine.createView((void**)&d1, params);
-    /*engine.createViewStructured((void**)&d2, extent, sizeof(int),
-      DataDomain::Domain3D, DataFormat::Int32, StructuredDataType::Texture
-    );*/
-    //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
+
     // TODO CAMBIAR A 2D
+    //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
     //gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
     params.options.visible = false;
-    auto v2 = engine.createView((void**)&d2, params);
-    //std::cout << v1 << " " << v2 << "\n";
+    auto v2 = engine.createView((void**)&d2, params);*/
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);

@@ -661,12 +661,11 @@ void CudaviewEngine::updateDescriptorSets()
         );
         updates.push_back(write_scene);
 
-        /*for (const auto& view : views2)
+        for (const auto& view : views2)
         {
-            if (view->params.element_type == ElementType::Image ||
-                view->params.resource_type == ResourceType::Texture)
+            if (view->params.view_type == ViewType::Image)
             {
-                VkDescriptorImageInfo img_info{};
+                /*VkDescriptorImageInfo img_info{};
                 img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 img_info.imageView   = view->vk_view;
                 img_info.sampler     = view->vk_sampler;
@@ -684,9 +683,9 @@ void CudaviewEngine::updateDescriptorSets()
                 auto write_samp = vkinit::writeDescriptorImage(set,
                     4, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
                 );
-                updates.push_back(write_samp);
+                updates.push_back(write_samp);*/
             }
-        }*/
+        }
 
         vkUpdateDescriptorSets(dev->logical_device, updates.size(), updates.data(), 0, nullptr);
     }
@@ -890,6 +889,21 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
                 );
                 vkCmdBindIndexBuffer(cmd, idx_buffer, 0, idx_type);
                 vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
+                break;
+            }
+            case ViewType::Voxels:
+            {
+                vert_buffers.push_back(view->aux_buffer);
+                buffer_offsets.push_back(0);
+                vkCmdBindVertexBuffers(cmd, 0, vert_buffers.size(),
+                    vert_buffers.data(), buffer_offsets.data()
+                );
+                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);                
+                break;
+            }
+            case ViewType::Image:
+            {
+                printf("TODO draw image");
                 break;
             }
             default: break;
