@@ -99,9 +99,9 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
 {
     ShaderCompileParameters compile;
     compile.specializations = params.options.specializations;
+    // Select source code file and entry points for the view shader
     if (params.view_type == ViewType::Markers)
     {
-        // Select source code file and entry points for the view shader
         compile.source_path = "shaders/marker.slang";
         compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
 
@@ -114,22 +114,34 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
         };
         for (const auto& attr : params.attributes)
         {
-            std::string spec = getAttributeType(attr.type);
-            spec += getDataType(attr.memory.params.data_type);
-            spec += std::to_string(attr.memory.params.channel_count);
-            //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
-            //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
-            specs[attr.type] = spec;
+            if (attr.type != AttributeType::Index)
+            {
+                std::string spec = getAttributeType(attr.type);
+                spec += getDataType(attr.memory.params.data_type);
+                spec += std::to_string(attr.memory.params.channel_count);
+                //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
+                //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
+                specs[attr.type] = spec;
+            }
         }
 
-        // Get the list of specialization names 
+        // Get the list of specialization names
         for (const auto& spec : specs)
         {
             compile.specializations.push_back(spec.second);
             printf("added spec %s\n", spec.second.c_str());
-        }
+        }        
     }
-    // TODO: Add rest of view types
+    else if (params.view_type == ViewType::Edges)
+    {
+        compile.source_path = "shaders/mesh.slang";
+        compile.entrypoints = {"vertex3dMain", "fragmentMain"};
+    }
+    else // TODO: Add rest of view types
+    {
+        printf("Slang TODO\n");
+    }
+    
     return compile;
 }
 
@@ -297,6 +309,7 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
     // Lookup entry points by their names
     for (const auto& name : params.entrypoints)
     {
+        printf("%s\n", name.c_str());
         Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
         module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
         if (entrypoint != nullptr) components.push_back(entrypoint);
@@ -403,7 +416,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
     col_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;  
-    info.color_blend_attachment = col_blend;
+    info.color_blend_attachment   = col_blend;
 
     pipeline_infos.push_back(info);
     return pipeline_infos.size() - 1;
@@ -432,16 +445,19 @@ VertexDescription getVertexDescription(const ViewParams2 params)
     for (size_t i = 0; i < params.attributes.size(); ++i)
     {
         const auto& attr = params.attributes[i];
-        auto& mem_params = attr.memory.params;
-        uint32_t location = static_cast<uint32_t>(attr.type);
-        auto stride = getDataSize(mem_params.data_type, mem_params.channel_count);
-        auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);
-        desc.binding.push_back(vkinit::vertexBindingDescription(
-            i, stride, VK_VERTEX_INPUT_RATE_VERTEX
-        ));
-        desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            location, i, format, 0
-        ));
+        if (attr.type != AttributeType::Index)
+        {
+            auto& mem_params = attr.memory.params;
+            uint32_t location = static_cast<uint32_t>(attr.type);
+            auto stride = getDataSize(mem_params.data_type, mem_params.channel_count);
+            auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);
+            desc.binding.push_back(vkinit::vertexBindingDescription(
+                i, stride, VK_VERTEX_INPUT_RATE_VERTEX
+            ));
+            desc.attribute.push_back(vkinit::vertexAttributeDescription(
+                location, i, format, 0
+            ));
+        }
     }
     // TODO: Handle image view type
 

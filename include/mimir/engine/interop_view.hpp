@@ -137,6 +137,17 @@ constexpr VkFormat getDataFormat(DataType type, uint channel_count)
     }
 }
 
+constexpr VkIndexType getIndexType(DataType type)
+{
+    switch (type)
+    {
+        case DataType::Int: return VK_INDEX_TYPE_UINT32;
+        // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char
+        // and VK_INDEX_TYPE_NONE_KHR for default
+        default: return VK_INDEX_TYPE_UINT16;
+    }
+}
+
 struct MemoryParams
 {
     DataLayout layout = DataLayout::Layout1D;

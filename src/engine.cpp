@@ -844,31 +844,56 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
     for (uint32_t i = 0; i < views2.size(); ++i)
     {
         auto& view = views2[i];
-        std::vector<uint32_t> offsets = { i * size_ubo, i * size_ubo + size_mvp + size_primitive, i * size_ubo + size_mvp };
+        if (!view->params.options.visible) continue;
+        std::vector<uint32_t> offsets = {
+            i * size_ubo,
+            i * size_ubo + size_mvp + size_primitive,
+            i * size_ubo + size_mvp
+        };
         // NOTE: Second parameter can be also used to bind a compute pipeline
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );
-        if (!view->params.options.visible) continue;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
 
+        VkBuffer idx_buffer = VK_NULL_HANDLE;
+        VkIndexType idx_type;
         std::vector<VkBuffer> vert_buffers;
         std::vector<VkDeviceSize> buffer_offsets;
         for (const auto& attribute : view->params.attributes)
         {
-            vert_buffers.push_back(attribute.memory.data_buffer);
-            buffer_offsets.push_back(0);
+            if (attribute.type == AttributeType::Index)
+            {
+                idx_buffer = attribute.memory.data_buffer;
+                idx_type = getIndexType(attribute.memory.params.data_type);
+            }
+            else
+            {
+                vert_buffers.push_back(attribute.memory.data_buffer);
+                buffer_offsets.push_back(0);
+            }
         }
         switch (view->params.view_type)
         {
             case ViewType::Markers:
             {
-                vkCmdBindVertexBuffers(cmd, 0, vert_buffers.size(), vert_buffers.data(), buffer_offsets.data());
+                vkCmdBindVertexBuffers(cmd, 0, vert_buffers.size(),
+                    vert_buffers.data(), buffer_offsets.data()
+                );
                 vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
                 break;
             }
+            case ViewType::Edges:
+            {
+                vkCmdBindVertexBuffers(cmd, 0, vert_buffers.size(),
+                    vert_buffers.data(), buffer_offsets.data()
+                );
+                vkCmdBindIndexBuffer(cmd, idx_buffer, 0, idx_type);
+                vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
+                break;
+            }
             default: break;
-        }        
+        }
 
         /*if (view->params.resource_type == ResourceType::Texture ||
             view->params.element_type == ElementType::Image)
@@ -906,15 +931,6 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
         {
             switch (view->params.element_type)
             {
-                case ElementType::Markers:
-                {
-                    VkBuffer vertex_buffers[] = { view->data_buffer };
-                    VkDeviceSize offsets[] = { 0 };
-                    auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-                    vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-                    vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
-                    break;
-                }
                 case ElementType::Edges:
                 {
                     VkBuffer vertexBuffers[] = { views[0]->data_buffer };

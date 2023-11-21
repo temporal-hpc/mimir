@@ -137,6 +137,19 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, ViewPar
     return mipmap_array;
 }
 
+VkBufferUsageFlags getBufferUsage(ResourceType type)
+{
+    // Every interop buffer should at least use the DST_BIT flags,
+    // to allow for memcpy operations 
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    switch (type)
+    {
+        case ResourceType::Buffer: return usage | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        case ResourceType::IndexBuffer: return usage | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        default: return usage;
+    }
+}
+
 void InteropDevice::initMemoryBuffer(InteropMemory& interop)
 {
     const auto params = interop.params;
@@ -145,7 +158,7 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
 
     // Create external memory buffers
     VkDeviceSize memsize = element_size * element_count;
-    auto usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    auto usage = getBufferUsage(params.resource_type);
     VkExternalMemoryBufferCreateInfo extmem_info{};
     extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
     extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;

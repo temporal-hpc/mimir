@@ -6,7 +6,7 @@ namespace mimir
 {
 
 // Specifies which cuda resource is mapped to the view
-enum class ResourceType { Buffer, Texture };
+enum class ResourceType { Buffer, IndexBuffer, Texture };
 // Specifies the number of spatial dimensions of the view
 enum class DataDomain   { Domain2D, Domain3D };
 // Specifies the data layout
@@ -14,13 +14,16 @@ enum class DomainType   { Structured, Unstructured };
 // Specifies the type of primitive that will be visualized 
 enum class ElementType  { Markers, Edges, Voxels, Image };
 // Specifies the DataType stored in the texture corresponding to a view
-enum class DataType     { Int, Char, Float, Double };
+// TODO: Change name to ComponentType
+enum class DataType     { Int, Long, Short, Char, Float, Double };
 
 constexpr size_t getDataSize(DataType t, uint channel_count)
 {
     switch (t)
     {
         case DataType::Int:    return sizeof(int) * channel_count;
+        case DataType::Long:   return sizeof(long) * channel_count;
+        case DataType::Short:  return sizeof(short) * channel_count;
         case DataType::Char:   return sizeof(char) * channel_count;
         case DataType::Float:  return sizeof(float) * channel_count;
         case DataType::Double: return sizeof(double) * channel_count;
@@ -34,6 +37,8 @@ constexpr char* getDataType(DataType type)
     {
 #define STR(r) case DataType::r: return #r
         STR(Int);
+        STR(Long);
+        STR(Short);
         STR(Char);
         STR(Float);
         STR(Double);
@@ -70,6 +75,7 @@ constexpr char* getResourceType(ResourceType t)
     {
 #define STR(r) case ResourceType::r: return #r
         STR(Buffer);
+        STR(IndexBuffer);
         STR(Texture);
 #undef STR
         default: return "unknown";
@@ -110,7 +116,7 @@ constexpr size_t getElementCount(DataSize size, DataLayout layout)
     }
 };
 
-enum class AttributeType { Position, Color, Size };
+enum class AttributeType { Position, Color, Size, Index };
 enum class ViewType { Markers, Edges, Voxels, Image };
 
 constexpr char* getDataLayout(DataLayout l)
@@ -132,6 +138,7 @@ constexpr char* getAttributeType(AttributeType type)
         STR(Position);
         STR(Color);
         STR(Size);
+        STR(Index);
 #undef STR
         default: return "unknown";
     }

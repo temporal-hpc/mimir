@@ -13,8 +13,9 @@
 namespace mimir
 {
 
-std::array<ResourceType, 2> kAllResources = {
+std::array<ResourceType, 3> kAllResources = {
     ResourceType::Buffer,
+    ResourceType::IndexBuffer,
     ResourceType::Texture
 };
 std::array<DomainType, 2> kAllDomains = {
@@ -27,10 +28,12 @@ std::array<ElementType, 4> kAllElements = {
     ElementType::Voxels,
     ElementType::Image
 };
-std::array<DataType, 4> kAllDataTypes = {
+std::array<DataType, 6> kAllDataTypes = {
     DataType::Int,
-    DataType::Float,
+    DataType::Long,
+    DataType::Short,
     DataType::Char,
+    DataType::Float,
     DataType::Double
 };
 

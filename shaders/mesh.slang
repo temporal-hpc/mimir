@@ -2,7 +2,7 @@ import uniforms;
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> params;
-ConstantBuffer<PrimitiveParams> primitive;
+ConstantBuffer<ViewParams> view;
 
 struct VertexInput
 {
@@ -11,8 +11,8 @@ struct VertexInput
 
 struct VertexData
 {
-    float4 pos        : SV_Position;
-    //float4 color      : COLOR;
+    float4 pos   : SV_Position;
+    float4 color : COLOR;
     //float marker_size;
 };
 
@@ -25,7 +25,7 @@ VertexData vertex2dMain(VertexInput input)
     float2 extent = params.extent.xy;
     float4 pos = float4(2 * (input.pos / extent) - 1, 0, 1);
     output.pos = mul(pos, view_proj);
-    //output.color = float4(0, 1, 0, 1);
+    output.color = view.default_color;
     //output.marker_size = 10.f;
 
     return output;
@@ -44,7 +44,7 @@ VertexData vertex3dMain(VertexInput3d input)
     VertexData output;
     float4 pos = float4(2 * (input.pos / params.extent) - 1, 1);
     output.pos = mul(pos, view_proj);
-    //output.color = float4(0, 0, 1, 1);
+    output.color = view.default_color;
     //output.marker_size = 10.f;
 
     return output;
@@ -53,5 +53,5 @@ VertexData vertex3dMain(VertexInput3d input)
 [shader("fragment")]
 float4 fragmentMain(VertexData input) : SV_Target
 {
-    return primitive.color;
+    return input.color;
 }

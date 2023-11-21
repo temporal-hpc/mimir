@@ -70,8 +70,35 @@ int main(int argc, char *argv[])
     CudaviewEngine engine;
     engine.init(1920, 1080);
     engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
-    
-    ViewParams params;
+
+    MemoryParams m;
+    m.layout          = DataLayout::Layout1D;
+    m.element_count.x = point_count;
+    m.data_type       = DataType::Float;
+    m.channel_count   = 3;
+    m.resource_type   = ResourceType::Buffer;
+    auto pointsmem = engine.createBuffer((void**)&d_coords, m);
+
+    m.element_count.x = 3 * triangles.size();
+    m.data_type       = DataType::Int;
+    m.channel_count   = 1;
+    m.resource_type   = ResourceType::IndexBuffer;
+    auto trimem = engine.createBuffer((void**)&d_triangles, m);
+
+    ViewParams2 params;
+    params.element_count = point_count;
+    params.data_domain   = DataDomain::Domain3D;
+    params.domain_type   = DomainType::Unstructured;
+    params.view_type     = ViewType::Markers;
+    params.attributes.push_back({ *pointsmem, AttributeType::Position });
+    engine.createView(params);
+
+    params.element_count = triangles.size();
+    params.view_type     = ViewType::Edges;
+    params.attributes.push_back({ *trimem, AttributeType::Index });
+    engine.createView(params);
+
+    /*ViewParams params;
     params.element_count = point_count;
     params.data_type     = DataType::Float;
     params.channel_count = 3;
@@ -84,11 +111,12 @@ int main(int argc, char *argv[])
     params.element_count = triangles.size();
     params.data_type     = DataType::Float;
     params.element_type  = ElementType::Edges;
-    engine.createView((void**)&d_triangles, params);
+    engine.createView((void**)&d_triangles, params);*/
 
     checkCuda(cudaMemcpy(d_coords, points.data(),
         sizeof(float3) * point_count, cudaMemcpyHostToDevice)
     );
+    //checkCuda(cudaMalloc(&d_triangles, sizeof(uint3) * triangles.size()));
     checkCuda(cudaMemcpy(d_triangles, triangles.data(),
         sizeof(uint3) * triangles.size(), cudaMemcpyHostToDevice)
     );

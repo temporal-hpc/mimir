@@ -193,7 +193,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     ViewerOptions viewer_opts;
     viewer_opts.window_title = "Colloid"; // Top-level window.
     viewer_opts.window_size = {1920, 1080};
-    viewer_opts.present = PresentOptions::VSync;
+    viewer_opts.present = PresentOptions::Immediate;
     engine.init(viewer_opts);
     
 	// Load particle data
