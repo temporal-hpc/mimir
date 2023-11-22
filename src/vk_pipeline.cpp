@@ -131,7 +131,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
             for (const auto& spec : specs)
             {
                 compile.specializations.push_back(spec.second);
-                printf("added spec %s\n", spec.second.c_str());
+                //printf("added spec %s\n", spec.second.c_str());
             }
             break;
         }
@@ -326,7 +326,6 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
     // Lookup entry points by their names
     for (const auto& name : params.entrypoints)
     {
-        printf("%s\n", name.c_str());
         Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
         module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
         if (entrypoint != nullptr) components.push_back(entrypoint);
@@ -463,11 +462,12 @@ VertexDescription getVertexDescription(const ViewParams2 params)
     // TODO: This is not a special case, just a float3 coord
     if (params.domain_type == DomainType::Structured)
     {
+        uint32_t location = static_cast<uint32_t>(AttributeType::Position);
         desc.binding.push_back(vkinit::vertexBindingDescription(
             binding, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
         ));
         desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            0, binding, VK_FORMAT_R32G32B32_SFLOAT, 0
+            location, binding, VK_FORMAT_R32G32B32_SFLOAT, 0
         ));
         binding++;
     }

@@ -52,14 +52,14 @@ int main(int argc, char **argv){
     // punteros GPU (3D)
     int *d1, *d2;
 
-    int width = 1920, height = 1080;
-    CudaviewEngine engine;
-    engine.init(width, height);
-
     // CREACION DE DATOS
     printf("Inicializando.................."); fflush(stdout);
     t1 = omp_get_wtime();
     init_prob(n, original, seed, prob);
+
+    int width = 1920, height = 1080;
+    CudaviewEngine engine;
+    engine.init(width, height);
 
     MemoryParams m;
     m.layout            = DataLayout::Layout3D;
@@ -72,10 +72,16 @@ int main(int argc, char **argv){
 
     ViewParams2 params;
     params.element_count = n * n * n;
+    params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain   = DataDomain::Domain3D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Voxels;
     params.attributes[AttributeType::Color] = *buffer1;
+    params.options.external_shaders = {
+        {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
+        {"shaders/voxel_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
+        {"shaders/voxel_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
+    };
     auto v1 = engine.createView(params);
 
     params.attributes[AttributeType::Color] = *buffer2;

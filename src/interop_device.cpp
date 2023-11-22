@@ -215,7 +215,23 @@ void InteropDevice::initViewBuffer(InteropView2& view)
         vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
 
         initImplicitCoords(logical_device, view.aux_memory, buffer_size, params.extent);
+        view.vert_buffers.push_back(view.aux_buffer);
+        view.buffer_offsets.push_back(0);
     }
+
+    for (const auto &[attr, memory] : view.params.attributes)
+    {
+        if (attr == AttributeType::Index)
+        {
+            view.idx_buffer = memory.data_buffer;
+            view.idx_type = getIndexType(memory.params.data_type);
+        }
+        else
+        {
+            view.vert_buffers.push_back(memory.data_buffer);
+            view.buffer_offsets.push_back(0);
+        }
+    }    
 }
 
 void InteropDevice::initMemoryImage(InteropMemory& interop)

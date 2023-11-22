@@ -288,12 +288,6 @@ InteropView *CudaviewEngine::createView(void **ptr_devmem, ViewParams params)
     return nullptr;
 }
 
-InteropView *CudaviewEngine::getView(uint32_t view_index)
-{
-    //return views[view_index].get();
-    return nullptr;
-}
-
 void CudaviewEngine::loadTexture(InteropView *view, void *data)
 {
     dev->loadTexture(view, data);
@@ -343,7 +337,7 @@ void CudaviewEngine::initVulkan()
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
         ),
         vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
         ),
         vkinit::descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 
             VK_SHADER_STAGE_FRAGMENT_BIT
@@ -855,50 +849,24 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
         );
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
 
-        VkBuffer idx_buffer = VK_NULL_HANDLE;
-        VkIndexType idx_type;
-        std::vector<VkBuffer> vert_buffers;
-        std::vector<VkDeviceSize> buffer_offsets;
-        for (const auto &[attr, memory] : view->params.attributes)
-        {
-            if (attr == AttributeType::Index)
-            {
-                idx_buffer = memory.data_buffer;
-                idx_type = getIndexType(memory.params.data_type);
-            }
-            else
-            {
-                vert_buffers.push_back(memory.data_buffer);
-                buffer_offsets.push_back(0);
-            }
-        }
         switch (view->params.view_type)
         {
             case ViewType::Markers:
+            case ViewType::Voxels:
             {
-                vkCmdBindVertexBuffers(cmd, 0, vert_buffers.size(),
-                    vert_buffers.data(), buffer_offsets.data()
+                vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
+                    view->vert_buffers.data(), view->buffer_offsets.data()
                 );
                 vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
                 break;
             }
             case ViewType::Edges:
             {
-                vkCmdBindVertexBuffers(cmd, 0, vert_buffers.size(),
-                    vert_buffers.data(), buffer_offsets.data()
+                vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
+                    view->vert_buffers.data(), view->buffer_offsets.data()
                 );
-                vkCmdBindIndexBuffer(cmd, idx_buffer, 0, idx_type);
+                vkCmdBindIndexBuffer(cmd, view->idx_buffer, 0, view->idx_type);
                 vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
-                break;
-            }
-            case ViewType::Voxels:
-            {
-                vert_buffers.push_back(view->aux_buffer);
-                buffer_offsets.push_back(0);
-                vkCmdBindVertexBuffers(cmd, 0, vert_buffers.size(),
-                    vert_buffers.data(), buffer_offsets.data()
-                );
-                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);                
                 break;
             }
             case ViewType::Image:

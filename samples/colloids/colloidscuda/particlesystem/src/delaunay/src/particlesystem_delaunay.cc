@@ -227,11 +227,11 @@ void ParticleSystemDelaunay::loadOnDevice()
     v.attributes[AttributeType::Position] = *interop[current_read];
     v.attributes[AttributeType::Color] = *interop[2];
     v.options.default_size = 100.f;
-    /*v.options.external_shaders = {
+    v.options.external_shaders = {
         {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
         {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };*/ 
+    };
     views[current_read] = engine.createView(v);
 
     v.options.visible = false;

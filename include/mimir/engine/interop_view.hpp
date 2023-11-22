@@ -234,6 +234,11 @@ struct InteropView2
     // Offset in bytes where index buffer starts inside aux_memory
     VkDeviceSize index_offset = 0;
 
+    std::vector<VkBuffer> vert_buffers;
+    std::vector<VkDeviceSize> buffer_offsets;
+    VkBuffer idx_buffer = VK_NULL_HANDLE;
+    VkIndexType idx_type;
+
     // Switches view visibility from visible to invisible and viceversa.
     // Does not modify view data in any way
     bool toggleVisibility()
