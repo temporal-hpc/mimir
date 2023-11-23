@@ -63,7 +63,7 @@ struct InteropView
     // Rendering pipeline associated to this view
     VkPipeline pipeline = VK_NULL_HANDLE;
     // Cuda external memory handle, provided by the Cuda interop API
-    cudaExternalMemory_t cuda_extmem = nullptr;    
+    cudaExternalMemory_t cuda_extmem = nullptr;
 
     // Raw Cuda pointer which can be passed to the library user
     // for use in kernels, as per cudaMalloc
@@ -134,7 +134,7 @@ constexpr VkFormat getDataFormat(DataType type, uint channel_count)
             case 3: return VK_FORMAT_R64G64B64_SFLOAT;
             case 4: return VK_FORMAT_R64G64B64A64_SFLOAT;
             default: return VK_FORMAT_UNDEFINED;
-        }        
+        }
         default: return VK_FORMAT_UNDEFINED;
     }
 }
@@ -156,7 +156,7 @@ struct MemoryParams
     DataSize element_count;
     uint channel_count = 1;
     DataType data_type;
-    ResourceType resource_type;  
+    ResourceType resource_type;
 };
 
 struct InteropMemory
@@ -180,9 +180,11 @@ struct InteropMemory
     VkDeviceMemory image_memory = nullptr;
     VkImage image        = VK_NULL_HANDLE;
     VkImageView vk_view  = VK_NULL_HANDLE;
+    // TODO: Move sampler creation to engine
+    // But the sampler field should still remain here
     VkSampler vk_sampler = VK_NULL_HANDLE;
     VkFormat vk_format   = VK_FORMAT_UNDEFINED;
-    VkExtent3D vk_extent = {0, 0, 0};  
+    VkExtent3D vk_extent = {0, 0, 0};
 };
 
 struct ViewAttribute
@@ -204,7 +206,7 @@ struct ViewOptions2
     // External alternate shaders for use in this view
     std::vector<ShaderInfo> external_shaders;
     // For specializing slang shaders associated to this view
-    std::vector<std::string> specializations;        
+    std::vector<std::string> specializations;
 };
 
 using AttributeDict = std::map<AttributeType, InteropMemory>;

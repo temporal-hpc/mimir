@@ -13,10 +13,11 @@
 namespace mimir
 {
 
-std::array<ResourceType, 3> kAllResources = {
+std::array<ResourceType, 4> kAllResources = {
     ResourceType::Buffer,
     ResourceType::IndexBuffer,
-    ResourceType::Texture
+    ResourceType::Texture,
+    ResourceType::LinearTexture
 };
 std::array<DomainType, 2> kAllDomains = {
     DomainType::Structured,
@@ -133,7 +134,7 @@ void addViewObjectGui(InteropView2 *view_ptr, int uid)
         if (type_check) printf("View %d: switched view type to %s\n", uid, getViewType(params.view_type));
         bool dom_check = ImGui::Combo("Domain type", (int*)&params.domain_type,
             &AllDomains::ItemGetter, kAllDomains.data(), kAllDomains.size()
-        );       
+        );
         if (dom_check) printf("View %d: switched domain type to %s\n", uid, getDomainType(params.domain_type));
         ImGui::SliderFloat("Element size (px)", &params.options.default_size, 1.f, 100.f);
         ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
@@ -143,7 +144,7 @@ void addViewObjectGui(InteropView2 *view_ptr, int uid)
             addTableRow("Data domain", getDataDomain(params.data_domain));
             addTableRow("Data extent", getExtent(params.extent, params.data_domain));
             ImGui::EndTable();
-        }        
+        }
         for (const auto &[attr, memory] : params.attributes)
         {
             if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
@@ -154,7 +155,7 @@ void addViewObjectGui(InteropView2 *view_ptr, int uid)
                 addTableRow("Data type", getDataType(info.data_type));
                 addTableRow("Channel count", std::to_string(info.channel_count));
                 addTableRow("Data layout", getDataLayout(info.layout));
-                
+
                 /*bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
                     &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
                 );
@@ -241,7 +242,7 @@ void CudaviewEngine::cursorPositionCallback(GLFWwindow *window, double xpos, dou
     app->handleMouseMove(static_cast<float>(xpos), static_cast<float>(ypos));
 }
 
-// Translates GLFW mouse actions into Viewer flags for detecting camera actions 
+// Translates GLFW mouse actions into Viewer flags for detecting camera actions
 void CudaviewEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
 {
     // Perform action only if GUI does not want to use mouse input
@@ -263,7 +264,7 @@ void CudaviewEngine::handleMouseButton(int button, int action, [[maybe_unused]] 
     }
 }
 
-// Translates GLFW mouse scroll into values for detecting camera zoom in/out 
+// Translates GLFW mouse scroll into values for detecting camera zoom in/out
 void CudaviewEngine::handleScroll([[maybe_unused]] float xoffset, [[maybe_unused]] float yoffset)
 {
     // depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
@@ -326,7 +327,7 @@ void CudaviewEngine::showMetrics()
     auto framerate = frame_times.size() / total_frame_time;
     //float min_fps = 1 / max_frame_time;
     //float max_fps = 1 / min_frame_time;
-    
+
     dev->updateMemoryProperties();
     auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
     auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);

@@ -98,7 +98,7 @@ void CudaviewEngine::init(ViewerOptions opts)
 
     auto width  = options.window_size.x;
     auto height = options.window_size.y;
-    
+
     // Initialize GLFW context and window
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -194,14 +194,21 @@ void CudaviewEngine::waitKernelStart()
     );
     wait_value += 2;
 
-    /*for (auto& view : views)
+    for (auto& view : views2)
     {
-        if (view->params.resource_type == ResourceType::Buffer &&
-            view->params.element_type == ElementType::Image)
+        // TODO: Reimplement this ugly loop
+        if (view->params.view_type == ViewType::Image)
         {
-            dev->updateTexture(view.get());
+            for (auto &[attr, memory] : view->params.attributes)
+            {
+                if (memory.params.resource_type == ResourceType::LinearTexture)
+                {
+                    printf("Update texture\n");
+                    dev->updateLinearTexture(memory);
+                }
+            }
         }
-    }*/
+    }
 }
 
 void CudaviewEngine::updateViews()
@@ -232,7 +239,7 @@ void CudaviewEngine::signalKernelFinish()
 
 void CudaviewEngine::display(std::function<void(void)> func, size_t iter_count)
 {
-    prepare();    
+    prepare();
     running = true;
     kernel_working = true;
     size_t iter_idx = 0;
@@ -260,7 +267,22 @@ InteropMemory *CudaviewEngine::createBuffer(void **dev_ptr, MemoryParams params)
     auto mem_handle = std::unique_ptr<InteropMemory>(new InteropMemory());
     mem_handle->params = params;
 
-    dev->initMemoryBuffer(*mem_handle);
+    switch (params.resource_type)
+    {
+        case ResourceType::Texture:
+        {
+            dev->initMemoryImage(*mem_handle);
+            break;
+        }
+        case ResourceType::LinearTexture:
+        {
+            dev->initMemoryImageLinear(*mem_handle);
+            printf("Create linear image\n");
+            break;
+        }
+        default: dev->initMemoryBuffer(*mem_handle);
+    }
+
     *dev_ptr = mem_handle->cuda_ptr;
     allocations.push_back(std::move(mem_handle));
     return allocations.back().get();
@@ -271,7 +293,9 @@ InteropView2 *CudaviewEngine::createView(ViewParams2 params)
     auto view_handle = std::unique_ptr<InteropView2>(new InteropView2());
     view_handle->params = params;
 
-    dev->initViewBuffer(*view_handle);
+    if (params.view_type == ViewType::Image) dev->initViewImage(*view_handle);
+    else dev->initViewBuffer(*view_handle);
+
     views2.push_back(std::move(view_handle));
     return views2.back().get();
 }
@@ -300,7 +324,7 @@ void CudaviewEngine::drawGui()
     ImGui::NewFrame();
     if (show_demo_window) { ImGui::ShowDemoWindow(); }
     if (options.show_metrics) { ImGui::ShowMetricsWindow(); }
-    displayEngineGUI(); // Display the builtin GUI  
+    displayEngineGUI(); // Display the builtin GUI
     gui_callback(); // Display user-provided addons
     ImGui::Render();
 }
@@ -330,16 +354,16 @@ void CudaviewEngine::initVulkan()
 
     // Create descriptor set and pipeline layouts
     std::vector<VkDescriptorSetLayoutBinding> layout_bindings{
-        vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 
+        vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
         ),
-        vkinit::descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 
+        vkinit::descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
         ),
         vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
         ),
-        vkinit::descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 
+        vkinit::descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             VK_SHADER_STAGE_FRAGMENT_BIT
         ),
         vkinit::descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER,
@@ -460,7 +484,7 @@ void CudaviewEngine::pickPhysicalDevice()
     {
         throw std::runtime_error("could not find proc address for \"vkGetPhysicalDeviceProperties2KHR\","
             "which is needed for finding an interop-capable device");
-    }    
+    }
 
     int curr_device = 0, prohibited_count = 0;
     while (curr_device < cuda_dev_count)
@@ -632,7 +656,7 @@ void CudaviewEngine::updateDescriptorSets()
         mvp_info.buffer = uniform_buffers[i].buffer;
         mvp_info.offset = 0;
         mvp_info.range  = sizeof(ModelViewProjection);
-        auto write_mvp = vkinit::writeDescriptorBuffer(set, 0, 
+        auto write_mvp = vkinit::writeDescriptorBuffer(set, 0,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &mvp_info
         );
         updates.push_back(write_mvp);
@@ -641,7 +665,7 @@ void CudaviewEngine::updateDescriptorSets()
         primitive_info.buffer = uniform_buffers[i].buffer;
         primitive_info.offset = 0;
         primitive_info.range  = sizeof(PrimitiveParams);
-        auto write_primitive = vkinit::writeDescriptorBuffer(set, 2, 
+        auto write_primitive = vkinit::writeDescriptorBuffer(set, 2,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &primitive_info
         );
         updates.push_back(write_primitive);
@@ -650,35 +674,43 @@ void CudaviewEngine::updateDescriptorSets()
         scene_info.buffer = uniform_buffers[i].buffer;
         scene_info.offset = 0;
         scene_info.range  = sizeof(SceneParams);
-        auto write_scene = vkinit::writeDescriptorBuffer(set, 1, 
+        auto write_scene = vkinit::writeDescriptorBuffer(set, 1,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
         );
         updates.push_back(write_scene);
 
         for (const auto& view : views2)
         {
-            if (view->params.view_type == ViewType::Image)
+            for (const auto &[attr, memory] : view->params.attributes)
             {
-                /*VkDescriptorImageInfo img_info{};
-                img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                img_info.imageView   = view->vk_view;
-                img_info.sampler     = view->vk_sampler;
+                // TODO: Use increasing binding indices for additional texture memory
+                if (memory.params.resource_type == ResourceType::Texture)
+                {
+                    VkDescriptorImageInfo img_info{};
+                    img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    img_info.imageView   = memory.vk_view;
+                    img_info.sampler     = memory.vk_sampler;
 
-                auto write_img = vkinit::writeDescriptorImage(set,
-                    3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
-                );
-                updates.push_back(write_img);
+                    auto write_img = vkinit::writeDescriptorImage(set,
+                        3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
+                    );
+                    updates.push_back(write_img);
 
-                VkDescriptorImageInfo samp_info{};
-                samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                samp_info.imageView   = view->vk_view;
-                samp_info.sampler     = view->vk_sampler;
+                    VkDescriptorImageInfo samp_info{};
+                    samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    samp_info.imageView   = memory.vk_view;
+                    samp_info.sampler     = memory.vk_sampler;
 
-                auto write_samp = vkinit::writeDescriptorImage(set,
-                    4, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
-                );
-                updates.push_back(write_samp);*/
+                    auto write_samp = vkinit::writeDescriptorImage(set,
+                        4, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
+                    );
+                    updates.push_back(write_samp);
+                }
             }
+            ///////////////////////////////////////////////////////
+            // TODO: Add texture copy
+            // TODO: Check interop_device image create
+            ///////////////////////////////////////////////////////
         }
 
         vkUpdateDescriptorSets(dev->logical_device, updates.size(), updates.data(), 0, nullptr);
@@ -739,7 +771,7 @@ void CudaviewEngine::renderFrame()
     }
     images_inflight[image_idx] = frame.render_fence;*/
 
-    // Wait for fences 
+    // Wait for fences
     auto fence = frame_fences[frame_idx];
     //printf("Frame %lu will wait for fence\n", frame_idx);
     validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
@@ -871,7 +903,11 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
             }
             case ViewType::Image:
             {
-                printf("TODO draw image");
+                VkDeviceSize img_offsets[1] = {0};
+                vkCmdBindVertexBuffers(cmd, 0, 1, &view->aux_buffer, img_offsets);
+                vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
+                vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+                printf("Draw image\n");
                 break;
             }
             default: break;
@@ -970,7 +1006,7 @@ VkRenderPass CudaviewEngine::createRenderPass()
     subpass.pDepthStencilAttachment = &depth_ref;
 
     // Specify memory and execution dependencies between subpasses
-    auto stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | 
+    auto stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
                       VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     auto access_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
@@ -1043,7 +1079,7 @@ void CudaviewEngine::initUniformBuffers()
     auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
     auto size_ubo = (size_mvp + size_primitive + size_scene) * views2.size();
-    
+
     uniform_buffers.resize(swap->image_count);
     for (auto& ubo : uniform_buffers)
     {
@@ -1104,7 +1140,7 @@ double CudaviewEngine::getRenderTimeResults(uint32_t cmd_idx)
 
     uint64_t buffer[2];
     validation::checkVulkan(vkGetQueryPoolResults(dev->logical_device, query_pool,
-        2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t), 
+        2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t),
         VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT)
     );
     vkResetQueryPool(dev->logical_device, query_pool, cmd_idx * 2, 2);

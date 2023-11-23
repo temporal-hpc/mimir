@@ -109,6 +109,57 @@ VkImage createImage(VkDevice dev, ViewParams params)
     return image;
 }
 
+// Converts a InteropView image type to its Vulkan equivalent
+VkImageType getImageType(DataLayout layout)
+{
+    switch (layout)
+    {
+        case DataLayout::Layout2D: return VK_IMAGE_TYPE_2D;
+        case DataLayout::Layout3D: return VK_IMAGE_TYPE_3D;
+        default:                   return VK_IMAGE_TYPE_1D;
+    }
+}
+
+// Converts a InteropView layout type to its Vulkan equivalent
+VkImageViewType getImageViewType(DataLayout layout)
+{
+    switch (layout)
+    {
+        case DataLayout::Layout2D: return VK_IMAGE_VIEW_TYPE_2D;
+        case DataLayout::Layout3D: return VK_IMAGE_VIEW_TYPE_3D;
+        default:                   return VK_IMAGE_VIEW_TYPE_1D;
+    }
+}
+
+VkImage createImage(VkDevice dev, MemoryParams params)
+{
+    auto img_type = getImageType(params.layout);
+    auto format   = getDataFormat(params.data_type, params.channel_count);
+    auto usage    = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    auto tiling   = getImageTiling(params.resource_type);
+    auto sz       = params.element_count.xyz;
+    VkExtent3D extent = {(uint32_t)sz.x, (uint32_t)sz.y, (uint32_t)sz.z};
+
+    VkExternalMemoryImageCreateInfo extmem_info{};
+    extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    extmem_info.pNext = nullptr;
+    extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+    // TODO: Check if texture is within bounds
+    //auto max_img_dim = properties.limits.maxImageDimension3D;
+
+    auto info = vkinit::imageCreateInfo(img_type, format, extent, usage);
+    info.pNext         = &extmem_info;
+    info.flags         = 0;
+    info.tiling        = tiling;
+    info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VkImage image = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateImage(dev, &info, nullptr, &image));
+    return image;
+}
+
 cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, ViewParams params)
 {
     constexpr int level_count = 1; // TODO: Should be a parameter
@@ -140,7 +191,7 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, ViewPar
 VkBufferUsageFlags getBufferUsage(ResourceType type)
 {
     // Every interop buffer should at least use the DST_BIT flags,
-    // to allow for memcpy operations 
+    // to allow for memcpy operations
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     switch (type)
     {
@@ -152,7 +203,7 @@ VkBufferUsageFlags getBufferUsage(ResourceType type)
 
 void InteropDevice::initMemoryBuffer(InteropMemory& interop)
 {
-    const auto params = interop.params;
+    const auto &params = interop.params;
     const auto element_size = getDataSize(params.data_type, params.channel_count);
     const auto element_count = getElementCount(params.element_count, params.layout);
 
@@ -197,7 +248,7 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
 
 void InteropDevice::initViewBuffer(InteropView2& view)
 {
-    const auto params = view.params;
+    const auto &params = view.params;
     // For structured domain views, initialize auxiliary resources and memory
     if (params.domain_type == DomainType::Structured)
     {
@@ -231,13 +282,42 @@ void InteropDevice::initViewBuffer(InteropView2& view)
             view.vert_buffers.push_back(memory.data_buffer);
             view.buffer_offsets.push_back(0);
         }
-    }    
+    }
+}
+
+cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryParams params)
+{
+    constexpr int level_count = 1; // TODO: Should be a parameter
+
+    cudaChannelFormatDesc format_desc;
+    format_desc.x = 8;
+    format_desc.y = 8;
+    format_desc.z = 8;
+    format_desc.w = 8;
+    format_desc.f = cudaChannelFormatKindUnsigned;
+    size_t image_width  = params.element_count.xyz.x;
+    size_t image_height = params.element_count.xyz.y;
+    auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
+
+    cudaExternalMemoryMipmappedArrayDesc array_desc{};
+    array_desc.offset     = 0;
+    array_desc.formatDesc = format_desc;
+    array_desc.extent     = cuda_extent;
+    array_desc.flags      = 0;
+    array_desc.numLevels  = level_count;
+
+    cudaMipmappedArray_t mipmap_array;
+    validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
+        &mipmap_array, cuda_extmem, &array_desc)
+    );
+    return mipmap_array;
 }
 
 void InteropDevice::initMemoryImage(InteropMemory& interop)
-{/*
+{
+    const auto &params = interop.params;
     // Init texture memory
-    interop.image = createImage2(logical_device, params);
+    interop.image = createImage(logical_device, params);
     interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
     deletors.add([=,this]{
         vkDestroyImage(logical_device, interop.image, nullptr);
@@ -245,33 +325,21 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     VkMemoryRequirements memreq{};
     vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
 
-    // Image memory needs to be exported only when mapping directly to
-    // a CUDA texture
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    if (params.resource_type == ResourceType::Texture)
-    {
-        VkExportMemoryAllocateInfoKHR export_info{};
-        export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
-        export_info.pNext = nullptr;
-        export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-        interop.image_memory = allocateMemory(memreq, memflags, &export_info);
-        interop.cuda_extmem = importCudaExternalMemory(interop.image_memory, memreq.size);
-        deletors.add([=,this]{
-            validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
-        });
-    }
-    else if (use_image)
-    {
-        interop.image_memory = allocateMemory(memreq, memflags, nullptr);
-    }
+    VkExportMemoryAllocateInfoKHR export_info{};
+    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+    export_info.pNext = nullptr;
+    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    interop.image_memory = allocateMemory(memreq, memflags, &export_info);
+    interop.cuda_extmem = importCudaExternalMemory(interop.image_memory, memreq.size);
     deletors.add([=,this]{
+        validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
         vkFreeMemory(logical_device, interop.image_memory, nullptr);
     });
 
-    interop.index_offset = 4 * sizeof(Vertex);
     vkBindImageMemory(logical_device, interop.image, interop.image_memory, 0);
 
-    auto view_type = getViewType(params.data_domain);
+    auto view_type = getImageViewType(params.layout);
     auto info = vkinit::imageViewCreateInfo(interop.image,
         view_type, interop.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
     );
@@ -283,18 +351,52 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     transitionImageLayout(interop.image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
-    if (params.resource_type == ResourceType::Texture)
-    {
-        interop.mipmap_array = createMipmapArray(interop.cuda_extmem, params);
-        deletors.add([=,this]{
-            validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
-        });
-    }*/
+    interop.mipmap_array = createMipmapArray(interop.cuda_extmem, params);
+    deletors.add([=,this]{
+        validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
+    });
+}
+
+void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
+{
+    initMemoryBuffer(interop);
+
+    const auto &params = interop.params;
+    // Init texture memory
+    interop.image = createImage(logical_device, params);
+    interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
+    deletors.add([=,this]{
+        vkDestroyImage(logical_device, interop.image, nullptr);
+    });
+    VkMemoryRequirements memreq{};
+    vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
+
+    auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    interop.image_memory = allocateMemory(memreq, memflags, nullptr);
+    deletors.add([=,this]{
+        vkFreeMemory(logical_device, interop.image_memory, nullptr);
+    });
+    vkBindImageMemory(logical_device, interop.image, interop.image_memory, 0);
+
+    auto view_type = getImageViewType(params.layout);
+    auto info = vkinit::imageViewCreateInfo(interop.image,
+        view_type, interop.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
+    );
+    validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &interop.vk_view));
+    deletors.add([=,this]{
+        vkDestroyImageView(logical_device, interop.vk_view, nullptr);
+    });
+
+    transitionImageLayout(interop.image,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    );
+    printf("Init memory linear\n");
 }
 
 void InteropDevice::initViewImage(InteropView2& view)
 {
-    /*if (params.domain_type == DomainType::Structured)
+    const auto &params = view.params;
+    if (params.domain_type == DomainType::Structured)
     {
         const std::vector<Vertex> vertices{
             { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
@@ -329,7 +431,18 @@ void InteropDevice::initViewImage(InteropView2& view)
             vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
             vkFreeMemory(logical_device, view.aux_memory, nullptr);
         });
-    }*/
+
+        view.index_offset = 4 * sizeof(Vertex);
+        view.idx_type = VK_INDEX_TYPE_UINT16;
+        printf("Init view image\n");
+    }
+
+    for (const auto &[attr, memory] : view.params.attributes)
+    {
+
+        view.vert_buffers.push_back(memory.data_buffer);
+        view.buffer_offsets.push_back(0);
+    }
 }
 
 void InteropDevice::initView(InteropView& view)
@@ -504,15 +617,15 @@ void InteropDevice::initView(InteropView& view)
     }
 }
 
-void InteropDevice::updateTexture(InteropView* view)
+void InteropDevice::updateLinearTexture(InteropMemory &interop)
 {
-    transitionImageLayout(view->image,
+    transitionImageLayout(interop.image,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     );
 
-    copyBufferToTexture(view->data_buffer, view->image, view->vk_extent);
+    copyBufferToTexture(interop.data_buffer, interop.image, interop.vk_extent);
 
-    transitionImageLayout(view->image,
+    transitionImageLayout(interop.image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
 }
@@ -544,7 +657,7 @@ void InteropDevice::loadTexture(InteropView *view, void *img_data)
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     );
     copyBufferToTexture(staging_buffer, view->image, view->vk_extent);
-    
+
     vkDestroyBuffer(logical_device, staging_buffer, nullptr);
     vkFreeMemory(logical_device, staging_memory, nullptr);
 

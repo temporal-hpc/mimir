@@ -15,7 +15,7 @@ struct InteropBarrier
     cudaExternalSemaphore_t cuda_semaphore = nullptr;
 };
 
-// Class for encapsulating Vulkan device functions with Cuda interop 
+// Class for encapsulating Vulkan device functions with Cuda interop
 // Inherited from VulkanDevice to encapsulate Cuda-related code
 struct InteropDevice : public VulkanDevice
 {
@@ -35,14 +35,15 @@ struct InteropDevice : public VulkanDevice
 
     // View functions
     void initView(InteropView& view);
-    void updateTexture(InteropView *view);
     void loadTexture(InteropView *view, void *data);
     void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);
 
     void initMemoryBuffer(InteropMemory &interop);
     void initMemoryImage(InteropMemory &interop);
+    void initMemoryImageLinear(InteropMemory &interop);
     void initViewBuffer(InteropView2& view);
     void initViewImage(InteropView2& view);
+    void updateLinearTexture(InteropMemory &interop);
 };
 
 } // namespace mimir

@@ -30,13 +30,13 @@ int main(int argc, char *argv[])
 
     CudaviewEngine engine;
     engine.init(1920, 1080);
-    
+
     MemoryParams m;
     m.layout           = DataLayout::Layout2D;
     m.element_count.xy = {width, height};
     m.data_type        = DataType::Char;
     m.channel_count    = 4;
-    m.resource_type    = ResourceType::Buffer;
+    m.resource_type    = ResourceType::LinearTexture;
     auto pixels = engine.createBuffer((void**)&d_pixels, m);
 
     ViewParams2 params;
@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Image;
-    
+
     params.attributes[AttributeType::Color] = *pixels;
     engine.createView(params);
 

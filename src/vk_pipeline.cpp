@@ -78,7 +78,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         else if (view.data_domain == DataDomain::Domain3D)
         {
             params.entrypoints = {"vertex3dMain", "fragmentMain"};
-        }    
+        }
     }
     else if (view.element_type == ElementType::Voxels)
     {
@@ -90,7 +90,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams view)
         if (view.resource_type == ResourceType::Texture)
         {
             params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-        }    
+        }
     }
     return params;
 }
@@ -148,10 +148,31 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
             // TODO: When using textures:
             //compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
             break;
-        }        
+        }
         case ViewType::Image:
         {
-            printf("TODO Slang Image\n");
+            compile.source_path = "shaders/texture.slang";
+            // The texture shader needs a specialization for the way to interpret its content
+            // as a fragment. If no specialization is set, use the RawColor spec.
+            if (compile.specializations.empty())
+            {
+                compile.specializations.push_back("RawColor");
+            }
+            std::string vert_entry = "vertex";
+            std::string frag_entry = "frag";
+            if (params.data_domain == DataDomain::Domain2D)
+            {
+                vert_entry += "2dMain";
+                frag_entry += "2d_";
+            }
+            else if (params.data_domain == DataDomain::Domain3D)
+            {
+                vert_entry += "3dMain";
+                frag_entry += "3d_";
+            }
+            frag_entry += "Float4";// + std::to_string(params.channel_count);
+            compile.entrypoints = { vert_entry, frag_entry };
+            printf("Pipeline image\n");
             break;
         }
         default:
@@ -417,7 +438,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
         //printf("Compiling slang shaders\n");
         stages = compileSlang(dev, compile_params);
     }
-    
+
     info.shader_stages = stages;
     info.vertex_input_info = getVertexDescription(params);
     info.input_assembly = getAssemblyInfo(params.resource_type, params.element_type);
@@ -431,7 +452,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
     col_blend.colorBlendOp        = VK_BLEND_OP_ADD;
     col_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;  
+    col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;
     info.color_blend_attachment   = col_blend;
 
     pipeline_infos.push_back(info);
@@ -460,7 +481,7 @@ VertexDescription getVertexDescription(const ViewParams2 params)
     uint32_t binding = 0;
 
     // TODO: This is not a special case, just a float3 coord
-    if (params.domain_type == DomainType::Structured)
+    if (params.view_type == ViewType::Voxels)
     {
         uint32_t location = static_cast<uint32_t>(AttributeType::Position);
         desc.binding.push_back(vkinit::vertexBindingDescription(
@@ -471,13 +492,27 @@ VertexDescription getVertexDescription(const ViewParams2 params)
         ));
         binding++;
     }
+    else if (params.view_type == ViewType::Image)
+    {
+        uint32_t location = static_cast<uint32_t>(AttributeType::Position);
+        desc.binding.push_back(vkinit::vertexBindingDescription(
+            binding, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
+        ));
+        desc.attribute.push_back(vkinit::vertexAttributeDescription(
+            location, binding, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
+        ));
+        desc.attribute.push_back(vkinit::vertexAttributeDescription(
+            location, binding, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
+        ));
+        binding++;
+    }
 
     for (const auto &[attr, memory] : params.attributes)
     {
         auto& mem_params = memory.params;
         uint32_t location = static_cast<uint32_t>(attr);
         auto stride = getDataSize(mem_params.data_type, mem_params.channel_count);
-        auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);        
+        auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);
         switch (attr)
         {
             case AttributeType::Position:
@@ -517,7 +552,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams2 params, InteropDevice *d
         //printf("Compiling slang shaders\n");
         stages = compileSlang(dev, compile_params);
     }
-    
+
     info.shader_stages = stages;
     info.vertex_input_info = getVertexDescription(params);
     info.input_assembly = getAssemblyInfo(params.view_type);
@@ -531,7 +566,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams2 params, InteropDevice *d
     col_blend.colorBlendOp        = VK_BLEND_OP_ADD;
     col_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;  
+    col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;
     info.color_blend_attachment   = col_blend;
 
     pipeline_infos.push_back(info);
