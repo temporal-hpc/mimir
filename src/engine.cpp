@@ -151,6 +151,20 @@ void CudaviewEngine::prepare()
     initUniformBuffers();
     createGraphicsPipelines();
     updateDescriptorSets();
+    for (auto& view : views2)
+    {
+        // TODO: Reimplement this ugly loop
+        if (view->params.view_type == ViewType::Image)
+        {
+            for (auto &[attr, memory] : view->params.attributes)
+            {
+                if (memory.params.resource_type == ResourceType::LinearTexture)
+                {
+                    dev->updateLinearTexture(memory);
+                }
+            }
+        }
+    }
 }
 
 void CudaviewEngine::displayAsync()
@@ -203,7 +217,6 @@ void CudaviewEngine::waitKernelStart()
             {
                 if (memory.params.resource_type == ResourceType::LinearTexture)
                 {
-                    printf("Update texture\n");
                     dev->updateLinearTexture(memory);
                 }
             }
@@ -277,7 +290,6 @@ InteropMemory *CudaviewEngine::createBuffer(void **dev_ptr, MemoryParams params)
         case ResourceType::LinearTexture:
         {
             dev->initMemoryImageLinear(*mem_handle);
-            printf("Create linear image\n");
             break;
         }
         default: dev->initMemoryBuffer(*mem_handle);
@@ -684,7 +696,8 @@ void CudaviewEngine::updateDescriptorSets()
             for (const auto &[attr, memory] : view->params.attributes)
             {
                 // TODO: Use increasing binding indices for additional texture memory
-                if (memory.params.resource_type == ResourceType::Texture)
+                if (memory.params.resource_type == ResourceType::Texture ||
+                    memory.params.resource_type == ResourceType::LinearTexture)
                 {
                     VkDescriptorImageInfo img_info{};
                     img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -707,10 +720,6 @@ void CudaviewEngine::updateDescriptorSets()
                     updates.push_back(write_samp);
                 }
             }
-            ///////////////////////////////////////////////////////
-            // TODO: Add texture copy
-            // TODO: Check interop_device image create
-            ///////////////////////////////////////////////////////
         }
 
         vkUpdateDescriptorSets(dev->logical_device, updates.size(), updates.data(), 0, nullptr);
@@ -907,7 +916,6 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
                 vkCmdBindVertexBuffers(cmd, 0, 1, &view->aux_buffer, img_offsets);
                 vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
                 vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-                printf("Draw image\n");
                 break;
             }
             default: break;

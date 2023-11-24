@@ -44,8 +44,11 @@ int main(int argc, char *argv[])
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Image;
-
     params.attributes[AttributeType::Color] = *pixels;
+    /*params.options.external_shaders = {
+        {"shaders/texture_vertex2dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
+        {"shaders/texture_frag2d_Float4.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
+    };*/
     engine.createView(params);
 
     /*ViewParams params;

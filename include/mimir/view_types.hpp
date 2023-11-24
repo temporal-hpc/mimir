@@ -107,6 +107,34 @@ union DataSize
 
 enum class DataLayout { Layout1D, Layout2D, Layout3D };
 
+constexpr uint3 getSize(DataSize size, DataLayout layout)
+{
+    uint3 sz = {1, 1, 1};
+    switch (layout)
+    {
+        case DataLayout::Layout1D:
+        {
+            sz.x = size.x;
+            break;
+        }
+        case DataLayout::Layout2D:
+        {
+            sz.x = size.xy.x;
+            sz.y = size.xy.y;
+            break;
+        }
+        case DataLayout::Layout3D:
+        {
+            sz.x = size.xyz.x;
+            sz.y = size.xyz.y;
+            sz.z = size.xyz.z;
+            break;
+        }
+        default: break;
+    }
+    return sz;
+};
+
 constexpr size_t getElementCount(DataSize size, DataLayout layout)
 {
     switch (layout)

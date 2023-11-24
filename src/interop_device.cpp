@@ -136,9 +136,9 @@ VkImage createImage(VkDevice dev, MemoryParams params)
     auto img_type = getImageType(params.layout);
     auto format   = getDataFormat(params.data_type, params.channel_count);
     auto usage    = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    auto tiling   = getImageTiling(params.resource_type);
-    auto sz       = params.element_count.xyz;
-    VkExtent3D extent = {(uint32_t)sz.x, (uint32_t)sz.y, (uint32_t)sz.z};
+    auto tiling   = VK_IMAGE_TILING_OPTIMAL;
+    auto sz = getSize(params.element_count, params.layout);
+    VkExtent3D extent = {sz.x, sz.y, sz.z};
 
     VkExternalMemoryImageCreateInfo extmem_info{};
     extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -192,7 +192,7 @@ VkBufferUsageFlags getBufferUsage(ResourceType type)
 {
     // Every interop buffer should at least use the DST_BIT flags,
     // to allow for memcpy operations
-    VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     switch (type)
     {
         case ResourceType::Buffer: return usage | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
@@ -316,6 +316,10 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryP
 void InteropDevice::initMemoryImage(InteropMemory& interop)
 {
     const auto &params = interop.params;
+    auto sz = getSize(params.element_count, params.layout);
+    interop.vk_extent = {sz.x, sz.y, sz.z};
+    interop.vk_format = getDataFormat(params.data_type, params.channel_count);
+
     // Init texture memory
     interop.image = createImage(logical_device, params);
     interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
@@ -362,15 +366,19 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     initMemoryBuffer(interop);
 
     const auto &params = interop.params;
+    auto sz = getSize(params.element_count, params.layout);
+    interop.vk_extent = {sz.x, sz.y, sz.z};
+    interop.vk_format = getDataFormat(params.data_type, params.channel_count);
+
     // Init texture memory
     interop.image = createImage(logical_device, params);
     interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
     deletors.add([=,this]{
         vkDestroyImage(logical_device, interop.image, nullptr);
     });
+
     VkMemoryRequirements memreq{};
     vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
-
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     interop.image_memory = allocateMemory(memreq, memflags, nullptr);
     deletors.add([=,this]{
@@ -386,11 +394,9 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     deletors.add([=,this]{
         vkDestroyImageView(logical_device, interop.vk_view, nullptr);
     });
-
     transitionImageLayout(interop.image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
-    printf("Init memory linear\n");
 }
 
 void InteropDevice::initViewImage(InteropView2& view)
@@ -434,15 +440,14 @@ void InteropDevice::initViewImage(InteropView2& view)
 
         view.index_offset = 4 * sizeof(Vertex);
         view.idx_type = VK_INDEX_TYPE_UINT16;
-        printf("Init view image\n");
     }
 
-    for (const auto &[attr, memory] : view.params.attributes)
+    /*for (const auto &[attr, memory] : view.params.attributes)
     {
 
         view.vert_buffers.push_back(memory.data_buffer);
         view.buffer_offsets.push_back(0);
-    }
+    }*/
 }
 
 void InteropDevice::initView(InteropView& view)

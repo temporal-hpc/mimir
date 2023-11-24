@@ -172,7 +172,6 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
             }
             frag_entry += "Float4";// + std::to_string(params.channel_count);
             compile.entrypoints = { vert_entry, frag_entry };
-            printf("Pipeline image\n");
             break;
         }
         default:
@@ -494,17 +493,16 @@ VertexDescription getVertexDescription(const ViewParams2 params)
     }
     else if (params.view_type == ViewType::Image)
     {
-        uint32_t location = static_cast<uint32_t>(AttributeType::Position);
         desc.binding.push_back(vkinit::vertexBindingDescription(
-            binding, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
+            0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
         ));
         desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            location, binding, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
+            0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
         ));
         desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            location, binding, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
+            1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
         ));
-        binding++;
+        return desc;
     }
 
     for (const auto &[attr, memory] : params.attributes)
@@ -531,7 +529,6 @@ VertexDescription getVertexDescription(const ViewParams2 params)
             default: break;
         }
     }
-    // TODO: Handle image view type
 
     return desc;
 }

@@ -139,11 +139,16 @@ int main()
     params.source_path = "../samples/shaders/voxel.slang";
     params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
     compileSlang(params, session);
-    
+
     params.source_path = "../samples/shaders/marker.slang";
     params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
     params.specializations = { "PositionDouble2", "ColorInt1", "SizeDefault" };
     compileSlang(params, session);
-    
+
+    params.source_path = "../samples/shaders/texture.slang";
+    params.entrypoints = {"vertex2dMain", "frag2d_Float4"};
+    params.specializations = { "RawColor" };
+    compileSlang(params, session);
+
     return 0;
 }
