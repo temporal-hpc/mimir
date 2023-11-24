@@ -256,27 +256,41 @@ int main(int argc, char *argv[])
         CudaviewEngine engine;
         engine.init(1920, 1080);
 
-        ViewParams params;
-        params.element_count = program.element_count;
-        params.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
-        params.data_type     = DataType::Float;
-        params.channel_count = 2;
-        params.resource_type = ResourceType::Buffer;
-        params.data_domain   = DataDomain::Domain2D;
-        params.domain_type   = DomainType::Unstructured;
-        params.element_type  = ElementType::Markers;
-        params.cuda_stream   = program.stream;
-        params.options.color = {0,0,1,1};
-        engine.createView((void**)&program.d_coords, params);
-        //cudaMalloc((void**)&program.d_coords, sizeof(float2) * point_count);
+        MemoryParams m1;
+        m1.layout          = DataLayout::Layout1D;
+        m1.element_count.x = program.element_count;
+        m1.data_type       = DataType::Float;
+        m1.channel_count   = 2;
+        m1.resource_type   = ResourceType::Buffer;
+        auto points = engine.createBuffer((void**)&program.d_coords, m1);
 
-        params.element_count = program.extent.x * program.extent.y;
-        params.resource_type = ResourceType::Buffer;
-        params.domain_type   = DomainType::Structured;
-        params.element_type  = ElementType::Image;
-        params.data_type     = DataType::Float;
-        params.channel_count = 1;
-        engine.createView((void**)&program.d_distances, params);
+        ViewParams2 p1;
+        p1.element_count = program.element_count;
+        p1.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
+        p1.data_domain   = DataDomain::Domain2D;
+        p1.domain_type   = DomainType::Unstructured;
+        p1.view_type     = ViewType::Markers;
+        p1.attributes[AttributeType::Position] = *points;
+        p1.options.default_color = {0,0,1,1};
+        auto v1 = engine.createView(p1);
+
+        MemoryParams m2;
+        m2.layout           = DataLayout::Layout2D;
+        m2.element_count.xy = {program.extent.x, program.extent.y};
+        m2.data_type        = DataType::Float;
+        m2.channel_count    = 1;
+        m2.resource_type    = ResourceType::LinearTexture;
+        auto image = engine.createBuffer((void**)&program.d_distances, m2);
+
+        ViewParams2 p2;
+        p2.element_count = program.extent.x * program.extent.y;
+        p2.data_domain   = DataDomain::Domain2D;
+        p2.domain_type   = DomainType::Structured;
+        p2.view_type     = ViewType::Image;
+        p2.attributes[AttributeType::Color] = *image;
+        auto v2 = engine.createView(p2);
+
+        //cudaMalloc((void**)&program.d_coords, sizeof(float2) * point_count);
         //cudaMalloc((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
 
         program.setInitialState();
