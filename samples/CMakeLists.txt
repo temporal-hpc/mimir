@@ -34,7 +34,7 @@ target_link_libraries(run_texture PRIVATE mimir)
 add_executable(voronoi voronoi/voronoi.cu)
 target_link_libraries(voronoi PRIVATE mimir)
 
-add_subdirectory(tiuque)
+add_subdirectory(edgeflip)
 add_subdirectory(pointsgl)
 add_subdirectory(pointspcl)
 add_subdirectory(colloids)

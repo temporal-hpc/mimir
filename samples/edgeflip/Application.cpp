@@ -6,7 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 //										//
 //	Copyright � 2011 Cristobal A. Navarro.					//
-//										//	
+//										//
 //	This file is part of tiuque.						//
 //	tiuque is free software: you can redistribute it and/or modify		//
 //	it under the terms of the GNU General Public License as published by	//
@@ -36,7 +36,7 @@ using namespace mimir::validation; // checkCuda
 
 Application::Application(){
     myMesh = 0;
-    
+
     ViewerOptions viewer_opts;
     viewer_opts.window_title = "Tiuque"; // Top-level window.
     viewer_opts.window_size = {1920, 1080};
@@ -47,31 +47,39 @@ Application::Application(){
 
     // TODO: Fix dptr in kernels
 	this->myMesh = new Mesh("/home/francisco/Downloads/tiuque/chica5.off");
-    auto m = this->myMesh->my_cleap_mesh;  
+    auto m = this->myMesh->my_cleap_mesh;
 
     // NOTE: Cudaview code
     // TODO: Delete views
-    ViewParams vert;
-    vert.element_count   = cleap_get_vertex_count(m);
-    vert.data_type       = DataType::Float;
-    vert.channel_count   = 4;
-    vert.resource_type   = ResourceType::Buffer;
-    vert.data_domain     = DataDomain::Domain3D;
-    vert.domain_type     = DomainType::Unstructured;
-    vert.element_type    = ElementType::Markers;
-    vert.options.visible = false;
-    engine.createView((void**)&m->dm->d_vbo_v, vert);
+    MemoryParams mem1;
+    mem1.layout          = DataLayout::Layout1D;
+    mem1.element_count.x = cleap_get_vertex_count(m);
+    mem1.data_type       = DataType::Float;
+    mem1.channel_count   = 4;
+    mem1.resource_type   = ResourceType::Buffer;
+    auto vertices = engine.createBuffer((void**)&m->dm->d_vbo_v, mem1);
 
-    ViewParams tri;
-    tri.element_count  = cleap_get_face_count(m);
-    tri.data_type      = DataType::Int;
-    tri.channel_count  = 3;
-    tri.resource_type  = ResourceType::Buffer;
-    tri.data_domain    = DataDomain::Domain3D;
-    tri.domain_type    = DomainType::Unstructured;
-    tri.element_type   = ElementType::Edges;
-    tri.options.color  = {0.f, 1.f, 0.f, 1.f};
-    engine.createView((void**)&m->dm->d_eab, tri);
+    ViewParams2 params;
+    params.element_count   = cleap_get_vertex_count(m);
+    params.data_domain     = DataDomain::Domain3D;
+    params.domain_type     = DomainType::Unstructured;
+    params.view_type       = ViewType::Markers;
+    params.attributes[AttributeType::Position] = *vertices;
+    engine.createView(params);
+
+    MemoryParams mem2;
+    mem2.layout          = DataLayout::Layout1D;
+    mem2.element_count.x = cleap_get_face_count(m);
+    mem2.data_type       = DataType::Int;
+    mem2.channel_count   = 3;
+    mem2.resource_type   = ResourceType::IndexBuffer;
+    auto triangles = engine.createBuffer((void**)&m->dm->d_eab, mem2);
+
+    params.element_count = cleap_get_face_count(m);
+    params.view_type     = ViewType::Edges;
+    params.attributes[AttributeType::Index] = *triangles;
+    params.options.default_color  = {0.f, 1.f, 0.f, 1.f};
+    engine.createView(params);
 
     validation::checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
         cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)
@@ -216,9 +224,9 @@ void Application::init()
                     ImGui::MenuItem("Toggle Wireframe", "", &toggle_wireframe);
                     ImGui::MenuItem("Educational Mode", "", &educational_mode);
                     ImGui::EndMenu();
-                }                
+                }
                 ImGui::EndMenu();
-            }            
+            }
             ImGui::EndMainMenuBar();
         }
         if (ImGuiFileDialog::Instance()->Display("LoadFileDialog"))
@@ -238,7 +246,7 @@ void Application::init()
                 save_mesh(filename.c_str());
             }
             ImGuiFileDialog::Instance()->Close();
-        }        
+        }
     });
     engine.displayAsync();
 
@@ -342,7 +350,7 @@ void Application::on_menu_file_open()
 			//my_gl_window->redraw();
 		}
     }
-	
+
 	delete filter_geomview;
 	delete dialog;
 	//my_gl_window->redraw();

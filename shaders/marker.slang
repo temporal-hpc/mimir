@@ -99,6 +99,16 @@ struct PositionFloat3 : IPosition
     }
 };
 
+// TODO: Handle this correctly
+struct PositionFloat4 : IPosition
+{
+    VectorInput<float,4> input : POSITION;
+    float4 getPosition(int3 extent)
+    {
+        return getPosition4d(input.data, extent);
+    }
+};
+
 struct PositionDouble3 : IPosition
 {
     VectorInput<double,3> input : POSITION;
@@ -137,6 +147,11 @@ float4 getPosition2d(float2 data, int3 extent)
 float4 getPosition3d(float3 data, int3 extent)
 {
     return float4(2 * (data / extent) - 1, 1);
+}
+
+float4 getPosition4d(float4 data, int3 extent)
+{
+    return float4(2 * (data.xyz / extent) - 1, 1);
 }
 
 interface IColor
@@ -476,21 +491,21 @@ struct FragmentOutput
 FragmentOutput fragmentMain(MarkerData input)
 {
     FragmentOutput out;
-    
+
     float2 p = 2 * input.uv - 1;
     // if (dot(p, p) > 1) discard;
     // return element.color;
     //float2 p = input.uv - float2(0.5);
     //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
-    
+
     DiscShape shape;
     float distance = shape.apply(p * input.size, input.ele_size);
-    
+
     Filled filled;
     out.color = filled.apply(distance, v_linewidth, u_antialias, input.color, scene.bg_color);
     //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;
     out.depth = 1 - out.color.w;
-    return out; 
+    return out;
 }

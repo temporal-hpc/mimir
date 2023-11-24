@@ -10,7 +10,7 @@ typedef std::pair<int, int> pairArco;
 
 
 CLEAP_RESULT _cleap_generate_edges_hash(_cleap_mesh *m, FILE *off, float prog, float cont, float pbFraction){
-	
+
 	// IO:: parsing faces and edges
 	int face_type, io_val;
 	int face = 3;
@@ -29,7 +29,7 @@ CLEAP_RESULT _cleap_generate_edges_hash(_cleap_mesh *m, FILE *off, float prog, f
 	int k_sec[3] = {1, 2, 2};
 	int op_sec[3] = {2, 1, 0};
 	int j ,k, op;
-	
+
 	for(int i=0; i<m->face_count; i++) {
 		io_val = fscanf(off,"%d",&face_type);
 		if( face_type == 3 ){
@@ -39,9 +39,9 @@ CLEAP_RESULT _cleap_generate_edges_hash(_cleap_mesh *m, FILE *off, float prog, f
 			for(int q=0; q<3; q++){
 				j=j_sec[q], k=k_sec[q], op=op_sec[q];
 				// always the higher first
-				if( m->triangles[i*face_type+j] < m->triangles[i*face_type+k]){ 
-					k = j;	
-					j = k_sec[q]; 
+				if( m->triangles[i*face_type+j] < m->triangles[i*face_type+k]){
+					k = j;
+					j = k_sec[q];
 				}
 				// ok, first index already existed, check if the second exists or not
 				std::tr1::unordered_map<int, _tmp_edge> *second_hash = &root_hash[m->triangles[i*face_type+j]];
@@ -54,8 +54,8 @@ CLEAP_RESULT _cleap_generate_edges_hash(_cleap_mesh *m, FILE *off, float prog, f
 					aux_tmp_edge->op2 = i*face_type+op;
 				}
 				else{
-					// create a new edge	
-					aux_tmp_edge = &(*second_hash)[m->triangles[i*face_type+k]];					// create the low value on secondary_hash	
+					// create a new edge
+					aux_tmp_edge = &(*second_hash)[m->triangles[i*face_type+k]];					// create the low value on secondary_hash
 					aux_tmp_edge->n1 = m->triangles[i*face_type+j];
 					aux_tmp_edge->n2 = m->triangles[i*face_type+k];
 					aux_tmp_edge->a1 = i*face_type+j;
@@ -141,11 +141,11 @@ CLEAP_RESULT _cleap_host_load_mesh(_cleap_mesh *m, const char* filename){
 		printf("CLEAP:load_mesh::error::cannot find file \"%s\"\n", filename);
 		exit(1);
 	}
-	
+
 	io_val = fscanf(off,"%s\n",line);
 	if(io_val == EOF){
 		printf("CLEAP::load_mesh::error:failed at reading line\n");
-		m->status = CLEAP_FAILURE;		
+		m->status = CLEAP_FAILURE;
 		return CLEAP_FAILURE;
 	}
 	while(true){	// IO :: Ignore comments (line starting with '#')

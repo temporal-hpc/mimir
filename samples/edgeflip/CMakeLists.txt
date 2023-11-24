@@ -1,5 +1,5 @@
 find_package(CUDAToolkit REQUIRED)
-find_package(GLEW REQUIRED) 
+find_package(GLEW REQUIRED)
 find_package(OpenGL)
 
 add_library(cleap STATIC)

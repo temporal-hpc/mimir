@@ -98,25 +98,9 @@ int main(int argc, char *argv[])
     params.attributes[AttributeType::Index] = *trimem;
     engine.createView(params);
 
-    /*ViewParams params;
-    params.element_count = point_count;
-    params.data_type     = DataType::Float;
-    params.channel_count = 3;
-    params.resource_type = ResourceType::Buffer;
-    params.data_domain   = DataDomain::Domain3D;
-    params.domain_type   = DomainType::Unstructured;
-    params.element_type  = ElementType::Markers;
-    engine.createView((void**)&d_coords, params);
-
-    params.element_count = triangles.size();
-    params.data_type     = DataType::Float;
-    params.element_type  = ElementType::Edges;
-    engine.createView((void**)&d_triangles, params);*/
-
     checkCuda(cudaMemcpy(d_coords, points.data(),
         sizeof(float3) * point_count, cudaMemcpyHostToDevice)
     );
-    //checkCuda(cudaMalloc(&d_triangles, sizeof(uint3) * triangles.size()));
     checkCuda(cudaMemcpy(d_triangles, triangles.data(),
         sizeof(uint3) * triangles.size(), cudaMemcpyHostToDevice)
     );
