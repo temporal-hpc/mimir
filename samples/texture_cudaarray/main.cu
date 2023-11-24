@@ -209,7 +209,8 @@ int main(int argc, char *argv[])
     engine.loadTexture(image, img_data);
 
     ViewParams2 params;
-    params.element_count = width * height;
+    params.element_count = img_width * img_height;
+    params.extent        = {(unsigned)img_width, (unsigned)img_height, 1};
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Image;
@@ -310,11 +311,9 @@ int main(int argc, char *argv[])
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
             d_surf_list_temp, tex_obj, img_width, img_height, mip_levels, filter_radius
         );
-        checkCuda(cudaDeviceSynchronize());
-        /*d_boxfilter_rgba_y<<<img_width / nthreads, nthreads >>>(
+        d_boxfilter_rgba_y<<<img_width / nthreads, nthreads >>>(
             d_surf_list, d_surf_list_temp, img_width, img_height, mip_levels, filter_radius
         );
-        checkCuda(cudaDeviceSynchronize());*/
         varySigma();
 
         engine.updateViews();
