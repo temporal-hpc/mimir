@@ -10,6 +10,9 @@ target_include_directories(cleap PUBLIC cleap/src)
 target_link_directories(cleap PRIVATE CUDA::cudart)
 
 add_executable(tiuque)
+set_target_properties(tiuque PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
+)
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)
 target_link_libraries(tiuque PRIVATE
     mimir cleap OpenGL::OpenGL OpenGL::GLX GLEW::GLEW X11
