@@ -324,9 +324,9 @@ InteropView *CudaviewEngine::createView(void **ptr_devmem, ViewParams params)
     return nullptr;
 }
 
-void CudaviewEngine::loadTexture(InteropView *view, void *data)
+void CudaviewEngine::loadTexture(InteropMemory *interop, void *data)
 {
-    dev->loadTexture(view, data);
+    dev->loadTexture(interop, data);
 }
 
 void CudaviewEngine::drawGui()

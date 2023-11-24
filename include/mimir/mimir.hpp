@@ -56,7 +56,7 @@ public:
     void init(int width, int height);
     // Main library function, which setups all the visualization interop
     InteropView *createView(void **ptr_devmem, ViewParams params);
-    void loadTexture(InteropView *view, void *data);
+    void loadTexture(InteropMemory *interop, void *data);
 
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
     InteropView2 *createView(ViewParams2 params);

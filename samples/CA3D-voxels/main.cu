@@ -88,28 +88,6 @@ int main(int argc, char **argv){
     params.options.visible = false;
     auto v2 = engine.createView(params);
 
-    /*ViewParams params;
-    // TODO CAMBIAR A 2D
-    params.element_count = n*n*n;
-
-    // TODO: 2D --> {n, n, 1}
-    params.extent = {(unsigned)n, (unsigned)n, (unsigned)n};
-    // TODO: CAMBIAR A DOMAIN 2D
-    params.data_type     = DataType::Int;
-    params.resource_type = ResourceType::Buffer;
-    params.data_domain   = DataDomain::Domain3D;
-    params.domain_type   = DomainType::Structured;
-    params.element_type  = ElementType::Voxels;
-
-    //params.resource_type = ResourceType::TextureLinear;
-    //params.texture_format = TextureFormat::Int32;
-    auto v1 = engine.createView((void**)&d1, params);
-
-    // TODO CAMBIAR A 2D
-    //gpuErrchk(cudaMalloc(&d1, sizeof(int)*n*n*n));
-    //gpuErrchk(cudaMalloc(&d2, sizeof(int)*n*n*n));
-    params.options.visible = false;
-    auto v2 = engine.createView((void**)&d2, params);*/
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);

@@ -87,15 +87,21 @@ int main(int argc, char *argv[]) {
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    ViewParams params;
+    MemoryParams mem;
+    mem.layout          = DataLayout::Layout1D;
+    mem.element_count.x = n;
+    mem.data_type       = DataType::Float;
+    mem.channel_count   = 2;
+    mem.resource_type   = ResourceType::Buffer;
+    auto pointsmem = engine.createBuffer((void**)&dPoints, mem);
+
+    ViewParams2 params;
     params.element_count = n;
-    params.data_type     = DataType::Float;
-    params.channel_count = 2;
-    params.resource_type = ResourceType::Buffer;
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Unstructured;
-    params.element_type  = ElementType::Markers;
-    engine.createView((void**)&dPoints, params);
+    params.view_type     = ViewType::Markers;
+    params.attributes[AttributeType::Position] = *pointsmem;
+    engine.createView(params);
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);

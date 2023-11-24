@@ -328,6 +328,7 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     });
     VkMemoryRequirements memreq{};
     vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
+    printf("%lu\n", memreq.size);
 
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     VkExportMemoryAllocateInfoKHR export_info{};
@@ -635,12 +636,13 @@ void InteropDevice::updateLinearTexture(InteropMemory &interop)
     );
 }
 
-void InteropDevice::loadTexture(InteropView *view, void *img_data)
+void InteropDevice::loadTexture(InteropMemory *interop, void *img_data)
 {
-    auto params = view->params;
     constexpr int level_count = 1;
-    size_t image_width  = params.extent.x;
-    size_t image_height = params.extent.y;
+    auto params = interop->params;
+    auto sz = getSize(params.element_count, params.layout);
+    size_t image_width  = sz.x;
+    size_t image_height = sz.y;
 
     // Create staging buffer to copy image data
     VkDeviceSize staging_size = image_width * image_height * 4;
@@ -652,21 +654,23 @@ void InteropDevice::loadTexture(InteropView *view, void *img_data)
     );
     vkBindBufferMemory(logical_device, staging_buffer, staging_memory, 0);
 
+    const auto element_size = getDataSize(params.data_type, params.channel_count);
+    const auto element_count = getElementCount(params.element_count, params.layout);
+    VkDeviceSize memsize = element_size * element_count;
     char *data = nullptr;
-    VkDeviceSize memsize = getDataSize(params.data_type, params.channel_count) * params.element_count;
     vkMapMemory(logical_device, staging_memory, 0, memsize, 0, (void**)&data);
     memcpy(data, img_data, static_cast<size_t>(memsize));
     vkUnmapMemory(logical_device, staging_memory);
 
-    transitionImageLayout(view->image,
+    transitionImageLayout(interop->image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     );
-    copyBufferToTexture(staging_buffer, view->image, view->vk_extent);
+    copyBufferToTexture(staging_buffer, interop->image, interop->vk_extent);
 
     vkDestroyBuffer(logical_device, staging_buffer, nullptr);
     vkFreeMemory(logical_device, staging_memory, nullptr);
 
-    generateMipmaps(view->image, view->vk_format, image_width, image_height, level_count);
+    generateMipmaps(interop->image, interop->vk_format, image_width, image_height, level_count);
 
     // TODO: Handle this properly
     validation::checkCuda(cudaDeviceSynchronize());

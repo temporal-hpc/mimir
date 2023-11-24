@@ -51,17 +51,6 @@ int main(int argc, char *argv[])
     };*/
     engine.createView(params);
 
-    /*ViewParams params;
-    params.element_count = width * height;
-    params.extent        = {(unsigned)width, (unsigned)height, 1};
-    params.data_type     = DataType::Char;
-    params.channel_count = 4;
-    params.resource_type = ResourceType::Buffer;
-    params.data_domain   = DataDomain::Domain2D;
-    params.domain_type   = DomainType::Structured;
-    params.element_type  = ElementType::Image;
-    engine.createView((void**)&d_pixels, params);*/
-
     auto tex_size = sizeof(uchar4) * width * height;
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));
     stbi_image_free(h_pixels);

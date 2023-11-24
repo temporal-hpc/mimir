@@ -100,17 +100,22 @@ int main(int argc, char *argv[])
 
     if (use_interop)
     {
-        ViewParams params;
+        MemoryParams m;
+        m.layout          = DataLayout::Layout1D;
+        m.element_count.x = point_count;
+        m.data_type       = DataType::Float;
+        m.channel_count   = 3;
+        m.resource_type   = ResourceType::Buffer;
+        auto pointsmem = engine.createBuffer((void**)&d_coords, m);
+
+        ViewParams2 params;
         params.element_count = point_count;
-        params.data_type     = DataType::Float;
-        params.channel_count = 3;
-        params.extent        = extent;
-        params.resource_type = ResourceType::Buffer;
         params.data_domain   = DataDomain::Domain3D;
         params.domain_type   = DomainType::Unstructured;
-        params.element_type  = ElementType::Markers;
-        //params.options.size = 1.f;
-        engine.createView((void**)&d_coords, params);
+        params.extent        = extent;
+        params.view_type     = ViewType::Markers;
+        params.attributes[AttributeType::Position] = *pointsmem;
+        engine.createView(params);
     }
     else // Run the simulation without display
     {
@@ -138,7 +143,7 @@ int main(int argc, char *argv[])
         nvmlMemory_v2_t meminfo;
         meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
         nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
-        
+
         constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
         double freemem = meminfo.free / gigabyte;
         double reserved = meminfo.reserved / gigabyte;

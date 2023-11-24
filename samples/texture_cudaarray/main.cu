@@ -199,16 +199,22 @@ int main(int argc, char *argv[])
     // TODO: Unused, should be a texture handle
     uchar4 *d_image = nullptr;
 
-    ViewParams params;
-    params.element_count  = img_width * img_height;
-    params.extent         = {unsigned(img_width), unsigned(img_height), 1};
-    params.data_type      = DataType::Char;
-    params.channel_count  = 4;
-    params.resource_type  = ResourceType::Texture;
-    params.data_domain    = DataDomain::Domain2D;
-    params.domain_type    = DomainType::Structured;
-    auto view = engine.createView((void**)&d_image, params);
-    engine.loadTexture(view, img_data);
+    MemoryParams m;
+    m.layout           = DataLayout::Layout2D;
+    m.element_count.xy = {img_width, img_height};
+    m.data_type        = DataType::Char;
+    m.channel_count    = 4;
+    m.resource_type    = ResourceType::Texture;
+    auto image = engine.createBuffer((void**)&d_image, m);
+    engine.loadTexture(image, img_data);
+
+    ViewParams2 params;
+    params.element_count = width * height;
+    params.data_domain   = DataDomain::Domain2D;
+    params.domain_type   = DomainType::Structured;
+    params.view_type     = ViewType::Image;
+    params.attributes[AttributeType::Color] = *image;
+    auto view = engine.createView(params);
 
     cudaChannelFormatDesc format_desc;
     format_desc.x = 8;
@@ -242,7 +248,7 @@ int main(int argc, char *argv[])
     tex_desc.maxMipmapLevelClamp = static_cast<float>(mip_levels - 1);
     tex_desc.readMode            = cudaReadModeNormalizedFloat;
 
-    cudaTextureObject_t tex_obj = 0; 
+    cudaTextureObject_t tex_obj = 0;
     checkCuda(cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr));
 
     std::vector<cudaSurfaceObject_t> surf_obj_list, surf_obj_list_temp;
@@ -251,7 +257,7 @@ int main(int argc, char *argv[])
         cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
 
         checkCuda(cudaGetMipmappedArrayLevel(
-            &mipLevelArray, view->mipmap_array, level_idx
+            &mipLevelArray, image->mipmap_array, level_idx
         ));
         checkCuda(cudaGetMipmappedArrayLevel(
             &mipLevelArrayTemp, cudaMipmappedImageArrayTemp, level_idx
@@ -304,9 +310,11 @@ int main(int argc, char *argv[])
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
             d_surf_list_temp, tex_obj, img_width, img_height, mip_levels, filter_radius
         );
-        d_boxfilter_rgba_y<<<img_width / nthreads, nthreads >>>(
+        checkCuda(cudaDeviceSynchronize());
+        /*d_boxfilter_rgba_y<<<img_width / nthreads, nthreads >>>(
             d_surf_list, d_surf_list_temp, img_width, img_height, mip_levels, filter_radius
         );
+        checkCuda(cudaDeviceSynchronize());*/
         varySigma();
 
         engine.updateViews();
