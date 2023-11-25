@@ -81,7 +81,16 @@ struct Grayscale : IPicker
 [[vk::binding(3)]] Texture3D<float3> Tex3d_Float3;
 [[vk::binding(3)]] Texture3D<float4> Tex3d_Float4;
 
+[[vk::binding(3)]] Texture3D<int> Tex3d_Int1;
+
 [[vk::binding(4)]] SamplerState Sampler;
+
+[shader("fragment")]
+float4 frag3d_Int1<U:IPicker>(VertexData3d input) : SV_Target
+{
+    float4 samp = float4(Tex3d_Int1.Sample(Sampler, input.uv).rrr, 1);
+    return U.getColor(samp);
+}
 
 ///////////////////////////////////////////////////////////////////////
 

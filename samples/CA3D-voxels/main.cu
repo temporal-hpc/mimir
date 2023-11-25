@@ -61,24 +61,24 @@ int main(int argc, char **argv){
     CudaviewEngine engine;
     engine.init(width, height);
 
-    MemoryParams m;
-    m.layout            = DataLayout::Layout3D;
-    m.element_count.xyz = {(int)n, (int)n, (int)n};
-    m.data_type         = DataType::Int;
-    m.channel_count     = 1;
-    m.resource_type     = ResourceType::Buffer;
-    //m.resource_type     = ResourceType::LinearTexture;
-    auto buffer1 = engine.createBuffer((void**)&d1, m);
-    auto buffer2 = engine.createBuffer((void**)&d2, m);
+    MemoryParams mp;
+    mp.layout            = DataLayout::Layout3D;
+    mp.element_count.xyz = {(int)n, (int)n, (int)n};
+    mp.data_type         = DataType::Int;
+    mp.channel_count     = 1;
+    //mp.resource_type     = ResourceType::Buffer;
+    mp.resource_type     = ResourceType::LinearTexture;
+    auto m1 = engine.createBuffer((void**)&d1, mp);
+    auto m2 = engine.createBuffer((void**)&d2, mp);
 
     ViewParams2 params;
     params.element_count = n * n * n;
     params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain   = DataDomain::Domain3D;
     params.domain_type   = DomainType::Structured;
-    params.view_type     = ViewType::Voxels;
-    //params.view_type     = ViewType::Image;
-    params.attributes[AttributeType::Color] = *buffer1;
+    //params.view_type     = ViewType::Voxels;
+    params.view_type     = ViewType::Image;
+    params.attributes[AttributeType::Color] = *m1;
     params.options.default_size = 5.f;
     /*params.options.external_shaders = {
         {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
@@ -91,7 +91,7 @@ int main(int argc, char **argv){
     };*/
     auto v1 = engine.createView(params);
 
-    params.attributes[AttributeType::Color] = *buffer2;
+    params.attributes[AttributeType::Color] = *m2;
     params.options.visible = false;
     auto v2 = engine.createView(params);
 

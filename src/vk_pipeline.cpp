@@ -163,14 +163,15 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
             if (params.data_domain == DataDomain::Domain2D)
             {
                 vert_entry += "2dMain";
-                frag_entry += "2d_Float";
+                frag_entry += "2d_";
             }
             else if (params.data_domain == DataDomain::Domain3D)
             {
                 vert_entry += "3dMain";
-                frag_entry += "3d_Float";
+                frag_entry += "3d_";
             }
             auto color_attr = params.attributes[AttributeType::Color];
+            frag_entry += getDataType(color_attr.params.data_type);
             frag_entry += std::to_string(color_attr.params.channel_count);
 
             compile.entrypoints = { vert_entry, frag_entry };

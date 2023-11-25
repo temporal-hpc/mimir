@@ -349,11 +349,11 @@ void InteropDevice::initViewImage(InteropView2& view)
         view.idx_type = VK_INDEX_TYPE_UINT16;
     }
 
-    for (const auto &[attr, memory] : view.params.attributes)
+    /*for (const auto &[attr, memory] : view.params.attributes)
     {
         view.vert_buffers.push_back(memory.data_buffer);
         view.buffer_offsets.push_back(0);
-    }
+    }*/
 }
 
 void InteropDevice::initView(InteropView& view)
