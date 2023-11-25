@@ -119,7 +119,7 @@ int main()
     slang::TargetDesc target_desc{};
     target_desc.format = SLANG_SPIRV;
     target_desc.profile = global_session->findProfile("sm_6_6");
-    const char* search_paths[] = { "../samples/shaders/include" };
+    const char* search_paths[] = { "samples/shaders/include" };
     slang::SessionDesc session_desc{};
     session_desc.targets = &target_desc;
     session_desc.targetCount = 1;
@@ -135,18 +135,23 @@ int main()
     checkSlang(global_session->createSession(session_desc, session.writeRef()));
 
     ShaderCompileParameters params;
-    params.output_path = "../samples/shaders";
-    params.source_path = "../samples/shaders/voxel.slang";
+    params.output_path = "samples/shaders";
+    params.source_path = "samples/shaders/voxel.slang";
     params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
     compileSlang(params, session);
 
-    params.source_path = "../samples/shaders/marker.slang";
+    params.source_path = "samples/shaders/marker.slang";
     params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
     params.specializations = { "PositionDouble2", "ColorInt1", "SizeDefault" };
     compileSlang(params, session);
 
-    params.source_path = "../samples/shaders/texture.slang";
+    params.source_path = "samples/shaders/texture.slang";
     params.entrypoints = {"vertex2dMain", "frag2d_Float4"};
+    params.specializations = { "RawColor" };
+    compileSlang(params, session);
+
+    params.source_path = "samples/shaders/texture.slang";
+    params.entrypoints = {"vertex3dMain", "frag3d_Float1"};
     params.specializations = { "RawColor" };
     compileSlang(params, session);
 

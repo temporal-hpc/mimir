@@ -138,7 +138,7 @@ void addViewObjectGui(InteropView2 *view_ptr, int uid)
         if (dom_check) printf("View %d: switched domain type to %s\n", uid, getDomainType(params.domain_type));
         ImGui::SliderFloat("Element size (px)", &params.options.default_size, 1.f, 100.f);
         ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
-        //ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);
+        ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {
             addTableRow("Data domain", getDataDomain(params.data_domain));
@@ -264,13 +264,6 @@ void CudaviewEngine::handleMouseButton(int button, int action, [[maybe_unused]] 
     }
 }
 
-// Translates GLFW mouse scroll into values for detecting camera zoom in/out
-void CudaviewEngine::handleScroll([[maybe_unused]] float xoffset, [[maybe_unused]] float yoffset)
-{
-    // depth = std::clamp(depth + yoffset / 10.f, 0.01f, 0.91f);
-    // printf("depth= %f, offset= %f\n", depth, yoffset);
-}
-
 void CudaviewEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
     auto app = getHandler(window);
@@ -281,12 +274,6 @@ void CudaviewEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused
 {
     auto app = getHandler(window);
     app->should_resize = true;
-}
-
-void CudaviewEngine::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
-{
-    auto app = getHandler(window);
-    app->handleScroll(static_cast<float>(xoffset), static_cast<float>(yoffset));
 }
 
 void CudaviewEngine::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)

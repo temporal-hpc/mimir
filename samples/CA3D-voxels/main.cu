@@ -67,6 +67,7 @@ int main(int argc, char **argv){
     m.data_type         = DataType::Int;
     m.channel_count     = 1;
     m.resource_type     = ResourceType::Buffer;
+    //m.resource_type     = ResourceType::LinearTexture;
     auto buffer1 = engine.createBuffer((void**)&d1, m);
     auto buffer2 = engine.createBuffer((void**)&d2, m);
 
@@ -76,12 +77,18 @@ int main(int argc, char **argv){
     params.data_domain   = DataDomain::Domain3D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Voxels;
+    //params.view_type     = ViewType::Image;
     params.attributes[AttributeType::Color] = *buffer1;
-    params.options.external_shaders = {
+    params.options.default_size = 5.f;
+    /*params.options.external_shaders = {
         {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/voxel_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
         {"shaders/voxel_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };
+    };*/
+    /*params.options.external_shaders = {
+        {"shaders/texture_vertex3dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
+        {"shaders/texture_frag3d_Float1.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
+    };*/
     auto v1 = engine.createView(params);
 
     params.attributes[AttributeType::Color] = *buffer2;

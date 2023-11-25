@@ -130,12 +130,10 @@ private:
     float2 mouse_pos;
     void handleMouseMove(float x, float y);
     void handleMouseButton(int button, int action, int mods);
-    void handleScroll(float xoffset, float yoffset);
     void handleKey(int key, int scancode, int action, int mods);
     static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
     static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
     static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
-    static void scrollCallback(GLFWwindow *window, double xoffset, double yoffset);
     static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
     static void windowCloseCallback(GLFWwindow *window);
 

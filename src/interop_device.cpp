@@ -343,16 +343,17 @@ void InteropDevice::initViewImage(InteropView2& view)
             vkFreeMemory(logical_device, view.aux_memory, nullptr);
         });
 
+        view.vert_buffers.push_back(view.aux_buffer);
+        view.buffer_offsets.push_back(0);
         view.index_offset = 4 * sizeof(Vertex);
         view.idx_type = VK_INDEX_TYPE_UINT16;
     }
 
-    /*for (const auto &[attr, memory] : view.params.attributes)
+    for (const auto &[attr, memory] : view.params.attributes)
     {
-
         view.vert_buffers.push_back(memory.data_buffer);
         view.buffer_offsets.push_back(0);
-    }*/
+    }
 }
 
 void InteropDevice::initView(InteropView& view)

@@ -118,7 +118,6 @@ void CudaviewEngine::init(ViewerOptions opts)
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     glfwSetCursorPosCallback(window, cursorPositionCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
-    glfwSetScrollCallback(window, scrollCallback);
     glfwSetKeyCallback(window, keyCallback);
     glfwSetWindowCloseCallback(window, windowCloseCallback);
 
@@ -890,30 +889,26 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
         );
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
 
+        vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
+            view->vert_buffers.data(), view->buffer_offsets.data()
+        );
+
         switch (view->params.view_type)
         {
             case ViewType::Markers:
             case ViewType::Voxels:
             {
-                vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
-                    view->vert_buffers.data(), view->buffer_offsets.data()
-                );
                 vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
                 break;
             }
             case ViewType::Edges:
             {
-                vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
-                    view->vert_buffers.data(), view->buffer_offsets.data()
-                );
                 vkCmdBindIndexBuffer(cmd, view->idx_buffer, 0, view->idx_type);
                 vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
                 break;
             }
             case ViewType::Image:
             {
-                VkDeviceSize img_offsets[1] = {0};
-                vkCmdBindVertexBuffers(cmd, 0, 1, &view->aux_buffer, img_offsets);
                 vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
                 vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
                 break;
@@ -1122,7 +1117,7 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
         PrimitiveParams primitive{};
         primitive.color = getColor(view->params.options.default_color);
         primitive.size = view->params.options.default_size;
-        //primitive.depth = view->params.options.depth;
+        primitive.depth = view->params.options.depth;
 
         SceneParams scene{};
         auto extent = view->params.extent;

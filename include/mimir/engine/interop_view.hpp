@@ -203,6 +203,8 @@ struct ViewOptions2
     float4 default_color{0.f,0.f,0.f,1.f};
     // Default primitive size if no per-instance size is set
     float default_size = 10.f;
+    // For moving through the different slices in a 3D texture
+    float depth = 0.1f;
     // External alternate shaders for use in this view
     std::vector<ShaderInfo> external_shaders;
     // For specializing slang shaders associated to this view
