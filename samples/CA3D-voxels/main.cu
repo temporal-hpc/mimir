@@ -74,7 +74,7 @@ int main(int argc, char **argv){
     ViewParams2 params;
     params.element_count = n * n * n;
     params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
-    params.data_domain   = DataDomain::Domain2D;
+    params.data_domain   = DataDomain::Domain3D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Voxels;
     //params.view_type     = ViewType::Image;
