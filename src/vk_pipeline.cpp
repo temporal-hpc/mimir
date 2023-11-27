@@ -144,9 +144,9 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
         case ViewType::Voxels:
         {
             compile.source_path = "shaders/voxel.slang";
-            compile.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
-            // TODO: When using textures:
-            //compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+            std::string geom_entry = "geometryMain";
+            geom_entry += getDataDomain(params.data_domain);
+            compile.entrypoints = {"vertexImplicitMain", geom_entry, "fragmentMain"};
             break;
         }
         case ViewType::Image:

@@ -66,18 +66,18 @@ int main(int argc, char **argv){
     mp.element_count.xyz = {(int)n, (int)n, (int)n};
     mp.data_type         = DataType::Int;
     mp.channel_count     = 1;
-    //mp.resource_type     = ResourceType::Buffer;
-    mp.resource_type     = ResourceType::LinearTexture;
+    mp.resource_type     = ResourceType::Buffer;
+    //mp.resource_type     = ResourceType::LinearTexture;
     auto m1 = engine.createBuffer((void**)&d1, mp);
     auto m2 = engine.createBuffer((void**)&d2, mp);
 
     ViewParams2 params;
     params.element_count = n * n * n;
     params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
-    params.data_domain   = DataDomain::Domain3D;
+    params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Structured;
-    //params.view_type     = ViewType::Voxels;
-    params.view_type     = ViewType::Image;
+    params.view_type     = ViewType::Voxels;
+    //params.view_type     = ViewType::Image;
     params.attributes[AttributeType::Color] = *m1;
     params.options.default_size = 5.f;
     /*params.options.external_shaders = {
