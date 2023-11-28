@@ -189,13 +189,13 @@ void ParticleSystemDelaunay::loadOnDevice()
     {
         colors.push_back(getTypeColor(types_[i]));
     }
-    
+
     ViewerOptions viewer_opts;
     viewer_opts.window_title = "Colloid"; // Top-level window.
     viewer_opts.window_size = {1920, 1080};
     viewer_opts.present = PresentOptions::Immediate;
     engine.init(viewer_opts);
-    
+
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * 2 * sizeof(double);
 	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
@@ -210,7 +210,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     m.resource_type   = ResourceType::Buffer;
     interop[current_read] = engine.createBuffer((void**)&devicedata_.positions[current_read], m);
     interop[current_write] = engine.createBuffer((void**)&devicedata_.positions[current_write], m);
-    
+
     m.data_type       = DataType::Int;
     m.channel_count   = 1;
     interop[2] = engine.createBuffer((void**)&devicedata_.types, m);
@@ -227,11 +227,11 @@ void ParticleSystemDelaunay::loadOnDevice()
     v.attributes[AttributeType::Position] = *interop[current_read];
     v.attributes[AttributeType::Color] = *interop[2];
     v.options.default_size = 100.f;
-    v.options.external_shaders = {
+    /*v.options.external_shaders = {
         {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
         {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };
+    };*/
     views[current_read] = engine.createView(v);
 
     v.options.visible = false;

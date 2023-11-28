@@ -136,7 +136,6 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
             std::string marker_spec = "Marker";
             marker_spec += getDataDomain(params.data_domain);
             compile.specializations.push_back(marker_spec);
-            printf("marker %s\n", marker_spec.c_str());
 
             // Add shape specialization
             // TODO: Do it properly

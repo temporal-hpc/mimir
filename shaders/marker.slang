@@ -13,38 +13,6 @@ ConstantBuffer<ViewParams> view;
 static const float u_antialias = 1;
 static const float v_linewidth = 1;
 
-struct MarkerOffsets
-{
-    float4 dx;
-    float4 dy;
-};
-
-interface IMarker
-{
-    MarkerOffsets getVertexOffsets(float size, float2 resolution);
-};
-
-struct Marker2D : IMarker
-{
-    MarkerOffsets getVertexOffsets(float size, float2 resolution)
-    {
-        MarkerOffsets out;
-        out.dx = float4(1,0,0,0) * (size / resolution.x);
-        out.dy = float4(0,1,0,0) * (size / resolution.y);
-        return out;
-    }
-};
-
-struct Marker3D : IMarker
-{
-    MarkerOffsets getVertexOffsets(float size, float2 resolution)
-    {
-        float dx = size / scene.resolution.x;
-        float dy = size / scene.resolution.y;
-        return {dx, dy};
-    }
-};
-
 struct VertexOutput
 {
     float4 center : POSITION;
@@ -93,12 +61,9 @@ void geometryMain<M:IMarker>(point VertexOutput input[1], inout TriangleStream<G
     output.size = SQRT_2*input[0].size + 2 * (v_linewidth + 1.5*u_antialias);
 
     M marker;
-    MarkerOffsets offsets = marker.getVertexOffsets(output.size, scene.resolution);
+    MarkerOffsets offsets = marker.getVertexOffsets(view_proj, output.size, scene.resolution);
     float4 dx = offsets.dx;
     float4 dy = offsets.dy;
-
-    //float4 dx = view_proj[0] * (output.size / scene.resolution.x);
-    //float4 dy = view_proj[1] * (output.size / scene.resolution.x);
 
     float4 vertex_offsets[4] = {(-dx-dy), (+dx-dy), (-dx+dy), (+dx+dy)};
     float2 texcoords[4] = {{0,0}, {1,0}, {0,1}, {1,1}};
