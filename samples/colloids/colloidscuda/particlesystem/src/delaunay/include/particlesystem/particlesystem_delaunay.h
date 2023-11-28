@@ -149,7 +149,7 @@ private:
 	DeviceData devicedata_;
     mimir::CudaviewEngine engine;
     mimir::InteropMemory *interop[3];
-    mimir::InteropView2 *views[2];
+    mimir::InteropView *views[2];
 };
 
 } // namespace delaunay

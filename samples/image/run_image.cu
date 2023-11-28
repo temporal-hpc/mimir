@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
     m.resource_type    = ResourceType::LinearTexture;
     auto pixels = engine.createBuffer((void**)&d_pixels, m);
 
-    ViewParams2 params;
+    ViewParams params;
     params.element_count = width * height;
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Structured;

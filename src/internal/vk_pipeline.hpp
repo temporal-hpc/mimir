@@ -48,7 +48,6 @@ struct PipelineBuilder
 
     PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent);
     uint32_t addPipeline(const ViewParams params, InteropDevice *dev);
-    uint32_t addPipeline(const ViewParams2 params, InteropDevice *dev);
     std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
     std::vector<VkPipelineShaderStageCreateInfo> compileSlang(
         InteropDevice *dev, const ShaderCompileParameters& params

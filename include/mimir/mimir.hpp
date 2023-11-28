@@ -55,12 +55,10 @@ public:
     void init(ViewerOptions opts);
     void init(int width, int height);
     // Main library function, which setups all the visualization interop
-    InteropView *createView(void **ptr_devmem, ViewParams params);
-    void loadTexture(InteropMemory *interop, void *data);
-
+    InteropView *createView(ViewParams params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
-    InteropView2 *createView(ViewParams2 params);
 
+    void loadTexture(InteropMemory *interop, void *data);
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
     void prepareViews();
@@ -116,7 +114,7 @@ private:
     std::vector<AllocatedBuffer> uniform_buffers;
 
     std::vector<std::unique_ptr<InteropMemory>> allocations;
-    std::vector<std::unique_ptr<InteropView2>> views2;
+    std::vector<std::unique_ptr<InteropView>> views2;
 
     float4 bg_color{.5f, .5f, .5f, 1.f};
 

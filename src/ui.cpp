@@ -1,6 +1,6 @@
 #include <mimir/mimir.hpp>
 #include "internal/camera.hpp"
-#include "internal/framelimit.hpp"
+#include "internal/framelimit.hpp" // getTargetFrametime
 
 #include <imgui.h>
 #include <ImGuiFileDialog.h>
@@ -12,31 +12,6 @@
 
 namespace mimir
 {
-
-std::array<ResourceType, 4> kAllResources = {
-    ResourceType::Buffer,
-    ResourceType::IndexBuffer,
-    ResourceType::Texture,
-    ResourceType::LinearTexture
-};
-std::array<DomainType, 2> kAllDomains = {
-    DomainType::Structured,
-    DomainType::Unstructured
-};
-std::array<ElementType, 4> kAllElements = {
-    ElementType::Markers,
-    ElementType::Edges,
-    ElementType::Voxels,
-    ElementType::Image
-};
-std::array<DataType, 6> kAllDataTypes = {
-    DataType::Int,
-    DataType::Long,
-    DataType::Short,
-    DataType::Char,
-    DataType::Float,
-    DataType::Double
-};
 
 struct AllResources
 {
@@ -54,11 +29,11 @@ struct AllDomains
         return true;
     }
 };
-struct AllElemTypes
+struct AllViewTypes
 {
     static bool ItemGetter(void* data, int n, const char** out_str)
     {
-        *out_str = getElementType(((ElementType*)data)[n]);
+        *out_str = getViewType(((ViewType*)data)[n]);
         return true;
     }
 };
@@ -120,7 +95,7 @@ bool addTableRowCombo(const std::string& key, int* current_item,
     return ImGui::Combo(key.c_str(), current_item, items_getter, data, items_count);
 }
 
-void addViewObjectGui(InteropView2 *view_ptr, int uid)
+void addViewObjectGui(InteropView *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
     bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
@@ -129,7 +104,7 @@ void addViewObjectGui(InteropView2 *view_ptr, int uid)
         auto& params = view_ptr->params;
         ImGui::Checkbox("show", &params.options.visible);
         bool type_check = ImGui::Combo("View type", (int*)&params.view_type,
-            &AllElemTypes::ItemGetter, kAllElements.data(), kAllElements.size()
+            &AllViewTypes::ItemGetter, kAllViewTypes.data(), kAllViewTypes.size()
         );
         if (type_check) printf("View %d: switched view type to %s\n", uid, getViewType(params.view_type));
         bool dom_check = ImGui::Combo("Domain type", (int*)&params.domain_type,

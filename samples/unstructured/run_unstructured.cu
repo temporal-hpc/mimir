@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
         m.channel_count   = 1;
         auto sizes = engine.createBuffer((void**)&d_sizes, m);
 
-        ViewParams2 params;
+        ViewParams params;
         params.element_count = point_count;
         params.extent        = {200, 200, 1};
         params.data_domain   = DataDomain::Domain2D;

@@ -12,11 +12,45 @@ enum class ResourceType { Buffer, IndexBuffer, Texture, LinearTexture };
 enum class DataDomain   { Domain2D, Domain3D };
 // Specifies the data layout
 enum class DomainType   { Structured, Unstructured };
-// Specifies the type of primitive that will be visualized
-enum class ElementType  { Markers, Edges, Voxels, Image };
+// Specifies the type of view that will be visualized
+enum class ViewType { Markers, Edges, Voxels, Image };
 // Specifies the DataType stored in the texture corresponding to a view
 // TODO: Change name to ComponentType
 enum class DataType     { Int, Long, Short, Char, Float, Double };
+enum class DataLayout { Layout1D, Layout2D, Layout3D };
+enum class AttributeType { Position, Color, Size, Index };
+
+union DataSize
+{
+    int x;
+    int2 xy;
+    int3 xyz;
+};
+
+static std::array<ResourceType, 4> kAllResources = {
+    ResourceType::Buffer,
+    ResourceType::IndexBuffer,
+    ResourceType::Texture,
+    ResourceType::LinearTexture
+};
+static std::array<DomainType, 2> kAllDomains = {
+    DomainType::Structured,
+    DomainType::Unstructured
+};
+static std::array<ViewType, 4> kAllViewTypes = {
+    ViewType::Markers,
+    ViewType::Edges,
+    ViewType::Voxels,
+    ViewType::Image
+};
+static std::array<DataType, 6> kAllDataTypes = {
+    DataType::Int,
+    DataType::Long,
+    DataType::Short,
+    DataType::Char,
+    DataType::Float,
+    DataType::Double
+};
 
 constexpr size_t getDataSize(DataType t, unsigned channel_count)
 {
@@ -84,29 +118,6 @@ constexpr char* getResourceType(ResourceType t)
     }
 }
 
-constexpr char* getElementType(ElementType t)
-{
-    switch (t)
-    {
-#define STR(r) case ElementType::r: return (char*)#r
-        STR(Markers);
-        STR(Edges);
-        STR(Voxels);
-        STR(Image);
-#undef STR
-        default: return (char*)"unknown";
-    }
-}
-
-union DataSize
-{
-    int x;
-    int2 xy;
-    int3 xyz;
-};
-
-enum class DataLayout { Layout1D, Layout2D, Layout3D };
-
 constexpr uint3 getSize(DataSize size, DataLayout layout)
 {
     uint3 sz = {1, 1, 1};
@@ -145,9 +156,6 @@ constexpr size_t getElementCount(DataSize size, DataLayout layout)
         default: return 0;
     }
 };
-
-enum class AttributeType { Position, Color, Size, Index };
-enum class ViewType { Markers, Edges, Voxels, Image };
 
 constexpr char* getDataLayout(DataLayout l)
 {

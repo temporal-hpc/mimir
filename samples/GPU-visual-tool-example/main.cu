@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
     mem.resource_type   = ResourceType::Buffer;
     auto pointsmem = engine.createBuffer((void**)&dPoints, mem);
 
-    ViewParams2 params;
+    ViewParams params;
     params.element_count = n;
     params.data_domain   = DataDomain::Domain2D;
     params.domain_type   = DomainType::Unstructured;

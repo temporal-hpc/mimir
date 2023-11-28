@@ -31,71 +31,7 @@ std::vector<char> readFile(const std::string& filename)
     return buffer;
 }
 
-ShaderCompileParameters getShaderCompileParams(ViewParams view)
-{
-    ShaderCompileParameters params;
-    params.specializations = view.options.specializations;
-    if (view.resource_type == ResourceType::Texture || view.element_type == ElementType::Image)
-    {
-        params.source_path = "shaders/texture.slang";
-        // The texture shader needs a specialization for the way to interpret its content
-        // as a fragment. If no specialization is set, use the RawColor spec.
-        if (params.specializations.empty())
-        {
-            params.specializations.push_back("RawColor");
-        }
-        std::string vert_entry = "vertex";
-        std::string frag_entry = "frag";
-        if (view.data_domain == DataDomain::Domain2D)
-        {
-            vert_entry += "2dMain";
-            frag_entry += "2d_";
-        }
-        else if (view.data_domain == DataDomain::Domain3D)
-        {
-            vert_entry += "3dMain";
-            frag_entry += "3d_";
-        }
-        frag_entry += "Float" + std::to_string(view.channel_count);
-        params.entrypoints = { vert_entry, frag_entry };
-    }
-    else if (view.element_type == ElementType::Markers)
-    {
-        params.source_path = "shaders/marker.slang";
-        params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-        std::string spec = getDataType(view.data_type);
-        if (view.data_domain == DataDomain::Domain2D)      { spec += "2"; }
-        else if (view.data_domain == DataDomain::Domain3D) { spec += "3"; }
-        params.specializations.push_back(spec);
-    }
-    else if (view.element_type == ElementType::Edges)
-    {
-        params.source_path = "shaders/mesh.slang";
-        if (view.data_domain == DataDomain::Domain2D)
-        {
-            params.entrypoints = {"vertex2dMain", "fragmentMain"};
-        }
-        else if (view.data_domain == DataDomain::Domain3D)
-        {
-            params.entrypoints = {"vertex3dMain", "fragmentMain"};
-        }
-    }
-    else if (view.element_type == ElementType::Voxels)
-    {
-        params.source_path = "shaders/voxel.slang";
-        if (view.domain_type == DomainType::Structured)
-        {
-            params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
-        }
-        if (view.resource_type == ResourceType::Texture)
-        {
-            params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-        }
-    }
-    return params;
-}
-
-ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
+ShaderCompileParameters getShaderCompileParams(ViewParams params)
 {
     ShaderCompileParameters compile;
     compile.specializations = params.options.specializations;
@@ -190,92 +126,6 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
         }
     }
     return compile;
-}
-
-VertexDescription getVertexDescription(const ViewParams params)
-{
-    VertexDescription desc;
-
-    if (params.resource_type == ResourceType::Texture || params.element_type == ElementType::Image)
-    {
-        desc.binding.push_back(vkinit::vertexBindingDescription(
-            0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
-        ));
-        desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
-        ));
-        desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
-        ));
-    }
-    else
-    {
-        auto stride = getDataSize(params.data_type, params.channel_count);
-        auto format = getDataFormat(params.data_type, params.channel_count);
-        if (params.element_type == ElementType::Voxels)
-        {
-            desc.binding.push_back(vkinit::vertexBindingDescription(
-                0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
-            ));
-            desc.attribute.push_back(vkinit::vertexAttributeDescription(
-                0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0
-            ));
-            desc.binding.push_back(vkinit::vertexBindingDescription(
-                1, stride, VK_VERTEX_INPUT_RATE_VERTEX
-            ));
-            desc.attribute.push_back(vkinit::vertexAttributeDescription(
-                1, 1, format, 0
-            ));
-        }
-        else
-        {
-            switch (params.data_domain)
-            {
-                case DataDomain::Domain2D:
-                {
-                    desc.binding.push_back(vkinit::vertexBindingDescription(
-                        0, stride, VK_VERTEX_INPUT_RATE_VERTEX
-                    ));
-                    desc.attribute.push_back(vkinit::vertexAttributeDescription(
-                        0, 0, format, 0
-                    ));
-                    break;
-                }
-                case DataDomain::Domain3D:
-                {
-                    desc.binding.push_back(vkinit::vertexBindingDescription(
-                        0, stride, VK_VERTEX_INPUT_RATE_VERTEX
-                    ));
-                    desc.attribute.push_back(vkinit::vertexAttributeDescription(
-                        0, 0, format, 0
-                    ));
-                    break;
-                }
-                default: break;
-            }
-        }
-    }
-    return desc;
-}
-
-VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ResourceType res_type, ElementType ele_type)
-{
-    VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-    if (res_type == ResourceType::Texture || ele_type == ElementType::Image || ele_type == ElementType::Edges)
-    {
-        topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    }
-    return vkinit::inputAssemblyCreateInfo(topology);
-}
-
-VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ElementType ele_type)
-{
-    VkPolygonMode poly_mode = VK_POLYGON_MODE_FILL;
-    if (ele_type == ElementType::Edges)
-    {
-        poly_mode = VK_POLYGON_MODE_LINE;
-    }
-    return vkinit::rasterizationStateCreateInfo(poly_mode);
 }
 
 VkPipelineDepthStencilStateCreateInfo getDepthInfo([[maybe_unused]] DataDomain domain)
@@ -431,43 +281,6 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::loadExternalShader
     return compiled_stages;
 }
 
-uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *dev)
-{
-    PipelineInfo info;
-    auto compile_params = getShaderCompileParams(params);
-    auto ext_shaders = params.options.external_shaders;
-
-    std::vector<VkPipelineShaderStageCreateInfo> stages;
-    if (!ext_shaders.empty()) {
-        //printf("Loading external shaders\n");
-        stages = loadExternalShaders(dev, ext_shaders);
-    }
-    else
-    {
-        //printf("Compiling slang shaders\n");
-        stages = compileSlang(dev, compile_params);
-    }
-
-    info.shader_stages = stages;
-    info.vertex_input_info = getVertexDescription(params);
-    info.input_assembly = getAssemblyInfo(params.resource_type, params.element_type);
-    info.depth_stencil = getDepthInfo(params.data_domain);
-    info.rasterizer = getRasterizationInfo(params.element_type);
-    info.multisampling = vkinit::multisampleStateCreateInfo();
-    auto col_blend = vkinit::colorBlendAttachmentState();
-    col_blend.blendEnable         = VK_TRUE;
-    col_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    col_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    col_blend.colorBlendOp        = VK_BLEND_OP_ADD;
-    col_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;
-    info.color_blend_attachment   = col_blend;
-
-    pipeline_infos.push_back(info);
-    return pipeline_infos.size() - 1;
-}
-
 VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
 {
     auto poly_mode = (type == ViewType::Edges)? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
@@ -484,7 +297,7 @@ VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
     return vkinit::inputAssemblyCreateInfo(topology);
 }
 
-VertexDescription getVertexDescription(const ViewParams2 params)
+VertexDescription getVertexDescription(const ViewParams params)
 {
     VertexDescription desc;
     uint32_t binding = 0;
@@ -543,7 +356,7 @@ VertexDescription getVertexDescription(const ViewParams2 params)
     return desc;
 }
 
-uint32_t PipelineBuilder::addPipeline(const ViewParams2 params, InteropDevice *dev)
+uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *dev)
 {
     PipelineInfo info;
     auto compile_params = getShaderCompileParams(params);

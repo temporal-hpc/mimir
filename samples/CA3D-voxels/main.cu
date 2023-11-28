@@ -71,7 +71,7 @@ int main(int argc, char **argv){
     auto m1 = engine.createBuffer((void**)&d1, mp);
     auto m2 = engine.createBuffer((void**)&d2, mp);
 
-    ViewParams2 params;
+    ViewParams params;
     params.element_count = n * n * n;
     params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain   = DataDomain::Domain3D;

@@ -34,15 +34,14 @@ struct InteropDevice : public VulkanDevice
     InteropBarrier createInteropBarrier();
 
     // View functions
-    void initView(InteropView& view);
-    void loadTexture(InteropMemory *interop, void *data);
-    void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);
-
     void initMemoryBuffer(InteropMemory &interop);
     void initMemoryImage(InteropMemory &interop);
     void initMemoryImageLinear(InteropMemory &interop);
-    void initViewBuffer(InteropView2& view);
-    void initViewImage(InteropView2& view);
+    void initViewBuffer(InteropView& view);
+    void initViewImage(InteropView& view);
+
+    void loadTexture(InteropMemory *interop, void *data);
+    void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);
     void updateLinearTexture(InteropMemory &interop);
 };
 

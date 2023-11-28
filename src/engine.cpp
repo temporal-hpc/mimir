@@ -299,9 +299,9 @@ InteropMemory *CudaviewEngine::createBuffer(void **dev_ptr, MemoryParams params)
     return allocations.back().get();
 }
 
-InteropView2 *CudaviewEngine::createView(ViewParams2 params)
+InteropView *CudaviewEngine::createView(ViewParams params)
 {
-    auto view_handle = std::unique_ptr<InteropView2>(new InteropView2());
+    auto view_handle = std::unique_ptr<InteropView>(new InteropView());
     view_handle->params = params;
 
     if (params.view_type == ViewType::Image) dev->initViewImage(*view_handle);
@@ -309,18 +309,6 @@ InteropView2 *CudaviewEngine::createView(ViewParams2 params)
 
     views2.push_back(std::move(view_handle));
     return views2.back().get();
-}
-
-InteropView *CudaviewEngine::createView(void **ptr_devmem, ViewParams params)
-{
-    /*auto view_handle = std::unique_ptr<InteropView>(new InteropView());
-    view_handle->params = params;
-
-    dev->initView(*view_handle);
-    *ptr_devmem = view_handle->cuda_ptr;
-    views.push_back(std::move(view_handle));
-    return views.back().get();*/
-    return nullptr;
 }
 
 void CudaviewEngine::loadTexture(InteropMemory *interop, void *data)

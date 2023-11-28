@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
         m.resource_type   = ResourceType::Buffer;
         auto pointsmem = engine.createBuffer((void**)&d_coords, m);
 
-        ViewParams2 params;
+        ViewParams params;
         params.element_count = point_count;
         params.data_domain   = DataDomain::Domain3D;
         params.domain_type   = DomainType::Unstructured;

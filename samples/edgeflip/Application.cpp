@@ -59,7 +59,7 @@ Application::Application(){
     mem1.resource_type   = ResourceType::Buffer;
     auto vertices = engine.createBuffer((void**)&m->dm->d_vbo_v, mem1);
 
-    ViewParams2 params;
+    ViewParams params;
     params.element_count   = cleap_get_vertex_count(m);
     params.data_domain     = DataDomain::Domain3D;
     params.domain_type     = DomainType::Unstructured;

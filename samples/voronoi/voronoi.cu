@@ -200,7 +200,7 @@ int main(int argc, char *argv[])
     m1.resource_type   = ResourceType::Buffer;
     auto points = engine.createBuffer((void**)&d_coords, m1);
 
-    ViewParams2 p1;
+    ViewParams p1;
     p1.element_count = point_count;
     p1.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
     p1.data_domain   = DataDomain::Domain2D;
@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
     m2.resource_type    = ResourceType::LinearTexture;
     auto image = engine.createBuffer((void**)&d_vd_colors, m2);
 
-    ViewParams2 p2;
+    ViewParams p2;
     p2.element_count = extent.x * extent.y;
     p2.data_domain   = DataDomain::Domain2D;
     p2.domain_type   = DomainType::Structured;

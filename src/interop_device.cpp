@@ -179,7 +179,7 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
     );
 }
 
-void InteropDevice::initViewBuffer(InteropView2& view)
+void InteropDevice::initViewBuffer(InteropView& view)
 {
     const auto &params = view.params;
     // For structured domain views, initialize auxiliary resources and memory
@@ -304,7 +304,7 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     );
 }
 
-void InteropDevice::initViewImage(InteropView2& view)
+void InteropDevice::initViewImage(InteropView& view)
 {
     const auto &params = view.params;
     if (params.domain_type == DomainType::Structured)
@@ -354,10 +354,6 @@ void InteropDevice::initViewImage(InteropView2& view)
         view.vert_buffers.push_back(memory.data_buffer);
         view.buffer_offsets.push_back(0);
     }*/
-}
-
-void InteropDevice::initView(InteropView& view)
-{
 }
 
 void InteropDevice::updateLinearTexture(InteropMemory &interop)

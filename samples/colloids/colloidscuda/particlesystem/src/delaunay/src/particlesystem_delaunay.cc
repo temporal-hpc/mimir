@@ -218,7 +218,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     //m.channel_count   = 4;
     //interop[2] = engine.createBuffer((void**)&devicedata_.colors, m);
 
-    ViewParams2 v;
+    ViewParams v;
     v.element_count = params_.num_elements;
     v.extent        = {l, l, 1};
     v.data_domain   = DataDomain::Domain2D;
