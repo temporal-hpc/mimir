@@ -17,6 +17,7 @@ struct SizeDefault : ISize
 struct SizeTemplate<T> : ISize
 {
     T input : PSIZE;
+
     float default_size;
     [mutating] void setDefault(float sz) { default_size = sz; }
     float getSize() { return reinterpret<float>(input); }

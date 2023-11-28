@@ -1,109 +1,58 @@
 #include "generics.slang"
 
-float4 getPosition2d(float2 data, int3 extent)
-{
-    return float4(2 * (data / extent.xy) - 1, 0, 1);
-}
-
-float4 getPosition3d(float3 data, int3 extent)
-{
-    return float4(2 * (data / extent) - 1, 1);
-}
-
-float4 getPosition4d(float4 data, int3 extent)
-{
-    return float4(2 * (data.xyz / extent) - 1, 1);
-}
-
 interface IPosition
 {
     float4 getPosition(int3 extent);
 };
 
-struct PositionFloat2 : IPosition
+struct PositionTemplate<T, let N:int> : IPosition
 {
-    VectorInput<float,2> input : POSITION;
+    vector<T,N> data : POSITION;
+
     float4 getPosition(int3 extent)
     {
-        float2 data = convertFloat<2>(input.data);
-        return getPosition2d(data, extent);
+        float4 pos = {0,0,0,1};
+        [unroll]
+        for (int i = 0; i < N; ++i)
+        {
+            float r = reinterpret<float>(data[i]) / extent[i];
+            pos[i] = 2 * r - 1;
+        }
+        pos.w = 1;
+        return pos;
     }
 };
 
-struct PositionDouble2 : IPosition
+struct PositionTemplateLarge<T, let N:int> : IPosition
 {
-    VectorInput<double,2> input : POSITION;
+    vector<T,N> data : POSITION;
+
     float4 getPosition(int3 extent)
     {
-        float2 data = convertDouble<2>(input.data);
-        return getPosition2d(data, extent);
+        float4 pos = {0,0,0,1};
+        [unroll]
+        for (int i = 0; i < N; ++i)
+        {
+            float r = float(reinterpret<double>(data[i])) / extent[i];
+            pos[i] = 2 * r - 1;
+        }
+        pos.w = 1;
+        return pos;
     }
 };
 
-struct PositionHalf2 : IPosition
-{
-    VectorInput<half,2> input : POSITION;
-    float4 getPosition(int3 extent)
-    {
-        float2 data = convertHalf<2>(input.data);
-        return getPosition2d(data, extent);
-    }
-};
+typedef PositionTemplate<float,2> PositionFloat2;
+typedef PositionTemplate<float,3> PositionFloat3;
+typedef PositionTemplate<float,4> PositionFloat4;
 
-struct PositionInt2 : IPosition
-{
-    VectorInput<int,2> input : POSITION;
-    float4 getPosition(int3 extent)
-    {
-        float2 data = convertInt<2>(input.data);
-        return getPosition2d(data, extent);
-    }
-};
+typedef PositionTemplate<half,2> PositionHalf2;
+typedef PositionTemplate<half,3> PositionHalf3;
+typedef PositionTemplate<half,4> PositionHalf4;
 
-struct PositionFloat3 : IPosition
-{
-    VectorInput<float,3> input : POSITION;
-    float4 getPosition(int3 extent)
-    {
-        return getPosition3d(input.data, extent);
-    }
-};
+typedef PositionTemplate<int,2> PositionInt2;
+typedef PositionTemplate<int,3> PositionInt3;
+typedef PositionTemplate<int,4> PositionInt4;
 
-struct PositionFloat4 : IPosition
-{
-    VectorInput<float,4> input : POSITION;
-    float4 getPosition(int3 extent)
-    {
-        return getPosition4d(input.data, extent);
-    }
-};
-
-struct PositionDouble3 : IPosition
-{
-    VectorInput<double,3> input : POSITION;
-    float4 getPosition(int3 extent)
-    {
-        float3 data = convertDouble<3>(input.data);
-        return getPosition3d(data, extent);
-    }
-};
-
-struct PositionHalf3 : IPosition
-{
-    VectorInput<half,3> input : POSITION;
-    float4 getPosition(int3 extent)
-    {
-        float3 data = convertHalf<3>(input.data);
-        return getPosition3d(data, extent);
-    }
-};
-
-struct PositionInt3 : IPosition
-{
-    VectorInput<int,3> input : POSITION;
-    float4 getPosition(int3 extent)
-    {
-        float3 data = convertInt<3>(input.data);
-        return getPosition3d(data, extent);
-    }
-};
+typedef PositionTemplateLarge<double,2> PositionDouble2;
+typedef PositionTemplateLarge<double,3> PositionDouble3;
+typedef PositionTemplateLarge<double,4> PositionDouble4;
