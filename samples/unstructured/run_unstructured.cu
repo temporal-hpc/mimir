@@ -8,8 +8,9 @@ using namespace mimir;
 using namespace mimir::validation; // checkCuda
 
 __global__
-void initSystem(double2 *coords, size_t point_count, curandState *global_states, int2 extent, unsigned seed)
-{   
+void initSystem(double2 *coords, float *sizes, size_t point_count,
+    curandState *global_states, int2 extent, unsigned seed)
+{
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
     if (tidx < point_count)
     {
@@ -17,8 +18,10 @@ void initSystem(double2 *coords, size_t point_count, curandState *global_states,
         curand_init(seed, tidx, 0, &local_state);
         auto rx = extent.x * curand_uniform_double(&local_state);
         auto ry = extent.y * curand_uniform_double(&local_state);
+        // Generate a point size up to 50;
         double2 p{rx, ry};
         coords[tidx] = p;
+        sizes[tidx]  = 50 * curand_uniform_double(&local_state);
         global_states[tidx] = local_state;
     }
 }
@@ -47,7 +50,8 @@ int main(int argc, char *argv[])
 {
     size_t point_count    = 100;
     size_t iter_count     = 10000;
-    double2 *d_coords      = nullptr;
+    double2 *d_coords     = nullptr;
+    float *d_sizes        = nullptr;
     curandState *d_states = nullptr;
     int2 extent           = {200, 200};
     unsigned block_size   = 256;
@@ -73,6 +77,10 @@ int main(int argc, char *argv[])
         m.resource_type   = ResourceType::Buffer;
         auto points = engine.createBuffer((void**)&d_coords, m);
 
+        m.data_type       = DataType::Float;
+        m.channel_count   = 1;
+        auto sizes = engine.createBuffer((void**)&d_sizes, m);
+
         ViewParams2 params;
         params.element_count = point_count;
         params.extent        = {200, 200, 1};
@@ -86,6 +94,7 @@ int main(int argc, char *argv[])
             {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
         };*/
         params.attributes[AttributeType::Position] = *points;
+        params.attributes[AttributeType::Size] = *sizes;
         engine.createView(params);
 
         // Cannot make CUDA calls that use the target device memory before
@@ -93,7 +102,7 @@ int main(int argc, char *argv[])
         //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
         checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
         initSystem<<<grid_size, block_size>>>(
-            d_coords, point_count, d_states, extent, seed
+            d_coords, d_sizes, point_count, d_states, extent, seed
         );
         checkCuda(cudaDeviceSynchronize());
 
@@ -115,6 +124,7 @@ int main(int argc, char *argv[])
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
+    checkCuda(cudaFree(d_sizes));
 
     return EXIT_SUCCESS;
 }

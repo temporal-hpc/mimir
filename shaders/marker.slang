@@ -13,14 +13,36 @@ ConstantBuffer<ViewParams> view;
 static const float u_antialias = 1;
 static const float v_linewidth = 1;
 
-struct ColorDefault : IColor
+struct MarkerOffsets
 {
-    float4 getColor() { return view.default_color; }
+    float4 dx;
+    float4 dy;
 };
 
-struct SizeDefault : ISize
+interface IMarker
 {
-    float getSize() { return view.default_size; }
+    MarkerOffsets getVertexOffsets(float size, float2 resolution);
+};
+
+struct Marker2D : IMarker
+{
+    MarkerOffsets getVertexOffsets(float size, float2 resolution)
+    {
+        MarkerOffsets out;
+        out.dx = float4(1,0,0,0) * (size / resolution.x);
+        out.dy = float4(0,1,0,0) * (size / resolution.y);
+        return out;
+    }
+};
+
+struct Marker3D : IMarker
+{
+    MarkerOffsets getVertexOffsets(float size, float2 resolution)
+    {
+        float dx = size / scene.resolution.x;
+        float dy = size / scene.resolution.y;
+        return {dx, dy};
+    }
 };
 
 struct VertexOutput
@@ -49,6 +71,9 @@ struct FragmentOutput
 [shader("vertex")]
 VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S in_size)
 {
+    in_color.setDefault(view.default_color);
+    in_size.setDefault(view.default_size);
+
     VertexOutput output;
     output.center = in_pos.getPosition(scene.extent);
     output.color  = in_color.getColor();
@@ -58,17 +83,22 @@ VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S 
 
 [shader("geometry")]
 [maxvertexcount(4)]
-void geometryMain(point VertexOutput input[1], inout TriangleStream<GeometryOutput> stream)
+void geometryMain<M:IMarker>(point VertexOutput input[1], inout TriangleStream<GeometryOutput> stream)
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
     float4 center = mul(input[0].center, view_proj);
     //float4 center = input[0].center;
 
     GeometryOutput output;
-    output.size = SQRT_2*input[0].size  + 2 * (v_linewidth + 1.5*u_antialias);
+    output.size = SQRT_2*input[0].size + 2 * (v_linewidth + 1.5*u_antialias);
 
-    float4 dx = float4(1,0,0,0) * (output.size / scene.resolution.x);
-    float4 dy = float4(0,1,0,0) * (output.size / scene.resolution.y);
+    M marker;
+    MarkerOffsets offsets = marker.getVertexOffsets(output.size, scene.resolution);
+    float4 dx = offsets.dx;
+    float4 dy = offsets.dy;
+
+    //float4 dx = view_proj[0] * (output.size / scene.resolution.x);
+    //float4 dy = view_proj[1] * (output.size / scene.resolution.x);
 
     float4 vertex_offsets[4] = {(-dx-dy), (+dx-dy), (-dx+dy), (+dx+dy)};
     float2 texcoords[4] = {{0,0}, {1,0}, {0,1}, {1,1}};
@@ -87,7 +117,7 @@ void geometryMain(point VertexOutput input[1], inout TriangleStream<GeometryOutp
 }
 
 [shader("fragment")]
-FragmentOutput fragmentMain(GeometryOutput input)
+FragmentOutput fragmentMain<S:IShape2D>(GeometryOutput input)
 {
     FragmentOutput out;
 
@@ -97,7 +127,7 @@ FragmentOutput fragmentMain(GeometryOutput input)
     //float2 p = input.uv - float2(0.5);
     //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
 
-    DiscShape shape;
+    S shape;
     float distance = shape.apply(p * input.size, input.ele_size);
 
     Filled filled;

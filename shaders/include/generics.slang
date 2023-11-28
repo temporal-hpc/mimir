@@ -6,6 +6,11 @@ struct VectorInput<T, let N : int>
     vector<T,N> data;
 };
 
+vector<float,N> convert<T,let N:int>(vector<T,N> vec)
+{
+    return reinterpret<vector<float,N>>(vec);
+}
+
 vector<float,N> convertInt<let N:int>(vector<int,N> vec)
 {
     vector<float,N> res;

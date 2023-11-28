@@ -121,8 +121,6 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
                     std::string spec = getAttributeType(attr);
                     spec += getDataType(memory.params.data_type);
                     spec += std::to_string(memory.params.channel_count);
-                    //if (params.data_domain == DataDomain::Domain2D)      { spec += "2"; }
-                    //else if (params.data_domain == DataDomain::Domain3D) { spec += "3"; }
                     specs[attr] = spec;
                 }
             }
@@ -133,6 +131,16 @@ ShaderCompileParameters getShaderCompileParams(ViewParams2 params)
                 compile.specializations.push_back(spec.second);
                 //printf("added spec %s\n", spec.second.c_str());
             }
+
+            // Add dimensionality specialization
+            std::string marker_spec = "Marker";
+            marker_spec += getDataDomain(params.data_domain);
+            compile.specializations.push_back(marker_spec);
+            printf("marker %s\n", marker_spec.c_str());
+
+            // Add shape specialization
+            // TODO: Do it properly
+            compile.specializations.push_back("DiscShape");
             break;
         }
         case ViewType::Edges:

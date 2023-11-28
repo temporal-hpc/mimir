@@ -2,12 +2,22 @@
 
 interface IColor
 {
+    [mutating] void setDefault(float4 c);
     float4 getColor();
+};
+
+struct ColorDefault : IColor
+{
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
+    float4 getColor() { return default_color; }
 };
 
 struct ColorFloat4 : IColor
 {
     VectorInput<float,4> colors;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor() { return colors.data; }
 };
 
@@ -20,6 +30,8 @@ struct ColorInt1 : IColor
         {231/255.f,41/255.f,138/255.f,1}
     };
     VectorInput<int,1> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         return colors[input.data.x];
@@ -29,6 +41,8 @@ struct ColorInt1 : IColor
 struct ColorFloat2 : IColor
 {
     VectorInput<float,2> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float2 data = convertFloat<2>(input.data);
@@ -39,6 +53,8 @@ struct ColorFloat2 : IColor
 struct ColorDouble2 : IColor
 {
     VectorInput<double,2> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float2 data = convertDouble<2>(input.data);
@@ -49,6 +65,8 @@ struct ColorDouble2 : IColor
 struct ColorHalf2 : IColor
 {
     VectorInput<half,2> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float2 data = convertHalf<2>(input.data);
@@ -59,6 +77,8 @@ struct ColorHalf2 : IColor
 struct ColorInt2 : IColor
 {
     VectorInput<int,2> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float2 data = convertInt<2>(input.data);
@@ -69,6 +89,8 @@ struct ColorInt2 : IColor
 struct ColorFloat3 : IColor
 {
     VectorInput<float,3> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         return getColorVec3(input.data);
@@ -78,6 +100,8 @@ struct ColorFloat3 : IColor
 struct ColorDouble3 : IColor
 {
     VectorInput<double,3> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float3 data = convertDouble<3>(input.data);
@@ -88,6 +112,8 @@ struct ColorDouble3 : IColor
 struct ColorHalf3 : IColor
 {
     VectorInput<half,3> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float3 data = convertHalf<3>(input.data);
@@ -98,6 +124,8 @@ struct ColorHalf3 : IColor
 struct ColorInt3 : IColor
 {
     VectorInput<int,3> input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float3 data = convertInt<3>(input.data);

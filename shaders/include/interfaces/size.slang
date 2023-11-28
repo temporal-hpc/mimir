@@ -2,29 +2,27 @@
 
 interface ISize
 {
+    [mutating] void setDefault(float sz);
     float getSize();
 };
 
-struct SizeInt : ISize
+struct SizeDefault : ISize
 {
-    VectorInput<int,1> input : PSIZE;
-    float getSize() { return convertInt<1>(input.data).x; }
+    float default_size;
+    [mutating] void setDefault(float sz) { default_size = sz; }
+    float getSize() { return default_size; }
 };
 
-struct SizeFloat : ISize
+struct SizeTemplate<T> : ISize
 {
-    VectorInput<float,1> input : PSIZE;
-    float getSize() { return convertFloat<1>(input.data).x; }
+    T input : PSIZE;
+    float default_size;
+    [mutating] void setDefault(float sz) { default_size = sz; }
+    float getSize() { return reinterpret<float>(input).x; }
 };
 
-struct SizeDouble : ISize
-{
-    VectorInput<double,1> input : PSIZE;
-    float getSize() { return convertDouble<1>(input.data).x; }
-};
-
-struct SizeHalf : ISize
-{
-    VectorInput<half,1> input : PSIZE;
-    float getSize() { return convertHalf<1>(input.data).x; }
-};
+typedef SizeTemplate<int> SizeInt1;
+typedef SizeTemplate<float> SizeFloat1;
+typedef SizeTemplate<half> SizeHalf1;
+// TODO: This may not work due to target type being smaller than source type
+//typedef SizeTemplate<double> SizeDouble;
