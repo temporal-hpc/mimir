@@ -1,5 +1,3 @@
-#include "generics.slang"
-
 interface ISize
 {
     [mutating] void setDefault(float sz);

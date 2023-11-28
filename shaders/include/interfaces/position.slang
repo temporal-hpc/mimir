@@ -1,4 +1,4 @@
-#include "generics.slang"
+; // The slang VSCode extension complains is this is not here
 
 interface IPosition
 {
@@ -15,8 +15,8 @@ struct PositionTemplate<T, let N:int> : IPosition
         [unroll]
         for (int i = 0; i < N; ++i)
         {
-            float r = reinterpret<float>(data[i]) / extent[i];
-            pos[i] = 2 * r - 1;
+            float p = reinterpret<float>(data[i]) / extent[i];
+            pos[i] = 2 * p - 1;
         }
         pos.w = 1;
         return pos;
@@ -33,8 +33,8 @@ struct PositionTemplateLarge<T, let N:int> : IPosition
         [unroll]
         for (int i = 0; i < N; ++i)
         {
-            float r = float(reinterpret<double>(data[i])) / extent[i];
-            pos[i] = 2 * r - 1;
+            float p = float(reinterpret<double>(data[i])) / extent[i];
+            pos[i] = 2 * p - 1;
         }
         pos.w = 1;
         return pos;

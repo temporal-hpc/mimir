@@ -1,5 +1,3 @@
-#include "generics.slang"
-
 interface IColor
 {
     [mutating] void setDefault(float4 c);
