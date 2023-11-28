@@ -8,7 +8,7 @@ using namespace mimir;
 using namespace mimir::validation; // checkCuda
 
 __global__
-void initSystem(double2 *coords, float *sizes, size_t point_count,
+void initSystem(double2 *coords, double *sizes, size_t point_count,
     curandState *global_states, int2 extent, unsigned seed)
 {
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
     size_t point_count    = 100;
     size_t iter_count     = 10000;
     double2 *d_coords     = nullptr;
-    float *d_sizes        = nullptr;
+    double *d_sizes        = nullptr;
     curandState *d_states = nullptr;
     int2 extent           = {200, 200};
     unsigned block_size   = 256;
@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
         m.resource_type   = ResourceType::Buffer;
         auto points = engine.createBuffer((void**)&d_coords, m);
 
-        m.data_type       = DataType::Float;
+        m.data_type       = DataType::Double;
         m.channel_count   = 1;
         auto sizes = engine.createBuffer((void**)&d_sizes, m);
 
