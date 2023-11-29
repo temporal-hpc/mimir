@@ -86,9 +86,8 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryP
     format_desc.w = 8;
     format_desc.f = cudaChannelFormatKindUnsigned;
 
-    auto sz = getSize(params.element_count, params.layout);
-    size_t image_width  = sz.x;
-    size_t image_height = sz.y;
+    size_t image_width  = params.element_count.x;
+    size_t image_height = params.element_count.y;
     auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
 
     cudaExternalMemoryMipmappedArrayDesc array_desc{};
@@ -108,10 +107,10 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryP
 VkImage InteropDevice::createImage(MemoryParams params)
 {
     auto img_type = getImageType(params.layout);
-    auto format   = getDataFormat(params.data_type, params.channel_count);
+    auto format   = getDataFormat(params.component_type, params.channel_count);
     auto usage    = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     auto tiling   = VK_IMAGE_TILING_OPTIMAL;
-    auto sz = getSize(params.element_count, params.layout);
+    auto sz = params.element_count;
     VkExtent3D extent = {sz.x, sz.y, sz.z};
 
     VkExternalMemoryImageCreateInfo extmem_info{};
@@ -153,7 +152,7 @@ VkImage InteropDevice::createImage(MemoryParams params)
 void InteropDevice::initMemoryBuffer(InteropMemory& interop)
 {
     const auto &params = interop.params;
-    const auto element_size = getDataSize(params.data_type, params.channel_count);
+    const auto element_size = getBytesize(params.component_type, params.channel_count);
     const auto element_count = getElementCount(params.element_count, params.layout);
 
     // Create external memory buffers
@@ -224,7 +223,7 @@ void InteropDevice::initViewBuffer(InteropView& view)
         if (attr == AttributeType::Index)
         {
             view.idx_buffer = memory.data_buffer;
-            view.idx_type = getIndexType(memory.params.data_type);
+            view.idx_type = getIndexType(memory.params.component_type);
         }
         else
         {
@@ -237,9 +236,9 @@ void InteropDevice::initViewBuffer(InteropView& view)
 void InteropDevice::initMemoryImage(InteropMemory& interop)
 {
     const auto &params = interop.params;
-    auto sz = getSize(params.element_count, params.layout);
+    auto sz = params.element_count;
     interop.vk_extent = {sz.x, sz.y, sz.z};
-    interop.vk_format = getDataFormat(params.data_type, params.channel_count);
+    interop.vk_format = getDataFormat(params.component_type, params.channel_count);
 
     // Init texture memory
     interop.image = createImage(params);
@@ -287,9 +286,9 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     initMemoryBuffer(interop);
 
     const auto &params = interop.params;
-    auto sz = getSize(params.element_count, params.layout);
+    auto sz = params.element_count;
     interop.vk_extent = {sz.x, sz.y, sz.z};
-    interop.vk_format = getDataFormat(params.data_type, params.channel_count);
+    interop.vk_format = getDataFormat(params.component_type, params.channel_count);
 
     // Init texture memory
     interop.image = createImage(params);
@@ -389,9 +388,8 @@ void InteropDevice::loadTexture(InteropMemory *interop, void *img_data)
 {
     constexpr int level_count = 1;
     auto params = interop->params;
-    auto sz = getSize(params.element_count, params.layout);
-    size_t image_width  = sz.x;
-    size_t image_height = sz.y;
+    size_t image_width  = params.element_count.x;
+    size_t image_height = params.element_count.y;
 
     // Create staging buffer to copy image data
     VkDeviceSize staging_size = image_width * image_height * 4;
@@ -403,7 +401,7 @@ void InteropDevice::loadTexture(InteropMemory *interop, void *img_data)
     );
     vkBindBufferMemory(logical_device, staging_buffer, staging_memory, 0);
 
-    const auto element_size = getDataSize(params.data_type, params.channel_count);
+    const auto element_size = getBytesize(params.component_type, params.channel_count);
     const auto element_count = getElementCount(params.element_count, params.layout);
     VkDeviceSize memsize = element_size * element_count;
     char *data = nullptr;

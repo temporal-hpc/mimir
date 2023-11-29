@@ -55,11 +55,15 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
                 if (attr != AttributeType::Index)
                 {
                     std::string spec = getAttributeType(attr);
-                    spec += getDataType(memory.params.data_type);
+                    spec += getComponentType(memory.params.component_type);
                     spec += std::to_string(memory.params.channel_count);
                     specs[attr] = spec;
                 }
             }
+            /*if (params.domain_type == DomainType::Structured)
+            {
+                specs[AttributeType::Position] = "PositionFloat3";
+            }*/
 
             // Get the list of specialization names
             for (const auto& spec : specs)
@@ -114,7 +118,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
                 frag_entry += "3d_";
             }
             auto color_attr = params.attributes[AttributeType::Color];
-            frag_entry += getDataType(color_attr.params.data_type);
+            frag_entry += getComponentType(color_attr.params.component_type);
             frag_entry += std::to_string(color_attr.params.channel_count);
 
             compile.entrypoints = { vert_entry, frag_entry };
@@ -332,8 +336,8 @@ VertexDescription getVertexDescription(const ViewParams params)
     {
         auto& mem_params = memory.params;
         uint32_t location = static_cast<uint32_t>(attr);
-        auto stride = getDataSize(mem_params.data_type, mem_params.channel_count);
-        auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);
+        auto stride = getBytesize(mem_params.component_type, mem_params.channel_count);
+        auto format = getDataFormat(mem_params.component_type, mem_params.channel_count);
         switch (attr)
         {
             // Ignore index attributes, as they are bound directly at the draw command

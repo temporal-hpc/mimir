@@ -32,11 +32,11 @@ int main(int argc, char *argv[])
     engine.init(1920, 1080);
 
     MemoryParams m;
-    m.layout           = DataLayout::Layout2D;
-    m.element_count.xy = {width, height};
-    m.data_type        = DataType::Char;
-    m.channel_count    = 4;
-    m.resource_type    = ResourceType::LinearTexture;
+    m.layout         = DataLayout::Layout2D;
+    m.element_count  = {(uint)width, (uint)height, 1};
+    m.component_type = ComponentType::Char;
+    m.channel_count  = 4;
+    m.resource_type  = ResourceType::LinearTexture;
     auto pixels = engine.createBuffer((void**)&d_pixels, m);
 
     ViewParams params;

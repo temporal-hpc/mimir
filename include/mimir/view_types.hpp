@@ -2,32 +2,32 @@
 
 #include <cuda_runtime_api.h>
 #include <cuda_fp16.h> // half
+#include <vulkan/vulkan.h>
+
 #include <array> // std::array
 
 namespace mimir
 {
 
-// Specifies which cuda resource is mapped to the view
-enum class ResourceType  { Buffer, IndexBuffer, Texture, LinearTexture };
-// Specifies the number of spatial dimensions of the view
-enum class DataDomain    { Domain2D, Domain3D };
-// Specifies the data layout
-enum class DomainType    { Structured, Unstructured };
 // Specifies the type of view that will be visualized
 enum class ViewType      { Markers, Edges, Voxels, Image };
-// Specifies the DataType stored in the texture corresponding to a view
-// TODO: Change name to ComponentType
-enum class DataType      { Int, Long, Short, Char, Float, Double, Half };
+// Specifies the data type stored in the texture corresponding to a view
+enum class ComponentType { Int, Long, Short, Char, Float, Double, Half };
+// Specifies which cuda resource is mapped
+enum class ResourceType  { Buffer, IndexBuffer, Texture, LinearTexture };
+// Specifies the number of spatial dimensions in the view
+enum class DataDomain    { Domain2D, Domain3D };
+// Specifies the data layout
 enum class DataLayout    { Layout1D, Layout2D, Layout3D };
+enum class DomainType    { Structured, Unstructured };
 enum class AttributeType { Position, Color, Size, Index };
 
-union DataSize
-{
-    int x;
-    int2 xy;
-    int3 xyz;
+static std::array<ViewType, 4> kAllViewTypes = {
+    ViewType::Markers,
+    ViewType::Edges,
+    ViewType::Voxels,
+    ViewType::Image
 };
-
 static std::array<ResourceType, 4> kAllResources = {
     ResourceType::Buffer,
     ResourceType::IndexBuffer,
@@ -38,42 +38,35 @@ static std::array<DomainType, 2> kAllDomains = {
     DomainType::Structured,
     DomainType::Unstructured
 };
-static std::array<ViewType, 4> kAllViewTypes = {
-    ViewType::Markers,
-    ViewType::Edges,
-    ViewType::Voxels,
-    ViewType::Image
-};
-static std::array<DataType, 7> kAllDataTypes = {
-    DataType::Int,
-    DataType::Long,
-    DataType::Short,
-    DataType::Char,
-    DataType::Float,
-    DataType::Double,
-    DataType::Half
+static std::array<ComponentType, 7> kAllComponentTypes = {
+    ComponentType::Int,
+    ComponentType::Long,
+    ComponentType::Short,
+    ComponentType::Char,
+    ComponentType::Float,
+    ComponentType::Double,
+    ComponentType::Half
 };
 
-constexpr size_t getDataSize(DataType t, unsigned channel_count)
-{
-    switch (t)
-    {
-        case DataType::Int:    return sizeof(int) * channel_count;
-        case DataType::Long:   return sizeof(long) * channel_count;
-        case DataType::Short:  return sizeof(short) * channel_count;
-        case DataType::Char:   return sizeof(char) * channel_count;
-        case DataType::Float:  return sizeof(float) * channel_count;
-        case DataType::Double: return sizeof(double) * channel_count;
-        case DataType::Half:   return sizeof(half) * channel_count;
-        default: return 0;
-    }
-}
-
-constexpr char* getDataType(DataType type)
+constexpr char* getViewType(ViewType type)
 {
     switch (type)
     {
-#define STR(r) case DataType::r: return (char*)#r
+#define STR(r) case ViewType::r: return (char*)#r
+        STR(Markers);
+        STR(Edges);
+        STR(Voxels);
+        STR(Image);
+#undef STR
+        default: return (char*)"unknown";
+    }
+}
+
+constexpr char* getComponentType(ComponentType type)
+{
+    switch (type)
+    {
+#define STR(r) case ComponentType::r: return (char*)#r
         STR(Int);
         STR(Long);
         STR(Short);
@@ -122,41 +115,13 @@ constexpr char* getResourceType(ResourceType t)
     }
 }
 
-constexpr uint3 getSize(DataSize size, DataLayout layout)
-{
-    uint3 sz = {1, 1, 1};
-    switch (layout)
-    {
-        case DataLayout::Layout1D:
-        {
-            sz.x = size.x;
-            break;
-        }
-        case DataLayout::Layout2D:
-        {
-            sz.x = size.xy.x;
-            sz.y = size.xy.y;
-            break;
-        }
-        case DataLayout::Layout3D:
-        {
-            sz.x = size.xyz.x;
-            sz.y = size.xyz.y;
-            sz.z = size.xyz.z;
-            break;
-        }
-        default: break;
-    }
-    return sz;
-};
-
-constexpr size_t getElementCount(DataSize size, DataLayout layout)
+constexpr uint getSize(uint3 size, DataLayout layout)
 {
     switch (layout)
     {
         case DataLayout::Layout1D: return size.x;
-        case DataLayout::Layout2D: return size.xy.x * size.xy.y;
-        case DataLayout::Layout3D: return size.xyz.x * size.xyz.y * size.xyz.z;
+        case DataLayout::Layout2D: return size.x * size.y;
+        case DataLayout::Layout3D: return size.x * size.y * size.z;
         default: return 0;
     }
 };
@@ -186,17 +151,83 @@ constexpr char* getAttributeType(AttributeType type)
     }
 }
 
-constexpr char* getViewType(ViewType type)
+constexpr size_t getElementCount(uint3 size, DataLayout layout)
+{
+    switch (layout)
+    {
+        case DataLayout::Layout1D: return size.x;
+        case DataLayout::Layout2D: return size.x * size.y;
+        case DataLayout::Layout3D: return size.x * size.y * size.z;
+        default: return 0;
+    }
+};
+
+constexpr size_t getComponentSize(ComponentType t)
+{
+    switch (t)
+    {
+        case ComponentType::Int:    return sizeof(int);
+        case ComponentType::Long:   return sizeof(long);
+        case ComponentType::Short:  return sizeof(short);
+        case ComponentType::Char:   return sizeof(char);
+        case ComponentType::Float:  return sizeof(float);
+        case ComponentType::Double: return sizeof(double);
+        case ComponentType::Half:   return sizeof(half);
+        default: return 0;
+    }
+}
+
+constexpr size_t getBytesize(ComponentType t, unsigned channel_count)
+{
+    return getComponentSize(t) * channel_count;
+}
+
+// Converts an interop memory data type to its Vulkan format equivalent
+constexpr VkFormat getDataFormat(ComponentType type, uint channel_count)
 {
     switch (type)
     {
-#define STR(r) case ViewType::r: return (char*)#r
-        STR(Markers);
-        STR(Edges);
-        STR(Voxels);
-        STR(Image);
-#undef STR
-        default: return (char*)"unknown";
+        case ComponentType::Int: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R32_SINT;
+            case 2: return VK_FORMAT_R32G32_SINT;
+            case 3: return VK_FORMAT_R32G32B32_SINT;
+            case 4: return VK_FORMAT_R32G32B32A32_SINT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case ComponentType::Char: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R8_SRGB;
+            case 2: return VK_FORMAT_R8G8_SRGB;
+            case 3: return VK_FORMAT_R8G8B8_SRGB;
+            case 4: return VK_FORMAT_R8G8B8A8_SRGB;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case ComponentType::Float: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R32_SFLOAT;
+            case 2: return VK_FORMAT_R32G32_SFLOAT;
+            case 3: return VK_FORMAT_R32G32B32_SFLOAT;
+            case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case ComponentType::Double: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R64_SFLOAT;
+            case 2: return VK_FORMAT_R64G64_SFLOAT;
+            case 3: return VK_FORMAT_R64G64B64_SFLOAT;
+            case 4: return VK_FORMAT_R64G64B64A64_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case ComponentType::Half: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R16_SFLOAT;
+            case 2: return VK_FORMAT_R16G16_SFLOAT;
+            case 3: return VK_FORMAT_R16G16B16_SFLOAT;
+            case 4: return VK_FORMAT_R16G16B16A16_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        default: return VK_FORMAT_UNDEFINED;
     }
 }
 

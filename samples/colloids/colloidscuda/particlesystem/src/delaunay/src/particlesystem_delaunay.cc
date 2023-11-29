@@ -205,16 +205,16 @@ void ParticleSystemDelaunay::loadOnDevice()
     MemoryParams m;
     m.layout          = DataLayout::Layout1D;
     m.element_count.x = params_.num_elements;
-    m.data_type       = DataType::Double;
+    m.component_type       = ComponentType::Double;
     m.channel_count   = 2;
     m.resource_type   = ResourceType::Buffer;
     interop[current_read] = engine.createBuffer((void**)&devicedata_.positions[current_read], m);
     interop[current_write] = engine.createBuffer((void**)&devicedata_.positions[current_write], m);
 
-    m.data_type       = DataType::Int;
+    m.component_type       = ComponentType::Int;
     m.channel_count   = 1;
     interop[2] = engine.createBuffer((void**)&devicedata_.types, m);
-    //m.data_type       = DataType::Float;
+    //m.component_type       = ComponentType::Float;
     //m.channel_count   = 4;
     //interop[2] = engine.createBuffer((void**)&devicedata_.colors, m);
 

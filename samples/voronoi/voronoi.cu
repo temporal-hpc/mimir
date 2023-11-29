@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
     MemoryParams m1;
     m1.layout          = DataLayout::Layout1D;
     m1.element_count.x = point_count;
-    m1.data_type       = DataType::Float;
+    m1.component_type  = ComponentType::Float;
     m1.channel_count   = 2;
     m1.resource_type   = ResourceType::Buffer;
     auto points = engine.createBuffer((void**)&d_coords, m1);
@@ -211,11 +211,11 @@ int main(int argc, char *argv[])
     auto v1 = engine.createView(p1);
 
     MemoryParams m2;
-    m2.layout           = DataLayout::Layout2D;
-    m2.element_count.xy = {extent.x, extent.y};
-    m2.data_type        = DataType::Float;
-    m2.channel_count    = 4;
-    m2.resource_type    = ResourceType::LinearTexture;
+    m2.layout         = DataLayout::Layout2D;
+    m2.element_count  = {(unsigned)extent.x, (unsigned)extent.y, 1};
+    m2.component_type = ComponentType::Float;
+    m2.channel_count  = 4;
+    m2.resource_type  = ResourceType::LinearTexture;
     auto image = engine.createBuffer((void**)&d_vd_colors, m2);
 
     ViewParams p2;
@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
     //cudaMalloc((void**)&d_vd_colors, sizeof(float) * extent.x * extent.y);*/
 
     /*params.element_count = extent.x * extent.y;
-    params.data_type     = DataType::Float;
+    params.component_type     = ComponentType::Float;
     params.channel_count = 1;
     params.resource_type = ResourceType::Buffer;
     params.domain_type   = DomainType::Structured;

@@ -72,12 +72,12 @@ int main(int argc, char *argv[])
         MemoryParams m;
         m.layout          = DataLayout::Layout1D;
         m.element_count.x = point_count;
-        m.data_type       = DataType::Double;
+        m.component_type  = ComponentType::Double;
         m.channel_count   = 2;
         m.resource_type   = ResourceType::Buffer;
         auto points = engine.createBuffer((void**)&d_coords, m);
 
-        m.data_type       = DataType::Double;
+        m.component_type  = ComponentType::Double;
         m.channel_count   = 1;
         auto sizes = engine.createBuffer((void**)&d_sizes, m);
 

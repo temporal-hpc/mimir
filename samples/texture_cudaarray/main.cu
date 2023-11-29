@@ -201,8 +201,8 @@ int main(int argc, char *argv[])
 
     MemoryParams m;
     m.layout           = DataLayout::Layout2D;
-    m.element_count.xy = {img_width, img_height};
-    m.data_type        = DataType::Char;
+    m.element_count    = {(uint)img_width, (uint)img_height, 1};
+    m.component_type   = ComponentType::Char;
     m.channel_count    = 4;
     m.resource_type    = ResourceType::Texture;
     auto image = engine.createBuffer((void**)&d_image, m);

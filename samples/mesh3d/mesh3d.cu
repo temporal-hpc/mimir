@@ -74,13 +74,13 @@ int main(int argc, char *argv[])
     MemoryParams m;
     m.layout          = DataLayout::Layout1D;
     m.element_count.x = point_count;
-    m.data_type       = DataType::Float;
+    m.component_type  = ComponentType::Float;
     m.channel_count   = 3;
     m.resource_type   = ResourceType::Buffer;
     auto pointsmem = engine.createBuffer((void**)&d_coords, m);
 
     m.element_count.x = 3 * triangles.size();
-    m.data_type       = DataType::Int;
+    m.component_type  = ComponentType::Int;
     m.channel_count   = 1;
     m.resource_type   = ResourceType::IndexBuffer;
     auto trimem = engine.createBuffer((void**)&d_triangles, m);

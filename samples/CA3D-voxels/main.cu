@@ -62,12 +62,12 @@ int main(int argc, char **argv){
     engine.init(width, height);
 
     MemoryParams mp;
-    mp.layout            = DataLayout::Layout3D;
-    mp.element_count.xyz = {(int)n, (int)n, (int)n};
-    mp.data_type         = DataType::Int;
-    mp.channel_count     = 1;
-    mp.resource_type     = ResourceType::Buffer;
-    //mp.resource_type     = ResourceType::LinearTexture;
+    mp.layout         = DataLayout::Layout3D;
+    mp.element_count  = {(uint)n, (uint)n, (uint)n};
+    mp.component_type = ComponentType::Int;
+    mp.channel_count  = 1;
+    mp.resource_type  = ResourceType::Buffer;
+    //mp.resource_type  = ResourceType::LinearTexture;
     auto m1 = engine.createBuffer((void**)&d1, mp);
     auto m2 = engine.createBuffer((void**)&d2, mp);
 

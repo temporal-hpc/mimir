@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
     MemoryParams mem;
     mem.layout          = DataLayout::Layout1D;
     mem.element_count.x = n;
-    mem.data_type       = DataType::Float;
+    mem.component_type       = ComponentType::Float;
     mem.channel_count   = 2;
     mem.resource_type   = ResourceType::Buffer;
     auto pointsmem = engine.createBuffer((void**)&dPoints, mem);

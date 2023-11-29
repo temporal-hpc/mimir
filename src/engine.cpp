@@ -903,58 +903,6 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
             }
             default: break;
         }
-
-        /*if (view->params.resource_type == ResourceType::Texture ||
-            view->params.element_type == ElementType::Image)
-        {
-            if (view->params.element_type == ElementType::Voxels)
-            {
-                VkBuffer vertex_buffers[] = { view->data_buffer };
-                VkDeviceSize offsets[] = { 0 };
-                auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-                vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
-            }
-            else
-            {
-                VkDeviceSize offsets[1] = {0};
-                vkCmdBindVertexBuffers(cmd, 0, 1, &view->aux_buffer, offsets);
-                vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, VK_INDEX_TYPE_UINT16);
-                vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-            }
-        }
-        else if (view->params.resource_type == ResourceType::Buffer &&
-                 view->params.domain_type == DomainType::Structured)
-        {
-            if (view->params.element_type == ElementType::Voxels)
-            {
-                VkBuffer vertex_buffers[] = { view->aux_buffer, view->data_buffer };
-                VkDeviceSize offsets[] = { 0, 0 };
-                auto binding_count = sizeof(vertex_buffers) / sizeof(vertex_buffers[0]);
-                vkCmdBindVertexBuffers(cmd, 0, binding_count, vertex_buffers, offsets);
-                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
-            }
-        }
-        else if (view->params.resource_type == ResourceType::Buffer &&
-                 view->params.domain_type == DomainType::Unstructured)
-        {
-            switch (view->params.element_type)
-            {
-                case ElementType::Edges:
-                {
-                    VkBuffer vertexBuffers[] = { views[0]->data_buffer };
-                    VkDeviceSize offsets[] = {0};
-                    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-                    vkCmdBindIndexBuffer(cmd, view->data_buffer, 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
-                    break;
-                }
-                case ElementType::Voxels:
-                {
-                    // TODO: Check what to do here
-                }
-            }
-        }*/
     }
 }
 

@@ -37,11 +37,11 @@ struct AllViewTypes
         return true;
     }
 };
-struct AllDataTypes
+struct AllComponentTypes
 {
     static bool ItemGetter(void* data, int n, const char** out_str)
     {
-        *out_str = getDataType(((DataType*)data)[n]);
+        *out_str = getComponentType(((ComponentType*)data)[n]);
         return true;
     }
 };
@@ -127,7 +127,7 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
                 auto& info = memory.params;
                 //addTableRow("Element count", std::to_string(info.element_count));
                 addTableRow("Resource type", getResourceType(info.resource_type));
-                addTableRow("Data type", getDataType(info.data_type));
+                addTableRow("Data type", getComponentType(info.component_type));
                 addTableRow("Channel count", std::to_string(info.channel_count));
                 addTableRow("Data layout", getDataLayout(info.layout));
 
@@ -135,10 +135,10 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
                     &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
                 );
                 if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
-                bool data_check = addTableRowCombo("Data type", (int*)&info.data_type,
-                    &AllDataTypes::ItemGetter, kAllDataTypes.data(), kAllDataTypes.size()
+                bool data_check = addTableRowCombo("Data type", (int*)&info.component_type,
+                    &AllComponentTypes::ItemGetter, kAllComponentTypes.data(), kAllComponentTypes.size()
                 );
-                if (data_check) printf("View %d: switched data type to %s\n", uid, getDataType(info.data_type));*/
+                if (data_check) printf("View %d: switched data type to %s\n", uid, getComponentType(info.component_type));*/
 
                 ImGui::EndTable();
             }

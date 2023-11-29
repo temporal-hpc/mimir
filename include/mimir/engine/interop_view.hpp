@@ -1,8 +1,5 @@
 #pragma once
 
-#include <cuda_runtime_api.h>
-#include <vulkan/vulkan.h>
-
 #include <map> // std::map
 #include <string> // std::string
 #include <vector> // std::vector
@@ -20,60 +17,11 @@ struct ShaderInfo
     VkShaderStageFlagBits stage = VK_SHADER_STAGE_ALL_GRAPHICS;
 };
 
-// Converts a InteropView texture type to its Vulkan equivalent
-constexpr VkFormat getDataFormat(DataType type, uint channel_count)
+constexpr VkIndexType getIndexType(ComponentType type)
 {
     switch (type)
     {
-        case DataType::Int: switch (channel_count)
-        {
-            case 1: return VK_FORMAT_R32_SINT;
-            case 2: return VK_FORMAT_R32G32_SINT;
-            case 3: return VK_FORMAT_R32G32B32_SINT;
-            case 4: return VK_FORMAT_R32G32B32A32_SINT;
-            default: return VK_FORMAT_UNDEFINED;
-        }
-        case DataType::Char: switch (channel_count)
-        {
-            case 1: return VK_FORMAT_R8_SRGB;
-            case 2: return VK_FORMAT_R8G8_SRGB;
-            case 3: return VK_FORMAT_R8G8B8_SRGB;
-            case 4: return VK_FORMAT_R8G8B8A8_SRGB;
-            default: return VK_FORMAT_UNDEFINED;
-        }
-        case DataType::Float: switch (channel_count)
-        {
-            case 1: return VK_FORMAT_R32_SFLOAT;
-            case 2: return VK_FORMAT_R32G32_SFLOAT;
-            case 3: return VK_FORMAT_R32G32B32_SFLOAT;
-            case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
-            default: return VK_FORMAT_UNDEFINED;
-        }
-        case DataType::Double: switch (channel_count)
-        {
-            case 1: return VK_FORMAT_R64_SFLOAT;
-            case 2: return VK_FORMAT_R64G64_SFLOAT;
-            case 3: return VK_FORMAT_R64G64B64_SFLOAT;
-            case 4: return VK_FORMAT_R64G64B64A64_SFLOAT;
-            default: return VK_FORMAT_UNDEFINED;
-        }
-        case DataType::Half: switch (channel_count)
-        {
-            case 1: return VK_FORMAT_R16_SFLOAT;
-            case 2: return VK_FORMAT_R16G16_SFLOAT;
-            case 3: return VK_FORMAT_R16G16B16_SFLOAT;
-            case 4: return VK_FORMAT_R16G16B16A16_SFLOAT;
-            default: return VK_FORMAT_UNDEFINED;
-        }
-        default: return VK_FORMAT_UNDEFINED;
-    }
-}
-
-constexpr VkIndexType getIndexType(DataType type)
-{
-    switch (type)
-    {
-        case DataType::Int: return VK_INDEX_TYPE_UINT32;
+        case ComponentType::Int: return VK_INDEX_TYPE_UINT32;
         // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char
         // and VK_INDEX_TYPE_NONE_KHR for default
         default: return VK_INDEX_TYPE_UINT16;
@@ -83,9 +31,9 @@ constexpr VkIndexType getIndexType(DataType type)
 struct MemoryParams
 {
     DataLayout layout = DataLayout::Layout1D;
-    DataSize element_count;
+    uint3 element_count = {1, 1, 1};
     uint channel_count = 1;
-    DataType data_type;
+    ComponentType component_type;
     ResourceType resource_type;
 };
 

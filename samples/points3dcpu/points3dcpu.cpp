@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
         MemoryParams m;
         m.layout          = DataLayout::Layout1D;
         m.element_count.x = point_count;
-        m.data_type       = DataType::Float;
+        m.component_type  = ComponentType::Float;
         m.channel_count   = 3;
         m.resource_type   = ResourceType::Buffer;
         auto pointsmem = engine.createBuffer((void**)&d_coords, m);

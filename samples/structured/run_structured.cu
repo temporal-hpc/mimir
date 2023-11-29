@@ -259,7 +259,7 @@ int main(int argc, char *argv[])
         MemoryParams m1;
         m1.layout          = DataLayout::Layout1D;
         m1.element_count.x = program.element_count;
-        m1.data_type       = DataType::Float;
+        m1.component_type  = ComponentType::Float;
         m1.channel_count   = 2;
         m1.resource_type   = ResourceType::Buffer;
         auto points = engine.createBuffer((void**)&program.d_coords, m1);
@@ -275,11 +275,11 @@ int main(int argc, char *argv[])
         auto v1 = engine.createView(p1);
 
         MemoryParams m2;
-        m2.layout           = DataLayout::Layout2D;
-        m2.element_count.xy = {program.extent.x, program.extent.y};
-        m2.data_type        = DataType::Float;
-        m2.channel_count    = 1;
-        m2.resource_type    = ResourceType::LinearTexture;
+        m2.layout         = DataLayout::Layout2D;
+        m2.element_count  = {(uint)program.extent.x, (uint)program.extent.y, 1};
+        m2.component_type = ComponentType::Float;
+        m2.channel_count  = 1;
+        m2.resource_type  = ResourceType::LinearTexture;
         auto image = engine.createBuffer((void**)&program.d_distances, m2);
 
         ViewParams p2;
