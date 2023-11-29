@@ -336,6 +336,7 @@ VertexDescription getVertexDescription(const ViewParams params)
         auto format = getDataFormat(mem_params.data_type, mem_params.channel_count);
         switch (attr)
         {
+            // Ignore index attributes, as they are bound directly at the draw command
             case AttributeType::Position:
             case AttributeType::Color:
             case AttributeType::Size:

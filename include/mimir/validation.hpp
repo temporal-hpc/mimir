@@ -2,6 +2,7 @@
 
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
+#define SLANG_CUDA_ENABLE_HALF
 #include <slang.h>
 
 #include <cstdio> // stderr

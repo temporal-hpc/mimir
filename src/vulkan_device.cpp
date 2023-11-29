@@ -66,16 +66,20 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     device_features.geometryShader    = VK_TRUE;
     device_features.shaderFloat64     = VK_TRUE;
 
-    // Explicitly enable timeline semaphores, or validation layer will complain
     VkPhysicalDeviceVulkan12Features vk12features{};
     vk12features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     vk12features.pNext = nullptr;
-    vk12features.timelineSemaphore = true;
-    vk12features.hostQueryReset = true;
+    vk12features.timelineSemaphore = VK_TRUE; // Enable timeline semaphores
+    vk12features.hostQueryReset    = VK_TRUE; // Enable resetting queries from host code
+
+    VkPhysicalDeviceVulkan11Features vk11features{};
+    vk11features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    vk11features.pNext = &vk12features;
+    vk11features.storageInputOutput16 = VK_FALSE;
 
     VkDeviceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    create_info.pNext = &vk12features;
+    create_info.pNext = &vk11features;
     create_info.queueCreateInfoCount = queue_create_infos.size();
     create_info.pQueueCreateInfos    = queue_create_infos.data();
     create_info.pEnabledFeatures     = &device_features;
@@ -202,7 +206,7 @@ VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
     return memory;
 }
 
-VkBuffer VulkanDevice::createBuffer(VkDeviceSize size, 
+VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
     VkBufferUsageFlags usage, const void *extmem_info)
 {
     VkBuffer buffer = VK_NULL_HANDLE;
@@ -512,7 +516,7 @@ void VulkanDevice::updateMemoryProperties()
             props.gpu_usage += budget_properties.heapUsage[i];
             props.gpu_budget += budget_properties.heapBudget[i];
         }
-    }   
+    }
 }
 
 void VulkanDevice::listExtensions()

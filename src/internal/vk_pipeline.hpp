@@ -1,5 +1,6 @@
 #pragma once
 
+#define SLANG_CUDA_ENABLE_HALF
 #include <slang-com-ptr.h>
 #include <vulkan/vulkan.h>
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cuda_runtime_api.h>
+#include <cuda_fp16.h> // half
 #include <array> // std::array
 
 namespace mimir
@@ -16,7 +17,7 @@ enum class DomainType    { Structured, Unstructured };
 enum class ViewType      { Markers, Edges, Voxels, Image };
 // Specifies the DataType stored in the texture corresponding to a view
 // TODO: Change name to ComponentType
-enum class DataType      { Int, Long, Short, Char, Float, Double };
+enum class DataType      { Int, Long, Short, Char, Float, Double, Half };
 enum class DataLayout    { Layout1D, Layout2D, Layout3D };
 enum class AttributeType { Position, Color, Size, Index };
 
@@ -43,13 +44,14 @@ static std::array<ViewType, 4> kAllViewTypes = {
     ViewType::Voxels,
     ViewType::Image
 };
-static std::array<DataType, 6> kAllDataTypes = {
+static std::array<DataType, 7> kAllDataTypes = {
     DataType::Int,
     DataType::Long,
     DataType::Short,
     DataType::Char,
     DataType::Float,
-    DataType::Double
+    DataType::Double,
+    DataType::Half
 };
 
 constexpr size_t getDataSize(DataType t, unsigned channel_count)
@@ -62,6 +64,7 @@ constexpr size_t getDataSize(DataType t, unsigned channel_count)
         case DataType::Char:   return sizeof(char) * channel_count;
         case DataType::Float:  return sizeof(float) * channel_count;
         case DataType::Double: return sizeof(double) * channel_count;
+        case DataType::Half:   return sizeof(half) * channel_count;
         default: return 0;
     }
 }
@@ -77,6 +80,7 @@ constexpr char* getDataType(DataType type)
         STR(Char);
         STR(Float);
         STR(Double);
+        STR(Half);
 #undef STR
         default: return (char*)"unknown";
     }

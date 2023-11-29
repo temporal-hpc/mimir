@@ -18,13 +18,14 @@ target_sources(mimir PRIVATE
 target_include_directories(mimir SYSTEM PUBLIC ../include)
 
 set_property(TARGET mimir PROPERTY CUDA_STANDARD 20)
+set_target_properties(mimir PROPERTIES CUDA_ARCHITECTURES "75")
 target_compile_features(mimir PUBLIC cxx_std_20)
-target_compile_options(mimir PRIVATE -Wall -Wextra 
+target_compile_options(mimir PRIVATE -Wall -Wextra
     "$<$<CONFIG:Debug>:-g>"
     "$<$<CONFIG:Release>:-O3>"
 )
 # This will print the result of the above generator expression, to check if it is correct
-#add_custom_command(TARGET mimir POST_BUILD COMMAND ${CMAKE_COMMAND} -E echo 
+#add_custom_command(TARGET mimir POST_BUILD COMMAND ${CMAKE_COMMAND} -E echo
 #  "-Wall -Wextra $<$<CONFIG:Debug>:-g> $<$<CONFIG:Release>:-O3>")
 
 find_package(Vulkan REQUIRED COMPONENTS glslc)

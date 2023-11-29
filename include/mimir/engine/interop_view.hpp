@@ -57,6 +57,14 @@ constexpr VkFormat getDataFormat(DataType type, uint channel_count)
             case 4: return VK_FORMAT_R64G64B64A64_SFLOAT;
             default: return VK_FORMAT_UNDEFINED;
         }
+        case DataType::Half: switch (channel_count)
+        {
+            case 1: return VK_FORMAT_R16_SFLOAT;
+            case 2: return VK_FORMAT_R16G16_SFLOAT;
+            case 3: return VK_FORMAT_R16G16B16_SFLOAT;
+            case 4: return VK_FORMAT_R16G16B16A16_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
         default: return VK_FORMAT_UNDEFINED;
     }
 }
