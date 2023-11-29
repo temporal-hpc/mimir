@@ -105,7 +105,7 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryP
     return mipmap_array;
 }
 
-VkImage createImage(VkDevice dev, MemoryParams params)
+VkImage InteropDevice::createImage(MemoryParams params)
 {
     auto img_type = getImageType(params.layout);
     auto format   = getDataFormat(params.data_type, params.channel_count);
@@ -122,6 +122,22 @@ VkImage createImage(VkDevice dev, MemoryParams params)
     // TODO: Check if texture is within bounds
     //auto max_img_dim = properties.limits.maxImageDimension3D;
 
+    // Check that the upcoming image parameters are supported
+    VkPhysicalDeviceImageFormatInfo2 format_info{};
+    format_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+    format_info.pNext = nullptr;
+    format_info.format = format;
+    format_info.type = img_type;
+    format_info.tiling = tiling;
+    format_info.usage = usage;
+    format_info.flags = 0;
+    VkImageFormatProperties2 format_props{};
+    format_props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+    // TODO: Do not rely on validation layers to stop invalid image formats
+    validation::checkVulkan(vkGetPhysicalDeviceImageFormatProperties2(
+        physical_device, &format_info, &format_props
+    ));
+
     auto info = vkinit::imageCreateInfo(img_type, format, extent, usage);
     info.pNext         = &extmem_info;
     info.flags         = 0;
@@ -130,7 +146,7 @@ VkImage createImage(VkDevice dev, MemoryParams params)
     info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VkImage image = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateImage(dev, &info, nullptr, &image));
+    validation::checkVulkan(vkCreateImage(logical_device, &info, nullptr, &image));
     return image;
 }
 
@@ -226,7 +242,7 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     interop.vk_format = getDataFormat(params.data_type, params.channel_count);
 
     // Init texture memory
-    interop.image = createImage(logical_device, params);
+    interop.image = createImage(params);
     interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
     deletors.add([=,this]{
         vkDestroyImage(logical_device, interop.image, nullptr);
@@ -276,7 +292,7 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     interop.vk_format = getDataFormat(params.data_type, params.channel_count);
 
     // Init texture memory
-    interop.image = createImage(logical_device, params);
+    interop.image = createImage(params);
     interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
     deletors.add([=,this]{
         vkDestroyImage(logical_device, interop.image, nullptr);

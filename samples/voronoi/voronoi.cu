@@ -59,7 +59,7 @@ void kernelJfa(float4 *result, float4 *grid, const int2 extent, int step_length)
 }
 
 __global__
-void kernelWriteResult(float *vd_dists, float3 *vd_colors, float4 *grid, float3 *seed_colors, int2 extent)
+void kernelWriteResult(float *vd_dists, float4 *vd_colors, float4 *grid, float3 *seed_colors, int2 extent)
 {
     const int tx = blockDim.x * blockIdx.x + threadIdx.x;
     const int ty = blockDim.y * blockIdx.y + threadIdx.y;
@@ -69,12 +69,12 @@ void kernelWriteResult(float *vd_dists, float3 *vd_colors, float4 *grid, float3 
         auto grid_idx = getLinearIndex(tx, ty, extent);
         //vd_dists[grid_idx] = grid[grid_idx].z / hypotf(extent.x, extent.y);
         auto seed_idx = static_cast<int>(grid[grid_idx].w);
-        auto seed_color = seed_colors[seed_idx];
-        vd_colors[grid_idx] = seed_color;
+        auto sc = seed_colors[seed_idx];
+        vd_colors[grid_idx] = {sc.x, sc.y, sc.z, 1.f};
     }
 }
 
-void jumpFlood(float *vd_dists, float3 *vd_colors, float4 *grid[], float3 *colors, int2 extent)
+void jumpFlood(float *vd_dists, float4 *vd_colors, float4 *grid[], float3 *colors, int2 extent)
 {
     dim3 threads(32, 32);
     dim3 blocks( (extent.x + threads.x - 1) / threads.x,
@@ -182,7 +182,7 @@ int main(int argc, char *argv[])
     if (argc >= 4) iter_count  = std::stod(argv[3]);
 
     float *d_vd_dists      = nullptr;
-    float3 *d_vd_colors    = nullptr;
+    float4 *d_vd_colors    = nullptr;
     float2 *d_coords       = nullptr;
     float4 *d_grid[2]      = {nullptr, nullptr};
     float3 *d_colors       = nullptr;
@@ -214,7 +214,7 @@ int main(int argc, char *argv[])
     m2.layout           = DataLayout::Layout2D;
     m2.element_count.xy = {extent.x, extent.y};
     m2.data_type        = DataType::Float;
-    m2.channel_count    = 3;
+    m2.channel_count    = 4;
     m2.resource_type    = ResourceType::LinearTexture;
     auto image = engine.createBuffer((void**)&d_vd_colors, m2);
 

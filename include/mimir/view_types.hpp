@@ -7,17 +7,17 @@ namespace mimir
 {
 
 // Specifies which cuda resource is mapped to the view
-enum class ResourceType { Buffer, IndexBuffer, Texture, LinearTexture };
+enum class ResourceType  { Buffer, IndexBuffer, Texture, LinearTexture };
 // Specifies the number of spatial dimensions of the view
-enum class DataDomain   { Domain2D, Domain3D };
+enum class DataDomain    { Domain2D, Domain3D };
 // Specifies the data layout
-enum class DomainType   { Structured, Unstructured };
+enum class DomainType    { Structured, Unstructured };
 // Specifies the type of view that will be visualized
-enum class ViewType { Markers, Edges, Voxels, Image };
+enum class ViewType      { Markers, Edges, Voxels, Image };
 // Specifies the DataType stored in the texture corresponding to a view
 // TODO: Change name to ComponentType
-enum class DataType     { Int, Long, Short, Char, Float, Double };
-enum class DataLayout { Layout1D, Layout2D, Layout3D };
+enum class DataType      { Int, Long, Short, Char, Float, Double };
+enum class DataLayout    { Layout1D, Layout2D, Layout3D };
 enum class AttributeType { Position, Color, Size, Index };
 
 union DataSize
