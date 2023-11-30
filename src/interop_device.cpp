@@ -79,11 +79,12 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryP
 {
     constexpr int level_count = 1; // TODO: Should be a parameter
 
+    auto comp_sz = getComponentSize(params.component_type) * 8;
     cudaChannelFormatDesc format_desc;
-    format_desc.x = 8;
-    format_desc.y = 8;
-    format_desc.z = 8;
-    format_desc.w = 8;
+    format_desc.x = comp_sz;
+    format_desc.y = comp_sz;
+    format_desc.z = comp_sz;
+    format_desc.w = comp_sz;
     format_desc.f = cudaChannelFormatKindUnsigned;
 
     size_t image_width  = params.element_count.x;
@@ -104,6 +105,17 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryP
     return mipmap_array;
 }
 
+uint32_t InteropDevice::getMaxImageDimension(DataLayout layout)
+{
+    switch (layout)
+    {
+        case DataLayout::Layout1D: return properties.limits.maxImageDimension1D;
+        case DataLayout::Layout2D: return properties.limits.maxImageDimension2D;
+        case DataLayout::Layout3D: return properties.limits.maxImageDimension3D;
+        default: return 0;
+    }
+}
+
 VkImage InteropDevice::createImage(MemoryParams params)
 {
     auto img_type = getImageType(params.layout);
@@ -113,29 +125,33 @@ VkImage InteropDevice::createImage(MemoryParams params)
     auto sz = params.element_count;
     VkExtent3D extent = {sz.x, sz.y, sz.z};
 
-    VkExternalMemoryImageCreateInfo extmem_info{};
-    extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-    extmem_info.pNext = nullptr;
-    extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-
     // TODO: Check if texture is within bounds
-    //auto max_img_dim = properties.limits.maxImageDimension3D;
+    auto max_dim = getMaxImageDimension(params.layout);
+    if (extent.width >= max_dim || extent.height >= max_dim || extent.height >= max_dim)
+    {
+        throw std::runtime_error("Requested image dimensions are larger than maximum");
+    }
 
     // Check that the upcoming image parameters are supported
     VkPhysicalDeviceImageFormatInfo2 format_info{};
-    format_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
-    format_info.pNext = nullptr;
+    format_info.sType  = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+    format_info.pNext  = nullptr;
     format_info.format = format;
-    format_info.type = img_type;
+    format_info.type   = img_type;
     format_info.tiling = tiling;
-    format_info.usage = usage;
-    format_info.flags = 0;
+    format_info.usage  = usage;
+    format_info.flags  = 0;
     VkImageFormatProperties2 format_props{};
     format_props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
     // TODO: Do not rely on validation layers to stop invalid image formats
     validation::checkVulkan(vkGetPhysicalDeviceImageFormatProperties2(
         physical_device, &format_info, &format_props
     ));
+
+    VkExternalMemoryImageCreateInfo extmem_info{};
+    extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    extmem_info.pNext = nullptr;
+    extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
     auto info = vkinit::imageCreateInfo(img_type, format, extent, usage);
     info.pNext         = &extmem_info;

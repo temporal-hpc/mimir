@@ -34,7 +34,7 @@ const char* getVulkanMessageType(VkDebugUtilsMessageTypeFlagsEXT type)
         STR(GENERAL);
 #undef STR
         default: return "UNKNOWN";
-    }  
+    }
 }
 
 // Setup debug messenger callback. Currently it just converts debug data into a string for logging

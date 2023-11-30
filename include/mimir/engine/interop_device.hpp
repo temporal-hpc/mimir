@@ -44,6 +44,7 @@ struct InteropDevice : public VulkanDevice
     void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);
     void updateLinearTexture(InteropMemory &interop);
     VkImage createImage(MemoryParams params);
+    uint32_t getMaxImageDimension(DataLayout layout);
 };
 
 } // namespace mimir

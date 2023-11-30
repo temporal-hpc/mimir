@@ -14,7 +14,7 @@ VkPresentModeKHR getDesiredPresentMode(PresentOptions opts)
     switch (opts)
     {
         case PresentOptions::Immediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
-        case PresentOptions::VSync: return VK_PRESENT_MODE_FIFO_KHR; 
+        case PresentOptions::VSync: return VK_PRESENT_MODE_FIFO_KHR;
         case PresentOptions::TripleBuffering: return VK_PRESENT_MODE_MAILBOX_KHR;
         default: return VK_PRESENT_MODE_IMMEDIATE_KHR;
     }
@@ -94,7 +94,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
         image_count = max_image_count;
     }
 
-    // TODO: Delete old_swapchain after image_count frames have passed 
+    // TODO: Delete old_swapchain after image_count frames have passed
     auto old_swapchain = VK_NULL_HANDLE; //swapchain;
 
     VkSwapchainCreateInfoKHR create_info{};
