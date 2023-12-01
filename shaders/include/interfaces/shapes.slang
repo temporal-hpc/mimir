@@ -28,8 +28,8 @@ struct Marker3D : IMarker
     MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 resolution)
     {
         MarkerOffsets out;
-        out.dx = float4(1,0,0,0) * (size / resolution.x);
-        out.dy = float4(0,1,0,0) * (size / resolution.y);
+        out.dx = float4(size,0,0,0) / resolution.x;
+        out.dy = float4(0,size,0,0) / resolution.y;
         return out;
     }
 };

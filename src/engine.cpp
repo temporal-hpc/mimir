@@ -126,7 +126,7 @@ void CudaviewEngine::init(ViewerOptions opts)
     camera->type = Camera::CameraType::LookAt;
     //camera->flipY = true;
     camera->setPosition(glm::vec3(0.f, 0.f, -2.85f)); //(glm::vec3(0.f, 0.f, -3.75f));
-    camera->setRotation(glm::vec3(1.5f, -2.5f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
+    camera->setRotation(glm::vec3(0.f, 0.f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
     camera->setRotationSpeed(0.5f);
     camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
 }
@@ -354,13 +354,13 @@ void CudaviewEngine::initVulkan()
     // Create descriptor set and pipeline layouts
     std::vector<VkDescriptorSetLayoutBinding> layout_bindings{
         vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
         vkinit::descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
         vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
         vkinit::descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             VK_SHADER_STAGE_FRAGMENT_BIT

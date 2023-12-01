@@ -8,7 +8,7 @@
 #ifndef SIMPARAMETERS_H_
 #define SIMPARAMETERS_H_
 
-#define NUM_TYPES 4 // Number of particle types
+#define NUM_TYPES 2 // Number of particle types
 
 namespace particlesystem {
 

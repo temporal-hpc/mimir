@@ -19,8 +19,12 @@ struct Stroke : IAntialiased
         float border_distance = abs(signed_distance) - t;
         float alpha = border_distance / antialias;
         alpha = exp(-alpha * alpha);
-        if (border_distance < 0.0) return stroke;
-        else                       return float4(stroke.rgb, stroke.a * alpha);
+        if (border_distance < 0.0) // Within linestroke
+            return stroke;
+        else if (border_distance > (linewidth / 2 + antialias)) // Outside shape
+            discard;
+        else // Inside shape
+            return float4(stroke.rgb, stroke.a * alpha);
     }
 }
 
@@ -34,9 +38,14 @@ struct Filled : IAntialiased
         float border_distance = abs(signed_distance) - t;
         float alpha = border_distance / antialias;
         alpha = exp(-alpha * alpha);
-        if (border_distance < 0.0)      return fill;
-        else if (signed_distance < 0.0) return fill;
-        else                            return float4(fill.rgb, alpha * fill.a);
+        if (border_distance < 0.0) // Within linestroke
+            return fill;
+        else if (signed_distance < 0.0) // Inside shape
+            return fill;
+        else if (border_distance > (linewidth / 2 + antialias)) // Outside shape
+            discard;
+        else // Line stroke exterior border
+            return float4(fill.rgb, alpha * fill.a);
     }
 }
 
@@ -49,8 +58,13 @@ struct Outline : IAntialiased
         float border_distance = abs(signed_distance) - t;
         float alpha = border_distance / antialias;
         alpha = exp(-alpha * alpha);
-        if (border_distance < 0.0)     return stroke;
-        else if(signed_distance < 0.0) return lerp(fill, stroke, sqrt(alpha));
-        else                           return float4(stroke.rgb, stroke.a * alpha);
+        if (border_distance < 0.0) // Within linestroke
+            return stroke;
+        else if(signed_distance < 0.0) // Inside shape
+            return lerp(fill, stroke, sqrt(alpha));
+        else if (border_distance > (linewidth / 2 + antialias)) // Outside shape
+            discard;
+        else // Line stroke exterior border
+            return float4(stroke.rgb, stroke.a * alpha);
     }
 };

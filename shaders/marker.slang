@@ -10,8 +10,8 @@ ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
 ConstantBuffer<ViewParams> view;
 
-static const float u_antialias = 1;
-static const float v_linewidth = 1;
+static const float v_linewidth = 0;
+static const float u_antialias = 0;
 
 struct VertexOutput
 {
@@ -33,8 +33,13 @@ struct GeometryOutput
 struct FragmentOutput
 {
     float4 color : SV_Target;
-    float depth  : SV_Depth;
+    //float depth  : SV_Depth;
 };
+
+float getMarkerSizePx(float size)
+{
+    return SQRT_2*size + 2 * (v_linewidth + 1.5*u_antialias);
+}
 
 [shader("vertex")]
 VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S in_size)
@@ -45,7 +50,7 @@ VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S 
     VertexOutput output;
     output.center = in_pos.getPosition(scene.extent);
     output.color  = in_color.getColor();
-    output.size   = in_size.getSize();
+    output.size   = getMarkerSizePx(in_size.getSize());
     return output;
 }
 
@@ -58,7 +63,7 @@ void geometryMain<M:IMarker>(point VertexOutput input[1], inout TriangleStream<G
     //float4 center = input[0].center;
 
     GeometryOutput output;
-    output.size = SQRT_2*input[0].size + 2 * (v_linewidth + 1.5*u_antialias);
+    output.size = input[0].size;
 
     M marker;
     MarkerOffsets offsets = marker.getVertexOffsets(view_proj, output.size, scene.resolution);
@@ -86,20 +91,17 @@ FragmentOutput fragmentMain<S:IShape2D>(GeometryOutput input)
 {
     FragmentOutput out;
 
-    float2 p = 2 * input.uv - 1;
-    // if (dot(p, p) > 1) discard;
-    // return element.color;
-    //float2 p = input.uv - float2(0.5);
+    float2 p = input.uv - float2(0.5);
     //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
 
     S shape;
     float distance = shape.apply(p * input.size, input.ele_size);
 
-    Filled filled;
-    out.color = filled.apply(distance, v_linewidth, u_antialias, input.color, scene.bg_color);
+    Filled aa;
+    out.color = aa.apply(distance, v_linewidth, u_antialias, input.color, scene.bg_color);
     //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;
-    out.depth = 1 - out.color.w;
+    //out.depth = 1 - out.color.w;
     return out;
 }

@@ -195,6 +195,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     viewer_opts.window_size = {1920, 1080};
     viewer_opts.present = PresentOptions::Immediate;
     engine.init(viewer_opts);
+    engine.setBackgroundColor({1.f,1.f,1.f,1.f});
 
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * 2 * sizeof(double);
@@ -205,17 +206,17 @@ void ParticleSystemDelaunay::loadOnDevice()
     MemoryParams m;
     m.layout          = DataLayout::Layout1D;
     m.element_count.x = params_.num_elements;
-    m.component_type       = ComponentType::Double;
+    m.component_type  = ComponentType::Double;
     m.channel_count   = 2;
     m.resource_type   = ResourceType::Buffer;
     interop[current_read] = engine.createBuffer((void**)&devicedata_.positions[current_read], m);
     interop[current_write] = engine.createBuffer((void**)&devicedata_.positions[current_write], m);
 
-    m.component_type       = ComponentType::Int;
-    m.channel_count   = 1;
+    m.component_type = ComponentType::Int;
+    m.channel_count  = 1;
     interop[2] = engine.createBuffer((void**)&devicedata_.types, m);
-    //m.component_type       = ComponentType::Float;
-    //m.channel_count   = 4;
+    //m.component_type = ComponentType::Float;
+    //m.channel_count  = 4;
     //interop[2] = engine.createBuffer((void**)&devicedata_.colors, m);
 
     ViewParams v;
@@ -226,7 +227,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     v.view_type     = ViewType::Markers;
     v.attributes[AttributeType::Position] = *interop[current_read];
     v.attributes[AttributeType::Color] = *interop[2];
-    v.options.default_size = 100.f;
+    v.options.default_size = 6.315f;
     /*v.options.external_shaders = {
         {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},

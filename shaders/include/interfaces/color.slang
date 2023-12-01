@@ -60,16 +60,18 @@ typedef ColorTemplateLarge<double,4> ColorDouble4;
 struct ColorInt1 : IColor
 {
     static const float4 colors[] = {
-        {27/255.f,158/255.f,119/255.f,1},
-        {217/255.f,95/255.f,2/255.f,1},
-        {117/255.f,112/255.f,179/255.f,1},
-        {231/255.f,41/255.f,138/255.f,1}
+        {49,130,189,1},
+        {49,163,84,1},
     };
     int input : COLOR;
     float4 default_color;
     [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
-        return colors[input];
+        float4 c = colors[input];
+        c.x /= 255.f;
+        c.y /= 255.f;
+        c.z /= 255.f;
+        return c;
     }
 };
