@@ -4,6 +4,7 @@ ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> params;
 ConstantBuffer<ViewParams> view;
 
+// TODO: Add specializations to this view type
 struct VertexInput
 {
     [[vk::location(0)]] float2 pos : POSITION;

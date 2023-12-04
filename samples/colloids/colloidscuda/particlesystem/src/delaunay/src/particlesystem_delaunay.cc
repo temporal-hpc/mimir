@@ -3,6 +3,7 @@
 #include <math_constants.h> // CUDART_PI
 
 #include <cstdio>
+#include <iostream> // std::cin
 
 #include "base/cuda_check.h"
 
@@ -131,8 +132,11 @@ void ParticleSystemDelaunay::runTimestep()
 	updateDelaunay();
 	correctOverlaps();
 
-    views[current_read]->toggleVisibility();
-    views[current_write]->toggleVisibility();
+    particle_views[current_read]->toggleVisibility();
+    particle_views[current_write]->toggleVisibility();
+
+    //edge_views[current_read]->toggleVisibility();
+    //edge_views[current_write]->toggleVisibility();
 
     engine.updateViews();
 }
@@ -204,6 +208,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     unsigned l = params_.boxlength;
 
     MemoryParams m;
+    // Particle positions
     m.layout          = DataLayout::Layout1D;
     m.element_count.x = params_.num_elements;
     m.component_type  = ComponentType::Double;
@@ -212,6 +217,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     interop[current_read] = engine.createBuffer((void**)&devicedata_.positions[current_read], m);
     interop[current_write] = engine.createBuffer((void**)&devicedata_.positions[current_write], m);
 
+    // Particle types
     m.component_type = ComponentType::Int;
     m.channel_count  = 1;
     interop[2] = engine.createBuffer((void**)&devicedata_.types, m);
@@ -219,25 +225,46 @@ void ParticleSystemDelaunay::loadOnDevice()
     //m.channel_count  = 4;
     //interop[2] = engine.createBuffer((void**)&devicedata_.colors, m);
 
-    ViewParams v;
-    v.element_count = params_.num_elements;
-    v.extent        = {l, l, 1};
-    v.data_domain   = DataDomain::Domain2D;
-    v.domain_type   = DomainType::Unstructured;
-    v.view_type     = ViewType::Markers;
-    v.attributes[AttributeType::Position] = *interop[current_read];
-    v.attributes[AttributeType::Color] = *interop[2];
-    v.options.default_size = 6.315f;
-    /*v.options.external_shaders = {
+    ViewParams vp;
+    vp.element_count = params_.num_elements;
+    vp.extent        = {l, l, 1};
+    vp.data_domain   = DataDomain::Domain2D;
+    vp.domain_type   = DomainType::Unstructured;
+    vp.view_type     = ViewType::Markers;
+    vp.attributes[AttributeType::Position] = *interop[current_read];
+    vp.attributes[AttributeType::Color] = *interop[2];
+    vp.options.default_size = 6.315f;
+    /*vp.options.external_shaders = {
         {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
         {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
     };*/
-    views[current_read] = engine.createView(v);
+    particle_views[current_read] = engine.createView(vp);
 
-    v.options.visible = false;
-    v.attributes[AttributeType::Position] = *interop[current_write];
-    views[current_write] = engine.createView(v);
+    vp.options.visible = false;
+    vp.attributes[AttributeType::Position] = *interop[current_write];
+    particle_views[current_write] = engine.createView(vp);
+
+    // Edges
+    /*m.element_count.x = 3 * delaunay_.num_triangles;
+    m.component_type  = ComponentType::Int;
+    m.channel_count   = 1;
+    m.resource_type   = ResourceType::IndexBuffer;
+    interop[3] = engine.createBuffer((void**)&devicedata_.triangles, m);
+
+    ViewParams vpe;
+    vpe.element_count = delaunay_.num_triangles;
+    vpe.extent        = {l, l, 1};
+    vpe.data_domain   = DataDomain::Domain2D;
+    vpe.domain_type   = DomainType::Unstructured;
+    vpe.view_type     = ViewType::Edges;
+    vpe.attributes[AttributeType::Position] = *interop[current_read];
+    vpe.attributes[AttributeType::Index] = *interop[3];
+    edge_views[current_write] = engine.createView(vpe);
+
+    vpe.options.visible = false;
+    vpe.attributes[AttributeType::Position] = *interop[current_write];
+    edge_views[current_write] = engine.createView(vpe);*/
 
 	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_,
 			             pos_bytes, cudaMemcpyHostToDevice));
@@ -297,6 +324,7 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	printf("Triangulation loaded to device memory.\n");
     engine.displayAsync();
+    //std::cin.get(); // For recording
 }
 
 void ParticleSystemDelaunay::syncWithDevice()
