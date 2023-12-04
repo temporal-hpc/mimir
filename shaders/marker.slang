@@ -5,6 +5,9 @@ import uniforms
 #include "interfaces/size.slang"
 #include "interfaces/antialias.slang"
 #include "interfaces/shapes.slang"
+#include "interfaces/rotation.slang"
+
+#define M_PI 3.1415926535897932384626433832795
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
@@ -18,6 +21,7 @@ struct VertexOutput
     float4 center : POSITION;
     float4 color  : COLOR;
     float size    : PSIZE;
+    float2 rotation;
 };
 
 struct GeometryOutput
@@ -26,6 +30,7 @@ struct GeometryOutput
     float2 uv    : TEXCOORD;
     float4 color : COLOR;
     float size   : PSIZE;
+    float2 rotation;
     float ele_size;
     //float3 normal : NORMAL;
 };
@@ -47,10 +52,14 @@ VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S 
     in_color.setDefault(view.default_color);
     in_size.setDefault(view.default_size);
 
+    OrientationDefault in_angle;
+    in_angle.setDefault(0);
+
     VertexOutput output;
-    output.center = in_pos.getPosition(scene.extent);
-    output.color  = in_color.getColor();
-    output.size   = getMarkerSizePx(in_size.getSize());
+    output.center   = in_pos.getPosition(scene.extent);
+    output.color    = in_color.getColor();
+    output.size     = getMarkerSizePx(in_size.getSize());
+    output.rotation = in_angle.getValue();
     return output;
 }
 
@@ -74,6 +83,7 @@ void geometryMain<M:IMarker>(point VertexOutput input[1], inout TriangleStream<G
     float2 texcoords[4] = {{0,0}, {1,0}, {0,1}, {1,1}};
 
     output.color = input[0].color;
+    output.rotation = input[0].rotation;
     output.ele_size = input[0].size;
     //output.normal = normal.xyz;
 
@@ -92,7 +102,8 @@ FragmentOutput fragmentMain<S:IShape2D>(GeometryOutput input)
     FragmentOutput out;
 
     float2 p = input.uv - float2(0.5);
-    //p = float2(v_rot.x*p.x - v_rot.y*p.y, v_rot.y*p.x + v_rot.x*p.y);
+    float2 rot = input.rotation;
+    p = float2(rot.x * p.x - rot.y * p.y, rot.y * p.x + rot.x * p.y);
 
     S shape;
     float distance = shape.apply(p * input.size, input.ele_size);
