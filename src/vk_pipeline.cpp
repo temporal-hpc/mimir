@@ -85,7 +85,28 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
         case ViewType::Edges:
         {
             compile.source_path = "shaders/mesh.slang";
-            compile.entrypoints = {"vertex3dMain", "fragmentMain"};
+            compile.entrypoints = {"vertexMain", "fragmentMain"};
+
+            // Make a dictionary of the attributes that need specializing,
+            // while keeping note of the ones that were not specialized
+            std::map<AttributeType, std::string> specs{
+                {AttributeType::Position, "PositionDefault"},
+                {AttributeType::Color, "ColorDefault"}
+            };
+            for (const auto &[attr, memory] : params.attributes)
+            {
+                if (attr != AttributeType::Index)
+                {
+                    std::string spec = getAttributeType(attr);
+                    spec += getComponentType(memory.params.component_type);
+                    spec += std::to_string(memory.params.channel_count);
+                    specs[attr] = spec;
+                }
+            }
+            for (const auto& spec : specs)
+            {
+                compile.specializations.push_back(spec.second);
+            }
             break;
         }
         case ViewType::Voxels:
@@ -148,14 +169,15 @@ PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
     validation::checkSlang(slang::createGlobalSession(global_session.writeRef()));
 
     slang::TargetDesc target_desc{};
-    target_desc.format = SLANG_SPIRV;
+    target_desc.format  = SLANG_SPIRV;
     target_desc.profile = global_session->findProfile("sm_6_6");
+
     const char* search_paths[] = { "shaders/include" };
     slang::SessionDesc session_desc{};
-    session_desc.targets = &target_desc;
-    session_desc.targetCount = 1;
-    session_desc.searchPaths = search_paths;
-    session_desc.searchPathCount = 1;
+    session_desc.targets                 = &target_desc;
+    session_desc.targetCount             = 1;
+    session_desc.searchPaths             = search_paths;
+    session_desc.searchPathCount         = 1;
     session_desc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR;
 
     // Obtain a compilation session that scopes compilation and code loading

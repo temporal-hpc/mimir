@@ -1,58 +1,63 @@
 import uniforms;
 
+#include "interfaces/position.slang"
+#include "interfaces/color.slang"
+
 ConstantBuffer<ModelViewProjection> mvp;
-ConstantBuffer<SceneParams> params;
+ConstantBuffer<SceneParams> scene;
 ConstantBuffer<ViewParams> view;
 
-// TODO: Add specializations to this view type
-struct VertexInput
+struct VertexOutput
 {
-    [[vk::location(0)]] float2 pos : POSITION;
-};
-
-struct VertexData
-{
-    float4 pos   : SV_Position;
-    float4 color : COLOR;
-    //float marker_size;
+    float4 position : SV_Position;
+    float4 color    : COLOR;
+    float4 pos      : POSITION;
 };
 
 [shader("vertex")]
-VertexData vertex2dMain(VertexInput input)
+VertexOutput vertexMain<P:IPosition, C:IColor>(P in_pos, C in_color)
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
+    in_color.setDefault(view.default_color);
 
-    VertexData output;
-    float2 extent = params.extent.xy;
-    float4 pos = float4(2 * (input.pos / extent) - 1, 0, 1);
-    output.pos = mul(pos, view_proj);
-    output.color = view.default_color;
-    //output.marker_size = 10.f;
+    VertexOutput output;
+    float4 pos = in_pos.getPosition(scene.extent);
+    output.position = mul(pos, view_proj);
+    output.color    = in_color.getColor();
+
+    pos = ((pos + 1) / 2);
+    pos.x = pos.x * scene.extent.x;
+    pos.y = pos.y * scene.extent.y;
+    pos.z = pos.z * scene.extent.z;
+    output.pos = pos;
 
     return output;
 }
 
-struct VertexInput3d
+[shader("geometry")]
+[maxvertexcount(6)]
+void geometryMain(triangle VertexOutput input[3], inout LineStream<VertexOutput> stream)
 {
-    [[vk::location(0)]] float3 pos : POSITION;
-};
-
-[shader("vertex")]
-VertexData vertex3dMain(VertexInput3d input)
-{
-    float4x4 view_proj = mul(mvp.view, mvp.proj);
-
-    VertexData output;
-    float4 pos = float4(2 * (input.pos / params.extent) - 1, 1);
-    output.pos = mul(pos, view_proj);
-    output.color = view.default_color;
-    //output.marker_size = 10.f;
-
-    return output;
+    VertexOutput output;
+    for (int i = 0; i < 3; ++i)
+    {
+        VertexOutput p1 = input[i];
+        VertexOutput p2 = input[(i+1)%3];
+        if (distance(p1.pos, p2.pos) <= scene.extent.x / 2.0)
+        {
+            output.color = p1.color;
+            output.position = p1.position;
+            stream.Append(output);
+            output.color = p2.color;
+            output.position = p2.position;
+            stream.Append(output);
+            stream.RestartStrip();
+        }
+    }
 }
 
 [shader("fragment")]
-float4 fragmentMain(VertexData input) : SV_Target
+float4 fragmentMain(VertexOutput input) : SV_Target
 {
     return input.color;
 }

@@ -54,23 +54,23 @@ Application::Application(){
     MemoryParams mem1;
     mem1.layout          = DataLayout::Layout1D;
     mem1.element_count.x = cleap_get_vertex_count(m);
-    mem1.component_type       = ComponentType::Float;
+    mem1.component_type  = ComponentType::Float;
     mem1.channel_count   = 4;
     mem1.resource_type   = ResourceType::Buffer;
     auto vertices = engine.createBuffer((void**)&m->dm->d_vbo_v, mem1);
 
     ViewParams params;
-    params.element_count   = cleap_get_vertex_count(m);
-    params.data_domain     = DataDomain::Domain3D;
-    params.domain_type     = DomainType::Unstructured;
-    params.view_type       = ViewType::Markers;
+    params.element_count = cleap_get_vertex_count(m);
+    params.data_domain   = DataDomain::Domain3D;
+    params.domain_type   = DomainType::Unstructured;
+    params.view_type     = ViewType::Markers;
     params.attributes[AttributeType::Position] = *vertices;
     engine.createView(params);
 
     MemoryParams mem2;
     mem2.layout          = DataLayout::Layout1D;
     mem2.element_count.x = cleap_get_face_count(m);
-    mem2.component_type       = ComponentType::Int;
+    mem2.component_type  = ComponentType::Int;
     mem2.channel_count   = 3;
     mem2.resource_type   = ResourceType::IndexBuffer;
     auto triangles = engine.createBuffer((void**)&m->dm->d_eab, mem2);

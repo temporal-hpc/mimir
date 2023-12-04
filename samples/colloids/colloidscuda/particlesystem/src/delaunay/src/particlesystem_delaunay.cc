@@ -135,8 +135,8 @@ void ParticleSystemDelaunay::runTimestep()
     particle_views[current_read]->toggleVisibility();
     particle_views[current_write]->toggleVisibility();
 
-    //edge_views[current_read]->toggleVisibility();
-    //edge_views[current_write]->toggleVisibility();
+    edge_views[current_read]->toggleVisibility();
+    edge_views[current_write]->toggleVisibility();
 
     engine.updateViews();
 }
@@ -246,7 +246,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     particle_views[current_write] = engine.createView(vp);
 
     // Edges
-    /*m.element_count.x = 3 * delaunay_.num_triangles;
+    m.element_count.x = 3 * delaunay_.num_triangles;
     m.component_type  = ComponentType::Int;
     m.channel_count   = 1;
     m.resource_type   = ResourceType::IndexBuffer;
@@ -260,11 +260,11 @@ void ParticleSystemDelaunay::loadOnDevice()
     vpe.view_type     = ViewType::Edges;
     vpe.attributes[AttributeType::Position] = *interop[current_read];
     vpe.attributes[AttributeType::Index] = *interop[3];
-    edge_views[current_write] = engine.createView(vpe);
+    edge_views[current_read] = engine.createView(vpe);
 
     vpe.options.visible = false;
     vpe.attributes[AttributeType::Position] = *interop[current_write];
-    edge_views[current_write] = engine.createView(vpe);*/
+    edge_views[current_write] = engine.createView(vpe);
 
 	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_,
 			             pos_bytes, cudaMemcpyHostToDevice));
@@ -308,7 +308,7 @@ void ParticleSystemDelaunay::loadOnDevice()
 	// Load triangle data
 	size_t triangle_bytes = delaunay_.num_triangles * 3 * sizeof(unsigned int);
 
-	cudaCheck(cudaMalloc(&devicedata_.triangles, triangle_bytes));
+	//cudaCheck(cudaMalloc(&devicedata_.triangles, triangle_bytes));
 	cudaCheck(cudaMemcpy(devicedata_.triangles, delaunay_.triangles,
 			             triangle_bytes, cudaMemcpyHostToDevice));
 
