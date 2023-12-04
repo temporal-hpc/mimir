@@ -1,3 +1,5 @@
+#include "interfaces/arrows.slang"
+
 static const float SQRT_2 = 1.4142135623730951;
 
 struct MarkerOffsets
@@ -74,6 +76,18 @@ struct DiamondShape : IShape2D
         float x = SQRT_2/2 * (p.x - p.y);
         float y = SQRT_2/2 * (p.x + p.y);
         return max(abs(x), abs(y)) - size / (2 * SQRT_2);
+    }
+}
+
+struct ArrowShape : IShape2D
+{
+    float apply(float2 p, float size)
+    {
+        float body = size;
+        float head = 0.25 * body;
+        float linewidth = 10.0;
+        float antialias = 10.0;
+        return arrowStealth(p, body, head, linewidth, antialias);
     }
 }
 

@@ -203,8 +203,6 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * 2 * sizeof(double);
-	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
-	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
     unsigned l = params_.boxlength;
 
     MemoryParams m;
@@ -217,13 +215,18 @@ void ParticleSystemDelaunay::loadOnDevice()
     interop[current_read] = engine.createBuffer((void**)&devicedata_.positions[current_read], m);
     interop[current_write] = engine.createBuffer((void**)&devicedata_.positions[current_write], m);
 
+    // Velocities
+    interop[2] = engine.createBuffer((void**)&devicedata_.velocities, m);
+
     // Particle types
     m.component_type = ComponentType::Int;
     m.channel_count  = 1;
-    interop[2] = engine.createBuffer((void**)&devicedata_.types, m);
+    interop[3] = engine.createBuffer((void**)&devicedata_.types, m);
+
+    // For colors stored directly
     //m.component_type = ComponentType::Float;
     //m.channel_count  = 4;
-    //interop[2] = engine.createBuffer((void**)&devicedata_.colors, m);
+    //interop[3] = engine.createBuffer((void**)&devicedata_.colors, m);
 
     ViewParams vp;
     vp.element_count = params_.num_elements;
@@ -232,7 +235,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     vp.domain_type   = DomainType::Unstructured;
     vp.view_type     = ViewType::Markers;
     vp.attributes[AttributeType::Position] = *interop[current_read];
-    vp.attributes[AttributeType::Color] = *interop[2];
+    vp.attributes[AttributeType::Color] = *interop[3];
     vp.options.default_size = 6.315f;
     /*vp.options.external_shaders = {
         {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
@@ -245,12 +248,17 @@ void ParticleSystemDelaunay::loadOnDevice()
     vp.attributes[AttributeType::Position] = *interop[current_write];
     particle_views[current_write] = engine.createView(vp);
 
+    // Velocities view
+    //vp.options.visible = true;
+    //vp.attributes[AttributeType::Position] = *interop[2];
+    //engine.createView(vp);
+
     // Edges
     m.element_count.x = 3 * delaunay_.num_triangles;
     m.component_type  = ComponentType::Int;
     m.channel_count   = 1;
     m.resource_type   = ResourceType::IndexBuffer;
-    interop[3] = engine.createBuffer((void**)&devicedata_.triangles, m);
+    interop[4] = engine.createBuffer((void**)&devicedata_.triangles, m);
 
     ViewParams vpe;
     vpe.element_count = delaunay_.num_triangles;
@@ -259,17 +267,19 @@ void ParticleSystemDelaunay::loadOnDevice()
     vpe.domain_type   = DomainType::Unstructured;
     vpe.view_type     = ViewType::Edges;
     vpe.attributes[AttributeType::Position] = *interop[current_read];
-    vpe.attributes[AttributeType::Index] = *interop[3];
+    vpe.attributes[AttributeType::Index] = *interop[4];
     edge_views[current_read] = engine.createView(vpe);
 
     vpe.options.visible = false;
     vpe.attributes[AttributeType::Position] = *interop[current_write];
     edge_views[current_write] = engine.createView(vpe);
 
+	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
+	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
 	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_,
 			             pos_bytes, cudaMemcpyHostToDevice));
 
-	cudaCheck(cudaMalloc(&devicedata_.velocities, pos_bytes));
+	//cudaCheck(cudaMalloc(&devicedata_.velocities, pos_bytes));
 	cudaCheck(cudaMemcpy(devicedata_.velocities, velocities_,
 			             pos_bytes, cudaMemcpyHostToDevice));
 
@@ -307,7 +317,6 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	// Load triangle data
 	size_t triangle_bytes = delaunay_.num_triangles * 3 * sizeof(unsigned int);
-
 	//cudaCheck(cudaMalloc(&devicedata_.triangles, triangle_bytes));
 	cudaCheck(cudaMemcpy(devicedata_.triangles, delaunay_.triangles,
 			             triangle_bytes, cudaMemcpyHostToDevice));
