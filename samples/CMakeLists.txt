@@ -31,14 +31,15 @@ add_executable(run_texture texture_cudaarray/main.cu)
 target_include_directories(run_texture SYSTEM PRIVATE include)
 target_link_libraries(run_texture PRIVATE mimir)
 
-add_executable(voronoi voronoi/voronoi.cu)
-target_link_libraries(voronoi PRIVATE mimir)
+add_executable(voronoi-simple voronoi/voronoi.cu)
+target_link_libraries(voronoi-simple PRIVATE mimir)
 
 add_subdirectory(edgeflip)
 add_subdirectory(pointsgl)
 add_subdirectory(pointspcl)
 add_subdirectory(colloids)
 add_subdirectory(TensorCA-with_radius)
+add_subdirectory(voronoi-diagram)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL
