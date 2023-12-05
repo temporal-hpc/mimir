@@ -38,6 +38,7 @@ add_subdirectory(edgeflip)
 add_subdirectory(pointsgl)
 add_subdirectory(pointspcl)
 add_subdirectory(colloids)
+add_subdirectory(TensorCA-with_radius)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL
