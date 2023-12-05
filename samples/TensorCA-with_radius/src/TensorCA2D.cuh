@@ -106,8 +106,7 @@ public:
     void freeMemory();
     void transferHostToDevice();
     void transferDeviceToHost();
-    void transferToInteropBuffer(MTYPE *src);
-    void transferTensorToInteropBuffer(FTYPE *src);
+    void transferToInterop();
 
     void printHostData();
     void printDeviceData();

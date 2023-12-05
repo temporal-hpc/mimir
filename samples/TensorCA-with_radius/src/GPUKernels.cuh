@@ -2344,11 +2344,19 @@ __global__ void convertToInt(int* out, MTYPE* in, int nWithHalo) {
     int tx = blockDim.x * blockIdx.x + threadIdx.x;
     int ty = blockDim.y * blockIdx.y + threadIdx.y;
     if (tx < nWithHalo && ty < nWithHalo) {
-        out[tx + ty * nWithHalo] = __half2uint_rn(in[tx + ty * nWithHalo]);
+        out[tx + ty * nWithHalo] = int(in[tx + ty * nWithHalo]);
     }
 }
 
 __global__ void convertToIntTensor(int* out, FTYPE* in, int nWithHalo) {
+    int tx = blockDim.x * blockIdx.x + threadIdx.x;
+    int ty = blockDim.y * blockIdx.y + threadIdx.y;
+    if (tx < nWithHalo && ty < nWithHalo) {
+        out[tx + ty * nWithHalo] = __half2uint_rn(in[tx + ty * nWithHalo]);
+    }
+}
+
+__global__ void convertToIntTensorLayout(int* out, FTYPE* in, int nWithHalo) {
     uint32_t tx = blockDim.x * blockIdx.x + threadIdx.x;
     uint32_t ty = blockDim.y * blockIdx.y + threadIdx.y;
     size_t tid = threadIdx.y * blockDim.x + threadIdx.x;
