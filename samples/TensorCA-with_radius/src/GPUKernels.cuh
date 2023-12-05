@@ -2043,14 +2043,6 @@ __global__ void TensorCoalescedSubTypeGoLStep(int* pDataIn, size_t n, size_t nWi
 
 }
 
-__global__ void convertToInt(int* out, MTYPE* in, int n) {
-    int tx = blockDim.x * blockIdx.x + threadIdx.x;
-    int ty = blockDim.y * blockIdx.y + threadIdx.y;
-    if (tx < n && ty < n) {
-        out[tx + ty * n] = int(in[tx + ty * n]);
-    }
-}
-
 __global__ void convertFp32ToFp16(FTYPE* out, MTYPE* in, int nWithHalo) {
     int tx = blockDim.x * blockIdx.x + threadIdx.x;
     int ty = blockDim.y * blockIdx.y + threadIdx.y;
@@ -2345,5 +2337,36 @@ __global__ void TensorCoalescedInt8(unsigned char* pDataIn, unsigned char* pData
             // pDataOut[dindex] = val;//__uint2half_rn(val2 * h(val - val2, EL, EU) + (1 - val2) * h(val - val2, FL, FU));
 	    //pDataOut[dindex] = (val2 * h(val - val2, EL, EU) + (1 - val2) * h(val - val2, FL, FU));
         }
+    }
+}
+
+__global__ void convertToInt(int* out, MTYPE* in, int nWithHalo) {
+    int tx = blockDim.x * blockIdx.x + threadIdx.x;
+    int ty = blockDim.y * blockIdx.y + threadIdx.y;
+    if (tx < nWithHalo && ty < nWithHalo) {
+        out[tx + ty * nWithHalo] = __half2uint_rn(in[tx + ty * nWithHalo]);
+    }
+}
+
+__global__ void convertToIntTensor(int* out, FTYPE* in, int nWithHalo) {
+    uint32_t tx = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t ty = blockDim.y * blockIdx.y + threadIdx.y;
+    size_t tid = threadIdx.y * blockDim.x + threadIdx.x;
+    uint32_t bid = blockIdx.y * gridDim.x + blockIdx.x;
+
+    // printf("%i, %i -> %i, %i\n", tx, ty, in_x, in_y);
+    // printf("%llu -> %llu\n", tx + ty * nWithHalo, bid*256+tid);
+    uint32_t xx = tid % 16;
+    uint32_t yy = tid / 16;
+
+    uint32_t xxx = xx / 8;
+    uint32_t yyy = yy / 8;
+
+    uint32_t reg = yyy * 2 + xxx;
+
+    uint32_t outt = reg * 16 * 4 + tid % 8 + (yy % 8) * 8;
+    if (tx < nWithHalo && ty < nWithHalo) {
+        out[ty * nWithHalo + tx] = __half2uint_rn(in[bid * 256 + tid]);
+        // out[ty * nWithHalo + tx] = __half2uint_rn(in[bid * blockDim.x * blockDim.y + outt]);
     }
 }

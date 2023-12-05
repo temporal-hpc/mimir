@@ -223,7 +223,6 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
     SlangResult result = SLANG_OK;
     Slang::ComPtr<slang::IBlob> diag = nullptr;
     // Load code from [source_path].slang as a module
-    printf("loading shader %s\n", params.source_path.c_str());
     auto module = session->loadModule(params.source_path.c_str(), diag.writeRef());
     validation::checkSlang(result, diag);
 

@@ -300,6 +300,16 @@ void TensorCA2D::transferToInteropBuffer(MTYPE *src)
     //std::cin.get();
 }
 
+void TensorCA2D::transferTensorToInteropBuffer(FTYPE *src)
+{
+    dim3 cblock(16, 16);
+    dim3 cgrid((this->nWithHalo + cblock.x - 1) / cblock.x, (this->nWithHalo + cblock.y - 1) / cblock.y);
+    convertToIntTensor<<<cgrid, cblock>>>(this->devDataMimir, src, this->nWithHalo);
+    gpuErrchk(cudaDeviceSynchronize());
+    std::this_thread::sleep_for(1000ms);
+    //std::cin.get();
+}
+
 float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
 
     lDebug(1, "Mapping to simplex of n=%lu   nWithHalo = %lu   nElements = %lu\n", this->n, this->nWithHalo, this->nElements);
@@ -370,6 +380,7 @@ float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
             ClassicV1GoLStep<<<this->GPUGrid, this->GPUBlock>>>(this->devDataPing, this->devDataPong, this->n, this->nWithHalo);
             gpuErrchk(cudaDeviceSynchronize());
             std::swap(this->devDataPing, this->devDataPong);
+            this->transferToInteropBuffer(this->devDataPing);
             // this->transferDeviceToHost();
             // for (int l = 0; l < nElements; l++) {
             //     frame[l * 4 + 0] = (uint8_t)this->hostData[l] * 255;
@@ -385,6 +396,7 @@ float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
             ClassicV2GoLStep<<<this->GPUGrid, this->GPUBlock>>>(this->devDataPing, this->devDataPong, this->n, this->nWithHalo);
             gpuErrchk(cudaDeviceSynchronize());
             std::swap(this->devDataPing, this->devDataPong);
+            this->transferToInteropBuffer(this->devDataPing);
             // this->transferDeviceToHost();
             // gpuErrchk(cudaDeviceSynchronize());
 
@@ -399,10 +411,10 @@ float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
         break;
     case Mode::TENSORCA:
         for (uint32_t i = 0; i < nTimes; ++i) {
-
             TensorV1GoLStep<<<this->GPUGrid, this->GPUBlock, shmem_size, stream>>>(this->devDataPingTensor, this->devDataPongTensor, this->n, this->nWithHalo);
             gpuErrchk(cudaDeviceSynchronize());
             std::swap(this->devDataPingTensor, this->devDataPongTensor);
+            this->transferTensorToInteropBuffer(this->devDataPingTensor);
             // this->transferDeviceToHost();
             // for (int l = 0; l < nElements; l++) {
             //     frame[l * 4 + 0] = (uint8_t)this->hostData[l] * 255;
@@ -418,6 +430,7 @@ float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
             TensorCoalescedV1GoLStep<<<this->GPUGrid, this->GPUBlock, shmem_size, stream>>>(this->devDataPingTensor, this->devDataPongTensor, this->n, this->nWithHalo);
             gpuErrchk(cudaDeviceSynchronize());
             std::swap(this->devDataPingTensor, this->devDataPongTensor);
+            this->transferTensorToInteropBuffer(this->devDataPingTensor);
             // this->transferDeviceToHost();
             // for (int l = 0; l < nElements; l++) {
             //     frame[l * 4 + 0] = (uint8_t)this->hostData[l] * 255;
@@ -433,6 +446,7 @@ float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
             ClassicGlobalMemHALFGoLStep<<<this->GPUGrid, this->GPUBlock>>>(this->devDataPingTensor, this->devDataPongTensor, this->n, this->nWithHalo);
             gpuErrchk(cudaDeviceSynchronize());
             std::swap(this->devDataPingTensor, this->devDataPongTensor);
+            this->transferTensorToInteropBuffer(this->devDataPingTensor);
             // this->transferDeviceToHost();
             // for (int l = 0; l < nElements; l++) {
             //     frame[l * 4 + 0] = (uint8_t)this->hostData[l] * 255;
@@ -448,6 +462,7 @@ float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
             TensorCoalescedV2GoLStep<<<this->GPUGrid, this->GPUBlock, shmem_size, stream>>>(this->devDataPingTensor, this->devDataPongTensor, this->n, this->nWithHalo);
             gpuErrchk(cudaDeviceSynchronize());
             std::swap(this->devDataPingTensor, this->devDataPongTensor);
+            this->transferTensorToInteropBuffer(this->devDataPingTensor);
             // this->transferDeviceToHost();
             // for (int l = 0; l < nElements; l++) {
             //     frame[l * 4 + 0] = (uint8_t)this->hostData[l] * 255;
@@ -463,6 +478,7 @@ float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
             TensorCoalescedV3GoLStep<<<this->GPUGrid, this->GPUBlock, (size_t)(shmem_size / 2), stream>>>(this->devDataPingTensor, this->devDataPongTensor, this->n, this->nWithHalo);
             gpuErrchk(cudaDeviceSynchronize());
             std::swap(this->devDataPingTensor, this->devDataPongTensor);
+            this->transferTensorToInteropBuffer(this->devDataPingTensor);
             // this->transferDeviceToHost();
             // for (int l = 0; l < nElements; l++) {
             //     frame[l * 4 + 0] = (uint8_t)this->hostData[l] * 255;
@@ -479,6 +495,7 @@ float TensorCA2D::doBenchmarkAction(uint32_t nTimes) {
             gpuErrchk(cudaDeviceSynchronize());
             TensorCoalescedV4GoLStep_Step2<<<this->GPUGrid, this->GPUBlock>>>(this->devDataPongTensor, this->devDataPingTensor, this->n, this->nWithHalo);
             gpuErrchk(cudaDeviceSynchronize());
+            this->transferTensorToInteropBuffer(this->devDataPingTensor);
 
             // std::swap(this->devDataPingTensor, this->devDataPongTensor);
             //  this->transferDeviceToHost();
@@ -541,14 +558,15 @@ void TensorCA2D::reset() {
     }
     lDebug(1, "Transfering data to device.");
     this->transferHostToDevice();
-    this->transferToInteropBuffer(this->devDataPing);
     lDebug(1, "Done.");
 
     lDebug(1, "Setting Pong elements to 0.");
     if (this->mode == Mode::TENSORCA || this->mode == Mode::TENSORCACOALESCED || this->mode == Mode::TENSORCACOALESCEDMORETHREADS || this->mode == Mode::CLASSICGBMEMHALF
         || this->mode == Mode::TENSORCACOALESCEDLESSSHMEM || this->mode == Mode::TENSORCACOALESCEDNOSHMEM) {
+        this->transferTensorToInteropBuffer(this->devDataPingTensor);
         cudaMemset(this->devDataPongTensor, 0, sizeof(FTYPE) * this->nElements);
     } else {
+        this->transferToInteropBuffer(this->devDataPing);
         cudaMemset(this->devDataPong, 0, sizeof(MTYPE) * this->nElements);
     }
 

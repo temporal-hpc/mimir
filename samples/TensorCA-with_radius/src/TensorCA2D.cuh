@@ -107,6 +107,7 @@ public:
     void transferHostToDevice();
     void transferDeviceToHost();
     void transferToInteropBuffer(MTYPE *src);
+    void transferTensorToInteropBuffer(FTYPE *src);
 
     void printHostData();
     void printDeviceData();
