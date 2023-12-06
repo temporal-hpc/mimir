@@ -36,7 +36,8 @@ VertexData vertexImplicitMain(VertexInputImplicit input)
 {
     VertexData output;
     output.center = float4(input.pos, 1);
-    output.color  = float4(float1(input.color).xxx, 1);
+    float c = float(input.color) / 10.0;
+    output.color  = float4(c, c, c, 1);
 
     return output;
 }
