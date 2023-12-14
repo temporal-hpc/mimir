@@ -85,7 +85,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
         case ViewType::Edges:
         {
             compile.source_path = "shaders/mesh.slang";
-            compile.entrypoints = {"vertexMain", "fragmentMain"};
+            compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
 
             // Make a dictionary of the attributes that need specializing,
             // while keeping note of the ones that were not specialized

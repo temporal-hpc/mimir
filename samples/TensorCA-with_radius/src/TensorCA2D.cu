@@ -630,5 +630,5 @@ void TensorCA2D::transferToInterop()
     }
 
     gpuErrchk(cudaDeviceSynchronize());
-    std::this_thread::sleep_for(1000ms);
+    std::this_thread::sleep_for(50ms);
 }

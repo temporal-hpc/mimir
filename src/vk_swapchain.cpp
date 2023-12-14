@@ -79,7 +79,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
     );
     for (const auto& surf_format : surface_formats)
     {
-        if (surf_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+        if (surf_format.format == VK_FORMAT_B8G8R8A8_UNORM &&
             surf_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
         {
             color_format = surf_format.format;
