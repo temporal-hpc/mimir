@@ -333,7 +333,7 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	printf("Triangulation loaded to device memory.\n");
     engine.displayAsync();
-    //std::cin.get(); // For recording
+    std::cin.get(); // For recording
 }
 
 void ParticleSystemDelaunay::syncWithDevice()

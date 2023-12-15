@@ -1,6 +1,8 @@
 #include "particlesystem/particlesystem_delaunay.h"
 #include "configvars.h"
 
+#define _USE_MATH_DEFINES
+#include <cmath>
 #include <iostream>
 #include <sstream>
 
@@ -33,6 +35,10 @@ int main(int argc, char **argv)
 	{
 		input >> p.conc[i] >> p.alpha[i] >> p.mu[i];
 	}
+
+    p.boxlength = sqrt((p.num_elements * M_PI * std::pow(p.radius / 2, 2)) / p.boxlength);
+    std::cout << "Box length: " << p.boxlength << std::endl;
+
 	initParameters(p);
 
 	// Create an instance of a particle system simulation
