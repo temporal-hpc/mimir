@@ -43,7 +43,7 @@ struct Filled : IAntialiased
         else if (signed_distance < 0.0) // Inside shape
             return fill;
         else if (border_distance > (linewidth / 2 + antialias)) // Outside shape
-            discard;
+            discard; //return float4(1,0,0,1);
         else // Line stroke exterior border
             return float4(fill.rgb, alpha * fill.a);
     }

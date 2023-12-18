@@ -18,10 +18,10 @@ void initSystem(double2 *coords, double *sizes, size_t point_count,
         curand_init(seed, tidx, 0, &local_state);
         auto rx = extent.x * curand_uniform_double(&local_state);
         auto ry = extent.y * curand_uniform_double(&local_state);
-        // Generate a point size up to 50;
+        // Generate a point size up to 10;
         double2 p{rx, ry};
         coords[tidx] = p;
-        sizes[tidx]  = 50 * curand_uniform_double(&local_state);
+        sizes[tidx]  = 10 * curand_uniform_double(&local_state);
         global_states[tidx] = local_state;
     }
 }

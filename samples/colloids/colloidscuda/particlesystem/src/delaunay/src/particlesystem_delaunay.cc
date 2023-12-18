@@ -195,7 +195,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     }
 
     ViewerOptions viewer_opts;
-    viewer_opts.window_title = "Colloid"; // Top-level window.
+    viewer_opts.window_title = "Colloids"; // Top-level window.
     viewer_opts.window_size = {1920, 1080};
     viewer_opts.present = PresentOptions::Immediate;
     engine.init(viewer_opts);
@@ -236,7 +236,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     vp.view_type     = ViewType::Markers;
     vp.attributes[AttributeType::Position] = *interop[current_read];
     vp.attributes[AttributeType::Color] = *interop[3];
-    vp.options.default_size = 6.315f;
+    vp.options.default_size = 1.f;
     /*vp.options.external_shaders = {
         {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
