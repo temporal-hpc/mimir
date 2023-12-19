@@ -62,6 +62,7 @@ struct ColorInt1 : IColor
     static const float4 colors[] = {
         {49,130,189,1},
         {49,163,84,1},
+        {158,202,225,1},
     };
     int input : COLOR;
     float4 default_color;
