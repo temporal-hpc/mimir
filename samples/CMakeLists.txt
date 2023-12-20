@@ -39,7 +39,7 @@ add_subdirectory(pointsgl)
 add_subdirectory(pointspcl)
 add_subdirectory(colloids)
 add_subdirectory(TensorCA-with_radius)
-add_subdirectory(voronoi-diagram)
+add_subdirectory(voronoi2)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL
