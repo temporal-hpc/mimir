@@ -1052,6 +1052,7 @@ void mjfaVDIters(Setup setup, int *v_diagram, int *seeds, int N, int S, int k, i
         //setup.engine->prepareViews();
         voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 2, N, S, setup.distance_function, mu);
         voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 1, N, S, setup.distance_function, mu);
+        writeGridColors(&setup);
         setup.engine->updateViews();
     }
     else{
@@ -1087,12 +1088,10 @@ void dJFA(Setup setup, int iter){
         cudaDeviceSynchronize();
         jfaVDUnique(setup, setup.gpu_backup_vd, setup.gpu_seeds, setup.N, setup.S, setup.k, 1, setup.normal_grid, setup.normal_block, setup.pbc);
         cudaDeviceSynchronize();
-        printf("iter1\n");
     }
     else{
         mjfaVDIters(setup, setup.gpu_backup_vd, setup.gpu_seeds, setup.N, setup.S, setup.k_m, 1, setup.normal_grid, setup.normal_block, setup.pbc);
         cudaDeviceSynchronize();
-        printf("iter2\n");
         if(cudaGetLastError() != cudaSuccess){
             printf("Something went wrong on dJFA iter %i, k_m %i\n", iter, setup.k_m);
             exit(0);
