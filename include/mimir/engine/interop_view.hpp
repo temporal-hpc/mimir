@@ -81,6 +81,7 @@ struct ViewOptions
     std::vector<ShaderInfo> external_shaders;
     // For specializing slang shaders associated to this view
     std::vector<std::string> specializations;
+    int custom_val = 0;
 };
 
 using AttributeDict = std::map<AttributeType, InteropMemory>;

@@ -36,7 +36,7 @@ VertexData vertexImplicitMain(VertexInputImplicit input)
 {
     VertexData output;
     output.center = float4(input.pos, 1);
-    float c = float(input.color);
+    float c = float(input.color) / view.element_count;
     output.color  = float4(c, c, c, 1);
 
     return output;
@@ -64,7 +64,7 @@ void geometryMain2D(point VertexData input[1], inout TriangleStream<VoxelData> s
     }
 
     // Compute offsets for block (voxel) vertices
-    float3 vox_size = .001 * float3(view.default_size);
+    float3 vox_size = float3(view.default_size) / scene.extent;
     float4 offsets[3] = {
         model_view[0] * vox_size.x,
         model_view[1] * vox_size.y,

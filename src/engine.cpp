@@ -1054,6 +1054,7 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
         primitive.color = getColor(view->params.options.default_color);
         primitive.size = view->params.options.default_size;
         primitive.depth = view->params.options.depth;
+        primitive.element_count = view->params.options.custom_val;
 
         SceneParams scene{};
         auto extent = view->params.extent;

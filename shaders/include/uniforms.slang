@@ -18,4 +18,5 @@ struct ViewParams
     float4 default_color;
     float default_size;
     float depth;
+    int element_count;
 };
