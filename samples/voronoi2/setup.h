@@ -153,7 +153,7 @@ void allocate_arrays(Setup *setup){
     p1.data_domain   = DataDomain::Domain2D;
     p1.domain_type   = DomainType::Structured;
     p1.view_type     = ViewType::Voxels;
-    p1.attributes[AttributeType::Color] = *dist_colors;
+    p1.attributes[AttributeType::Color] = *grid;
     p1.options.default_size = 1.f;
     p1.options.custom_val = setup->S;
     /*p1.options.external_shaders = {

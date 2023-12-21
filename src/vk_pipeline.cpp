@@ -115,6 +115,25 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
             std::string geom_entry = "geometryMain";
             geom_entry += getDataDomain(params.data_domain);
             compile.entrypoints = {"vertexImplicitMain", geom_entry, "fragmentMain"};
+
+            std::map<AttributeType, std::string> specs{
+                {AttributeType::Color, "ColorDefault"}
+            };
+            for (const auto &[attr, memory] : params.attributes)
+            {
+                if (attr != AttributeType::Index)
+                {
+                    std::string spec = getAttributeType(attr);
+                    spec += getComponentType(memory.params.component_type);
+                    spec += std::to_string(memory.params.channel_count);
+                    specs[attr] = spec;
+                }
+            }
+            for (const auto& spec : specs)
+            {
+                compile.specializations.push_back(spec.second);
+            }
+
             break;
         }
         case ViewType::Image:

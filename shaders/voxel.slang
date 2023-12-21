@@ -1,5 +1,8 @@
 import uniforms;
 
+#include "interfaces/position.slang"
+#include "interfaces/color.slang"
+
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
 ConstantBuffer<ViewParams> view;
@@ -15,6 +18,18 @@ struct VertexInput
     [[vk::location(0)]] float3 pos : POSITION;
 };
 
+struct ColorInt1 : IColor
+{
+    int input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
+    float4 getColor()
+    {
+        float c = float(input) / view.element_count;
+        return float4(c, c, c, 1);
+    }
+};
+
 [shader("vertex")]
 VertexData vertexMain(VertexInput input)
 {
@@ -25,39 +40,15 @@ VertexData vertexMain(VertexInput input)
     return output;
 }
 
-struct VertexInputImplicit
-{
-    [[vk::location(0)]] float3 pos   : POSITION;
-    [[vk::location(1)]] float color : COLOR;
-};
-
 [shader("vertex")]
-VertexData vertexImplicitMain(VertexInputImplicit input)
+VertexData vertexImplicitMain<C:IColor>(float3 pos: POSITION, C in_color)
 {
     VertexData output;
-    output.center = float4(input.pos, 1);
-    float c = input.color;
-    output.color  = float4(c,c,c,1);
+    output.center = float4(pos, 1);
+    output.color  = in_color.getColor();
 
     return output;
 }
-
-/*
-struct VertexInputImplicit
-{
-    [[vk::location(0)]] float3 pos   : POSITION;
-    [[vk::location(1)]] float4 color : COLOR;
-};
-
-[shader("vertex")]
-VertexData vertexImplicitMain(VertexInputImplicit input)
-{
-    VertexData output;
-    output.center = float4(input.pos, 1);
-    output.color  = input.color;
-
-    return output;
-}*/
 
 /*
 struct VertexInputImplicit
