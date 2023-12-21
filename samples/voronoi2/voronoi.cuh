@@ -938,6 +938,7 @@ float euclideanDistanceCPU(int x1, int x2, int y1, int y2){
 }
 
 void dynamicSeeds(Setup setup, int iter){
+    setup.engine->prepareViews();
     if(setup.sample == 0){
         moveSeeds<<<setup.seeds_grid, setup.seeds_block>>>(setup.gpu_seeds, setup.gpu_delta,setup.N, setup.S, 1, setup.r_device);
         cudaDeviceSynchronize();
@@ -962,6 +963,7 @@ void dynamicSeeds(Setup setup, int iter){
         }
 
     }
+    setup.engine->updateViews();
 }
 
 // This method needs to be check due to posible concurrence errors
@@ -1057,6 +1059,7 @@ void mjfaVDIters(Setup setup, int *v_diagram, int *seeds, int N, int S, int k, i
         setup.engine->updateViews();
     }
     else{
+        setup.engine->prepareViews();
         while(k_copy >= k/2){
             pbcVoronoiJFA_4Ng<<< grid, block>>>(v_diagram, seeds, k_copy, N, S, setup.distance_function, mu);
             cudaDeviceSynchronize();
@@ -1069,6 +1072,9 @@ void mjfaVDIters(Setup setup, int *v_diagram, int *seeds, int N, int S, int k, i
         }
         pbcVoronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 2, N, S, setup.distance_function, mu);
         pbcVoronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 1, N, S, setup.distance_function, mu);
+        writeGridColors(&setup);
+        writeGridDistances(&setup);
+        setup.engine->updateViews();
     }
 }
 

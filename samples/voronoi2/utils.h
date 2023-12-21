@@ -323,6 +323,7 @@ void read_coords(int *seeds, int N, int S, int count, int molecules){
 	name.insert(name.size(), "k/coords-voro/");
 	name.insert(name.size(), to_string(count));
 	name.insert(name.size(),".txt");
+    printf("%s\n", name.c_str());
 
 	ifstream FILE(name);
 	int i = 0;
