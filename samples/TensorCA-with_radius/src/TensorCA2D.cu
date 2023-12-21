@@ -549,7 +549,7 @@ void TensorCA2D::reset() {
     }
 
     this->transferToInterop();
-    // std::cin.get(); // Wait for key press
+    std::cin.get(); // Wait for key press
 
     lDebug(1, "Initial status in Host:");
 

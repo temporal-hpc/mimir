@@ -1029,29 +1029,29 @@ void jfaVDUnique(Setup setup, int *v_diagram, int *seeds, int N, int S, int k, i
 void mjfaVDIters(Setup setup, int *v_diagram, int *seeds, int N, int S, int k, int mu, dim3 grid, dim3 block, int pbc){
     int k_copy = k;
     if(pbc == 0){
-        setup.engine->prepareViews();
+        //setup.engine->prepareViews();
         while(k_copy >= k/2){
             //printf("Von Neumann NB\n"); std::cin.get();
-            //setup.engine->prepareViews();
+            setup.engine->prepareViews();
             voronoiJFA_4Ng<<< grid, block>>>(v_diagram, seeds, setup.gpu_delta_max, k_copy, N, S, setup.distance_function, mu);
             cudaDeviceSynchronize();
             if(cudaGetLastError() != cudaSuccess){
                 printf("Something went wrong on Von Neumman NB\n");
                 exit(0);
             }
-            //setup.engine->updateViews();
+            setup.engine->updateViews();
             k_copy = k_copy/2;
         }
         while(k_copy >= 1){
             //printf("k=%d\n", k_copy); std::cin.get();
-            //setup.engine->prepareViews();
+            setup.engine->prepareViews();
             voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, k_copy, N, S, setup.distance_function, mu);
             cudaDeviceSynchronize();
-            //setup.engine->updateViews();
+            setup.engine->updateViews();
             k_copy = k_copy/2;
         }
         //printf("waiting for key press...\n"); std::cin.get();
-        //setup.engine->prepareViews();
+        setup.engine->prepareViews();
         voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 2, N, S, setup.distance_function, mu);
         voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 1, N, S, setup.distance_function, mu);
         writeGridColors(&setup);
@@ -1261,6 +1261,7 @@ void itersJFA(Setup setup){
     int iter_copy = setup.iters;
 
     setup.engine->displayAsync();
+    std::cin.get();
 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);

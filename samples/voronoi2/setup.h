@@ -130,7 +130,10 @@ void initialize_variables(Setup *setup, int N, int S, int mode, int iters, int d
 
 void allocate_arrays(Setup *setup){
     setup->engine = new CudaviewEngine();
-    setup->engine->init(1920, 1080);
+    ViewerOptions options;
+    options.window_size = {1920, 1080}; // Starting window size
+    options.target_fps = 1;
+    setup->engine->init(options);
 
     MemoryParams m1;
     m1.layout         = DataLayout::Layout2D;

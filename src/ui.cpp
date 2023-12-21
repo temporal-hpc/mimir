@@ -128,6 +128,7 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
             {
                 auto& info = memory.params;
                 //addTableRow("Element count", std::to_string(info.element_count));
+                addTableRow("Attribute type", getAttributeType(attr));
                 addTableRow("Resource type", getResourceType(info.resource_type));
                 addTableRow("Data type", getComponentType(info.component_type));
                 addTableRow("Channel count", std::to_string(info.channel_count));
