@@ -28,6 +28,24 @@ VertexData vertexMain(VertexInput input)
 struct VertexInputImplicit
 {
     [[vk::location(0)]] float3 pos   : POSITION;
+    [[vk::location(1)]] float color : COLOR;
+};
+
+[shader("vertex")]
+VertexData vertexImplicitMain(VertexInputImplicit input)
+{
+    VertexData output;
+    output.center = float4(input.pos, 1);
+    float c = input.color;
+    output.color  = float4(c,c,c,1);
+
+    return output;
+}
+
+/*
+struct VertexInputImplicit
+{
+    [[vk::location(0)]] float3 pos   : POSITION;
     [[vk::location(1)]] float4 color : COLOR;
 };
 
@@ -39,7 +57,8 @@ VertexData vertexImplicitMain(VertexInputImplicit input)
     output.color  = input.color;
 
     return output;
-}
+}*/
+
 /*
 struct VertexInputImplicit
 {

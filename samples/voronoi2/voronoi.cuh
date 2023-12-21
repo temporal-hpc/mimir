@@ -1053,6 +1053,7 @@ void mjfaVDIters(Setup setup, int *v_diagram, int *seeds, int N, int S, int k, i
         voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 2, N, S, setup.distance_function, mu);
         voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 1, N, S, setup.distance_function, mu);
         writeGridColors(&setup);
+        writeGridDistances(&setup);
         setup.engine->updateViews();
     }
     else{
@@ -1206,6 +1207,46 @@ __global__ void kernelWriteColors(float4 *vd_colors, float3 *seed_colors, int *v
 void writeGridColors(Setup *setup){
     kernelWriteColors<<<setup->normal_grid, setup->normal_block>>>(
         setup->gpu_vd_colors, setup->gpu_seed_colors, setup->gpu_backup_vd, setup->N
+    );
+    cudaDeviceSynchronize();
+}
+
+__global__ void kernelWriteDistances(float *vd_dists, int *vd, int *seeds, size_t N, int dist_func, int is_pbc)
+{
+    int tidx = blockDim.x * blockIdx.x + threadIdx.x;
+    int tidy = blockDim.y * blockIdx.y + threadIdx.y;
+    int tid = tidy * N + tidx;
+    if (tidx < N && tidy < N)
+    {
+        float dist = 0.f;
+        int x0 = tid % N;
+        int y0 = tid / N;
+        int seed = seeds[vd[tid]];
+        int x1 = seed % N;
+        int y1 = seed / N;
+        if (dist_func == 0) // Euclidean
+        {
+            dist = is_pbc?
+                pbcEuclideanDistance(N, x0, x1, y0, y1):
+                euclideanDistance(x0, x1, y0, y1);
+            dist /= sqrtf(2.f) * N;
+        }
+        else // Manhattan
+        {
+            dist = 2 * N * is_pbc?
+                pbcManhattanDistance(N, x0, x1, y0, y1):
+                manhattanDistance(x0, x1, y0, y1);
+            dist /= 2 * N;
+        }
+        vd_dists[tid] = dist; //float(tid) / float(N * N);
+        //if (x0 == x1 && y0 == y1) printf("%d(%d %d) %d(%d %d) %f\n", tid, x0, y0, vd[tid], x1, y1, vd_dists[tid]);
+    }
+}
+
+void writeGridDistances(Setup *setup){
+    kernelWriteDistances<<<setup->normal_grid, setup->normal_block>>>(
+        setup->gpu_vd_dists, setup->gpu_backup_vd, setup->gpu_seeds,
+        setup->N, setup->distance_function, setup->pbc
     );
     cudaDeviceSynchronize();
 }

@@ -90,6 +90,7 @@ struct Setup{
 
     float3 *gpu_seed_colors = nullptr;
     float4 *gpu_vd_colors = nullptr;
+    float *gpu_vd_dists = nullptr;
     CudaviewEngine *engine;
 };
 
@@ -141,7 +142,10 @@ void allocate_arrays(Setup *setup){
 
     m1.component_type = ComponentType::Float;
     m1.channel_count  = 4;
-    auto grid_colors = setup->engine->createBuffer((void**)&setup->gpu_vd_colors, m1);
+    auto grid_colors  = setup->engine->createBuffer((void**)&setup->gpu_vd_colors, m1);
+
+    m1.channel_count = 1;
+    auto dist_colors = setup->engine->createBuffer((void**)&setup->gpu_vd_dists, m1);
 
     ViewParams p1;
     p1.element_count = setup->N * setup->N;
@@ -149,7 +153,7 @@ void allocate_arrays(Setup *setup){
     p1.data_domain   = DataDomain::Domain2D;
     p1.domain_type   = DomainType::Structured;
     p1.view_type     = ViewType::Voxels;
-    p1.attributes[AttributeType::Color] = *grid_colors;
+    p1.attributes[AttributeType::Color] = *dist_colors;
     p1.options.default_size = 1.f;
     p1.options.custom_val = setup->S;
     /*p1.options.external_shaders = {
@@ -157,6 +161,13 @@ void allocate_arrays(Setup *setup){
         {"shaders/voxel_geometryMain2D.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
         {"shaders/voxel_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
     };*/
+    setup->engine->createView(p1);
+
+    p1.attributes[AttributeType::Color] = *grid_colors;
+    p1.options.visible = false;
+    setup->engine->createView(p1);
+
+    p1.attributes[AttributeType::Color] = *dist_colors;
     setup->engine->createView(p1);
 
     MemoryParams m2;
@@ -261,3 +272,4 @@ void freeSpace(Setup *setup){
 }
 
 void writeGridColors(Setup *setup);
+void writeGridDistances(Setup *setup);
