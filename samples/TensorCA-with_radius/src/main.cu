@@ -60,6 +60,7 @@ int main(int argc, char** argv) {
     vp.view_type     = ViewType::Voxels;
     vp.attributes[AttributeType::Color] = *grid_int;
     vp.options.default_size = 1.f;
+    vp.options.custom_val = 1;
     engine.createView(vp);
 
     engine.displayAsync();

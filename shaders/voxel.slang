@@ -50,24 +50,6 @@ VertexData vertexImplicitMain<C:IColor>(float3 pos: POSITION, C in_color)
     return output;
 }
 
-/*
-struct VertexInputImplicit
-{
-    [[vk::location(0)]] float3 pos : POSITION;
-    [[vk::location(1)]] int color  : COLOR;
-};
-
-[shader("vertex")]
-VertexData vertexImplicitMain(VertexInputImplicit input)
-{
-    VertexData output;
-    output.center = float4(input.pos, 1);
-    float c = float(input.color) / view.element_count;
-    output.color  = float4(c, c, c, 1);
-
-    return output;
-}*/
-
 struct VoxelData
 {
     float4 pos    : SV_Position;

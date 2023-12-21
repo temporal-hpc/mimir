@@ -98,11 +98,13 @@ bool addTableRowCombo(const std::string& key, int* current_item,
 void addViewObjectGui(InteropView *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
-    bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
+    auto& params = view_ptr->params;
+    //bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
+    bool node_open = ImGui::CollapsingHeader("", ImGuiTreeNodeFlags_AllowItemOverlap);
+    ImGui::SameLine(); ImGui::Text("%s #%u", "View", uid);
+    ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &params.options.visible);
     if (node_open)
     {
-        auto& params = view_ptr->params;
-        ImGui::Checkbox("show", &params.options.visible);
         bool type_check = ImGui::Combo("View type", (int*)&params.view_type,
             &AllViewTypes::ItemGetter, kAllViewTypes.data(), kAllViewTypes.size()
         );
@@ -143,7 +145,7 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
                 ImGui::EndTable();
             }
         }
-        ImGui::TreePop();
+        //ImGui::TreePop();
     }
     ImGui::PopID();
 }
