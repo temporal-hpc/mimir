@@ -137,12 +137,12 @@ int main()
     ShaderCompileParameters params;
     params.output_path = "samples/shaders";
     params.source_path = "samples/shaders/voxel.slang";
-    params.entrypoints = {"vertexImplicitMain", "geometryMain", "fragmentMain"};
+    params.entrypoints = {"vertexImplicitMain", "geometryMain2D", "fragmentMain"};
     compileSlang(params, session);
 
     params.source_path = "samples/shaders/marker.slang";
     params.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-    params.specializations = { "PositionDouble2", "ColorInt1", "SizeDefault" };
+    params.specializations = { "PositionInt1", "ColorDefault", "SizeDefault", "Marker2D", "DiscShape" };
     compileSlang(params, session);
 
     params.source_path = "samples/shaders/texture.slang";

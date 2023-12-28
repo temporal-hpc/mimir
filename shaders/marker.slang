@@ -58,7 +58,7 @@ VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S 
     VertexOutput output;
     output.center   = in_pos.getPosition(scene.extent);
     output.color    = in_color.getColor();
-    output.size     = getMarkerSizePx(in_size.getSize());
+    output.size     = in_size.getSize();
     output.rotation = in_angle.getValue();
     return output;
 }
@@ -72,10 +72,12 @@ void geometryMain<M:IMarker>(point VertexOutput input[1], inout TriangleStream<G
     //float4 center = input[0].center;
 
     GeometryOutput output;
+    // TODO: Add antialias and linewidth to output.size (something like getMarkerSizePx)
     output.size = input[0].size;
+    output.ele_size = input[0].size;
 
     M marker;
-    MarkerOffsets offsets = marker.getVertexOffsets(view_proj, output.size, scene.resolution);
+    MarkerOffsets offsets = marker.getVertexOffsets(view_proj, output.ele_size, scene.resolution, scene.extent);
     float4 dx = offsets.dx;
     float4 dy = offsets.dy;
 
@@ -84,7 +86,6 @@ void geometryMain<M:IMarker>(point VertexOutput input[1], inout TriangleStream<G
 
     output.color = input[0].color;
     output.rotation = input[0].rotation;
-    output.ele_size = input[0].size;
     //output.normal = normal.xyz;
 
     // Add point coordinates

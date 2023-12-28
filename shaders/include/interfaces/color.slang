@@ -57,21 +57,34 @@ typedef ColorTemplateLarge<double,2> ColorDouble2;
 typedef ColorTemplateLarge<double,3> ColorDouble3;
 typedef ColorTemplateLarge<double,4> ColorDouble4;
 
-struct ColorInt1 : IColor
+/*struct ColorInt1 : IColor
 {
-    static const float4 colors[] = {
-        {49,130,189,1},
-        {49,163,84,1},
+    static const float3 colors[] = {
+        {49,130,189},
+        {49,163,84},
+        {158,202,225},
     };
     int input : COLOR;
     float4 default_color;
     [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
-        float4 c = colors[input];
+        float3 c = colors[input];
         c.x /= 255.f;
         c.y /= 255.f;
         c.z /= 255.f;
-        return c;
+        return float4(c, 1);
+    }
+};*/
+
+struct ColorFloat1 : IColor
+{
+    float input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
+    float4 getColor()
+    {
+        float c = input;
+        return float4(c,c,c,1);
     }
 };

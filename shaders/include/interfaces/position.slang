@@ -56,3 +56,19 @@ typedef PositionTemplate<int,4> PositionInt4;
 typedef PositionTemplateLarge<double,2> PositionDouble2;
 typedef PositionTemplateLarge<double,3> PositionDouble3;
 typedef PositionTemplateLarge<double,4> PositionDouble4;
+
+struct PositionInt1 : IPosition
+{
+    int data : POSITION;
+
+    float4 getPosition(int3 extent)
+    {
+        float4 pos = {0,0,0,1};
+        float px = fmod(data, extent.x) / extent.x;
+        float py = (float(data) / extent.x) / extent.x;
+        pos.x = 2 * px - 1;
+        pos.y = 2 * py - 1;
+        pos.z += 0.01;
+        return pos;
+    }
+};

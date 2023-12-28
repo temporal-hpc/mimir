@@ -18,6 +18,7 @@ struct PrimitiveParams
     alignas(16) glm::vec4 color;
     alignas(4)  float size;
     alignas(4)  float depth;
+    alignas(4)  int element_count;
 };
 
 struct SceneParams

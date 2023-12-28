@@ -10,28 +10,28 @@ struct MarkerOffsets
 
 interface IMarker
 {
-    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 resolution);
+    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 res, float3 ext);
 };
 
 struct Marker2D : IMarker
 {
-    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 resolution)
+    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 res, float3 ext)
     {
-        float aspect = resolution.x / resolution.y;
+        float aspect = res.x / res.y;
         MarkerOffsets out;
-        out.dx = vp[0] * (size / (500 * aspect));
-        out.dy = vp[1] * (size / (500 * aspect));
+        out.dx = vp[0] * (size / ext.x);
+        out.dy = vp[1] * (size / ext.y);
         return out;
     }
 };
 
 struct Marker3D : IMarker
 {
-    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 resolution)
+    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 res, float3 ext)
     {
         MarkerOffsets out;
-        out.dx = float4(size,0,0,0) / resolution.x;
-        out.dy = float4(0,size,0,0) / resolution.y;
+        out.dx = float4(size,0,0,0) / res.x;
+        out.dy = float4(0,size,0,0) / res.y;
         return out;
     }
 };

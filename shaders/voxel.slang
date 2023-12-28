@@ -1,5 +1,8 @@
 import uniforms;
 
+#include "interfaces/position.slang"
+#include "interfaces/color.slang"
+
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
 ConstantBuffer<ViewParams> view;
@@ -15,6 +18,18 @@ struct VertexInput
     [[vk::location(0)]] float3 pos : POSITION;
 };
 
+struct ColorInt1 : IColor
+{
+    int input : COLOR;
+    float4 default_color;
+    [mutating] void setDefault(float4 c) { default_color = c; };
+    float4 getColor()
+    {
+        float c = float(input) / view.element_count;
+        return float4(c, c, c, 1);
+    }
+};
+
 [shader("vertex")]
 VertexData vertexMain(VertexInput input)
 {
@@ -25,18 +40,12 @@ VertexData vertexMain(VertexInput input)
     return output;
 }
 
-struct VertexInputImplicit
-{
-    [[vk::location(0)]] float3 pos : POSITION;
-    [[vk::location(1)]] int color  : COLOR;
-};
-
 [shader("vertex")]
-VertexData vertexImplicitMain(VertexInputImplicit input)
+VertexData vertexImplicitMain<C:IColor>(float3 pos: POSITION, C in_color)
 {
     VertexData output;
-    output.center = float4(input.pos, 1);
-    output.color  = float4(float1(input.color).xxx, 1);
+    output.center = float4(pos, 1);
+    output.color  = in_color.getColor();
 
     return output;
 }
@@ -63,7 +72,7 @@ void geometryMain2D(point VertexData input[1], inout TriangleStream<VoxelData> s
     }
 
     // Compute offsets for block (voxel) vertices
-    float3 vox_size = .001 * float3(view.default_size);
+    float3 vox_size = float3(view.default_size) / scene.extent;
     float4 offsets[3] = {
         model_view[0] * vox_size.x,
         model_view[1] * vox_size.y,
