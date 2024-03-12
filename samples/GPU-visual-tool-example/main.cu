@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
     MemoryParams mem;
     mem.layout          = DataLayout::Layout1D;
     mem.element_count.x = n;
-    mem.component_type       = ComponentType::Float;
+    mem.component_type  = ComponentType::Float;
     mem.channel_count   = 2;
     mem.resource_type   = ResourceType::Buffer;
     auto pointsmem = engine.createBuffer((void**)&dPoints, mem);
@@ -101,6 +101,7 @@ int main(int argc, char *argv[]) {
     params.domain_type   = DomainType::Unstructured;
     params.view_type     = ViewType::Markers;
     params.attributes[AttributeType::Position] = *pointsmem;
+    params.options.default_size = .1f;
     engine.createView(params);
 
     /* SIMULATION */
