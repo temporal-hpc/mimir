@@ -46,7 +46,7 @@ Application::Application(){
     engine.setBackgroundColor({0.f,0.f,0.f,1.f});
 
     // TODO: Fix dptr in kernels
-	this->myMesh = new Mesh("/home/francisco/Downloads/tiuque/chica5.off");
+	this->myMesh = new Mesh("/home/francisco/code/files_cudaview/mesh.off");
     auto m = this->myMesh->my_cleap_mesh;
 
     // NOTE: Cudaview code

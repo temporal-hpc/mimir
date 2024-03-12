@@ -11,8 +11,7 @@ add_subdirectory(structured)
 add_subdirectory(unstructured)
 add_subdirectory(voronoi-simple)
 add_subdirectory(texture_cudaarray)
-
-#add_subdirectory(edgeflip)
+add_subdirectory(edgeflip)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL

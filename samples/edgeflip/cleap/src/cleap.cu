@@ -788,9 +788,9 @@ void _cleap_init_cuda(){
 }
 
 CLEAP_RESULT _cleap_init_glew(){
-	if( glewInit() != GLEW_OK ){
-		printf( ">> CLEAP::Init::GLEW Cannot Init\n");
-		return CLEAP_FAILURE;
-	}
+	// if( glewInit() != GLEW_OK ){
+	// 	printf( ">> CLEAP::Init::GLEW Cannot Init\n");
+	// 	return CLEAP_FAILURE;
+	// }
 	return CLEAP_SUCCESS;
 }

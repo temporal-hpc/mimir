@@ -2,7 +2,7 @@
 #define _CLEAP_PRIVATE_H_
 
 // gl headers
-#include <GL/glew.h>
+#include <GL/gl.h>
 
 // c headers
 #include <stdlib.h>

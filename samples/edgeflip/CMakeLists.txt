@@ -1,5 +1,4 @@
 find_package(CUDAToolkit REQUIRED)
-find_package(GLEW REQUIRED)
 find_package(OpenGL)
 
 add_library(cleap STATIC)
@@ -15,5 +14,5 @@ set_target_properties(tiuque PROPERTIES
 )
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)
 target_link_libraries(tiuque PRIVATE
-    mimir cleap OpenGL::OpenGL OpenGL::GLX GLEW::GLEW X11
+    mimir cleap OpenGL::OpenGL OpenGL::GLX
 )
