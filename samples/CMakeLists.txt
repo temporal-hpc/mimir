@@ -34,7 +34,7 @@ target_link_libraries(run_texture PRIVATE mimir)
 add_executable(voronoi-simple voronoi-simple/voronoi.cu)
 target_link_libraries(voronoi-simple PRIVATE mimir)
 
-add_subdirectory(edgeflip)
+#add_subdirectory(edgeflip)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL

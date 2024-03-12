@@ -1,5 +1,8 @@
+add_subdirectory(glfw-3.4)
+
 add_library(imgui STATIC)
 target_include_directories(imgui SYSTEM PUBLIC imgui)
+target_link_libraries(imgui glfw)
 target_sources(imgui PRIVATE
     imgui/imgui.cpp
     imgui/imgui_draw.cpp
