@@ -1,4 +1,5 @@
 build
 .clangd
 .cache
+.vscode
 imgui.ini
