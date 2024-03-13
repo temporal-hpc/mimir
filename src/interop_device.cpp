@@ -62,6 +62,7 @@ void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, 
     for (uint32_t z = 0; z < extent.z; ++z)
     {
         auto rz = static_cast<float>(z) / extent.z;
+        rz = 2 * rz - 1;
         for (uint32_t y = 0; y < extent.y; ++y)
         {
             auto ry = static_cast<float>(y) / extent.y;

@@ -25,7 +25,7 @@ struct ColorInt1 : IColor
     [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
-        float c = float(input) / view.element_count;
+        float c = float(input); // / view.element_count;
         return float4(c, c, c, 1);
     }
 };
@@ -41,7 +41,7 @@ VertexData vertexMain(VertexInput input)
 }
 
 [shader("vertex")]
-VertexData vertexImplicitMain<C:IColor>(float3 pos: POSITION, C in_color)
+VertexData vertexImplicitMain<C:IColor>(float3 pos: POSITION, C in_color: COLOR)
 {
     VertexData output;
     output.center = float4(pos, 1);
