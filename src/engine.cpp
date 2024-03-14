@@ -533,21 +533,21 @@ void CudaviewEngine::initImgui()
     ImGui::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(window, true);
 
-    ImGui_ImplVulkan_InitInfo init_info{};
-    init_info.Instance       = instance;
-    init_info.PhysicalDevice = dev->physical_device;
-    init_info.Device         = dev->logical_device;
-    init_info.Queue          = dev->graphics.queue;
-    init_info.DescriptorPool = descriptor_pool;
-    init_info.MinImageCount  = 3; // TODO: Check if this is true
-    init_info.ImageCount     = 3;
-    init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
-    ImGui_ImplVulkan_Init(&init_info, render_pass);
-
-    dev->immediateSubmit([=](VkCommandBuffer cmd) {
-        ImGui_ImplVulkan_CreateFontsTexture(cmd);
-    });
-    ImGui_ImplVulkan_DestroyFontUploadObjects();
+    ImGui_ImplVulkan_InitInfo info{};
+    info.Instance        = instance;
+    info.PhysicalDevice  = dev->physical_device;
+    info.Device          = dev->logical_device;
+    info.QueueFamily     = dev->graphics.family_index;
+    info.Queue           = dev->graphics.queue;
+    info.PipelineCache   = nullptr;
+    info.DescriptorPool  = descriptor_pool;
+    info.RenderPass      = render_pass;
+    info.Subpass         = 0;
+    info.MinImageCount   = 3; // TODO: Check if this is true
+    info.ImageCount      = 3;
+    info.MSAASamples     = VK_SAMPLE_COUNT_1_BIT;
+    info.CheckVkResultFn = nullptr;
+    ImGui_ImplVulkan_Init(&info);
 }
 
 void CudaviewEngine::createSyncObjects()
