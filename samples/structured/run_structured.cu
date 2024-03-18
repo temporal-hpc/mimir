@@ -253,7 +253,7 @@ int main(int argc, char *argv[])
     JumpFloodProgram program(point_count, 512, 512);
     try
     {
-        CudaviewEngine engine;
+        MimirEngine engine;
         engine.init(1920, 1080);
 
         MemoryParams m1;

@@ -58,7 +58,7 @@ int main(int argc, char **argv){
     init_prob(n, original, seed, prob);
 
     int width = 1920, height = 1080;
-    CudaviewEngine engine;
+    MimirEngine engine;
     engine.init(width, height);
 
     MemoryParams mp;

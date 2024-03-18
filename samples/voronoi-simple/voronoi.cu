@@ -189,7 +189,7 @@ int main(int argc, char *argv[])
     int2 extent            = {grid_size, grid_size};
     curandState *d_states  = nullptr;
 
-    CudaviewEngine engine;
+    MimirEngine engine;
     engine.init(1920, 1080);
 
     MemoryParams m1;

@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
     options.enable_sync = enable_sync;
     options.present = present_mode;
     options.target_fps = target_fps;
-    CudaviewEngine engine;
+    MimirEngine engine;
     engine.init(options);
 
     if (use_interop)

@@ -151,7 +151,7 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
     ImGui::PopID();
 }
 
-void CudaviewEngine::displayEngineGUI()
+void MimirEngine::displayEngineGUI()
 {
     ImGui::Begin("Scene parameters");
     //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
@@ -175,25 +175,25 @@ void CudaviewEngine::displayEngineGUI()
     }
     if (!options.enable_fps_limit) ImGui::EndDisabled();
 
-    for (size_t i = 0; i < views2.size(); ++i)
+    for (size_t i = 0; i < views.size(); ++i)
     {
-        addViewObjectGui(views2[i].get(), i);
+        addViewObjectGui(views[i].get(), i);
     }
     ImGui::End();
 }
 
-CudaviewEngine *getHandler(GLFWwindow *window)
+MimirEngine *getHandler(GLFWwindow *window)
 {
-    return reinterpret_cast<CudaviewEngine*>(glfwGetWindowUserPointer(window));
+    return reinterpret_cast<MimirEngine*>(glfwGetWindowUserPointer(window));
 }
 
-void CudaviewEngine::setBackgroundColor(float4 color)
+void MimirEngine::setBackgroundColor(float4 color)
 {
     bg_color = color;
 }
 
 // Translates GLFW mouse movement into Viewer flags for detecting camera movement
-void CudaviewEngine::handleMouseMove(float x, float y)
+void MimirEngine::handleMouseMove(float x, float y)
 {
     auto dx = mouse_pos.x - x;
     auto dy = mouse_pos.y - y;
@@ -214,14 +214,14 @@ void CudaviewEngine::handleMouseMove(float x, float y)
     mouse_pos = float2{x, y};
 }
 
-void CudaviewEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
+void MimirEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
 {
     auto app = getHandler(window);
     app->handleMouseMove(static_cast<float>(xpos), static_cast<float>(ypos));
 }
 
 // Translates GLFW mouse actions into Viewer flags for detecting camera actions
-void CudaviewEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
+void MimirEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
 {
     // Perform action only if GUI does not want to use mouse input
     // (if not hovering over a menu item)
@@ -242,25 +242,25 @@ void CudaviewEngine::handleMouseButton(int button, int action, [[maybe_unused]] 
     }
 }
 
-void CudaviewEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+void MimirEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
     auto app = getHandler(window);
     app->handleMouseButton(button, action, mods);
 }
 
-void CudaviewEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
+void MimirEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
 {
     auto app = getHandler(window);
     app->should_resize = true;
 }
 
-void CudaviewEngine::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+void MimirEngine::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     auto app = getHandler(window);
     app->handleKey(key, scancode, action, mods);
 }
 
-void CudaviewEngine::handleKey(int key, [[maybe_unused]] int scancode, int action, int mods)
+void MimirEngine::handleKey(int key, [[maybe_unused]] int scancode, int action, int mods)
 {
     // Toggle demo window
     if (key == GLFW_KEY_D && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
@@ -273,7 +273,7 @@ void CudaviewEngine::handleKey(int key, [[maybe_unused]] int scancode, int actio
     }
 }
 
-void CudaviewEngine::windowCloseCallback(GLFWwindow *window)
+void MimirEngine::windowCloseCallback(GLFWwindow *window)
 {
     //printf("Handling window close\n");
     auto engine = getHandler(window);
@@ -281,7 +281,7 @@ void CudaviewEngine::windowCloseCallback(GLFWwindow *window)
     engine->signalKernelFinish();
 }
 
-void CudaviewEngine::showMetrics()
+void MimirEngine::showMetrics()
 {
     int w, h;
     glfwGetFramebufferSize(window, &w, &h);

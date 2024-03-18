@@ -57,12 +57,12 @@ std::string getDefaultShaderPath()
     }
 }
 
-CudaviewEngine::CudaviewEngine():
+MimirEngine::MimirEngine():
     shader_path{ getDefaultShaderPath() },
     camera{ std::make_unique<Camera>() }
 {}
 
-CudaviewEngine::~CudaviewEngine()
+MimirEngine::~MimirEngine()
 {
     if (rendering_thread.joinable())
     {
@@ -90,7 +90,7 @@ CudaviewEngine::~CudaviewEngine()
     dev.reset();
 }
 
-void CudaviewEngine::init(ViewerOptions opts)
+void MimirEngine::init(ViewerOptions opts)
 {
     options = opts;
     max_fps = options.present == PresentOptions::VSync? 60 : 300;
@@ -131,42 +131,29 @@ void CudaviewEngine::init(ViewerOptions opts)
     camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
 }
 
-void CudaviewEngine::init(int width, int height)
+void MimirEngine::init(int width, int height)
 {
     ViewerOptions opts;
     opts.window_size = {width, height};
     init(opts);
 }
 
-void CudaviewEngine::exit()
+void MimirEngine::exit()
 {
     //printf("Exiting...\n");
     glfwSetWindowShouldClose(window, GL_TRUE);
     glfwPollEvents();
 }
 
-void CudaviewEngine::prepare()
+void MimirEngine::prepare()
 {
     initUniformBuffers();
     createGraphicsPipelines();
     updateDescriptorSets();
-    for (auto& view : views2)
-    {
-        // TODO: Reimplement this ugly loop
-        if (view->params.view_type == ViewType::Image)
-        {
-            for (auto &[attr, memory] : view->params.attributes)
-            {
-                if (memory.params.resource_type == ResourceType::LinearTexture)
-                {
-                    dev->updateLinearTexture(memory);
-                }
-            }
-        }
-    }
+    updateLinearTextures();
 }
 
-void CudaviewEngine::displayAsync()
+void MimirEngine::displayAsync()
 {
     prepare();
     running = true;
@@ -183,7 +170,7 @@ void CudaviewEngine::displayAsync()
     });
 }
 
-void CudaviewEngine::prepareViews()
+void MimirEngine::prepareViews()
 {
     if (options.enable_sync && running)
     {
@@ -193,7 +180,7 @@ void CudaviewEngine::prepareViews()
     }
 }
 
-void CudaviewEngine::waitKernelStart()
+void MimirEngine::waitKernelStart()
 {
     static uint64_t wait_value = 1;
     cudaExternalSemaphoreWaitParams wait_params{};
@@ -207,23 +194,10 @@ void CudaviewEngine::waitKernelStart()
     );
     wait_value += 2;
 
-    for (auto& view : views2)
-    {
-        // TODO: Reimplement this ugly loop
-        if (view->params.view_type == ViewType::Image)
-        {
-            for (auto &[attr, memory] : view->params.attributes)
-            {
-                if (memory.params.resource_type == ResourceType::LinearTexture)
-                {
-                    dev->updateLinearTexture(memory);
-                }
-            }
-        }
-    }
+    updateLinearTextures();
 }
 
-void CudaviewEngine::updateViews()
+void MimirEngine::updateViews()
 {
     if (options.enable_sync && running)
     {
@@ -234,7 +208,7 @@ void CudaviewEngine::updateViews()
     }
 }
 
-void CudaviewEngine::signalKernelFinish()
+void MimirEngine::signalKernelFinish()
 {
     static uint64_t signal_value = 2;
     cudaExternalSemaphoreSignalParams signal_params{};
@@ -249,7 +223,7 @@ void CudaviewEngine::signalKernelFinish()
     signal_value += 2;
 }
 
-void CudaviewEngine::display(std::function<void(void)> func, size_t iter_count)
+void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();
     running = true;
@@ -274,7 +248,25 @@ void CudaviewEngine::display(std::function<void(void)> func, size_t iter_count)
     vkDeviceWaitIdle(dev->logical_device);
 }
 
-InteropMemory *CudaviewEngine::createBuffer(void **dev_ptr, MemoryParams params)
+void MimirEngine::updateLinearTextures()
+{
+    for (auto& view : views)
+    {
+        // TODO: Reimplement this ugly loop
+        if (view->params.view_type == ViewType::Image)
+        {
+            for (auto &[attr, memory] : view->params.attributes)
+            {
+                if (memory.params.resource_type == ResourceType::LinearTexture)
+                {
+                    dev->updateLinearTexture(memory);
+                }
+            }
+        }
+    }    
+}
+
+InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
 {
     auto mem_handle = std::unique_ptr<InteropMemory>(new InteropMemory());
     mem_handle->params = params;
@@ -299,7 +291,7 @@ InteropMemory *CudaviewEngine::createBuffer(void **dev_ptr, MemoryParams params)
     return allocations.back().get();
 }
 
-InteropView *CudaviewEngine::createView(ViewParams params)
+InteropView *MimirEngine::createView(ViewParams params)
 {
     auto view_handle = std::unique_ptr<InteropView>(new InteropView());
     view_handle->params = params;
@@ -307,16 +299,16 @@ InteropView *CudaviewEngine::createView(ViewParams params)
     if (params.view_type == ViewType::Image) dev->initViewImage(*view_handle);
     else dev->initViewBuffer(*view_handle);
 
-    views2.push_back(std::move(view_handle));
-    return views2.back().get();
+    views.push_back(std::move(view_handle));
+    return views.back().get();
 }
 
-void CudaviewEngine::loadTexture(InteropMemory *interop, void *data)
+void MimirEngine::loadTexture(InteropMemory *interop, void *data)
 {
     dev->loadTexture(interop, data);
 }
 
-void CudaviewEngine::drawGui()
+void MimirEngine::drawGui()
 {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -328,7 +320,7 @@ void CudaviewEngine::drawGui()
     ImGui::Render();
 }
 
-void CudaviewEngine::initVulkan()
+void MimirEngine::initVulkan()
 {
     createInstance();
     swap = std::make_unique<VulkanSwapchain>();
@@ -381,7 +373,7 @@ void CudaviewEngine::initVulkan()
     );
 }
 
-void CudaviewEngine::createInstance()
+void MimirEngine::createInstance()
 {
     if (validation::enable_layers && !validation::checkValidationLayerSupport())
     {
@@ -443,7 +435,7 @@ void CudaviewEngine::createInstance()
     }
 }
 
-void CudaviewEngine::pickPhysicalDevice()
+void MimirEngine::pickPhysicalDevice()
 {
     int cuda_dev_count = 0;
     validation::checkCuda(cudaGetDeviceCount(&cuda_dev_count));
@@ -527,7 +519,7 @@ void CudaviewEngine::pickPhysicalDevice()
     }
 }
 
-void CudaviewEngine::initImgui()
+void MimirEngine::initImgui()
 {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -550,7 +542,7 @@ void CudaviewEngine::initImgui()
     ImGui_ImplVulkan_Init(&info);
 }
 
-void CudaviewEngine::createSyncObjects()
+void MimirEngine::createSyncObjects()
 {
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
     for (auto& fence : frame_fences)
@@ -561,10 +553,10 @@ void CudaviewEngine::createSyncObjects()
     present_semaphore = dev->createSemaphore();
 }
 
-void CudaviewEngine::cleanupSwapchain()
+void MimirEngine::cleanupSwapchain()
 {
     vkDeviceWaitIdle(dev->logical_device);
-    for (auto& view : views2)
+    for (auto& view : views)
     {
         vkDestroyPipeline(dev->logical_device, view->pipeline, nullptr);
     }
@@ -576,7 +568,7 @@ void CudaviewEngine::cleanupSwapchain()
     fbs.clear();
 }
 
-void CudaviewEngine::initSwapchain()
+void MimirEngine::initSwapchain()
 {
     int w, h;
     glfwGetFramebufferSize(window, &w, &h);
@@ -635,7 +627,7 @@ void CudaviewEngine::initSwapchain()
     }
 }
 
-void CudaviewEngine::recreateSwapchain()
+void MimirEngine::recreateSwapchain()
 {
     //printf("Recreating swapchain\n");
     cleanupSwapchain();
@@ -643,7 +635,7 @@ void CudaviewEngine::recreateSwapchain()
     createGraphicsPipelines();
 }
 
-void CudaviewEngine::updateDescriptorSets()
+void MimirEngine::updateDescriptorSets()
 {
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
@@ -678,7 +670,7 @@ void CudaviewEngine::updateDescriptorSets()
         );
         updates.push_back(write_scene);
 
-        for (const auto& view : views2)
+        for (const auto& view : views)
         {
             for (const auto &[attr, memory] : view->params.attributes)
             {
@@ -713,7 +705,7 @@ void CudaviewEngine::updateDescriptorSets()
     }
 }
 
-void CudaviewEngine::renderFrame()
+void MimirEngine::renderFrame()
 {
     static chrono_tp start_time = std::chrono::high_resolution_clock::now();
     chrono_tp current_time = std::chrono::high_resolution_clock::now();
@@ -853,7 +845,7 @@ void CudaviewEngine::renderFrame()
     }*/
 }
 
-void CudaviewEngine::drawElements(uint32_t image_idx)
+void MimirEngine::drawElements(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -862,9 +854,9 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
     auto size_ubo = size_mvp + size_primitive + size_scene;
 
     auto cmd = command_buffers[image_idx];
-    for (uint32_t i = 0; i < views2.size(); ++i)
+    for (uint32_t i = 0; i < views.size(); ++i)
     {
-        auto& view = views2[i];
+        auto& view = views[i];
         if (!view->params.options.visible) continue;
         std::vector<uint32_t> offsets = {
             i * size_ubo,
@@ -906,12 +898,12 @@ void CudaviewEngine::drawElements(uint32_t image_idx)
     }
 }
 
-bool CudaviewEngine::hasStencil(VkFormat format)
+bool MimirEngine::hasStencil(VkFormat format)
 {
     return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
-VkFormat CudaviewEngine::findDepthFormat()
+VkFormat MimirEngine::findDepthFormat()
 {
     return dev->findSupportedImageFormat(
         {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -920,7 +912,7 @@ VkFormat CudaviewEngine::findDepthFormat()
     );
 }
 
-VkRenderPass CudaviewEngine::createRenderPass()
+VkRenderPass MimirEngine::createRenderPass()
 {
     auto depth = vkinit::attachmentDescription(findDepthFormat());
     depth.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -968,7 +960,7 @@ VkRenderPass CudaviewEngine::createRenderPass()
     return render_pass;
 }
 
-void CudaviewEngine::createGraphicsPipelines()
+void MimirEngine::createGraphicsPipelines()
 {
     //auto start = std::chrono::steady_clock::now();
     auto orig_path = std::filesystem::current_path();
@@ -978,7 +970,7 @@ void CudaviewEngine::createGraphicsPipelines()
 
     // Iterate through views, generating the corresponding pipelines
     // TODO: This does not allow adding views at runtime
-    for (auto& view : views2)
+    for (auto& view : views)
     {
         builder.addPipeline(view->params, dev.get());
     }
@@ -986,7 +978,7 @@ void CudaviewEngine::createGraphicsPipelines()
     //printf("%lu pipeline(s) created\n", pipelines.size());
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
-        views2[i]->pipeline = pipelines[i];
+        views[i]->pipeline = pipelines[i];
     }
 
     // Restore original working directory
@@ -996,7 +988,7 @@ void CudaviewEngine::createGraphicsPipelines()
     //printf("Creation time for all pipelines: %lu ms\n", elapsed);
 }
 
-void CudaviewEngine::rebuildPipeline(InteropView& view)
+void MimirEngine::rebuildPipeline(InteropView& view)
 {
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
@@ -1011,13 +1003,13 @@ void CudaviewEngine::rebuildPipeline(InteropView& view)
     std::filesystem::current_path(orig_path);
 }
 
-void CudaviewEngine::initUniformBuffers()
+void MimirEngine::initUniformBuffers()
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = (size_mvp + size_primitive + size_scene) * views2.size();
+    auto size_ubo = (size_mvp + size_primitive + size_scene) * views.size();
 
     uniform_buffers.resize(swap->image_count);
     for (auto& ubo : uniform_buffers)
@@ -1032,7 +1024,7 @@ void CudaviewEngine::initUniformBuffers()
 }
 
 // Update uniform buffers for view at index [view_idx] for frame [image_idx]
-void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
+void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -1041,9 +1033,9 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
     auto size_ubo = size_mvp + size_primitive + size_scene;
     auto memory = uniform_buffers[image_idx].memory;
 
-    for (size_t view_idx = 0; view_idx < views2.size(); ++view_idx)
+    for (size_t view_idx = 0; view_idx < views.size(); ++view_idx)
     {
-        auto& view = views2[view_idx];
+        auto& view = views[view_idx];
 
         ModelViewProjection mvp{};
         mvp.model = glm::mat4(1.f);
@@ -1073,7 +1065,7 @@ void CudaviewEngine::updateUniformBuffers(uint32_t image_idx)
     }
 }
 
-double CudaviewEngine::getRenderTimeResults(uint32_t cmd_idx)
+double MimirEngine::getRenderTimeResults(uint32_t cmd_idx)
 {
     auto timestamp_period = dev->properties.limits.timestampPeriod;
     const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;

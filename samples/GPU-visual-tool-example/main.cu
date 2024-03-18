@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
     CUDA_CALL(cudaMalloc((void **)&dStates, n * sizeof(curandState)));
 
     int width = 900, height = 900;
-    CudaviewEngine engine;
+    MimirEngine engine;
 
     // [VULKAN] I) CREAR UNA VENTANA VULKAN
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)

@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
         ViewerOptions options;
         options.window_size = {1920,1080}; // Starting window size
         options.present = PresentOptions::VSync;
-        CudaviewEngine engine;
+        MimirEngine engine;
         engine.init(options);
 
         MemoryParams m;

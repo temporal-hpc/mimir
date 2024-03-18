@@ -193,7 +193,7 @@ int main(int argc, char *argv[])
     printf("Loaded '%s', '%d'x'%d pixels \n", filepath.c_str(), img_width, img_height);
 
     int width = 1920, height = 1080;
-    CudaviewEngine engine;
+    MimirEngine engine;
     engine.init(width, height);
 
     // TODO: Unused, should be a texture handle

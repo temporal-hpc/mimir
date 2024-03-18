@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    CudaviewEngine engine;
+    MimirEngine engine;
     engine.init(1920, 1080);
 
     MemoryParams m;

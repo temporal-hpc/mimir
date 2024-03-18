@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
     loadTriangleMesh(filepath, points, triangles);
     auto point_count = points.size();
 
-    CudaviewEngine engine;
+    MimirEngine engine;
     engine.init(1920, 1080);
     engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
 

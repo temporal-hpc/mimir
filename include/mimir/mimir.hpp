@@ -46,12 +46,12 @@ struct ViewerOptions
     uint report_period       = 0;
 };
 
-class CudaviewEngine
+class MimirEngine
 {
 
 public:
-    CudaviewEngine();
-    ~CudaviewEngine();
+    MimirEngine();
+    ~MimirEngine();
     void init(ViewerOptions opts);
     void init(int width, int height);
     // Main library function, which setups all the visualization interop
@@ -114,7 +114,7 @@ private:
     std::vector<AllocatedBuffer> uniform_buffers;
 
     std::vector<std::unique_ptr<InteropMemory>> allocations;
-    std::vector<std::unique_ptr<InteropView>> views2;
+    std::vector<std::unique_ptr<InteropView>> views;
 
     float4 bg_color{.5f, .5f, .5f, 1.f};
 
@@ -148,6 +148,7 @@ private:
     void displayEngineGUI();
     void signalKernelFinish();
     void waitKernelStart();
+    void updateLinearTextures();
 
     // Vulkan core-related functions
     void createInstance();

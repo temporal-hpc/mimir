@@ -29,7 +29,7 @@
 class Application
 {
     private:
-        mimir::CudaviewEngine engine;
+        mimir::MimirEngine engine;
         Mesh* myMesh;
         bool toggle_solid;
         bool toggle_wireframe = true;
