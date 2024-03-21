@@ -193,59 +193,50 @@ void MimirEngine::setBackgroundColor(float4 color)
 }
 
 // Translates GLFW mouse movement into Viewer flags for detecting camera movement
-void MimirEngine::handleMouseMove(float x, float y)
-{
-    auto dx = mouse_pos.x - x;
-    auto dy = mouse_pos.y - y;
-
-    if (mouse_buttons.left)
-    {
-        camera->rotate(glm::vec3(dy * camera->rotation_speed, -dx * camera->rotation_speed, 0.f));
-        view_updated = true;
-    }
-    if (mouse_buttons.right)
-    {
-        camera->translate(glm::vec3(0.f, 0.f, dy * .005f));
-    }
-    if (mouse_buttons.middle)
-    {
-        camera->translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
-    }
-    mouse_pos = float2{x, y};
-}
-
 void MimirEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
 {
     auto app = getHandler(window);
-    app->handleMouseMove(static_cast<float>(xpos), static_cast<float>(ypos));
+    auto dx = app->mouse_pos.x - static_cast<float>(xpos);
+    auto dy = app->mouse_pos.y - static_cast<float>(ypos);
+
+    if (app->mouse_buttons.left)
+    {
+        auto rot = app->camera->rotation_speed;
+        app->camera->rotate(glm::vec3(dy * rot, -dx * rot, 0.f));
+        app->view_updated = true;
+    }
+    if (app->mouse_buttons.right)
+    {
+        app->camera->translate(glm::vec3(0.f, 0.f, dy * .005f));
+    }
+    if (app->mouse_buttons.middle)
+    {
+        app->camera->translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
+    }
+    app->mouse_pos = make_float2(xpos, ypos);    
 }
 
 // Translates GLFW mouse actions into Viewer flags for detecting camera actions
-void MimirEngine::handleMouseButton(int button, int action, [[maybe_unused]] int mods)
+void MimirEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
+    auto app = getHandler(window);
     // Perform action only if GUI does not want to use mouse input
     // (if not hovering over a menu item)
     if (!ImGui::GetIO().WantCaptureMouse)
     {
         if (action == GLFW_PRESS)
         {
-            if (button == GLFW_MOUSE_BUTTON_MIDDLE) mouse_buttons.middle = true;
-            else if (button == GLFW_MOUSE_BUTTON_LEFT) mouse_buttons.left = true;
-            else if (button == GLFW_MOUSE_BUTTON_RIGHT) mouse_buttons.right = true;
+            if (button == GLFW_MOUSE_BUTTON_MIDDLE) app->mouse_buttons.middle = true;
+            else if (button == GLFW_MOUSE_BUTTON_LEFT) app->mouse_buttons.left = true;
+            else if (button == GLFW_MOUSE_BUTTON_RIGHT) app->mouse_buttons.right = true;
         }
         else if (action == GLFW_RELEASE)
         {
-            if (button == GLFW_MOUSE_BUTTON_MIDDLE) mouse_buttons.middle = false;
-            else if (button == GLFW_MOUSE_BUTTON_LEFT) mouse_buttons.left = false;
-            else if (button == GLFW_MOUSE_BUTTON_RIGHT) mouse_buttons.right = false;
+            if (button == GLFW_MOUSE_BUTTON_MIDDLE) app->mouse_buttons.middle = false;
+            else if (button == GLFW_MOUSE_BUTTON_LEFT) app->mouse_buttons.left = false;
+            else if (button == GLFW_MOUSE_BUTTON_RIGHT) app->mouse_buttons.right = false;
         }
     }
-}
-
-void MimirEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
-{
-    auto app = getHandler(window);
-    app->handleMouseButton(button, action, mods);
 }
 
 void MimirEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
@@ -257,19 +248,15 @@ void MimirEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] 
 void MimirEngine::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     auto app = getHandler(window);
-    app->handleKey(key, scancode, action, mods);
-}
-
-void MimirEngine::handleKey(int key, [[maybe_unused]] int scancode, int action, int mods)
-{
     // Toggle demo window
     if (key == GLFW_KEY_D && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
-        show_demo_window = !show_demo_window;
+        app->show_demo_window = !app->show_demo_window;
     }
+    // Toggle metrics windows
     if (key == GLFW_KEY_M && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
-        options.show_metrics = !options.show_metrics;
+        app->options.show_metrics = !app->options.show_metrics;
     }
 }
 

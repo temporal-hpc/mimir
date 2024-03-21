@@ -126,14 +126,6 @@ private:
     } mouse_buttons;
     bool view_updated = false;
     float2 mouse_pos;
-    void handleMouseMove(float x, float y);
-    void handleMouseButton(int button, int action, int mods);
-    void handleKey(int key, int scancode, int action, int mods);
-    static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
-    static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
-    static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
-    static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
-    static void windowCloseCallback(GLFWwindow *window);
 
     std::unique_ptr<Camera> camera;
     bool show_demo_window = false;
@@ -144,11 +136,18 @@ private:
     void prepare();
     void renderFrame();
     void drawElements(uint32_t image_idx);
-    void drawGui();
-    void displayEngineGUI();
     void signalKernelFinish();
     void waitKernelStart();
     void updateLinearTextures();
+
+    // GUI functions
+    static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
+    static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
+    static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
+    static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
+    static void windowCloseCallback(GLFWwindow *window);
+    void displayEngineGUI();
+    void drawGui();
 
     // Vulkan core-related functions
     void createInstance();
