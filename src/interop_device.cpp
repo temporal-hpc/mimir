@@ -280,10 +280,11 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
 
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    VkExportMemoryAllocateInfoKHR export_info{};
-    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
-    export_info.pNext = nullptr;
-    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
     interop.image_memory = allocateMemory(memreq, memflags, &export_info);
     interop.cuda_extmem = importCudaExternalMemory(interop.image_memory, memreq.size);
     deletors.add([=,this]{
@@ -461,7 +462,6 @@ void InteropDevice::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent
         .baseArrayLayer = 0,
         .layerCount     = 1
     };
-
     VkBufferImageCopy region{
         .bufferOffset      = 0,
         .bufferRowLength   = 0,
@@ -472,38 +472,21 @@ void InteropDevice::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent
     };
     immediateSubmit([=](VkCommandBuffer cmd)
     {
-        vkCmdCopyBufferToImage(cmd, buffer, image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
-        );
+        auto layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        vkCmdCopyBufferToImage(cmd, buffer, image, layout, 1, &region);
     });
 }
 
 cudaExternalMemory_t InteropDevice::importCudaExternalMemory(
     VkDeviceMemory vk_mem, VkDeviceSize size)
 {
-    cudaExternalMemoryHandleDesc extmem_desc{};
-    extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
-    extmem_desc.size = size;
-    extmem_desc.handle.fd = (int)(uintptr_t)getMemoryHandle(
-        vk_mem, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-    );
-    cudaExternalMemory_t cuda_mem;
-    validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
-    return cuda_mem;
-}
-
-void *InteropDevice::getMemoryHandle(VkDeviceMemory memory,
-    VkExternalMemoryHandleTypeFlagBits handle_type)
-{
-    int fd = -1;
-
+    // Get external memory handle function
     VkMemoryGetFdInfoKHR fd_info{
-        .sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
-        .pNext = nullptr,
-        .memory = memory,
-        .handleType = handle_type
+        .sType      = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
+        .pNext      = nullptr,
+        .memory     = vk_mem,
+        .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
-
     auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(
         logical_device, "vkGetMemoryFdKHR"
     );
@@ -511,24 +494,26 @@ void *InteropDevice::getMemoryHandle(VkDeviceMemory memory,
     {
         throw std::runtime_error("Failed to retrieve function!");
     }
+    // Get external memory handle
+    int fd = -1;
     if (fpGetMemoryFdKHR(logical_device, &fd_info, &fd) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to retrieve handle for buffer!");
     }
-    return (void*)(uintptr_t)fd;
+
+    cudaExternalMemoryHandleDesc extmem_desc{};
+    extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
+    extmem_desc.size = size;
+    extmem_desc.handle.fd = fd;
+    cudaExternalMemory_t cuda_mem;
+    validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
+    return cuda_mem;
 }
 
-void *InteropDevice::getSemaphoreHandle(VkSemaphore semaphore,
-    VkExternalSemaphoreHandleTypeFlagBits handle_type)
+cudaExternalSemaphore_t InteropDevice::importCudaExternalSemaphore(
+    VkSemaphore vk_semaphore)
 {
-    int fd;
-    VkSemaphoreGetFdInfoKHR fd_info{
-        .sType      = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR,
-        .pNext      = nullptr,
-        .semaphore  = semaphore,
-        .handleType = handle_type
-    };
-
+    // Get external semaphore handle function
     auto fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
         logical_device, "vkGetSemaphoreFdKHR"
     );
@@ -536,9 +521,24 @@ void *InteropDevice::getSemaphoreHandle(VkSemaphore semaphore,
     {
         throw std::runtime_error("Failed to retrieve semaphore function handle!");
     }
+    VkSemaphoreGetFdInfoKHR fd_info{
+        .sType      = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR,
+        .pNext      = nullptr,
+        .semaphore  = vk_semaphore,
+        .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+    // Get external semaphore handle
+    int fd = -1;
     validation::checkVulkan(fpGetSemaphore(logical_device, &fd_info, &fd));
 
-    return (void*)(uintptr_t)fd;
+    cudaExternalSemaphoreHandleDesc desc{};
+    desc.type      = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+    desc.handle.fd = fd;
+    desc.flags     = 0;
+
+    cudaExternalSemaphore_t cuda_semaphore;
+    validation::checkCuda(cudaImportExternalSemaphore(&cuda_semaphore, &desc));
+    return cuda_semaphore;
 }
 
 InteropBarrier InteropDevice::createInteropBarrier()
@@ -549,22 +549,15 @@ InteropBarrier InteropDevice::createInteropBarrier()
         .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
         .initialValue  = 0
     };
-
-    auto handle_type = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
     VkExportSemaphoreCreateInfoKHR export_info{
         .sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR,
         .pNext       = &timeline_info,
-        .handleTypes = handle_type
+        .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
     };
 
     InteropBarrier barrier;
     barrier.vk_semaphore = createSemaphore(&export_info);
-
-    cudaExternalSemaphoreHandleDesc desc{};
-    desc.type      = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-    desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(barrier.vk_semaphore, handle_type);
-    desc.flags     = 0;
-    validation::checkCuda(cudaImportExternalSemaphore(&barrier.cuda_semaphore, &desc));
+    barrier.cuda_semaphore = importCudaExternalSemaphore(barrier.vk_semaphore);
     deletors.add([=]{
         validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));
     });

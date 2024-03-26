@@ -367,11 +367,6 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
                     .layerCount     = 1,
                 },
                 .dstOffsets = { {0, 0, 0}, {mip_x, mip_y, 1} },
-                /*.srcOffsets[0] = {0, 0, 0},
-                .srcOffsets[1] = {mip_width, mip_height, 1},
-                .dstOffsets[0] = {0, 0, 0},
-                .dstOffsets[1] = {mip_width > 1 ? mip_width / 2 : 1,
-                                    mip_height > 1 ? mip_height / 2 : 1, 1},*/
             };
 
             vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,

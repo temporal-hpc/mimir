@@ -25,11 +25,8 @@ struct InteropDevice : public VulkanDevice
     cudaExternalMemory_t importCudaExternalMemory(
         VkDeviceMemory vk_mem, VkDeviceSize size
     );
-    void *getMemoryHandle(VkDeviceMemory memory,
-        VkExternalMemoryHandleTypeFlagBits handle_type
-    );
-    void *getSemaphoreHandle(VkSemaphore semaphore,
-        VkExternalSemaphoreHandleTypeFlagBits handle_type
+    cudaExternalSemaphore_t importCudaExternalSemaphore(
+        VkSemaphore vk_semaphore
     );
     InteropBarrier createInteropBarrier();
 
