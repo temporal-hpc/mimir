@@ -11,6 +11,43 @@
 namespace mimir
 {
 
+VkPipelineShaderStageCreateInfo shaderStageInfo(
+    VkShaderStageFlagBits stage, VkShaderModule module)
+{
+    VkPipelineShaderStageCreateInfo info{
+        .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .pNext  = nullptr,
+        .flags  = 0,
+        .stage  = stage,  // Shader stage
+        .module = module, // Module containing code for this shader stage
+        .pName  = "main", // Shader entry point
+        .pSpecializationInfo = nullptr, // specify values for shader constants
+    };
+    return info;
+}
+
+VkVertexInputBindingDescription vertexBinding(
+    uint32_t binding, uint32_t stride, VkVertexInputRate rate)
+{
+    return VkVertexInputBindingDescription{
+        .binding   = binding,
+        .stride    = stride,
+        .inputRate = rate,
+    };
+}
+
+VkVertexInputAttributeDescription vertexAttribute(
+    uint32_t location, uint32_t binding, VkFormat format, uint32_t offset)
+{
+    VkVertexInputAttributeDescription desc{
+        .location = location,
+        .binding  = binding,
+        .format   = format,
+        .offset   = offset,
+    };
+    return desc;
+}
+
 // DEPRECATED: Loads a file and returns its data buffer
 // Was used for loading compiled shader files, but slang made this obsolete
 std::vector<char> readFile(const std::string& filename)
@@ -178,7 +215,23 @@ VkPipelineDepthStencilStateCreateInfo getDepthInfo([[maybe_unused]] DataDomain d
 {
     // TODO: Decide when to apply depth testing
     bool use_depth = true; //(domain == DataDomain::Domain3D);
-    return vkinit::depthStencilCreateInfo(use_depth, use_depth, VK_COMPARE_OP_LESS);
+    bool depth_test = use_depth;
+    bool depth_write = use_depth;
+    VkCompareOp compare_op = VK_COMPARE_OP_LESS;
+    return VkPipelineDepthStencilStateCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0, // For additional depth/stencil state info
+        .depthTestEnable       = depth_test ? VK_TRUE : VK_FALSE,
+        .depthWriteEnable      = depth_write ? VK_TRUE : VK_FALSE,
+        .depthCompareOp        = depth_test ? compare_op : VK_COMPARE_OP_ALWAYS,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable     = VK_FALSE,
+        .front                 = {}, // TODO: Get default values for both of these
+        .back                  = {},
+        .minDepthBounds        = 0.f,
+        .maxDepthBounds        = 1.f,
+    };
 }
 
 PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
@@ -314,7 +367,7 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
         dev->deletors.add([=]{
             vkDestroyShaderModule(dev->logical_device, shader_module, nullptr);
         });
-        auto shader_info = vkinit::pipelineShaderStageCreateInfo(stage, shader_module);
+        auto shader_info = shaderStageInfo(stage, shader_module);
         compiled_stages.push_back(shader_info);
     }
     return compiled_stages;
@@ -327,7 +380,7 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::loadExternalShader
     for (const auto& info : shaders)
     {
         auto shader_module = createShaderModule(readFile(info.filepath), dev);
-        auto shader_info = vkinit::pipelineShaderStageCreateInfo(info.stage, shader_module);
+        auto shader_info = shaderStageInfo(info.stage, shader_module);
         compiled_stages.push_back(shader_info);
     }
     return compiled_stages;
@@ -336,7 +389,21 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::loadExternalShader
 VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
 {
     auto poly_mode = (type == ViewType::Edges)? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-    return vkinit::rasterizationStateCreateInfo(poly_mode);
+    return VkPipelineRasterizationStateCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags                   = 0, // Currently unused
+        .depthClampEnable        = VK_FALSE,
+        .rasterizerDiscardEnable = VK_FALSE,
+        .polygonMode             = poly_mode,
+        .cullMode                = VK_CULL_MODE_NONE,
+        .frontFace               = VK_FRONT_FACE_CLOCKWISE,
+        .depthBiasEnable         = VK_FALSE,
+        .depthBiasConstantFactor = 0.f,
+        .depthBiasClamp          = 0.f,
+        .depthBiasSlopeFactor    = 0.f,
+        .lineWidth               = 1.f,
+    };
 }
 
 VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
@@ -346,7 +413,13 @@ VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
     {
         topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     }
-    return vkinit::inputAssemblyCreateInfo(topology);
+    return VkPipelineInputAssemblyStateCreateInfo{
+        .sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .pNext    = nullptr,
+        .flags    = 0, // Currently unused
+        .topology = topology,
+        .primitiveRestartEnable = VK_FALSE,
+    };
 }
 
 VertexDescription getVertexDescription(const ViewParams params)
@@ -358,23 +431,23 @@ VertexDescription getVertexDescription(const ViewParams params)
     if (params.view_type == ViewType::Voxels)
     {
         uint32_t location = static_cast<uint32_t>(AttributeType::Position);
-        desc.binding.push_back(vkinit::vertexBindingDescription(
-            binding, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX
-        ));
-        desc.attribute.push_back(vkinit::vertexAttributeDescription(
-            location, binding, VK_FORMAT_R32G32B32_SFLOAT, 0
-        ));
+        desc.binding.push_back(vertexBinding(
+            binding, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX)
+        );
+        desc.attribute.push_back(
+            vertexAttribute(location, binding, VK_FORMAT_R32G32B32_SFLOAT, 0)
+        );
         binding++;
     }
     else if (params.view_type == ViewType::Image)
     {
-        desc.binding.push_back(vkinit::vertexBindingDescription(
-            0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
-        ));
-        desc.attribute.push_back(vkinit::vertexAttributeDescription(
+        desc.binding.push_back(vertexBinding(
+            0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX)
+        );
+        desc.attribute.push_back(vertexAttribute(
             0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)
         ));
-        desc.attribute.push_back(vkinit::vertexAttributeDescription(
+        desc.attribute.push_back(vertexAttribute(
             1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)
         ));
         return desc;
@@ -393,10 +466,10 @@ VertexDescription getVertexDescription(const ViewParams params)
             case AttributeType::Color:
             case AttributeType::Size:
             {
-                desc.binding.push_back(vkinit::vertexBindingDescription(
+                desc.binding.push_back(vertexBinding(
                     binding, stride, VK_VERTEX_INPUT_RATE_VERTEX
                 ));
-                desc.attribute.push_back(vkinit::vertexAttributeDescription(
+                desc.attribute.push_back(vertexAttribute(
                     location, binding, format, 0
                 ));
                 binding++;
@@ -425,14 +498,30 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
         stages = compileSlang(dev, compile_params);
     }
 
-    auto col_blend = vkinit::colorBlendAttachmentState();
-    col_blend.blendEnable         = VK_TRUE;
-    col_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    col_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    col_blend.colorBlendOp        = VK_BLEND_OP_ADD;
-    col_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;
+    VkPipelineColorBlendAttachmentState color_blend{
+        .blendEnable         = VK_FALSE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .colorBlendOp        = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp        = VK_BLEND_OP_ADD,
+        .colorWriteMask      =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+
+    VkPipelineMultisampleStateCreateInfo multisampling{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .pNext                 = nullptr,
+        .flags                 = 0, // Currently unused
+        .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable   = VK_FALSE,
+        .minSampleShading      = 1.f,
+        .pSampleMask           = nullptr,
+        .alphaToCoverageEnable = VK_FALSE,
+        .alphaToOneEnable      = VK_FALSE,
+    };
 
     PipelineInfo info{
         .shader_stages          = stages,
@@ -440,8 +529,8 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
         .input_assembly         = getAssemblyInfo(params.view_type),
         .rasterizer             = getRasterizationInfo(params.view_type),
         .depth_stencil          = getDepthInfo(params.data_domain),
-        .color_blend_attachment = col_blend,
-        .multisampling          = vkinit::multisampleStateCreateInfo(),
+        .color_blend_attachment = color_blend,
+        .multisampling          = multisampling,
     };
 
     pipeline_infos.push_back(info);
@@ -452,7 +541,15 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     VkDevice device, VkRenderPass pass)
 {
     // Combine viewport and scissor rectangle into a viewport state
-    auto viewport_state = vkinit::viewportCreateInfo(&viewport, &scissor);
+    VkPipelineViewportStateCreateInfo viewport_state{
+        .sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .pNext         = nullptr,
+        .flags         = 0, // Unused
+        .viewportCount = 1,
+        .pViewports    = &viewport,
+        .scissorCount  = 1,
+        .pScissors     = &scissor,
+    };
 
     std::vector<VkPipelineColorBlendStateCreateInfo> color_states;
     color_states.reserve(pipeline_infos.size());
@@ -466,27 +563,51 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     for (auto& info : pipeline_infos)
     {
         // Write to color attachment with no actual blending being done
-        auto color_blend = vkinit::colorBlendInfo(&info.color_blend_attachment);
-        color_states.push_back(color_blend);
+        color_states.push_back(VkPipelineColorBlendStateCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .pNext           = nullptr,
+            .flags           = 0, // Can be VK_PIPELINE_COLOR_BLEND_STATE_CREATE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_BIT_ARM
+            .logicOpEnable   = VK_FALSE,
+            .logicOp         = VK_LOGIC_OP_NO_OP,
+            .attachmentCount = 1,
+            .pAttachments    = &info.color_blend_attachment,
+            .blendConstants  = { 0.f, 0.f, 0.f, 0.f},
+        });
 
-        auto input_info = vkinit::vertexInputStateCreateInfo(
-            info.vertex_input_info.binding, info.vertex_input_info.attribute
-        );
-        vertex_states.push_back(input_info);
+        auto &bindings = info.vertex_input_info.binding;
+        auto &attributes = info.vertex_input_info.attribute;
+        vertex_states.push_back(VkPipelineVertexInputStateCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0, // Currently unused
+            .vertexBindingDescriptionCount   = vkinit::toInt32(bindings.size()),
+            .pVertexBindingDescriptions      = bindings.empty()? nullptr : bindings.data(),
+            .vertexAttributeDescriptionCount = vkinit::toInt32(attributes.size()),
+            .pVertexAttributeDescriptions    = attributes.empty()? nullptr : attributes.data(),
+        });
 
         // Build the pipeline
-        auto create_info = vkinit::pipelineCreateInfo(pipeline_layout, pass);
-        create_info.stageCount          = info.shader_stages.size();
-        create_info.pStages             = info.shader_stages.data();
-        create_info.pVertexInputState   = &vertex_states.back();
-        create_info.pInputAssemblyState = &info.input_assembly;
-        create_info.pViewportState      = &viewport_state;
-        create_info.pRasterizationState = &info.rasterizer;
-        create_info.pMultisampleState   = &info.multisampling;
-        create_info.pDepthStencilState  = &info.depth_stencil;
-        create_info.pColorBlendState    = &color_states.back();
-
-        create_infos.push_back(create_info);
+        create_infos.push_back(VkGraphicsPipelineCreateInfo{
+            .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .pNext               = nullptr,
+            .flags               = 0, // Specify how the pipeline is created
+            .stageCount          = vkinit::toInt32(info.shader_stages.size()),
+            .pStages             = info.shader_stages.data(),
+            .pVertexInputState   = &vertex_states.back(),
+            .pInputAssemblyState = &info.input_assembly,
+            .pTessellationState  = nullptr,
+            .pViewportState      = &viewport_state,
+            .pRasterizationState = &info.rasterizer,
+            .pMultisampleState   = &info.multisampling,
+            .pDepthStencilState  = &info.depth_stencil,
+            .pColorBlendState    = &color_states.back(),
+            .pDynamicState       = nullptr,
+            .layout              = pipeline_layout,
+            .renderPass          = pass,
+            .subpass             = 0,
+            .basePipelineHandle  = VK_NULL_HANDLE,
+            .basePipelineIndex   = -1,
+        });
     }
 
     std::vector<VkPipeline> pipelines(create_infos.size(), VK_NULL_HANDLE);

@@ -263,7 +263,7 @@ void MimirEngine::updateLinearTextures()
                 }
             }
         }
-    }    
+    }
 }
 
 InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
@@ -320,6 +320,18 @@ void MimirEngine::drawGui()
     ImGui::Render();
 }
 
+VkDescriptorSetLayoutBinding descriptorLayoutBinding(
+    uint32_t binding, VkDescriptorType type, VkShaderStageFlags flags)
+{
+    return VkDescriptorSetLayoutBinding{
+        .binding            = binding,
+        .descriptorType     = type,
+        .descriptorCount    = 1,
+        .stageFlags         = flags,
+        .pImmutableSamplers = nullptr,
+    };
+}
+
 void MimirEngine::initVulkan()
 {
     createInstance();
@@ -345,19 +357,19 @@ void MimirEngine::initVulkan()
 
     // Create descriptor set and pipeline layouts
     std::vector<VkDescriptorSetLayoutBinding> layout_bindings{
-        vkinit::descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
-        vkinit::descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
-        vkinit::descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
         ),
-        vkinit::descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             VK_SHADER_STAGE_FRAGMENT_BIT
         ),
-        vkinit::descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER,
+        descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER,
             VK_SHADER_STAGE_FRAGMENT_BIT
         )
     };
@@ -790,9 +802,16 @@ void MimirEngine::renderFrame()
     auto begin_info = vkinit::commandBufferBeginInfo(cmd_flags);
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
-    auto render_pass_info = vkinit::renderPassBeginInfo(
-        render_pass, fbs[image_idx].framebuffer, swap->extent
-    );
+    VkRenderPassBeginInfo render_pass_info{
+        .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .pNext           = nullptr,
+        .renderPass      = render_pass,
+        .framebuffer     = fbs[image_idx].framebuffer,
+        .renderArea      = { {0, 0}, swap->extent },
+        .clearValueCount = 1,
+        .pClearValues    = nullptr,
+    };
+
     std::array<VkClearValue, 2> clear_values{};
     setColor(clear_values[0].color.float32, bg_color);
     clear_values[1].depthStencil = {1.f, 0};
@@ -818,8 +837,15 @@ void MimirEngine::renderFrame()
     // Fill out command buffer submission info
     std::vector<VkPipelineStageFlags> stages;
     stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    auto interop_sync_info = vkinit::timelineSubmitInfo(&wait_value, &signal_value);
-    auto submit_info = vkinit::submitInfo(&cmd, waits, stages, signals, &interop_sync_info);
+    VkTimelineSemaphoreSubmitInfo semaphore_info{
+        .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+        .pNext = nullptr,
+        .waitSemaphoreValueCount   = 1,
+        .pWaitSemaphoreValues      = &wait_value,
+        .signalSemaphoreValueCount = 1,
+        .pSignalSemaphoreValues    = &signal_value,
+    };
+    auto submit_info = vkinit::submitInfo(&cmd, waits, stages, signals, &semaphore_info);
 
     // Clear fence before placing it again
     validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
@@ -827,7 +853,16 @@ void MimirEngine::renderFrame()
     validation::checkVulkan(vkQueueSubmit(dev->graphics.queue, 1, &submit_info, fence));
 
     // Return image result back to swapchain for presentation on screen
-    auto present_info = vkinit::presentInfo(&image_idx, &swap->swapchain, &present_semaphore);
+    VkPresentInfoKHR present_info{
+        .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .pNext              = nullptr,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores    = &present_semaphore,
+        .swapchainCount     = 1,
+        .pSwapchains        = &swap->swapchain,
+        .pImageIndices      = &image_idx,
+        .pResults           = nullptr,
+    };
     result = vkQueuePresentKHR(dev->present.queue, &present_info);
     // Resize should be done after presentation to ensure semaphore consistency
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
@@ -928,43 +963,79 @@ VkFormat MimirEngine::findDepthFormat()
 
 VkRenderPass MimirEngine::createRenderPass()
 {
-    auto depth = vkinit::attachmentDescription(findDepthFormat());
-    depth.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    VkAttachmentDescription color{
+        .flags          = 0,
+        .format         = swap->color_format,
+        .samples        = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+    };
+    VkAttachmentDescription depth{
+        .flags          = 0, // Can be VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT
+        .format         = findDepthFormat(),
+        .samples        = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+    std::array<VkAttachmentDescription, 2> attachments{ color, depth };
 
-    VkAttachmentReference depth_ref{};
-    depth_ref.attachment = 1;
-    depth_ref.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    auto color = vkinit::attachmentDescription(swap->color_format);
-    color.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-    color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-    VkAttachmentReference color_ref{};
-    color_ref.attachment = 0;
-    color_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    auto subpass = vkinit::subpassDescription(VK_PIPELINE_BIND_POINT_GRAPHICS);
-    subpass.colorAttachmentCount    = 1;
-    subpass.pColorAttachments       = &color_ref;
-    subpass.pDepthStencilAttachment = &depth_ref;
+    VkAttachmentReference color_ref{
+        .attachment = 0,
+        .layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
+    VkAttachmentReference depth_ref{
+        .attachment = 1,
+        .layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+    VkSubpassDescription subpass{
+        .flags                   = 0, // Specify subpass usage
+        .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .inputAttachmentCount    = 0,
+        .pInputAttachments       = nullptr,
+        .colorAttachmentCount    = 1,
+        .pColorAttachments       = &color_ref,
+        .pResolveAttachments     = nullptr,
+        .pDepthStencilAttachment = &depth_ref,
+        .preserveAttachmentCount = 0,
+        .pPreserveAttachments    = nullptr,
+    };
 
     // Specify memory and execution dependencies between subpasses
-    auto stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    auto access_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    auto dependency = vkinit::subpassDependency();
-    dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass    = 0;
-    dependency.srcStageMask  = stage_mask;
-    dependency.dstStageMask  = stage_mask;
-    dependency.srcAccessMask = 0;
-    dependency.dstAccessMask = access_mask;
+    VkPipelineStageFlags stage_mask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    VkAccessFlags access_mask =
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    VkSubpassDependency dependency{
+        .srcSubpass      = VK_SUBPASS_EXTERNAL,
+        .dstSubpass      = 0,
+        .srcStageMask    = stage_mask,
+        .dstStageMask    = stage_mask,
+        .srcAccessMask   = 0, // TODO: Change to VK_ACCESS_NONE in 1.3
+        .dstAccessMask   = access_mask,
+        .dependencyFlags = 0,
+    };
 
-    std::array<VkAttachmentDescription, 2> attachments{ color, depth };
-    auto pass_info = vkinit::renderPassCreateInfo(attachments, &subpass, &dependency);
+    VkRenderPassCreateInfo pass_info{
+        .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .pNext           = nullptr,
+        .flags           = 0, // Can be VK_RENDER_PASS_CREATE_TRANSFORM_BIT_QCOM
+        .attachmentCount = vkinit::toInt32(attachments.size()),
+        .pAttachments    = attachments.data(),
+        .subpassCount    = 1,
+        .pSubpasses      = &subpass,
+        .dependencyCount = 1,
+        .pDependencies   = &dependency,
+    };
 
     //printf("render pass attachment count: %lu\n", attachments.size());
     VkRenderPass render_pass = VK_NULL_HANDLE;

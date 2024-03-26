@@ -47,13 +47,21 @@ void VulkanFramebuffer::create(VkDevice device,
     }
     attachment_views.push_back(depth_view);
 
-    auto fb_info = vkinit::framebufferCreateInfo(render_pass, extent);
-    fb_info.pAttachments    = attachment_views.data();
-    fb_info.attachmentCount = attachment_views.size();
+    VkFramebufferCreateInfo info{
+        .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .pNext           = nullptr,
+        .flags           = 0, // Can be VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT
+        .renderPass      = render_pass,
+        .attachmentCount = vkinit::toInt32(attachment_views.size()),
+        .pAttachments    = attachment_views.data(),
+        .width           = extent.width,
+        .height          = extent.height,
+        .layers          = 1,
+    };
     //printf("attachment size %lu\n", attachment_views.size());
 
     validation::checkVulkan(
-        vkCreateFramebuffer(device, &fb_info, nullptr, &framebuffer)
+        vkCreateFramebuffer(device, &info, nullptr, &framebuffer)
     );
     deletors.add([=,this](){
         //printf("destroying framebuffer\n");

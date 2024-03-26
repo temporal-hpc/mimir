@@ -21,6 +21,17 @@ uint32_t getAlignedSize(size_t original_size, size_t min_alignment)
 	return aligned_size;
 }
 
+VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool, uint32_t count)
+{
+    return VkCommandBufferAllocateInfo{
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext              = nullptr,
+        .commandPool        = pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = count,
+    };
+}
+
 VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
 {
     vkGetPhysicalDeviceProperties(physical_device, &properties);
@@ -118,7 +129,12 @@ VkCommandPool VulkanDevice::createCommandPool(
     uint32_t queue_idx, VkCommandPoolCreateFlags flags)
 {
     VkCommandPool cmd_pool = VK_NULL_HANDLE;
-    auto pool_info = vkinit::commandPoolCreateInfo(flags, queue_idx);
+    VkCommandPoolCreateInfo pool_info{
+        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .pNext            = nullptr,
+        .flags            = flags,
+        .queueFamilyIndex = queue_idx,
+    };
     validation::checkVulkan(vkCreateCommandPool(
         logical_device, &pool_info, nullptr, &cmd_pool)
     );
@@ -151,9 +167,7 @@ std::vector<VkDescriptorSet> VulkanDevice::createDescriptorSets(
 std::vector<VkCommandBuffer> VulkanDevice::createCommandBuffers(uint32_t buffer_count)
 {
     std::vector<VkCommandBuffer> buffers(buffer_count, VK_NULL_HANDLE);
-    auto alloc_info = vkinit::commandBufferAllocateInfo(
-        command_pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, buffer_count
-    );
+    auto alloc_info = commandBufferAllocateInfo(command_pool, buffer_count);
     validation::checkVulkan(vkAllocateCommandBuffers(
         logical_device, &alloc_info, buffers.data())
     );
@@ -164,7 +178,7 @@ void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fu
 {
     auto queue = graphics.queue;
     VkCommandBuffer cmd;
-    auto alloc_info = vkinit::commandBufferAllocateInfo(command_pool);
+    auto alloc_info = commandBufferAllocateInfo(command_pool, 1);
     validation::checkVulkan(vkAllocateCommandBuffers(logical_device, &alloc_info, &cmd));
 
     // Begin command buffer recording with a only-one-use buffer
@@ -234,11 +248,28 @@ VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
 
 VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)
 {
-    auto info = vkinit::samplerCreateInfo(filter);
-    info.anisotropyEnable = enable_anisotropy? VK_TRUE : VK_FALSE;
-    info.maxAnisotropy    = properties.limits.maxSamplerAnisotropy;
+    VkSamplerCreateInfo info{
+        .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .pNext            = nullptr,
+        .flags            = 0,
+        .magFilter        = filter,
+        .minFilter        = filter,
+        .mipmapMode       = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+        .addressModeU     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .mipLodBias       = 0.f,
+        .anisotropyEnable = enable_anisotropy? VK_TRUE : VK_FALSE,
+        .maxAnisotropy    = properties.limits.maxSamplerAnisotropy,
+        .compareEnable    = VK_FALSE,
+        .compareOp        = VK_COMPARE_OP_NEVER,
+        .minLod           = 0.f,
+        .maxLod           = VK_LOD_CLAMP_NONE,
+        .borderColor      = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+        .unnormalizedCoordinates = VK_FALSE,
+    };
 
-    VkSampler sampler;
+    VkSampler sampler = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateSampler(logical_device, &info, nullptr, &sampler));
     deletors.add([=,this]{
         vkDestroySampler(logical_device, sampler, nullptr);
@@ -419,7 +450,15 @@ VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
 VkPipelineLayout VulkanDevice::createPipelineLayout(VkDescriptorSetLayout descriptor_layout)
 {
     std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
-    auto info = vkinit::pipelineLayoutCreateInfo(layouts);
+    VkPipelineLayoutCreateInfo info{
+        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext                  = nullptr,
+        .flags                  = 0, // Currently unused
+        .setLayoutCount         = vkinit::toInt32(layouts.size()),
+        .pSetLayouts            = layouts.data(),
+        .pushConstantRangeCount = 0,
+        .pPushConstantRanges    = nullptr,
+    };
     VkPipelineLayout layout = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreatePipelineLayout(logical_device, &info, nullptr, &layout));
     deletors.add([=,this]{ vkDestroyPipelineLayout(logical_device, layout, nullptr); });
@@ -428,7 +467,11 @@ VkPipelineLayout VulkanDevice::createPipelineLayout(VkDescriptorSetLayout descri
 
 VkFence VulkanDevice::createFence(VkFenceCreateFlags flags)
 {
-    auto info = vkinit::fenceCreateInfo(flags);
+    VkFenceCreateInfo info{
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = flags,
+    };
     VkFence fence = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateFence(logical_device, &info, nullptr, &fence));
     deletors.add([=,this]{
