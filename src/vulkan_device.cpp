@@ -477,7 +477,11 @@ VkFence VulkanDevice::createFence(VkFenceCreateFlags flags)
 
 VkSemaphore VulkanDevice::createSemaphore(const void *extensions)
 {
-    auto info = vkinit::semaphoreCreateInfo(extensions);
+    VkSemaphoreCreateInfo info{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        .pNext = extensions,
+        .flags = 0, // Unused
+    };
     VkSemaphore semaphore = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateSemaphore(logical_device, &info, nullptr, &semaphore));
     deletors.add([=,this]{

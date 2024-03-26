@@ -17,16 +17,6 @@ VkCommandBufferBeginInfo commandBufferBeginInfo(VkCommandBufferUsageFlags flags)
     return info;
 }
 
-VkSemaphoreCreateInfo semaphoreCreateInfo(const void *extensions)
-{
-    VkSemaphoreCreateInfo info{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .pNext = extensions,
-        .flags = 0, // Unused
-    };
-    return info;
-}
-
 VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits,
     std::span<VkPipelineStageFlags> stages, std::span<VkSemaphore> signals,
     const void *timeline_info)
@@ -131,21 +121,6 @@ VkWriteDescriptorSet writeDescriptorImage(VkDescriptorSet dst_set,
         .pTexelBufferView = nullptr,
     };
     return write;
-}
-
-VkBufferCreateInfo bufferCreateInfo(VkDeviceSize size, VkBufferUsageFlags usage)
-{
-    VkBufferCreateInfo info{
-        .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .pNext       = nullptr,
-        .flags       = 0, // Additional buffer parameters
-        .size        = size,
-        .usage       = usage,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .queueFamilyIndexCount = 0,
-        .pQueueFamilyIndices   = nullptr,
-    };
-    return info;
 }
 
 } // namespace vkinit

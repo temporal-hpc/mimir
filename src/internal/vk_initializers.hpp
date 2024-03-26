@@ -19,11 +19,7 @@ VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits = {},
     const void *timeline_info = nullptr
 );
 
-// Synchronization-related functions
-VkSemaphoreCreateInfo semaphoreCreateInfo(const void *extensions = nullptr);
-
 // Buffer/Image functions
-VkBufferCreateInfo bufferCreateInfo(VkDeviceSize size, VkBufferUsageFlags usage);
 VkImageCreateInfo imageCreateInfo(VkImageType type,
     VkFormat format, VkExtent3D extent, VkImageUsageFlags usage
 );
