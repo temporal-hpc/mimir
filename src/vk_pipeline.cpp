@@ -189,17 +189,19 @@ PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
     // Create global session to work with the Slang API
     validation::checkSlang(slang::createGlobalSession(global_session.writeRef()));
 
-    slang::TargetDesc target_desc{};
-    target_desc.format  = SLANG_SPIRV;
-    target_desc.profile = global_session->findProfile("sm_6_6");
+    slang::TargetDesc target_desc{
+        .format  = SLANG_SPIRV,
+        .profile = global_session->findProfile("sm_6_6"),
+    };
 
     const char* search_paths[] = { "shaders/include" };
-    slang::SessionDesc session_desc{};
-    session_desc.targets                 = &target_desc;
-    session_desc.targetCount             = 1;
-    session_desc.searchPaths             = search_paths;
-    session_desc.searchPathCount         = 1;
-    session_desc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR;
+    slang::SessionDesc session_desc{
+        .targets                 = &target_desc,
+        .targetCount             = 1,
+        .defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR,
+        .searchPaths             = search_paths,
+        .searchPathCount         = 1,
+    };
 
     // Obtain a compilation session that scopes compilation and code loading
     validation::checkSlang(global_session->createSession(session_desc, session.writeRef()));
@@ -220,12 +222,13 @@ VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
 VkShaderModule PipelineBuilder::createShaderModule(
     const std::vector<char>& code, InteropDevice *dev)
 {
-    VkShaderModuleCreateInfo info{};
-    info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    info.pNext    = nullptr;
-    info.flags    = 0; // Unused
-    info.codeSize = code.size();
-    info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
+    VkShaderModuleCreateInfo info{
+        .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .pNext    = nullptr,
+        .flags    = 0, // Unused
+        .codeSize = code.size(),
+        .pCode    = reinterpret_cast<const uint32_t*>(code.data()),
+    };
 
     VkShaderModule module;
     validation::checkVulkan(
@@ -265,13 +268,14 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
 
     if (!params.specializations.empty())
     {
+        auto layout = module->getLayout();
         std::vector<slang::SpecializationArg> args;
         for (const auto& specialization : params.specializations)
         {
-            auto spec_type = module->getLayout()->findTypeByName(specialization.c_str());
-            slang::SpecializationArg arg;
-            arg.kind = slang::SpecializationArg::Kind::Type;
-            arg.type = spec_type;
+            slang::SpecializationArg arg{
+                .kind = slang::SpecializationArg::Kind::Type,
+                .type = layout->findTypeByName(specialization.c_str()),
+            };
             args.push_back(arg);
         }
 
@@ -296,12 +300,13 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
         result = program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
         validation::checkSlang(result, diag);
 
-        VkShaderModuleCreateInfo info{};
-        info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        info.pNext    = nullptr;
-        info.flags    = 0; // Unused by Vulkan API
-        info.codeSize = kernel->getBufferSize();
-        info.pCode    = static_cast<const uint32_t*>(kernel->getBufferPointer());
+        VkShaderModuleCreateInfo info{
+            .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .pNext    = nullptr,
+            .flags    = 0, // Unused by Vulkan API
+            .codeSize = kernel->getBufferSize(),
+            .pCode    = static_cast<const uint32_t*>(kernel->getBufferPointer()),
+        };
         VkShaderModule shader_module;
         validation::checkVulkan(
             vkCreateShaderModule(dev->logical_device, &info, nullptr, &shader_module)
@@ -406,7 +411,6 @@ VertexDescription getVertexDescription(const ViewParams params)
 
 uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *dev)
 {
-    PipelineInfo info;
     auto compile_params = getShaderCompileParams(params);
     auto ext_shaders = params.options.external_shaders;
 
@@ -421,12 +425,6 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
         stages = compileSlang(dev, compile_params);
     }
 
-    info.shader_stages = stages;
-    info.vertex_input_info = getVertexDescription(params);
-    info.input_assembly = getAssemblyInfo(params.view_type);
-    info.depth_stencil = getDepthInfo(params.data_domain);
-    info.rasterizer = getRasterizationInfo(params.view_type);
-    info.multisampling = vkinit::multisampleStateCreateInfo();
     auto col_blend = vkinit::colorBlendAttachmentState();
     col_blend.blendEnable         = VK_TRUE;
     col_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -435,7 +433,16 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
     col_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     col_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     col_blend.alphaBlendOp        = VK_BLEND_OP_ADD;
-    info.color_blend_attachment   = col_blend;
+
+    PipelineInfo info{
+        .shader_stages          = stages,
+        .vertex_input_info      = getVertexDescription(params),
+        .input_assembly         = getAssemblyInfo(params.view_type),
+        .rasterizer             = getRasterizationInfo(params.view_type),
+        .depth_stencil          = getDepthInfo(params.data_domain),
+        .color_blend_attachment = col_blend,
+        .multisampling          = vkinit::multisampleStateCreateInfo(),
+    };
 
     pipeline_infos.push_back(info);
     return pipeline_infos.size() - 1;

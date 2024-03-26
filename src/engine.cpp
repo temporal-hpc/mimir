@@ -380,13 +380,15 @@ void MimirEngine::createInstance()
         throw std::runtime_error("validation layers requested, but not supported");
     }
 
-    VkApplicationInfo app_info{};
-    app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_info.pApplicationName   = "Mimir";
-    app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    app_info.pEngineName        = "Mimir";
-    app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
-    app_info.apiVersion         = VK_API_VERSION_1_2;
+    VkApplicationInfo app_info{
+        .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pNext              = nullptr,
+        .pApplicationName   = "Mimir",
+        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+        .pEngineName        = "Mimir",
+        .engineVersion      = VK_MAKE_VERSION(1, 0, 0),
+        .apiVersion         = VK_API_VERSION_1_2,
+    };
 
     uint32_t glfw_ext_count = 0;
     // List required GLFW extensions and additional required validation layers
@@ -401,15 +403,16 @@ void MimirEngine::createInstance()
     extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
     extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
-    VkInstanceCreateInfo instance_info{};
-    instance_info.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_info.pNext                   = nullptr;
-    instance_info.flags                   = 0;
-    instance_info.pApplicationInfo        = &app_info;
-    instance_info.enabledLayerCount       = 0;
-    instance_info.ppEnabledLayerNames     = nullptr;
-    instance_info.enabledExtensionCount   = extensions.size();
-    instance_info.ppEnabledExtensionNames = extensions.data();
+    VkInstanceCreateInfo instance_info{
+        .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pNext                   = nullptr,
+        .flags                   = 0,
+        .pApplicationInfo        = &app_info,
+        .enabledLayerCount       = 0,
+        .ppEnabledLayerNames     = nullptr,
+        .enabledExtensionCount   = vkinit::toInt32(extensions.size()),
+        .ppEnabledExtensionNames = extensions.data(),
+    };
 
     VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
     // Include validation layer names if they are enabled
@@ -525,20 +528,25 @@ void MimirEngine::initImgui()
     ImGui::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(window, true);
 
-    ImGui_ImplVulkan_InitInfo info{};
-    info.Instance        = instance;
-    info.PhysicalDevice  = dev->physical_device;
-    info.Device          = dev->logical_device;
-    info.QueueFamily     = dev->graphics.family_index;
-    info.Queue           = dev->graphics.queue;
-    info.PipelineCache   = nullptr;
-    info.DescriptorPool  = descriptor_pool;
-    info.RenderPass      = render_pass;
-    info.Subpass         = 0;
-    info.MinImageCount   = 3; // TODO: Check if this is true
-    info.ImageCount      = 3;
-    info.MSAASamples     = VK_SAMPLE_COUNT_1_BIT;
-    info.CheckVkResultFn = nullptr;
+    ImGui_ImplVulkan_InitInfo info{
+        .Instance        = instance,
+        .PhysicalDevice  = dev->physical_device,
+        .Device          = dev->logical_device,
+        .QueueFamily     = dev->graphics.family_index,
+        .Queue           = dev->graphics.queue,
+        .DescriptorPool  = descriptor_pool,
+        .RenderPass      = render_pass,
+        .MinImageCount   = 3, // TODO: Check if this is true
+        .ImageCount      = 3,
+        .MSAASamples     = VK_SAMPLE_COUNT_1_BIT,
+        .PipelineCache   = nullptr,
+        .Subpass         = 0,
+        .UseDynamicRendering = false,
+        .PipelineRenderingCreateInfo = {},
+        .Allocator         = nullptr,
+        .CheckVkResultFn   = nullptr,
+        .MinAllocationSize = 0,
+    };
     ImGui_ImplVulkan_Init(&info);
 }
 
@@ -593,13 +601,14 @@ void MimirEngine::initSwapchain()
 
     VkMemoryRequirements mem_req;
     vkGetImageMemoryRequirements(dev->logical_device, depth_image, &mem_req);
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.pNext = nullptr;
-    alloc_info.allocationSize = mem_req.size;
-    alloc_info.memoryTypeIndex = dev->findMemoryType(
-        mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-    );
+    VkMemoryAllocateInfo alloc_info{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .allocationSize = mem_req.size,
+        .memoryTypeIndex = dev->findMemoryType(
+            mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        ),
+    };
     validation::checkVulkan(
         vkAllocateMemory(dev->logical_device, &alloc_info, nullptr, &depth_memory)
     );
@@ -643,28 +652,31 @@ void MimirEngine::updateDescriptorSets()
         std::vector<VkWriteDescriptorSet> updates;
         auto& set = descriptor_sets[i];
 
-        VkDescriptorBufferInfo mvp_info{};
-        mvp_info.buffer = uniform_buffers[i].buffer;
-        mvp_info.offset = 0;
-        mvp_info.range  = sizeof(ModelViewProjection);
+        VkDescriptorBufferInfo mvp_info{
+            .buffer = uniform_buffers[i].buffer,
+            .offset = 0,
+            .range  = sizeof(ModelViewProjection),
+        };
         auto write_mvp = vkinit::writeDescriptorBuffer(set, 0,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &mvp_info
         );
         updates.push_back(write_mvp);
 
-        VkDescriptorBufferInfo primitive_info{};
-        primitive_info.buffer = uniform_buffers[i].buffer;
-        primitive_info.offset = 0;
-        primitive_info.range  = sizeof(PrimitiveParams);
+        VkDescriptorBufferInfo primitive_info{
+            .buffer = uniform_buffers[i].buffer,
+            .offset = 0,
+            .range  = sizeof(PrimitiveParams),
+        };
         auto write_primitive = vkinit::writeDescriptorBuffer(set, 2,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &primitive_info
         );
         updates.push_back(write_primitive);
 
-        VkDescriptorBufferInfo scene_info{};
-        scene_info.buffer = uniform_buffers[i].buffer;
-        scene_info.offset = 0;
-        scene_info.range  = sizeof(SceneParams);
+        VkDescriptorBufferInfo scene_info{
+            .buffer = uniform_buffers[i].buffer,
+            .offset = 0,
+            .range  = sizeof(SceneParams),
+        };
         auto write_scene = vkinit::writeDescriptorBuffer(set, 1,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
         );
@@ -678,20 +690,22 @@ void MimirEngine::updateDescriptorSets()
                 if (memory.params.resource_type == ResourceType::Texture ||
                     memory.params.resource_type == ResourceType::LinearTexture)
                 {
-                    VkDescriptorImageInfo img_info{};
-                    img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    img_info.imageView   = memory.vk_view;
-                    img_info.sampler     = memory.vk_sampler;
+                    VkDescriptorImageInfo img_info{
+                        .sampler     = memory.vk_sampler,
+                        .imageView   = memory.vk_view,
+                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    };
 
                     auto write_img = vkinit::writeDescriptorImage(set,
                         3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
                     );
                     updates.push_back(write_img);
 
-                    VkDescriptorImageInfo samp_info{};
-                    samp_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    samp_info.imageView   = memory.vk_view;
-                    samp_info.sampler     = memory.vk_sampler;
+                    VkDescriptorImageInfo samp_info{
+                        .sampler     = memory.vk_sampler,
+                        .imageView   = memory.vk_view,
+                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    };
 
                     auto write_samp = vkinit::writeDescriptorImage(set,
                         4, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
@@ -1037,23 +1051,26 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
     {
         auto& view = views[view_idx];
 
-        ModelViewProjection mvp{};
-        mvp.model = glm::mat4(1.f);
-        mvp.view  = camera->matrices.view;
-        mvp.proj  = camera->matrices.perspective;
+        ModelViewProjection mvp{
+            .model = glm::mat4(1.f),
+            .view  = camera->matrices.view,
+            .proj  = camera->matrices.perspective,
+        };
 
-        PrimitiveParams primitive{};
-        primitive.color = getColor(view->params.options.default_color);
-        primitive.size = view->params.options.default_size;
-        primitive.depth = view->params.options.depth;
-        primitive.element_count = view->params.options.custom_val;
+        PrimitiveParams primitive{
+            .color = getColor(view->params.options.default_color),
+            .size = view->params.options.default_size,
+            .depth = view->params.options.depth,
+            .element_count = view->params.options.custom_val,
+        };
 
-        SceneParams scene{};
         auto extent = view->params.extent;
-        scene.bg_color = getColor(bg_color);
-        scene.extent = glm::ivec3{extent.x, extent.y, extent.z};
-        scene.resolution = glm::ivec2{options.window_size.x, options.window_size.y};
-        scene.camera_pos = camera->position;
+        SceneParams scene{
+            .bg_color = getColor(bg_color),
+            .extent = glm::ivec3{extent.x, extent.y, extent.z},
+            .resolution = glm::ivec2{options.window_size.x, options.window_size.y},
+            .camera_pos = camera->position,
+        };
 
         char *data = nullptr;
         auto offset = size_ubo * view_idx;

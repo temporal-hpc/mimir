@@ -82,24 +82,26 @@ cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryP
 {
     constexpr int level_count = 1; // TODO: Should be a parameter
 
-    auto comp_sz = getComponentSize(params.component_type) * 8;
-    cudaChannelFormatDesc format_desc;
-    format_desc.x = comp_sz;
-    format_desc.y = comp_sz;
-    format_desc.z = comp_sz;
-    format_desc.w = comp_sz;
-    format_desc.f = cudaChannelFormatKindUnsigned;
+    auto comp_sz = static_cast<int>(getComponentSize(params.component_type) * 8);
+    cudaChannelFormatDesc format_desc{
+        .x = comp_sz,
+        .y = comp_sz,
+        .z = comp_sz,
+        .w = comp_sz,
+        .f = cudaChannelFormatKindUnsigned
+    };
 
     size_t image_width  = params.element_count.x;
     size_t image_height = params.element_count.y;
     auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
 
-    cudaExternalMemoryMipmappedArrayDesc array_desc{};
-    array_desc.offset     = 0;
-    array_desc.formatDesc = format_desc;
-    array_desc.extent     = cuda_extent;
-    array_desc.flags      = 0;
-    array_desc.numLevels  = level_count;
+    cudaExternalMemoryMipmappedArrayDesc array_desc{
+        .offset     = 0,
+        .formatDesc = format_desc,
+        .extent     = cuda_extent,
+        .flags      = 0,
+        .numLevels  = level_count
+    };
 
     cudaMipmappedArray_t mipmap_array;
     validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
@@ -123,9 +125,9 @@ VkImage InteropDevice::createImage(MemoryParams params)
 {
     auto img_type = getImageType(params.layout);
     auto format   = getDataFormat(params.component_type, params.channel_count);
-    auto usage    = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     auto tiling   = VK_IMAGE_TILING_OPTIMAL;
     auto sz = params.element_count;
+    VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     VkExtent3D extent = {sz.x, sz.y, sz.z};
 
     // TODO: Check if texture is within bounds
@@ -136,25 +138,30 @@ VkImage InteropDevice::createImage(MemoryParams params)
     }
 
     // Check that the upcoming image parameters are supported
-    VkPhysicalDeviceImageFormatInfo2 format_info{};
-    format_info.sType  = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
-    format_info.pNext  = nullptr;
-    format_info.format = format;
-    format_info.type   = img_type;
-    format_info.tiling = tiling;
-    format_info.usage  = usage;
-    format_info.flags  = 0;
-    VkImageFormatProperties2 format_props{};
-    format_props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+    VkPhysicalDeviceImageFormatInfo2 format_info{
+        .sType  = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
+        .pNext  = nullptr,
+        .format = format,
+        .type   = img_type,
+        .tiling = tiling,
+        .usage  = usage,
+        .flags  = 0
+    };
+    VkImageFormatProperties2 format_props{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
+        .pNext = nullptr,
+        .imageFormatProperties = {} // To be filled in function below
+    };
     // TODO: Do not rely on validation layers to stop invalid image formats
     validation::checkVulkan(vkGetPhysicalDeviceImageFormatProperties2(
         physical_device, &format_info, &format_props
     ));
 
-    VkExternalMemoryImageCreateInfo extmem_info{};
-    extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-    extmem_info.pNext = nullptr;
-    extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkExternalMemoryImageCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
 
     auto info = vkinit::imageCreateInfo(img_type, format, extent, usage);
     info.pNext         = &extmem_info;
@@ -177,9 +184,11 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
     // Create external memory buffers
     VkDeviceSize memsize = element_size * element_count;
     auto usage = getBufferUsage(params.resource_type);
-    VkExternalMemoryBufferCreateInfo extmem_info{};
-    extmem_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
-    extmem_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkExternalMemoryBufferCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
 
     interop.data_buffer = createBuffer(memsize, usage, &extmem_info);
     deletors.add([=,this]{
@@ -190,10 +199,11 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
 
     // Create and export (to CUDA) the memory allocated with the
     // requirements obtained above
-    VkExportMemoryAllocateInfoKHR export_info{};
-    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
-    export_info.pNext = nullptr;
-    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     interop.memory = allocateMemory(memreq, memflags, &export_info);
     interop.cuda_extmem = importCudaExternalMemory(interop.memory, memreq.size);
@@ -204,10 +214,11 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
 
     // Bind the resources to the external memory allocated above
     vkBindBufferMemory(logical_device, interop.data_buffer, interop.memory, 0);
-    cudaExternalMemoryBufferDesc buffer_desc{};
-    buffer_desc.offset = 0;
-    buffer_desc.size   = memsize;
-    buffer_desc.flags  = 0;
+    cudaExternalMemoryBufferDesc buffer_desc{
+        .offset = 0,
+        .size   = memsize,
+        .flags  = 0
+    };
     validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
         &interop.cuda_ptr, interop.cuda_extmem, &buffer_desc)
     );
@@ -444,19 +455,21 @@ void InteropDevice::loadTexture(InteropMemory *interop, void *img_data)
 
 void InteropDevice::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent)
 {
-    VkImageSubresourceLayers subres;
-    subres.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-    subres.mipLevel       = 0;
-    subres.baseArrayLayer = 0;
-    subres.layerCount     = 1;
+    VkImageSubresourceLayers subres{
+        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .mipLevel       = 0,
+        .baseArrayLayer = 0,
+        .layerCount     = 1
+    };
 
-    VkBufferImageCopy region{};
-    region.bufferOffset      = 0;
-    region.bufferRowLength   = 0;
-    region.bufferImageHeight = 0;
-    region.imageSubresource  = subres;
-    region.imageOffset       = {0, 0, 0};
-    region.imageExtent       = extent;
+    VkBufferImageCopy region{
+        .bufferOffset      = 0,
+        .bufferRowLength   = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource  = subres,
+        .imageOffset       = {0, 0, 0},
+        .imageExtent       = extent
+    };
     immediateSubmit([=](VkCommandBuffer cmd)
     {
         vkCmdCopyBufferToImage(cmd, buffer, image,
@@ -484,11 +497,12 @@ void *InteropDevice::getMemoryHandle(VkDeviceMemory memory,
 {
     int fd = -1;
 
-    VkMemoryGetFdInfoKHR fd_info{};
-    fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
-    fd_info.pNext = nullptr;
-    fd_info.memory = memory;
-    fd_info.handleType = handle_type;
+    VkMemoryGetFdInfoKHR fd_info{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
+        .pNext = nullptr,
+        .memory = memory,
+        .handleType = handle_type
+    };
 
     auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(
         logical_device, "vkGetMemoryFdKHR"
@@ -508,11 +522,12 @@ void *InteropDevice::getSemaphoreHandle(VkSemaphore semaphore,
     VkExternalSemaphoreHandleTypeFlagBits handle_type)
 {
     int fd;
-    VkSemaphoreGetFdInfoKHR fd_info{};
-    fd_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
-    fd_info.pNext = nullptr;
-    fd_info.semaphore  = semaphore;
-    fd_info.handleType = handle_type;
+    VkSemaphoreGetFdInfoKHR fd_info{
+        .sType      = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR,
+        .pNext      = nullptr,
+        .semaphore  = semaphore,
+        .handleType = handle_type
+    };
 
     auto fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
         logical_device, "vkGetSemaphoreFdKHR"
@@ -528,25 +543,27 @@ void *InteropDevice::getSemaphoreHandle(VkSemaphore semaphore,
 
 InteropBarrier InteropDevice::createInteropBarrier()
 {
-    VkSemaphoreTypeCreateInfo timeline_info{};
-    timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-    timeline_info.pNext = nullptr;
-    timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    timeline_info.initialValue = 0;
+    VkSemaphoreTypeCreateInfo timeline_info{
+        .sType         = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+        .pNext         = nullptr,
+        .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+        .initialValue  = 0
+    };
 
     auto handle_type = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-    VkExportSemaphoreCreateInfoKHR export_info{};
-    export_info.sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
-    export_info.pNext       = &timeline_info;
-    export_info.handleTypes = handle_type;
+    VkExportSemaphoreCreateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR,
+        .pNext       = &timeline_info,
+        .handleTypes = handle_type
+    };
 
     InteropBarrier barrier;
     barrier.vk_semaphore = createSemaphore(&export_info);
 
     cudaExternalSemaphoreHandleDesc desc{};
-    desc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+    desc.type      = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
     desc.handle.fd = (int)(uintptr_t)getSemaphoreHandle(barrier.vk_semaphore, handle_type);
-    desc.flags = 0;
+    desc.flags     = 0;
     validation::checkCuda(cudaImportExternalSemaphore(&barrier.cuda_semaphore, &desc));
     deletors.add([=]{
         validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));

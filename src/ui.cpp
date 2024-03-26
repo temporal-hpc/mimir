@@ -217,7 +217,7 @@ void MimirEngine::cursorPositionCallback(GLFWwindow *window, double xpos, double
 }
 
 // Translates GLFW mouse actions into Viewer flags for detecting camera actions
-void MimirEngine::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+void MimirEngine::mouseButtonCallback(GLFWwindow *window, int button, int action,[[maybe_unused]] int mods)
 {
     auto app = getHandler(window);
     // Perform action only if GUI does not want to use mouse input
@@ -245,7 +245,7 @@ void MimirEngine::framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] 
     app->should_resize = true;
 }
 
-void MimirEngine::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+void MimirEngine::keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int action, int mods)
 {
     auto app = getHandler(window);
     // Toggle demo window

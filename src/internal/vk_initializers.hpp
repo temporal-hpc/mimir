@@ -7,6 +7,11 @@
 namespace vkinit
 {
 
+constexpr uint32_t toInt32(long unsigned int size)
+{
+    return static_cast<uint32_t>(size);
+}
+
 // Command-related functions
 VkCommandPoolCreateInfo commandPoolCreateInfo(VkCommandPoolCreateFlags flags,
     uint32_t queue_family_idx

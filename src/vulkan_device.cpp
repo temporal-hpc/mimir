@@ -50,11 +50,14 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
 
     for (auto queue_family : unique_queue_families)
     {
-        VkDeviceQueueCreateInfo queue_create_info{};
-        queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_create_info.queueFamilyIndex = queue_family;
-        queue_create_info.queueCount       = 1;
-        queue_create_info.pQueuePriorities = &queue_priority;
+        VkDeviceQueueCreateInfo queue_create_info{
+            .sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .pNext            = nullptr,
+            .flags            = 0,
+            .queueFamilyIndex = queue_family,
+            .queueCount       = 1,
+            .pQueuePriorities = &queue_priority,
+        };
         queue_create_infos.push_back(queue_create_info);
     }
 
@@ -77,25 +80,23 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     vk11features.pNext = &vk12features;
     vk11features.storageInputOutput16 = VK_FALSE;
 
-    VkDeviceCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    create_info.pNext = &vk11features;
-    create_info.queueCreateInfoCount = queue_create_infos.size();
-    create_info.pQueueCreateInfos    = queue_create_infos.data();
-    create_info.pEnabledFeatures     = &device_features;
-
     auto device_extensions = props::getRequiredDeviceExtensions();
-    create_info.enabledExtensionCount   = device_extensions.size();
-    create_info.ppEnabledExtensionNames = device_extensions.data();
-
+    VkDeviceCreateInfo create_info{
+        .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext                   = &vk11features,
+        .flags                   = 0,
+        .queueCreateInfoCount    = vkinit::toInt32(queue_create_infos.size()),
+        .pQueueCreateInfos       = queue_create_infos.data(),
+        .enabledLayerCount       = 0,
+        .ppEnabledLayerNames     = nullptr,
+        .enabledExtensionCount   = vkinit::toInt32(device_extensions.size()),
+        .ppEnabledExtensionNames = device_extensions.data(),
+        .pEnabledFeatures        = &device_features,
+    };
     if (validation::enable_layers)
     {
         create_info.enabledLayerCount   = validation::layers.size();
         create_info.ppEnabledLayerNames = validation::layers.data();
-    }
-    else
-    {
-        create_info.enabledLayerCount = 0;
     }
 
     validation::checkVulkan(vkCreateDevice(
@@ -132,11 +133,13 @@ std::vector<VkDescriptorSet> VulkanDevice::createDescriptorSets(
     VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count)
 {
     std::vector<VkDescriptorSetLayout> layouts(set_count, layout);
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool     = pool;
-    alloc_info.descriptorSetCount = set_count;
-    alloc_info.pSetLayouts        = layouts.data();
+    VkDescriptorSetAllocateInfo alloc_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext              = nullptr,
+        .descriptorPool     = pool,
+        .descriptorSetCount = set_count,
+        .pSetLayouts        = layouts.data(),
+    };
 
     std::vector<VkDescriptorSet> sets(set_count, VK_NULL_HANDLE);
     validation::checkVulkan(
@@ -194,12 +197,13 @@ uint32_t VulkanDevice::findMemoryType(uint32_t type_filter, VkMemoryPropertyFlag
 VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
     VkMemoryPropertyFlags properties, const void *export_info)
 {
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.pNext = export_info;
-    alloc_info.allocationSize = requirements.size;
     auto type = findMemoryType(requirements.memoryTypeBits, properties);
-    alloc_info.memoryTypeIndex = type;
+    VkMemoryAllocateInfo alloc_info{
+        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext           = export_info,
+        .allocationSize  = requirements.size,
+        .memoryTypeIndex = type,
+    };
 
     VkDeviceMemory memory = VK_NULL_HANDLE;
     validation::checkVulkan(vkAllocateMemory(logical_device, &alloc_info, nullptr, &memory));
@@ -212,12 +216,16 @@ VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
     VkBuffer buffer = VK_NULL_HANDLE;
     if (size > 0)
     {
-        VkBufferCreateInfo info{};
-        info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        info.size        = size;
-        info.usage       = usage;
-        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        info.pNext       = extmem_info;
+        VkBufferCreateInfo info{
+            .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext       = extmem_info,
+            .flags       = 0,
+            .size        = size,
+            .usage       = usage,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices   = nullptr,
+        };
 
         validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
     }
@@ -277,20 +285,29 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
 
     immediateSubmit([=](VkCommandBuffer cmd)
     {
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.image = image;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.subresourceRange.levelCount = 1;
+        VkImageMemoryBarrier barrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask       = 0,
+            .dstAccessMask       = 0,
+            .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image               = image,
+            .subresourceRange = VkImageSubresourceRange{
+                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel   = 0,
+                .levelCount     = 1,
+                .baseArrayLayer = 0,
+                .layerCount     = 1,
+            }
+        };
 
         int32_t mip_width  = img_width;
         int32_t mip_height = img_height;
 
-        for (int i = 1; i < mip_levels; i++)
+        for (uint32_t i = 1; i < static_cast<uint32_t>(mip_levels); i++)
         {
             barrier.subresourceRange.baseMipLevel = i - 1;
             barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -302,20 +319,29 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
                                 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
                                 nullptr, 1, &barrier);
 
-            VkImageBlit blit = {};
-            blit.srcOffsets[0] = {0, 0, 0};
-            blit.srcOffsets[1] = {mip_width, mip_height, 1};
-            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            blit.srcSubresource.mipLevel = i - 1;
-            blit.srcSubresource.baseArrayLayer = 0;
-            blit.srcSubresource.layerCount = 1;
-            blit.dstOffsets[0] = {0, 0, 0};
-            blit.dstOffsets[1] = {mip_width > 1 ? mip_width / 2 : 1,
-                                    mip_height > 1 ? mip_height / 2 : 1, 1};
-            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            blit.dstSubresource.mipLevel = i;
-            blit.dstSubresource.baseArrayLayer = 0;
-            blit.dstSubresource.layerCount = 1;
+            int32_t mip_x = mip_width > 1 ? mip_width / 2 : 1;
+            int32_t mip_y = mip_height > 1 ? mip_height / 2 : 1;
+            VkImageBlit blit{
+                .srcSubresource = VkImageSubresourceLayers{
+                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel       = i - 1,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1,
+                },
+                .srcOffsets = { {0, 0, 0}, {mip_width, mip_height, 1} },
+                .dstSubresource = VkImageSubresourceLayers{
+                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel       = i,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1,
+                },
+                .dstOffsets = { {0, 0, 0}, {mip_x, mip_y, 1} },
+                /*.srcOffsets[0] = {0, 0, 0},
+                .srcOffsets[1] = {mip_width, mip_height, 1},
+                .dstOffsets[0] = {0, 0, 0},
+                .dstOffsets[1] = {mip_width > 1 ? mip_width / 2 : 1,
+                                    mip_height > 1 ? mip_height / 2 : 1, 1},*/
+            };
 
             vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                             image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
@@ -350,12 +376,14 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
 VkDescriptorPool VulkanDevice::createDescriptorPool(
     const std::vector<VkDescriptorPoolSize>& pool_sizes)
 {
-    VkDescriptorPoolCreateInfo pool_info{};
-    pool_info.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pool_info.maxSets       = 1000;
-    pool_info.poolSizeCount = pool_sizes.size();
-    pool_info.pPoolSizes    = pool_sizes.data();
+    VkDescriptorPoolCreateInfo pool_info{
+        .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext         = nullptr,
+        .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .maxSets       = 1000,
+        .poolSizeCount = vkinit::toInt32(pool_sizes.size()),
+        .pPoolSizes    = pool_sizes.data(),
+    };
 
     VkDescriptorPool pool = VK_NULL_HANDLE;
     validation::checkVulkan(
@@ -370,10 +398,13 @@ VkDescriptorPool VulkanDevice::createDescriptorPool(
 VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
     const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings)
 {
-    VkDescriptorSetLayoutCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    info.bindingCount = layout_bindings.size();
-    info.pBindings    = layout_bindings.data();
+    VkDescriptorSetLayoutCreateInfo info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext        = nullptr,
+        .flags        = 0,
+        .bindingCount = vkinit::toInt32(layout_bindings.size()),
+        .pBindings    = layout_bindings.data(),
+    };
 
     VkDescriptorSetLayout layout = VK_NULL_HANDLE;
     validation::checkVulkan(
@@ -535,14 +566,16 @@ void VulkanDevice::listExtensions()
 
 VkQueryPool VulkanDevice::createQueryPool(uint32_t query_count)
 {
-    VkQueryPoolCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
-    info.pNext = nullptr;
-    info.flags = 0;
-    info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-    // Number of queries is twice the number of command buffers, to store space
-    // for queries before and after rendering
-    info.queryCount = query_count; //command_buffers.size() * 2;
+    VkQueryPoolCreateInfo info{
+        .sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+        .pNext      = nullptr,
+        .flags      = 0,
+        .queryType  = VK_QUERY_TYPE_TIMESTAMP,
+        // Number of queries is twice the number of command buffers, to store space
+        // for queries before and after rendering
+        .queryCount = query_count, //command_buffers.size() * 2;
+        .pipelineStatistics = 0,
+    };
 
     VkQueryPool pool = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateQueryPool(logical_device, &info, nullptr, &pool));

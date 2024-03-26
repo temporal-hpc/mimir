@@ -97,33 +97,33 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
     // TODO: Delete old_swapchain after image_count frames have passed
     auto old_swapchain = VK_NULL_HANDLE; //swapchain;
 
-    VkSwapchainCreateInfoKHR create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    create_info.surface          = surface;
-    create_info.minImageCount    = image_count;
-    create_info.imageFormat      = color_format;
-    create_info.imageColorSpace  = color_space;
-    create_info.imageExtent      = extent;
-    create_info.imageArrayLayers = 1;
-    create_info.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    VkSwapchainCreateInfoKHR create_info{
+        .sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .pNext            = nullptr,
+        .flags            = 0,
+        .surface          = surface,
+        .minImageCount    = image_count,
+        .imageFormat      = color_format,
+        .imageColorSpace  = color_space,
+        .imageExtent      = extent,
+        .imageArrayLayers = 1,
+        .imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices   = nullptr,
+        .preTransform     = surf_caps.currentTransform,
+        .compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode      = present_mode,
+        .clipped          = VK_TRUE,
+        .oldSwapchain     = old_swapchain,
+    };
+
     if (queue_indices[0] != queue_indices[1])
     {
         create_info.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
         create_info.queueFamilyIndexCount = queue_indices.size();
         create_info.pQueueFamilyIndices   = queue_indices.data();
     }
-    else
-    {
-        create_info.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
-        create_info.queueFamilyIndexCount = 0;
-        create_info.pQueueFamilyIndices   = nullptr;
-    }
-    create_info.preTransform     = surf_caps.currentTransform;
-    create_info.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    create_info.presentMode      = present_mode;
-    create_info.clipped          = VK_TRUE;
-    create_info.oldSwapchain     = old_swapchain;
-
     validation::checkVulkan(vkCreateSwapchainKHR(
         device, &create_info, nullptr, &swapchain)
     );
