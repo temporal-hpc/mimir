@@ -801,9 +801,13 @@ void MimirEngine::renderFrame()
     // Retrieve a command buffer and start recording to it
     auto cmd = command_buffers[frame_idx];
     validation::checkVulkan(vkResetCommandBuffer(cmd, 0));
-    auto cmd_flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    auto begin_info = vkinit::commandBufferBeginInfo(cmd_flags);
-    validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
+    VkCommandBufferBeginInfo cmd_info{
+        .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext            = nullptr,
+        .flags            = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        .pInheritanceInfo = nullptr,
+    };
+    validation::checkVulkan(vkBeginCommandBuffer(cmd, &cmd_info));
 
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
 
@@ -837,8 +841,7 @@ void MimirEngine::renderFrame()
     updateUniformBuffers(frame_idx);
 
     // Fill out command buffer submission info
-    std::vector<VkPipelineStageFlags> stages;
-    stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    std::vector<VkPipelineStageFlags> stages{VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     VkTimelineSemaphoreSubmitInfo semaphore_info{
         .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
         .pNext = nullptr,
@@ -847,7 +850,17 @@ void MimirEngine::renderFrame()
         .signalSemaphoreValueCount = 1,
         .pSignalSemaphoreValues    = &signal_value,
     };
-    auto submit_info = vkinit::submitInfo(&cmd, waits, stages, signals, &semaphore_info);
+    VkSubmitInfo submit_info{
+        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext                = &semaphore_info,
+        .waitSemaphoreCount   = (uint32_t)waits.size(),
+        .pWaitSemaphores      = waits.data(),
+        .pWaitDstStageMask    = stages.data(),
+        .commandBufferCount   = 1,
+        .pCommandBuffers      = &cmd,
+        .signalSemaphoreCount = (uint32_t)signals.size(),
+        .pSignalSemaphores    = signals.data(),
+    };
 
     // Clear fence before placing it again
     validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));

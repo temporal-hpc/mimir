@@ -3,7 +3,6 @@
 #include <limits> // std::numeric_limits
 
 #include <mimir/validation.hpp>
-#include "internal/vk_initializers.hpp"
 #include "internal/vk_properties.hpp"
 
 namespace mimir

@@ -7,13 +7,6 @@
 namespace vkinit
 {
 
-// Command-related functions
-VkCommandBufferBeginInfo commandBufferBeginInfo(VkCommandBufferUsageFlags flags = 0);
-VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits = {},
-    std::span<VkPipelineStageFlags> stages = {}, std::span<VkSemaphore> signals = {},
-    const void *timeline_info = nullptr
-);
-
 // Buffer/Image functions
 VkImageCreateInfo imageCreateInfo(VkImageType type,
     VkFormat format, VkExtent3D extent, VkImageUsageFlags usage

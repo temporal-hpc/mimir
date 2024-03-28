@@ -1,11 +1,9 @@
 #include "mimir/engine/vulkan_device.hpp"
 
-#include <cstring> // memcpy
 #include <set> // std::set
 
 #include <mimir/validation.hpp>
 #include "internal/vk_properties.hpp"
-#include "internal/vk_initializers.hpp"
 
 namespace mimir
 {
@@ -182,14 +180,27 @@ void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fu
     validation::checkVulkan(vkAllocateCommandBuffers(logical_device, &alloc_info, &cmd));
 
     // Begin command buffer recording with a only-one-use buffer
-    auto flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    auto begin_info = vkinit::commandBufferBeginInfo(flags);
-
-    validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
+    VkCommandBufferBeginInfo cmd_info{
+        .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext            = nullptr,
+        .flags            = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        .pInheritanceInfo = nullptr,
+    };
+    validation::checkVulkan(vkBeginCommandBuffer(cmd, &cmd_info));
     function(cmd);
     validation::checkVulkan(vkEndCommandBuffer(cmd));
 
-    auto submit_info = vkinit::submitInfo(&cmd);
+    VkSubmitInfo submit_info{
+        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext                = nullptr,
+        .waitSemaphoreCount   = 0,
+        .pWaitSemaphores      = nullptr,
+        .pWaitDstStageMask    = nullptr,
+        .commandBufferCount   = 1,
+        .pCommandBuffers      = &cmd,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores    = nullptr,
+    };
     validation::checkVulkan(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
     vkQueueWaitIdle(queue);
     vkFreeCommandBuffers(logical_device, command_pool, 1, &cmd);

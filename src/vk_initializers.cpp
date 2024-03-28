@@ -6,35 +6,6 @@
 namespace vkinit
 {
 
-VkCommandBufferBeginInfo commandBufferBeginInfo(VkCommandBufferUsageFlags flags)
-{
-    VkCommandBufferBeginInfo info{
-        .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext            = nullptr,
-        .flags            = flags,
-        .pInheritanceInfo = nullptr,
-    };
-    return info;
-}
-
-VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits,
-    std::span<VkPipelineStageFlags> stages, std::span<VkSemaphore> signals,
-    const void *timeline_info)
-{
-    VkSubmitInfo info{
-        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext                = timeline_info,
-        .waitSemaphoreCount   = (uint32_t)waits.size(),
-        .pWaitSemaphores      = waits.data(),
-        .pWaitDstStageMask    = stages.data(),
-        .commandBufferCount   = 1,
-        .pCommandBuffers      = cmd,
-        .signalSemaphoreCount = (uint32_t)signals.size(),
-        .pSignalSemaphores    = signals.data(),
-    };
-    return info;
-}
-
 VkImageCreateInfo imageCreateInfo(VkImageType type,
     VkFormat format, VkExtent3D extent, VkImageUsageFlags usage)
 {

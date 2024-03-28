@@ -6,7 +6,6 @@
 
 #include <mimir/shader_types.hpp>
 #include <mimir/validation.hpp>
-#include "internal/vk_initializers.hpp"
 
 namespace mimir
 {
