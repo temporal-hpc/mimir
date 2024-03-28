@@ -580,9 +580,9 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
             .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0, // Currently unused
-            .vertexBindingDescriptionCount   = vkinit::toInt32(bindings.size()),
+            .vertexBindingDescriptionCount   = (uint32_t)bindings.size(),
             .pVertexBindingDescriptions      = bindings.empty()? nullptr : bindings.data(),
-            .vertexAttributeDescriptionCount = vkinit::toInt32(attributes.size()),
+            .vertexAttributeDescriptionCount = (uint32_t)attributes.size(),
             .pVertexAttributeDescriptions    = attributes.empty()? nullptr : attributes.data(),
         });
 
@@ -591,7 +591,7 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
             .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .pNext               = nullptr,
             .flags               = 0, // Specify how the pipeline is created
-            .stageCount          = vkinit::toInt32(info.shader_stages.size()),
+            .stageCount          = (uint32_t)info.shader_stages.size(),
             .pStages             = info.shader_stages.data(),
             .pVertexInputState   = &vertex_states.back(),
             .pInputAssemblyState = &info.input_assembly,

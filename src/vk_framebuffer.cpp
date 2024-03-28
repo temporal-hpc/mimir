@@ -52,7 +52,7 @@ void VulkanFramebuffer::create(VkDevice device,
         .pNext           = nullptr,
         .flags           = 0, // Can be VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT
         .renderPass      = render_pass,
-        .attachmentCount = vkinit::toInt32(attachment_views.size()),
+        .attachmentCount = (uint32_t)attachment_views.size(),
         .pAttachments    = attachment_views.data(),
         .width           = extent.width,
         .height          = extent.height,

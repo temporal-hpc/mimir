@@ -422,7 +422,7 @@ void MimirEngine::createInstance()
         .pApplicationInfo        = &app_info,
         .enabledLayerCount       = 0,
         .ppEnabledLayerNames     = nullptr,
-        .enabledExtensionCount   = vkinit::toInt32(extensions.size()),
+        .enabledExtensionCount   = (uint32_t)extensions.size(),
         .ppEnabledExtensionNames = extensions.data(),
     };
 
@@ -751,11 +751,14 @@ void MimirEngine::renderFrame()
     std::vector<VkSemaphore> signals;
     if (options.enable_sync && kernel_working)
     {
-        VkSemaphoreWaitInfo wait_info{};
-        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-        wait_info.pSemaphores = &interop.vk_semaphore;
-        wait_info.semaphoreCount = 1;
-        wait_info.pValues = &wait_value;
+        VkSemaphoreWaitInfo wait_info{
+            .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+            .pNext          = nullptr,
+            .flags          = 0,
+            .semaphoreCount = 1,
+            .pSemaphores    = &interop.vk_semaphore,
+            .pValues        = &wait_value,
+        };
         //printf("Frame %lu will wait for semaphore value %lu\n", frame_idx, wait_value);
         vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
 
@@ -802,24 +805,23 @@ void MimirEngine::renderFrame()
     auto begin_info = vkinit::commandBufferBeginInfo(cmd_flags);
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &begin_info));
 
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
+
+    std::array<VkClearValue, 2> clear_values{};
+    setColor(clear_values[0].color.float32, bg_color);
+    clear_values[1].depthStencil = {1.f, 0};
+
     VkRenderPassBeginInfo render_pass_info{
         .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .pNext           = nullptr,
         .renderPass      = render_pass,
         .framebuffer     = fbs[image_idx].framebuffer,
         .renderArea      = { {0, 0}, swap->extent },
-        .clearValueCount = 1,
-        .pClearValues    = nullptr,
+        .clearValueCount = (uint32_t)clear_values.size(),
+        .pClearValues    = clear_values.data(),
     };
 
-    std::array<VkClearValue, 2> clear_values{};
-    setColor(clear_values[0].color.float32, bg_color);
-    clear_values[1].depthStencil = {1.f, 0};
-    render_pass_info.clearValueCount = clear_values.size();
-    render_pass_info.pClearValues    = clear_values.data();
-
-    // Start of render pass and timestamp query
-    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
+    // Render pass
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
     drawElements(frame_idx);
@@ -1029,7 +1031,7 @@ VkRenderPass MimirEngine::createRenderPass()
         .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         .pNext           = nullptr,
         .flags           = 0, // Can be VK_RENDER_PASS_CREATE_TRANSFORM_BIT_QCOM
-        .attachmentCount = vkinit::toInt32(attachments.size()),
+        .attachmentCount = (uint32_t)attachments.size(),
         .pAttachments    = attachments.data(),
         .subpassCount    = 1,
         .pSubpasses      = &subpass,

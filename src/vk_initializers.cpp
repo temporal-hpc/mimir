@@ -24,12 +24,12 @@ VkSubmitInfo submitInfo(VkCommandBuffer *cmd, std::span<VkSemaphore> waits,
     VkSubmitInfo info{
         .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .pNext                = timeline_info,
-        .waitSemaphoreCount   = toInt32(waits.size()),
+        .waitSemaphoreCount   = (uint32_t)waits.size(),
         .pWaitSemaphores      = waits.data(),
         .pWaitDstStageMask    = stages.data(),
         .commandBufferCount   = 1,
         .pCommandBuffers      = cmd,
-        .signalSemaphoreCount = toInt32(signals.size()),
+        .signalSemaphoreCount = (uint32_t)signals.size(),
         .pSignalSemaphores    = signals.data(),
     };
     return info;

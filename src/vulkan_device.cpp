@@ -96,11 +96,11 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
         .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext                   = &vk11features,
         .flags                   = 0,
-        .queueCreateInfoCount    = vkinit::toInt32(queue_create_infos.size()),
+        .queueCreateInfoCount    = (uint32_t)queue_create_infos.size(),
         .pQueueCreateInfos       = queue_create_infos.data(),
         .enabledLayerCount       = 0,
         .ppEnabledLayerNames     = nullptr,
-        .enabledExtensionCount   = vkinit::toInt32(device_extensions.size()),
+        .enabledExtensionCount   = (uint32_t)device_extensions.size(),
         .ppEnabledExtensionNames = device_extensions.data(),
         .pEnabledFeatures        = &device_features,
     };
@@ -407,7 +407,7 @@ VkDescriptorPool VulkanDevice::createDescriptorPool(
         .pNext         = nullptr,
         .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
         .maxSets       = 1000,
-        .poolSizeCount = vkinit::toInt32(pool_sizes.size()),
+        .poolSizeCount = (uint32_t)pool_sizes.size(),
         .pPoolSizes    = pool_sizes.data(),
     };
 
@@ -428,7 +428,7 @@ VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext        = nullptr,
         .flags        = 0,
-        .bindingCount = vkinit::toInt32(layout_bindings.size()),
+        .bindingCount = (uint32_t)layout_bindings.size(),
         .pBindings    = layout_bindings.data(),
     };
 
@@ -449,7 +449,7 @@ VkPipelineLayout VulkanDevice::createPipelineLayout(VkDescriptorSetLayout descri
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext                  = nullptr,
         .flags                  = 0, // Currently unused
-        .setLayoutCount         = vkinit::toInt32(layouts.size()),
+        .setLayoutCount         = (uint32_t)layouts.size(),
         .pSetLayouts            = layouts.data(),
         .pushConstantRangeCount = 0,
         .pPushConstantRanges    = nullptr,
