@@ -235,13 +235,13 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
         drawGui();
         renderFrame();
 
-        if (running) waitKernelStart();
+        //if (running) waitKernelStart();
         if (iter_idx < iter_count)
         {
             func(); // Advance the simulation
             iter_idx++;
         }
-        if (running) signalKernelFinish();
+        //if (running) signalKernelFinish();
     }
     kernel_working = false;
     running = false;
@@ -570,7 +570,8 @@ void MimirEngine::createSyncObjects()
         fence = dev->createFence(VK_FENCE_CREATE_SIGNALED_BIT);
     }
     interop = dev->createInteropBarrier();
-    present_semaphore = dev->createSemaphore();
+    semaphores.image_acquired = dev->createSemaphore();
+    semaphores.render_complete = dev->createSemaphore();
 }
 
 void MimirEngine::cleanupSwapchain()
@@ -733,6 +734,17 @@ void MimirEngine::updateDescriptorSets()
 
 void MimirEngine::renderFrame()
 {
+    auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
+
+    // Wait for fences
+    constexpr auto timeout = 1000000000; //std::numeric_limits<uint64_t>::max();
+    auto fence = frame_fences[0];
+    //printf("Frame %lu will wait for fence\n", frame_idx);
+    validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
+    //printf("Frame %lu passed fence\n", frame_idx);
+    // Clear fence before placing it again
+    validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
+
     static chrono_tp start_time = std::chrono::high_resolution_clock::now();
     chrono_tp current_time = std::chrono::high_resolution_clock::now();
     if (current_frame == 0)
@@ -741,15 +753,14 @@ void MimirEngine::renderFrame()
     }
     float frame_time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - last_time).count();
 
-    constexpr auto timeout = 1000000000; //std::numeric_limits<uint64_t>::max();
     static uint64_t wait_value = 0;
     static uint64_t signal_value = 1;
-    auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
+
 
     bool advance_timeline = false;
     std::vector<VkSemaphore> waits;
     std::vector<VkSemaphore> signals;
-    if (options.enable_sync && kernel_working)
+    /*if (options.enable_sync && kernel_working)
     {
         VkSemaphoreWaitInfo wait_info{
             .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
@@ -766,12 +777,13 @@ void MimirEngine::renderFrame()
         signals.push_back(interop.vk_semaphore);
         //printf("Frame %lu will signal semaphore value %lu\n", frame_idx, signal_value);
         advance_timeline = true;
-    }
+    }*/
 
-    // Acquire image from swap chain
+    // Acquire image from swap chain, signaling to the image_ready semaphore
+    // when the image is ready for use
     uint32_t image_idx;
     auto result = vkAcquireNextImageKHR(dev->logical_device, swap->swapchain,
-        timeout, present_semaphore, VK_NULL_HANDLE, &image_idx
+        timeout, semaphores.image_acquired, VK_NULL_HANDLE, &image_idx
     );
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
@@ -788,11 +800,6 @@ void MimirEngine::renderFrame()
     }
     images_inflight[image_idx] = frame.render_fence;*/
 
-    // Wait for fences
-    auto fence = frame_fences[frame_idx];
-    //printf("Frame %lu will wait for fence\n", frame_idx);
-    validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
-    //printf("Frame %lu passed fence\n", frame_idx);
     if (current_frame > MAX_FRAMES_IN_FLIGHT)
     {
         total_pipeline_time += getRenderTimeResults(frame_idx);
@@ -850,7 +857,7 @@ void MimirEngine::renderFrame()
         .signalSemaphoreValueCount = 1,
         .pSignalSemaphoreValues    = &signal_value,
     };
-    VkSubmitInfo submit_info{
+    VkSubmitInfo info{
         .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .pNext                = &semaphore_info,
         .waitSemaphoreCount   = (uint32_t)waits.size(),
@@ -861,9 +868,18 @@ void MimirEngine::renderFrame()
         .signalSemaphoreCount = (uint32_t)signals.size(),
         .pSignalSemaphores    = signals.data(),
     };
+    VkSubmitInfo submit_info{
+        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext                = nullptr,
+        .waitSemaphoreCount   = 1,
+        .pWaitSemaphores      = &semaphores.image_acquired,
+        .pWaitDstStageMask    = stages.data(),
+        .commandBufferCount   = 1,
+        .pCommandBuffers      = &cmd,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores    = &semaphores.render_complete,
+    };
 
-    // Clear fence before placing it again
-    validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
     // Execute command buffer using image as attachment in framebuffer
     validation::checkVulkan(vkQueueSubmit(dev->graphics.queue, 1, &submit_info, fence));
 
@@ -872,7 +888,7 @@ void MimirEngine::renderFrame()
         .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .pNext              = nullptr,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores    = &present_semaphore,
+        .pWaitSemaphores    = &semaphores.render_complete,
         .swapchainCount     = 1,
         .pSwapchains        = &swap->swapchain,
         .pImageIndices      = &image_idx,

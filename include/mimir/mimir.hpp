@@ -95,7 +95,11 @@ private:
     // Synchronization structures
     //std::vector<VkFence> images_inflight;
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> frame_fences;
-    VkSemaphore present_semaphore = VK_NULL_HANDLE;
+    struct
+    {
+        VkSemaphore image_acquired = VK_NULL_HANDLE;
+        VkSemaphore render_complete = VK_NULL_HANDLE;
+    } semaphores;
 
     // CPU thread synchronization variables
     bool should_resize = false;
