@@ -47,7 +47,8 @@ float getMarkerSizePx(float size)
 }
 
 [shader("vertex")]
-VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S in_size)
+VertexOutput vertexMain<P: IPosition, C: IColor, S: ISize>(
+    P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
 {
     in_color.setDefault(view.default_color);
     in_size.setDefault(view.default_size);
@@ -65,7 +66,8 @@ VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos, C in_color, S 
 
 [shader("geometry")]
 [maxvertexcount(4)]
-void geometryMain<M:IMarker>(point VertexOutput input[1], inout TriangleStream<GeometryOutput> stream)
+void geometryMain<M: IMarker>(point VertexOutput input[1],
+    inout TriangleStream<GeometryOutput> stream)
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
     float4 center = mul(input[0].center, view_proj);
@@ -98,7 +100,7 @@ void geometryMain<M:IMarker>(point VertexOutput input[1], inout TriangleStream<G
 }
 
 [shader("fragment")]
-FragmentOutput fragmentMain<S:IShape2D>(GeometryOutput input)
+FragmentOutput fragmentMain<S: IShape2D>(GeometryOutput input)
 {
     FragmentOutput out;
 

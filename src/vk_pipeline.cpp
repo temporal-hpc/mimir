@@ -105,7 +105,6 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
             for (const auto& spec : specs)
             {
                 compile.specializations.push_back(spec.second);
-                //printf("added spec %s\n", spec.second.c_str());
             }
 
             // Add dimensionality specialization
@@ -320,20 +319,19 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
 
     if (!params.specializations.empty())
     {
-        auto layout = module->getLayout();
         std::vector<slang::SpecializationArg> args;
-        for (const auto& specialization : params.specializations)
+        for (const auto& spec : params.specializations)
         {
             slang::SpecializationArg arg{
                 .kind = slang::SpecializationArg::Kind::Type,
-                .type = layout->findTypeByName(specialization.c_str()),
+                .type = module->getLayout()->findTypeByName(spec.c_str()),
             };
             args.push_back(arg);
         }
 
         Slang::ComPtr<slang::IComponentType> spec_program;
-        result = program->specialize(
-            args.data(), args.size(), spec_program.writeRef(), diag.writeRef()
+        result = program->specialize(args.data(), args.size(),
+            spec_program.writeRef(), diag.writeRef()
         );
         validation::checkSlang(result, diag);
         program = spec_program;
