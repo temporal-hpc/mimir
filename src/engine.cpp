@@ -235,13 +235,13 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
         drawGui();
         renderFrame();
 
-        //if (running) waitKernelStart();
+        if (running) waitKernelStart();
         if (iter_idx < iter_count)
         {
             func(); // Advance the simulation
             iter_idx++;
         }
-        //if (running) signalKernelFinish();
+        if (running) signalKernelFinish();
     }
     kernel_working = false;
     running = false;
@@ -756,11 +756,11 @@ void MimirEngine::renderFrame()
     static uint64_t wait_value = 0;
     static uint64_t signal_value = 1;
 
-
     bool advance_timeline = false;
     std::vector<VkSemaphore> waits;
+    std::vector<VkPipelineStageFlags> stages;
     std::vector<VkSemaphore> signals;
-    /*if (options.enable_sync && kernel_working)
+    if (options.enable_sync && kernel_working)
     {
         VkSemaphoreWaitInfo wait_info{
             .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
@@ -774,10 +774,10 @@ void MimirEngine::renderFrame()
         vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
 
         waits.push_back(interop.vk_semaphore);
+        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         signals.push_back(interop.vk_semaphore);
-        //printf("Frame %lu will signal semaphore value %lu\n", frame_idx, signal_value);
         advance_timeline = true;
-    }*/
+    }
 
     // Acquire image from swap chain, signaling to the image_ready semaphore
     // when the image is ready for use
@@ -848,16 +848,21 @@ void MimirEngine::renderFrame()
     updateUniformBuffers(frame_idx);
 
     // Fill out command buffer submission info
-    std::vector<VkPipelineStageFlags> stages{VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    waits.push_back(semaphores.image_acquired);
+    stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    signals.push_back(semaphores.render_complete);
+    std::vector<uint64_t> wait_values{ wait_value, 0 };
+    std::vector<uint64_t> signal_values{ signal_value, 0 };
+
     VkTimelineSemaphoreSubmitInfo semaphore_info{
         .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
         .pNext = nullptr,
-        .waitSemaphoreValueCount   = 1,
-        .pWaitSemaphoreValues      = &wait_value,
-        .signalSemaphoreValueCount = 1,
-        .pSignalSemaphoreValues    = &signal_value,
+        .waitSemaphoreValueCount   = (uint32_t)wait_values.size(),
+        .pWaitSemaphoreValues      = wait_values.data(),
+        .signalSemaphoreValueCount = (uint32_t)signal_values.size(),
+        .pSignalSemaphoreValues    = signal_values.data(),
     };
-    VkSubmitInfo info{
+    VkSubmitInfo submit_info{
         .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .pNext                = &semaphore_info,
         .waitSemaphoreCount   = (uint32_t)waits.size(),
@@ -867,17 +872,6 @@ void MimirEngine::renderFrame()
         .pCommandBuffers      = &cmd,
         .signalSemaphoreCount = (uint32_t)signals.size(),
         .pSignalSemaphores    = signals.data(),
-    };
-    VkSubmitInfo submit_info{
-        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext                = nullptr,
-        .waitSemaphoreCount   = 1,
-        .pWaitSemaphores      = &semaphores.image_acquired,
-        .pWaitDstStageMask    = stages.data(),
-        .commandBufferCount   = 1,
-        .pCommandBuffers      = &cmd,
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores    = &semaphores.render_complete,
     };
 
     // Execute command buffer using image as attachment in framebuffer
