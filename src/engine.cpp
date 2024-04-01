@@ -565,13 +565,13 @@ void MimirEngine::initImgui()
 void MimirEngine::createSyncObjects()
 {
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
-    for (auto& fence : frame_fences)
+    for (auto& sync : sync_data)
     {
-        fence = dev->createFence(VK_FENCE_CREATE_SIGNALED_BIT);
+        sync.frame_fence = dev->createFence(VK_FENCE_CREATE_SIGNALED_BIT);
+        sync.image_acquired = dev->createSemaphore();
+        sync.render_complete = dev->createSemaphore();
     }
     interop = dev->createInteropBarrier();
-    semaphores.image_acquired = dev->createSemaphore();
-    semaphores.render_complete = dev->createSemaphore();
 }
 
 void MimirEngine::cleanupSwapchain()
@@ -738,7 +738,8 @@ void MimirEngine::renderFrame()
 
     // Wait for fences
     constexpr auto timeout = 1000000000; //std::numeric_limits<uint64_t>::max();
-    auto fence = frame_fences[0];
+    auto frame_sync = sync_data[frame_idx];
+    auto fence = frame_sync.frame_fence;
     //printf("Frame %lu will wait for fence\n", frame_idx);
     validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
     //printf("Frame %lu passed fence\n", frame_idx);
@@ -783,7 +784,7 @@ void MimirEngine::renderFrame()
     // when the image is ready for use
     uint32_t image_idx;
     auto result = vkAcquireNextImageKHR(dev->logical_device, swap->swapchain,
-        timeout, semaphores.image_acquired, VK_NULL_HANDLE, &image_idx
+        timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
     );
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
@@ -848,9 +849,9 @@ void MimirEngine::renderFrame()
     updateUniformBuffers(frame_idx);
 
     // Fill out command buffer submission info
-    waits.push_back(semaphores.image_acquired);
+    waits.push_back(frame_sync.image_acquired);
     stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    signals.push_back(semaphores.render_complete);
+    signals.push_back(frame_sync.render_complete);
     std::vector<uint64_t> wait_values{ wait_value, 0 };
     std::vector<uint64_t> signal_values{ signal_value, 0 };
 
@@ -882,7 +883,7 @@ void MimirEngine::renderFrame()
         .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .pNext              = nullptr,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores    = &semaphores.render_complete,
+        .pWaitSemaphores    = &frame_sync.render_complete,
         .swapchainCount     = 1,
         .pSwapchains        = &swap->swapchain,
         .pImageIndices      = &image_idx,

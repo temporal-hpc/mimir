@@ -33,6 +33,13 @@ struct AllocatedBuffer
     VkDeviceMemory memory = VK_NULL_HANDLE;
 };
 
+struct SyncData
+{
+    VkFence frame_fence = VK_NULL_HANDLE;
+    VkSemaphore image_acquired = VK_NULL_HANDLE;
+    VkSemaphore render_complete = VK_NULL_HANDLE;
+};
+
 struct ViewerOptions
 {
     std::string window_title = "Mimir";
@@ -93,13 +100,7 @@ private:
     VkImageView depth_view = VK_NULL_HANDLE;
 
     // Synchronization structures
-    //std::vector<VkFence> images_inflight;
-    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> frame_fences;
-    struct
-    {
-        VkSemaphore image_acquired = VK_NULL_HANDLE;
-        VkSemaphore render_complete = VK_NULL_HANDLE;
-    } semaphores;
+    std::array<SyncData, MAX_FRAMES_IN_FLIGHT> sync_data;
 
     // CPU thread synchronization variables
     bool should_resize = false;
