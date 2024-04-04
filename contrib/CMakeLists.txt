@@ -1,3 +1,4 @@
+set(GLFW_BUILD_WAYLAND OFF) # Do not include Wayland support in GLFW
 add_subdirectory(glfw-3.4)
 
 add_library(imgui STATIC)
