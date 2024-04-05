@@ -28,7 +28,7 @@ target_compile_options(mimir PRIVATE -Wall -Wextra
 #add_custom_command(TARGET mimir POST_BUILD COMMAND ${CMAKE_COMMAND} -E echo
 #  "-Wall -Wextra $<$<CONFIG:Debug>:-g> $<$<CONFIG:Release>:-O3>")
 
-find_package(Vulkan REQUIRED COMPONENTS glslc)
+find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
 target_link_libraries(mimir PUBLIC Vulkan::Vulkan CUDA::cudart slang glfw imgui ImGuiFileDialog)
 
