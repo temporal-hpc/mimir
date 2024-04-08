@@ -337,6 +337,10 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
         program = spec_program;
     }
 
+    Slang::ComPtr<slang::IComponentType> linked_program;
+    result = program->link(linked_program.writeRef(), diag.writeRef());
+    validation::checkSlang(result, diag);
+
     auto layout = program->getLayout();
     std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
     compiled_stages.reserve(layout->getEntryPointCount());
@@ -347,7 +351,7 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
 
         diag = nullptr;
         Slang::ComPtr<slang::IBlob> kernel = nullptr;
-        result = program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
+        result = linked_program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
         validation::checkSlang(result, diag);
 
         VkShaderModuleCreateInfo info{

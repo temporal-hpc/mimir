@@ -20,3 +20,7 @@ struct ViewParams
     float depth;
     int element_count;
 };
+
+ConstantBuffer<ModelViewProjection> mvp;
+ConstantBuffer<SceneParams> scene;
+ConstantBuffer<ViewParams> view;

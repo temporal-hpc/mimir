@@ -1,11 +1,7 @@
 import uniforms;
 
-#include "interfaces/position.slang"
-#include "interfaces/color.slang"
-
-ConstantBuffer<ModelViewProjection> mvp;
-ConstantBuffer<SceneParams> scene;
-ConstantBuffer<ViewParams> view;
+import position; // IPosition
+import color; // IColor
 
 struct VertexData
 {

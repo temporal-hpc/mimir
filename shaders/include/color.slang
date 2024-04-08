@@ -1,14 +1,14 @@
+import uniforms;
+
 interface IColor
 {
-    [mutating] void setDefault(float4 c);
     float4 getColor();
 };
 
 struct ColorDefault : IColor
 {
     float4 default_color;
-    [mutating] void setDefault(float4 c) { default_color = c; };
-    float4 getColor() { return default_color; }
+    float4 getColor() { return view.default_color; }
 };
 
 struct ColorTemplate<T, let N:int> : IColor
@@ -16,7 +16,6 @@ struct ColorTemplate<T, let N:int> : IColor
     vector<T,N> data : COLOR;
 
     float4 default_color;
-    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float4 rgba = {0,0,0,1};
@@ -31,7 +30,6 @@ struct ColorTemplateLarge<T, let N:int> : IColor
     vector<T,N> data : COLOR;
 
     float4 default_color;
-    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float4 rgba = {0,0,0,1};
@@ -66,7 +64,6 @@ typedef ColorTemplateLarge<double,4> ColorDouble4;
     };
     int input : COLOR;
     float4 default_color;
-    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float3 c = colors[input];
@@ -81,7 +78,6 @@ struct ColorFloat1 : IColor
 {
     float input : COLOR;
     float4 default_color;
-    [mutating] void setDefault(float4 c) { default_color = c; };
     float4 getColor()
     {
         float c = input;

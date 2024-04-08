@@ -81,6 +81,13 @@ constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
             throw std::runtime_error("Slang failure!");
         }
     }
+    else if (diag != nullptr)
+    {
+        const char* msg = static_cast<const char*>(diag->getBufferPointer());
+        fprintf(stderr, "Slang warning: %s in function %s at %s(%d)\n",
+            msg, src.function_name(), src.file_name(), src.line()
+        );
+    }
     return code;
 }
 

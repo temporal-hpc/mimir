@@ -1,9 +1,5 @@
 import uniforms;
 
-ConstantBuffer<ModelViewProjection> mvp;
-ConstantBuffer<SceneParams> scene;
-ConstantBuffer<ViewParams> view;
-
 struct VertexInput
 {
     [[vk::location(0)]] float3 pos : POSITION;
