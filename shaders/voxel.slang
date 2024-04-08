@@ -11,19 +11,7 @@ struct VertexData
 
 struct VertexInput
 {
-    [[vk::location(0)]] float3 pos : POSITION;
-};
-
-struct ColorInt1 : IColor
-{
-    int input : COLOR;
-    float4 default_color;
-    [mutating] void setDefault(float4 c) { default_color = c; };
-    float4 getColor()
-    {
-        float c = float(input); // / view.element_count;
-        return float4(c, c, c, 1);
-    }
+    float3 pos : POSITION;
 };
 
 [shader("vertex")]

@@ -84,3 +84,13 @@ struct ColorFloat1 : IColor
         return float4(c,c,c,1);
     }
 };
+
+struct ColorInt1 : IColor
+{
+    int input : COLOR;
+    float4 getColor()
+    {
+        float c = float(input); // / view.element_count;
+        return float4(c, c, c, 1);
+    }
+};

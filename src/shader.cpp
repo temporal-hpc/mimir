@@ -81,9 +81,9 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     );
     validation::checkSlang(result, diag);
 
+    std::vector<slang::SpecializationArg> args;
     if (!params.specializations.empty())
     {
-        std::vector<slang::SpecializationArg> args;
         for (const auto& spec : params.specializations)
         {
             slang::SpecializationArg arg{
@@ -92,20 +92,18 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
             };
             args.push_back(arg);
         }
-
-        Slang::ComPtr<slang::IComponentType> spec_program;
-        result = program->specialize(args.data(), args.size(),
-            spec_program.writeRef(), diag.writeRef()
-        );
-        validation::checkSlang(result, diag);
-        program = spec_program;
     }
-
-    Slang::ComPtr<slang::IComponentType> linked_program;
-    result = program->link(linked_program.writeRef(), diag.writeRef());
+    Slang::ComPtr<slang::IComponentType> spec_program;
+    result = program->specialize(args.data(), args.size(),
+        spec_program.writeRef(), diag.writeRef()
+    );
     validation::checkSlang(result, diag);
 
-    auto layout = program->getLayout();
+    Slang::ComPtr<slang::IComponentType> linked_program;
+    result = spec_program->link(linked_program.writeRef(), diag.writeRef());
+    validation::checkSlang(result, diag);
+
+    auto layout = linked_program->getLayout();
     std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
     compiled_stages.reserve(layout->getEntryPointCount());
     for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)
