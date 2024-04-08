@@ -1,13 +1,6 @@
 #pragma once
 
-#define SLANG_CUDA_ENABLE_HALF
-#include <slang-com-ptr.h>
-#include <vulkan/vulkan.h>
-
-#include <vector> // std::vector
-
-#include "mimir/engine/interop_view.hpp"
-#include "mimir/engine/interop_device.hpp"
+#include "shader.hpp"
 
 namespace mimir
 {
@@ -30,33 +23,17 @@ struct PipelineInfo
     VkPipelineMultisampleStateCreateInfo multisampling;
 };
 
-struct ShaderCompileParameters
-{
-    std::string source_path;
-    std::vector<std::string> entrypoints;
-    std::vector<std::string> specializations;
-};
-
 struct PipelineBuilder
 {
+    ShaderBuilder shader_builder;
     std::vector<PipelineInfo> pipeline_infos;
     VkPipelineLayout pipeline_layout;
     VkViewport viewport;
     VkRect2D scissor;
 
-    Slang::ComPtr<slang::IGlobalSession> global_session;
-    Slang::ComPtr<slang::ISession> session;
-
     PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent);
-    uint32_t addPipeline(const ViewParams params, InteropDevice *dev);
+    uint32_t addPipeline(const ViewParams params, VkDevice device);
     std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
-    std::vector<VkPipelineShaderStageCreateInfo> compileSlang(
-        InteropDevice *dev, const ShaderCompileParameters& params
-    );
-    std::vector<VkPipelineShaderStageCreateInfo> loadExternalShaders(
-        InteropDevice *dev, const std::vector<ShaderInfo> shaders
-    );
-    VkShaderModule createShaderModule(const std::vector<char>& code, InteropDevice *dev);
 };
 
 } // namespace mimir

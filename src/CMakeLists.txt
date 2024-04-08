@@ -5,6 +5,7 @@ target_sources(mimir PRIVATE
     camera.cpp
     framelimit.cpp
     performance_monitor.cpp
+    shader.cpp
     ui.cpp
     validation.cpp
     interop_device.cpp

@@ -1083,7 +1083,7 @@ void MimirEngine::createGraphicsPipelines()
     // TODO: This does not allow adding views at runtime
     for (auto& view : views)
     {
-        builder.addPipeline(view->params, dev.get());
+        builder.addPipeline(view->params, dev->logical_device);
     }
     auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
     //printf("%lu pipeline(s) created\n", pipelines.size());
@@ -1105,7 +1105,7 @@ void MimirEngine::rebuildPipeline(InteropView& view)
     std::filesystem::current_path(shader_path);
 
     PipelineBuilder builder(pipeline_layout, swap->extent);
-    builder.addPipeline(view.params, dev.get());
+    builder.addPipeline(view.params, dev->logical_device);
     auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
     // Destroy the old view pipeline and assign the new one
     vkDestroyPipeline(dev->logical_device, view.pipeline, nullptr);

@@ -1,7 +1,6 @@
 #include "internal/vk_pipeline.hpp"
 
 #include <cstring> // to_string
-#include <fstream> // std::ifstream
 #include <map> // std::map
 
 #include <mimir/shader_types.hpp>
@@ -9,21 +8,6 @@
 
 namespace mimir
 {
-
-VkPipelineShaderStageCreateInfo shaderStageInfo(
-    VkShaderStageFlagBits stage, VkShaderModule module)
-{
-    VkPipelineShaderStageCreateInfo info{
-        .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .pNext  = nullptr,
-        .flags  = 0,
-        .stage  = stage,  // Shader stage
-        .module = module, // Module containing code for this shader stage
-        .pName  = "main", // Shader entry point
-        .pSpecializationInfo = nullptr, // specify values for shader constants
-    };
-    return info;
-}
 
 VkVertexInputBindingDescription vertexBinding(
     uint32_t binding, uint32_t stride, VkVertexInputRate rate)
@@ -47,34 +31,16 @@ VkVertexInputAttributeDescription vertexAttribute(
     return desc;
 }
 
-std::vector<char> readFile(const std::string& filename)
+ShaderCompileParams getShaderCompileParams(ViewParams params)
 {
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
-    if (!file.is_open())
-    {
-        throw std::runtime_error("failed to open file!");
-    }
-
-    // Use read position to determine filesize and allocate output buffer
-    auto filesize = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(filesize);
-
-    file.seekg(0);
-    file.read(buffer.data(), filesize);
-    file.close();
-    return buffer;
-}
-
-ShaderCompileParameters getShaderCompileParams(ViewParams params)
-{
-    ShaderCompileParameters compile;
+    ShaderCompileParams compile;
     compile.specializations = params.options.specializations;
     // Select source code file and entry points for the view shader
     switch (params.view_type)
     {
         case ViewType::Markers:
         {
-            compile.source_path = "shaders/marker.slang";
+            compile.module_path = "shaders/marker.slang";
             compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
 
             // Make a dictionary of the attributes that need specializing,
@@ -117,7 +83,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
         }
         case ViewType::Edges:
         {
-            compile.source_path = "shaders/mesh.slang";
+            compile.module_path = "shaders/mesh.slang";
             compile.entrypoints = {"vertexMain", "fragmentMain"};
             // Variant for pbc delaunay edges
             //compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
@@ -146,7 +112,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
         }
         case ViewType::Voxels:
         {
-            compile.source_path = "shaders/voxel.slang";
+            compile.module_path = "shaders/voxel.slang";
             std::string geom_entry = "geometryMain";
             geom_entry += getDataDomain(params.data_domain);
             compile.entrypoints = {"vertexImplicitMain", geom_entry, "fragmentMain"};
@@ -173,7 +139,7 @@ ShaderCompileParameters getShaderCompileParams(ViewParams params)
         }
         case ViewType::Image:
         {
-            compile.source_path = "shaders/texture.slang";
+            compile.module_path = "shaders/texture.slang";
             // The texture shader needs a specialization for the way to interpret its content
             // as a fragment. If no specialization is set, use the RawColor spec.
             if (compile.specializations.empty())
@@ -234,149 +200,7 @@ PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
     pipeline_layout{layout},
     viewport{0.f, 0.f, (float)extent.width, (float)extent.height, 0.f, 1.f},
     scissor{ {0, 0}, extent }
-{
-    // Create global session to work with the Slang API
-    validation::checkSlang(slang::createGlobalSession(global_session.writeRef()));
-
-    slang::TargetDesc target_desc{
-        .format  = SLANG_SPIRV,
-        .profile = global_session->findProfile("sm_6_6"),
-    };
-
-    const char* search_paths[] = { "shaders/include" };
-    slang::SessionDesc session_desc{
-        .targets                 = &target_desc,
-        .targetCount             = 1,
-        .defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR,
-        .searchPaths             = search_paths,
-        .searchPathCount         = 1,
-    };
-
-    // Obtain a compilation session that scopes compilation and code loading
-    validation::checkSlang(global_session->createSession(session_desc, session.writeRef()));
-}
-
-VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
-{
-    switch (stage)
-    {
-        case SLANG_STAGE_VERTEX:   return VK_SHADER_STAGE_VERTEX_BIT;
-        case SLANG_STAGE_GEOMETRY: return VK_SHADER_STAGE_GEOMETRY_BIT;
-        case SLANG_STAGE_FRAGMENT: return VK_SHADER_STAGE_FRAGMENT_BIT;
-        default:                   return VK_SHADER_STAGE_ALL_GRAPHICS;
-    }
-}
-
-// Read buffer with shader bytecode and create a shader module from it
-VkShaderModule PipelineBuilder::createShaderModule(
-    const std::vector<char>& code, InteropDevice *dev)
-{
-    VkShaderModuleCreateInfo info{
-        .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .pNext    = nullptr,
-        .flags    = 0, // Unused
-        .codeSize = code.size(),
-        .pCode    = reinterpret_cast<const uint32_t*>(code.data()),
-    };
-
-    VkShaderModule module;
-    validation::checkVulkan(
-        vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
-    );
-    return module;
-}
-
-std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
-    InteropDevice *dev, const ShaderCompileParameters& params)
-{
-    SlangResult result = SLANG_OK;
-    Slang::ComPtr<slang::IBlob> diag = nullptr;
-    // Load code from [source_path].slang as a module
-    auto module = session->loadModule(params.source_path.c_str(), diag.writeRef());
-    validation::checkSlang(result, diag);
-
-    std::vector<slang::IComponentType*> components;
-    components.reserve(params.entrypoints.size() + 1);
-    components.push_back(module);
-    // Lookup entry points by their names
-    for (const auto& name : params.entrypoints)
-    {
-        Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
-        module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
-        if (entrypoint != nullptr) components.push_back(entrypoint);
-    }
-    Slang::ComPtr<slang::IComponentType> program = nullptr;
-    result = session->createCompositeComponentType(
-        components.data(), components.size(), program.writeRef(), diag.writeRef()
-    );
-    validation::checkSlang(result, diag);
-
-    if (!params.specializations.empty())
-    {
-        std::vector<slang::SpecializationArg> args;
-        for (const auto& spec : params.specializations)
-        {
-            slang::SpecializationArg arg{
-                .kind = slang::SpecializationArg::Kind::Type,
-                .type = module->getLayout()->findTypeByName(spec.c_str()),
-            };
-            args.push_back(arg);
-        }
-
-        Slang::ComPtr<slang::IComponentType> spec_program;
-        result = program->specialize(args.data(), args.size(),
-            spec_program.writeRef(), diag.writeRef()
-        );
-        validation::checkSlang(result, diag);
-        program = spec_program;
-    }
-
-    Slang::ComPtr<slang::IComponentType> linked_program;
-    result = program->link(linked_program.writeRef(), diag.writeRef());
-    validation::checkSlang(result, diag);
-
-    auto layout = program->getLayout();
-    std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
-    compiled_stages.reserve(layout->getEntryPointCount());
-    for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)
-    {
-        auto entrypoint = layout->getEntryPointByIndex(idx);
-        auto stage = getVulkanShaderFlag(entrypoint->getStage());
-
-        diag = nullptr;
-        Slang::ComPtr<slang::IBlob> kernel = nullptr;
-        result = linked_program->getEntryPointCode(idx, 0, kernel.writeRef(), diag.writeRef());
-        validation::checkSlang(result, diag);
-
-        VkShaderModuleCreateInfo info{
-            .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .pNext    = nullptr,
-            .flags    = 0, // Unused by Vulkan API
-            .codeSize = kernel->getBufferSize(),
-            .pCode    = static_cast<const uint32_t*>(kernel->getBufferPointer()),
-        };
-        VkShaderModule shader_module;
-        validation::checkVulkan(
-            vkCreateShaderModule(dev->logical_device, &info, nullptr, &shader_module)
-        );
-        auto shader_info = shaderStageInfo(stage, shader_module);
-        compiled_stages.push_back(shader_info);
-    }
-    return compiled_stages;
-}
-
-std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::loadExternalShaders(
-    InteropDevice *dev, const std::vector<ShaderInfo> shaders)
-{
-    std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
-    for (const auto& info : shaders)
-    {
-        auto shader_module = createShaderModule(readFile(info.filepath), dev);
-        auto shader_info = shaderStageInfo(info.stage, shader_module);
-        compiled_stages.push_back(shader_info);
-    }
-    return compiled_stages;
-}
+{}
 
 VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
 {
@@ -474,7 +298,7 @@ VertexDescription getVertexDescription(const ViewParams params)
     return desc;
 }
 
-uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *dev)
+uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
 {
     auto compile_params = getShaderCompileParams(params);
     auto ext_shaders = params.options.external_shaders;
@@ -482,12 +306,12 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, InteropDevice *de
     std::vector<VkPipelineShaderStageCreateInfo> stages;
     if (!ext_shaders.empty()) {
         //printf("Loading external shaders\n");
-        stages = loadExternalShaders(dev, ext_shaders);
+        stages = shader_builder.loadExternalShaders(device, ext_shaders);
     }
     else
     {
         //printf("Compiling slang shaders\n");
-        stages = compileSlang(dev, compile_params);
+        stages = shader_builder.compileModule(device, compile_params);
     }
 
     VkPipelineColorBlendAttachmentState color_blend{
