@@ -13,7 +13,7 @@ struct ModelViewProjection
     glm::mat4 proj;
 };
 
-struct PrimitiveParams
+struct ViewUniforms
 {
     alignas(16) glm::vec4 color;
     alignas(4)  float size;
@@ -21,12 +21,14 @@ struct PrimitiveParams
     alignas(4)  int element_count;
 };
 
-struct SceneParams
+struct SceneUniforms
 {
     alignas(16) glm::vec4 bg_color;
     alignas(16) glm::ivec3 extent;
     alignas(8)  glm::ivec2 resolution;
     alignas(16) glm::vec3 camera_pos;
+    alignas(16) glm::vec3 light_pos;
+    alignas(16) glm::vec4 light_color;
 };
 
 struct Vertex {

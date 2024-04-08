@@ -675,20 +675,20 @@ void MimirEngine::updateDescriptorSets()
         );
         updates.push_back(write_mvp);
 
-        VkDescriptorBufferInfo primitive_info{
+        VkDescriptorBufferInfo view_info{
             .buffer = uniform_buffers[i].buffer,
             .offset = 0,
-            .range  = sizeof(PrimitiveParams),
+            .range  = sizeof(ViewUniforms),
         };
-        auto write_primitive = vkinit::writeDescriptorBuffer(set, 2,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &primitive_info
+        auto write_view = vkinit::writeDescriptorBuffer(set, 2,
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &view_info
         );
-        updates.push_back(write_primitive);
+        updates.push_back(write_view);
 
         VkDescriptorBufferInfo scene_info{
             .buffer = uniform_buffers[i].buffer,
             .offset = 0,
-            .range  = sizeof(SceneParams),
+            .range  = sizeof(SceneUniforms),
         };
         auto write_scene = vkinit::writeDescriptorBuffer(set, 1,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
@@ -924,9 +924,9 @@ void MimirEngine::drawElements(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
-    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = size_mvp + size_primitive + size_scene;
+    auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
+    auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
+    auto size_ubo = size_mvp + size_view + size_scene;
 
     auto cmd = command_buffers[image_idx];
     for (uint32_t i = 0; i < views.size(); ++i)
@@ -935,7 +935,7 @@ void MimirEngine::drawElements(uint32_t image_idx)
         if (!view->params.options.visible) continue;
         std::vector<uint32_t> offsets = {
             i * size_ubo,
-            i * size_ubo + size_mvp + size_primitive,
+            i * size_ubo + size_mvp + size_view,
             i * size_ubo + size_mvp
         };
         // NOTE: Second parameter can be also used to bind a compute pipeline
@@ -1118,9 +1118,9 @@ void MimirEngine::initUniformBuffers()
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
-    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = (size_mvp + size_primitive + size_scene) * views.size();
+    auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
+    auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
+    auto size_ubo = (size_mvp + size_view + size_scene) * views.size();
 
     uniform_buffers.resize(swap->image_count);
     for (auto& ubo : uniform_buffers)
@@ -1139,9 +1139,9 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 {
     auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
-    auto size_primitive = getAlignedSize(sizeof(PrimitiveParams), min_alignment);
-    auto size_scene = getAlignedSize(sizeof(SceneParams), min_alignment);
-    auto size_ubo = size_mvp + size_primitive + size_scene;
+    auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
+    auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
+    auto size_ubo = size_mvp + size_view + size_scene;
     auto memory = uniform_buffers[image_idx].memory;
 
     for (size_t view_idx = 0; view_idx < views.size(); ++view_idx)
@@ -1154,27 +1154,29 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
             .proj  = camera->matrices.perspective,
         };
 
-        PrimitiveParams primitive{
-            .color = getColor(view->params.options.default_color),
-            .size = view->params.options.default_size,
-            .depth = view->params.options.depth,
+        ViewUniforms vu{
+            .color         = getColor(view->params.options.default_color),
+            .size          = view->params.options.default_size,
+            .depth         = view->params.options.depth,
             .element_count = view->params.options.custom_val,
         };
 
         auto extent = view->params.extent;
-        SceneParams scene{
-            .bg_color = getColor(bg_color),
-            .extent = glm::ivec3{extent.x, extent.y, extent.z},
-            .resolution = glm::ivec2{options.window_size.x, options.window_size.y},
-            .camera_pos = camera->position,
+        SceneUniforms su{
+            .bg_color    = getColor(bg_color),
+            .extent      = glm::ivec3{extent.x, extent.y, extent.z},
+            .resolution  = glm::ivec2{options.window_size.x, options.window_size.y},
+            .camera_pos  = camera->position,
+            .light_pos   = glm::vec3(0,0,0),
+            .light_color = glm::vec4(0,0,0,0),
         };
 
         char *data = nullptr;
         auto offset = size_ubo * view_idx;
         vkMapMemory(dev->logical_device, memory, offset, size_ubo, 0, (void**)&data);
         std::memcpy(data, &mvp, sizeof(mvp));
-        std::memcpy(data + size_mvp, &primitive, sizeof(primitive));
-        std::memcpy(data + size_mvp + size_primitive, &scene, sizeof(scene));
+        std::memcpy(data + size_mvp, &vu, sizeof(vu));
+        std::memcpy(data + size_mvp + size_view, &su, sizeof(su));
         vkUnmapMemory(dev->logical_device, memory);
     }
 }
