@@ -47,8 +47,6 @@ VkVertexInputAttributeDescription vertexAttribute(
     return desc;
 }
 
-// DEPRECATED: Loads a file and returns its data buffer
-// Was used for loading compiled shader files, but slang made this obsolete
 std::vector<char> readFile(const std::string& filename)
 {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -285,10 +283,6 @@ VkShaderModule PipelineBuilder::createShaderModule(
     validation::checkVulkan(
         vkCreateShaderModule(dev->logical_device, &info, nullptr, &module)
     );
-    // TODO: Move to vulkandevice deletor queue (likely a new one)
-    dev->deletors.add([=]{
-        vkDestroyShaderModule(dev->logical_device, module, nullptr);
-    });
     return module;
 }
 
@@ -365,9 +359,6 @@ std::vector<VkPipelineShaderStageCreateInfo> PipelineBuilder::compileSlang(
         validation::checkVulkan(
             vkCreateShaderModule(dev->logical_device, &info, nullptr, &shader_module)
         );
-        dev->deletors.add([=]{
-            vkDestroyShaderModule(dev->logical_device, shader_module, nullptr);
-        });
         auto shader_info = shaderStageInfo(stage, shader_module);
         compiled_stages.push_back(shader_info);
     }
@@ -616,6 +607,15 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE,
         create_infos.size(), create_infos.data(), nullptr, pipelines.data())
     );
+
+    // Delete all shader modules, as they fulfilled their utility
+    for (auto& info : pipeline_infos)
+    {
+        for (auto& stage : info.shader_stages)
+        {
+            vkDestroyShaderModule(device, stage.module, nullptr);
+        }
+    }
     pipeline_infos.clear();
     return pipelines;
 }
