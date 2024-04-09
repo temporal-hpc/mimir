@@ -88,7 +88,7 @@ void windowCloseCallback(GLFWwindow *window)
     engine->signalKernelFinish();
 }
 
-void GlfwContext::init(int width, int height, const char* title)
+void GlfwContext::init(int width, int height, const char* title, void *engine)
 {
     // Initialize GLFW context and window
     glfwInit();
@@ -100,7 +100,7 @@ void GlfwContext::init(int width, int height, const char* title)
     //glfwSetWindowSize(window, width, height);
 
     // Set GLFW action callbacks
-    glfwSetWindowUserPointer(window, this);
+    glfwSetWindowUserPointer(window, engine);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     glfwSetCursorPosCallback(window, cursorPositionCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);

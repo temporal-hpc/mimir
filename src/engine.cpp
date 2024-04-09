@@ -101,7 +101,7 @@ void MimirEngine::init(ViewerOptions opts)
     auto width  = options.window_size.x;
     auto height = options.window_size.y;
     window_context = std::make_unique<GlfwContext>();
-    window_context->init(width, height, options.window_title.c_str());
+    window_context->init(width, height, options.window_title.c_str(), this);
     deletors.add([=,this] {
         //printf("Terminating GLFW\n");
         window_context->clean();

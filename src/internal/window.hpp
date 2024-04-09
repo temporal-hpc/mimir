@@ -12,7 +12,7 @@ struct GlfwContext
 {
     GLFWwindow *window = nullptr;
 
-    void init(int width, int height, const char* title);
+    void init(int width, int height, const char* title, void *engine);
     void clean();
     void exit();
     bool shouldClose();
