@@ -5,9 +5,11 @@
 
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
+#include "internal/gui.hpp"
 #include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
+#include "internal/window.hpp"
 
 #include <dlfcn.h> // dladdr
 #include <imgui.h>
@@ -98,28 +100,12 @@ void MimirEngine::init(ViewerOptions opts)
 
     auto width  = options.window_size.x;
     auto height = options.window_size.y;
-
-    // Initialize GLFW context and window
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
-    //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    window = glfwCreateWindow(width, height, options.window_title.c_str(), nullptr, nullptr);
-    //glfwSetWindowSize(window, width, height);
+    window_context = std::make_unique<GlfwContext>();
+    window_context->init(width, height, options.window_title.c_str());
     deletors.add([=,this] {
         //printf("Terminating GLFW\n");
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        window_context->clean();
     });
-
-    // Set GLFW action callbacks
-    glfwSetWindowUserPointer(window, this);
-    glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
-    glfwSetCursorPosCallback(window, cursorPositionCallback);
-    glfwSetMouseButtonCallback(window, mouseButtonCallback);
-    glfwSetKeyCallback(window, keyCallback);
-    glfwSetWindowCloseCallback(window, windowCloseCallback);
 
     initVulkan();
 
@@ -141,8 +127,7 @@ void MimirEngine::init(int width, int height)
 void MimirEngine::exit()
 {
     //printf("Exiting...\n");
-    glfwSetWindowShouldClose(window, GL_TRUE);
-    glfwPollEvents();
+    window_context->exit();
 }
 
 void MimirEngine::prepare()
@@ -159,9 +144,9 @@ void MimirEngine::displayAsync()
     running = true;
     rendering_thread = std::thread([this]()
     {
-        while(!glfwWindowShouldClose(window))
+        while(!window_context->shouldClose())
         {
-            glfwPollEvents();
+            window_context->processEvents();
             drawGui();
             renderFrame();
         }
@@ -229,9 +214,9 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     running = true;
     kernel_working = true;
     size_t iter_idx = 0;
-    while(!glfwWindowShouldClose(window))
+    while(!window_context->shouldClose())
     {
-        glfwPollEvents();
+        window_context->processEvents();
         drawGui();
         renderFrame();
 
@@ -336,7 +321,7 @@ void MimirEngine::initVulkan()
 {
     createInstance();
     swap = std::make_unique<VulkanSwapchain>();
-    swap->initSurface(instance, window);
+    swap->initSurface(instance, window_context->window);
     pickPhysicalDevice();
     dev->initLogicalDevice(swap->surface);
 
@@ -402,10 +387,8 @@ void MimirEngine::createInstance()
         .apiVersion         = VK_API_VERSION_1_2,
     };
 
-    uint32_t glfw_ext_count = 0;
-    // List required GLFW extensions and additional required validation layers
-    const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
-    std::vector<const char*> extensions(glfw_exts, glfw_exts + glfw_ext_count);
+    // List additional required validation layers
+    auto extensions = window_context->getRequiredExtensions();
     if (validation::enable_layers)
     {
         // Enable debugging message extension
@@ -538,7 +521,7 @@ void MimirEngine::initImgui()
 {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForVulkan(window, true);
+    ImGui_ImplGlfw_InitForVulkan(window_context->window, true);
 
     ImGui_ImplVulkan_InitInfo info{
         .Instance        = instance,
@@ -592,7 +575,7 @@ void MimirEngine::cleanupSwapchain()
 void MimirEngine::initSwapchain()
 {
     int w, h;
-    glfwGetFramebufferSize(window, &w, &h);
+    window_context->getFramebufferSize(w, h);
     uint32_t width = w;
     uint32_t height = h;
     std::vector queue_indices{dev->graphics.family_index, dev->present.family_index};
@@ -1194,6 +1177,92 @@ double MimirEngine::getRenderTimeResults(uint32_t cmd_idx)
     vkResetQueryPool(dev->logical_device, query_pool, cmd_idx * 2, 2);
     // TODO: apply time &= timestamp_mask;
     return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
+}
+
+void MimirEngine::setBackgroundColor(float4 color)
+{
+    bg_color = color;
+}
+
+void MimirEngine::displayEngineGUI()
+{
+    ImGui::Begin("Scene parameters");
+    //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
+    ImGui::ColorEdit3("Clear color", (float*)&bg_color);
+    auto pos = camera->position;
+    ImGui::Text("Camera position: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
+    auto rot = camera->rotation;
+    ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
+
+    // Use a separate flag for choosing whether to enable the FPS limit target value
+    // This avoids the unpleasant feeling of going from 0 (no FPS limit)
+    // to 1 (the lowest value) in a single step
+    if (ImGui::Checkbox("Enable FPS limit", &options.enable_fps_limit))
+    {
+        target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
+    }
+    if (!options.enable_fps_limit) ImGui::BeginDisabled(true);
+    if (ImGui::SliderInt("FPS target", &options.target_fps, 1, max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
+    {
+        target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
+    }
+    if (!options.enable_fps_limit) ImGui::EndDisabled();
+
+    for (size_t i = 0; i < views.size(); ++i)
+    {
+        addViewObjectGui(views[i].get(), i);
+    }
+    ImGui::End();
+}
+
+void MimirEngine::showMetrics()
+{
+    int w, h;
+    window_context->getFramebufferSize(w, h);
+    std::string label;
+    if (w == 0 && h == 0) label = "None";
+    else if (w == 1920 && h == 1080) label = "FHD";
+    else if (w == 2560 && h == 1440) label = "QHD";
+    else if (w == 3840 && h == 2160) label = "UHD";
+
+    auto frame_sample_size = std::min(frame_times.size(), total_frame_count);
+    float total_frame_time = 0;
+    for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
+    auto framerate = frame_times.size() / total_frame_time;
+    //float min_fps = 1 / max_frame_time;
+    //float max_fps = 1 / min_frame_time;
+
+    dev->updateMemoryProperties();
+    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
+    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
+
+    printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.target_fps,
+        framerate,perf.total_compute_time,total_pipeline_time,
+        total_graphics_time,gpu_usage.data,gpu_budget.data
+    );
+
+    //auto fps = ImGui::GetIO().Framerate; printf("\nFPS %f\n", fps);
+    //getTimeResults();
+    /*printf("Framebuffer size: %dx%d\n", w, h);
+    printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
+
+    dev->updateMemoryProperties();
+    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
+    printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());
+    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
+    printf("GPU memory budget: %.2f %s\n", gpu_budget.data, gpu_budget.units.c_str());
+    //this->exit();
+
+    auto props = dev->budget_properties;
+    for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
+    {
+        auto heap_usage = dev->formatMemory(props.heapUsage[i]);
+        printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
+        auto heap_budget = dev->formatMemory(props.heapBudget[i]);
+        printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
+        auto heap_flags = dev->memory_properties2.memoryProperties.memoryHeaps[i].flags;
+        printf("Heap %d flags: %s\n", i, dev->readMemoryHeapFlags(heap_flags).c_str());
+    }*/
 }
 
 } // namespace mimir

@@ -4,9 +4,9 @@ target_sources(mimir PRIVATE
     engine.cpp
     camera.cpp
     framelimit.cpp
+    gui.cpp
     performance_monitor.cpp
     shader.cpp
-    ui.cpp
     validation.cpp
     interop_device.cpp
     vulkan_device.cpp
@@ -15,6 +15,7 @@ target_sources(mimir PRIVATE
     vk_pipeline.cpp
     vk_properties.cpp
     vk_swapchain.cpp
+    window.cpp
 )
 target_include_directories(mimir SYSTEM PUBLIC ../include)
 

@@ -2,7 +2,6 @@
 
 #include <vulkan/vulkan.h>
 
-#include <iostream> // std::cout
 #include <vector> // std::vector
 
 namespace mimir

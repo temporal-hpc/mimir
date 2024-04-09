@@ -1,13 +1,9 @@
 #include "internal/vk_properties.hpp"
 
-#include <GLFW/glfw3.h> // glfwGetRequiredInstanceExtensions
-
-#include <algorithm> // std::clamp
 #include <set> // std::set
+#include <string> // std::string
 
-namespace mimir
-{
-namespace props
+namespace mimir::props
 {
 
 std::vector<const char*> getRequiredDeviceExtensions()
@@ -127,5 +123,4 @@ SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKH
     return details;
 }
 
-} // namespace props
-} // namespace mimir
+} // namespace mimir::props

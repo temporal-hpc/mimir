@@ -1,7 +1,5 @@
 #pragma once
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 #include <cuda_runtime_api.h>
 
 #include <chrono> // std::chrono
@@ -23,6 +21,7 @@ namespace
 }
 
 struct Camera;
+struct GlfwContext;
 struct InteropDevice;
 struct VulkanSwapchain;
 struct VulkanFramebuffer;
@@ -77,12 +76,27 @@ public:
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
     float getTotalTime() { return total_graphics_time; }
 
-private:
     ViewerOptions options;
+    bool running = false;
+    bool should_resize = false;
+    bool show_demo_window = false;
+
+    // Camera functions
+    std::unique_ptr<Camera> camera;
+    struct {
+        bool left = false;
+        bool right = false;
+        bool middle = false;
+    } mouse_buttons;
+    bool view_updated = false;
+    float2 mouse_pos;
+
+    void signalKernelFinish();
+
+private:
     std::unique_ptr<InteropDevice> dev;
     std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
-    GLFWwindow *window = nullptr;
     VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
     VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE; // Vulkan debug output handle
     VkRenderPass render_pass = VK_NULL_HANDLE;
@@ -103,8 +117,6 @@ private:
     std::array<SyncData, MAX_FRAMES_IN_FLIGHT> sync_data;
 
     // CPU thread synchronization variables
-    bool should_resize = false;
-    bool running = false;
     bool kernel_working = false;
     std::thread rendering_thread;
     using chrono_tp = std::chrono::time_point<std::chrono::high_resolution_clock>;
@@ -112,45 +124,28 @@ private:
 
     // Cuda interop data
     InteropBarrier interop;
-    uint64_t current_frame = 0;
     std::string shader_path;
+    uint64_t current_frame = 0;
+    long target_frame_time = 0;
 
     //std::vector<std::unique_ptr<InteropView>> views;
     std::vector<AllocatedBuffer> uniform_buffers;
 
     std::vector<std::unique_ptr<InteropMemory>> allocations;
     std::vector<std::unique_ptr<InteropView>> views;
+    std::unique_ptr<GlfwContext> window_context;
 
     float4 bg_color{.5f, .5f, .5f, 1.f};
-
-    // Camera functions
-    struct {
-        bool left = false;
-        bool right = false;
-        bool middle = false;
-    } mouse_buttons;
-    bool view_updated = false;
-    float2 mouse_pos;
-
-    std::unique_ptr<Camera> camera;
-    bool show_demo_window = false;
-    long target_frame_time = 0;
 
     void initVulkan();
     void initImgui();
     void prepare();
     void renderFrame();
     void drawElements(uint32_t image_idx);
-    void signalKernelFinish();
     void waitKernelStart();
     void updateLinearTextures();
 
     // GUI functions
-    static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
-    static void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos);
-    static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
-    static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
-    static void windowCloseCallback(GLFWwindow *window);
     void displayEngineGUI();
     void drawGui();
 
