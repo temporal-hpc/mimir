@@ -17,7 +17,7 @@ target_sources(mimir PRIVATE
     vk_swapchain.cpp
     window.cpp
 )
-target_include_directories(mimir SYSTEM PUBLIC ../include)
+target_include_directories(mimir PUBLIC ../include)
 
 set_property(TARGET mimir PROPERTY CUDA_STANDARD 20)
 set_target_properties(mimir PROPERTIES CUDA_ARCHITECTURES "75")
@@ -32,7 +32,9 @@ target_compile_options(mimir PRIVATE -Wall -Wextra
 
 find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
-target_link_libraries(mimir PUBLIC Vulkan::Vulkan CUDA::cudart slang glfw imgui ImGuiFileDialog)
+target_link_libraries(mimir PUBLIC
+    Vulkan::Vulkan CUDA::cudart glm slang glfw imgui ImGuiFileDialog
+)
 
 install(
     TARGETS mimir

@@ -1,6 +1,8 @@
 set(GLFW_BUILD_WAYLAND OFF) # Do not include Wayland support in GLFW
 add_subdirectory(glfw-3.4)
 
+add_subdirectory(glm)
+
 add_library(imgui STATIC)
 target_include_directories(imgui SYSTEM PUBLIC imgui-1.90.4)
 target_link_libraries(imgui glfw)

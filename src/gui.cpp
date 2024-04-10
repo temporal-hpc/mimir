@@ -9,6 +9,33 @@
 namespace mimir
 {
 
+static std::array<ViewType, 4> kAllViewTypes = {
+    ViewType::Markers,
+    ViewType::Edges,
+    ViewType::Voxels,
+    ViewType::Image
+};
+static std::array<DomainType, 2> kAllDomains = {
+    DomainType::Structured,
+    DomainType::Unstructured
+};
+/*
+static std::array<ResourceType, 4> kAllResources = {
+    ResourceType::Buffer,
+    ResourceType::IndexBuffer,
+    ResourceType::Texture,
+    ResourceType::LinearTexture
+};
+static std::array<ComponentType, 7> kAllComponentTypes = {
+    ComponentType::Int,
+    ComponentType::Long,
+    ComponentType::Short,
+    ComponentType::Char,
+    ComponentType::Float,
+    ComponentType::Double,
+    ComponentType::Half
+};*/
+
 struct AllResources
 {
     static bool ItemGetter(void* data, int n, const char** out_str)

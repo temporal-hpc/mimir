@@ -60,8 +60,8 @@ std::string getDefaultShaderPath()
 }
 
 MimirEngine::MimirEngine():
-    shader_path{ getDefaultShaderPath() },
-    camera{ std::make_unique<Camera>() }
+    camera{ std::make_unique<Camera>() },
+    shader_path{ getDefaultShaderPath() }
 {}
 
 MimirEngine::~MimirEngine()

@@ -22,32 +22,6 @@ enum class DataLayout    { Layout1D, Layout2D, Layout3D };
 enum class DomainType    { Structured, Unstructured };
 enum class AttributeType { Position, Color, Size, Index };
 
-static std::array<ViewType, 4> kAllViewTypes = {
-    ViewType::Markers,
-    ViewType::Edges,
-    ViewType::Voxels,
-    ViewType::Image
-};
-static std::array<ResourceType, 4> kAllResources = {
-    ResourceType::Buffer,
-    ResourceType::IndexBuffer,
-    ResourceType::Texture,
-    ResourceType::LinearTexture
-};
-static std::array<DomainType, 2> kAllDomains = {
-    DomainType::Structured,
-    DomainType::Unstructured
-};
-static std::array<ComponentType, 7> kAllComponentTypes = {
-    ComponentType::Int,
-    ComponentType::Long,
-    ComponentType::Short,
-    ComponentType::Char,
-    ComponentType::Float,
-    ComponentType::Double,
-    ComponentType::Half
-};
-
 constexpr char* getViewType(ViewType type)
 {
     switch (type)
