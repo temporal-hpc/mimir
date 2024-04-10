@@ -89,7 +89,7 @@ constexpr char* getResourceType(ResourceType t)
     }
 }
 
-constexpr uint getSize(uint3 size, DataLayout layout)
+constexpr unsigned getSize(uint3 size, DataLayout layout)
 {
     switch (layout)
     {
@@ -157,7 +157,7 @@ constexpr size_t getBytesize(ComponentType t, unsigned channel_count)
 }
 
 // Converts an interop memory data type to its Vulkan format equivalent
-constexpr VkFormat getDataFormat(ComponentType type, uint channel_count)
+constexpr VkFormat getDataFormat(ComponentType type, unsigned channel_count)
 {
     switch (type)
     {

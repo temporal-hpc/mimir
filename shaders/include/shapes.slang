@@ -1,4 +1,4 @@
-#include "interfaces/arrows.slang"
+#include "arrows.slang"
 
 static const float SQRT_2 = 1.4142135623730951;
 

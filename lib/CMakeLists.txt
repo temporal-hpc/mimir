@@ -1,23 +1,23 @@
 add_library(mimir STATIC)
 
 target_sources(mimir PRIVATE
-    engine.cpp
-    camera.cpp
-    framelimit.cpp
-    gui.cpp
-    performance_monitor.cpp
-    shader.cpp
-    validation.cpp
-    interop_device.cpp
-    vulkan_device.cpp
-    vk_framebuffer.cpp
-    vk_initializers.cpp
-    vk_pipeline.cpp
-    vk_properties.cpp
-    vk_swapchain.cpp
-    window.cpp
+    src/engine.cpp
+    src/camera.cpp
+    src/framelimit.cpp
+    src/gui.cpp
+    src/performance_monitor.cpp
+    src/shader.cpp
+    src/validation.cpp
+    src/interop_device.cpp
+    src/vulkan_device.cpp
+    src/vk_framebuffer.cpp
+    src/vk_initializers.cpp
+    src/vk_pipeline.cpp
+    src/vk_properties.cpp
+    src/vk_swapchain.cpp
+    src/window.cpp
 )
-target_include_directories(mimir PUBLIC ../include)
+target_include_directories(mimir PUBLIC include)
 
 set_property(TARGET mimir PROPERTY CUDA_STANDARD 20)
 set_target_properties(mimir PROPERTIES CUDA_ARCHITECTURES "75")
