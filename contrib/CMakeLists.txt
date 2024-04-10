@@ -2,25 +2,26 @@ include(FetchContent)
 
 set(GLFW_BUILD_WAYLAND OFF) # Do not include Wayland support in GLFW
 FetchContent_Declare(
-	glfw
-	GIT_REPOSITORY https://github.com/glfw/glfw.git
-	GIT_TAG        7b6aead9fb88b3623e3b3725ebb42670cbe4c579 # 3.4
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG        7b6aead9fb88b3623e3b3725ebb42670cbe4c579 # 3.4
     FIND_PACKAGE_ARGS
 )
 FetchContent_MakeAvailable(glfw)
 
 FetchContent_Declare(
-	glm
-	GIT_REPOSITORY https://github.com/g-truc/glm.git # 1.0.1
-	GIT_TAG refs/tags/1.0.1
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG        0af55ccecd98d4e5a8d1fad7de25ba429d60e863 # 1.0.1
     FIND_PACKAGE_ARGS
 )
 FetchContent_MakeAvailable(glm)
 
 FetchContent_Declare(
-	imgui
-	GIT_REPOSITORY https://github.com/ocornut/imgui.git
-	GIT_TAG        277ae93c41314ba5f4c7444f37c4319cdf07e8cf # v1.90.4
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        277ae93c41314ba5f4c7444f37c4319cdf07e8cf # v1.90.4
+    FIND_PACKAGE_ARGS
 )
 FetchContent_GetProperties(imgui)
 if(NOT imgui_POPULATED)
@@ -43,9 +44,9 @@ if(NOT imgui_POPULATED)
 endif()
 
 FetchContent_Declare(
-	imgui_file_dialog
-	GIT_REPOSITORY https://github.com/aiekick/ImGuiFileDialog.git
-	GIT_TAG        f73e29fca08163fdcbd1e58fb7b67c7e56f5fa2e # v0.6.7
+    imgui_file_dialog
+    GIT_REPOSITORY https://github.com/aiekick/ImGuiFileDialog.git
+    GIT_TAG        f73e29fca08163fdcbd1e58fb7b67c7e56f5fa2e # v0.6.7
     FIND_PACKAGE_ARGS
 )
 # Check if population has already been performed
