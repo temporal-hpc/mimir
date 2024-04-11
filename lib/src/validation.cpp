@@ -2,9 +2,7 @@
 
 #include <cstring> // strcmp
 
-namespace mimir
-{
-namespace validation
+namespace mimir::validation
 {
 
 // Converts Vulkan message severity flags into a string for logging
@@ -28,10 +26,10 @@ const char* getVulkanMessageType(VkDebugUtilsMessageTypeFlagsEXT type)
     switch (type)
     {
 #define STR(r) case VK_DEBUG_UTILS_MESSAGE_TYPE_ ## r ## _BIT_EXT: return #r
-        STR(DEVICE_ADDRESS_BINDING);
-        STR(PERFORMANCE);
-        STR(VALIDATION);
         STR(GENERAL);
+        STR(VALIDATION);
+        STR(PERFORMANCE);
+        // STR(DEVICE_ADDRESS_BINDING); // TODO: May require extension, investigate
 #undef STR
         default: return "UNKNOWN";
     }
@@ -124,6 +122,7 @@ VkDebugUtilsMessengerCreateInfoEXT debugMessengerCreateInfo()
         .flags = 0,
         .messageSeverity =
             //VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
             VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
             VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
         .messageType =
@@ -164,5 +163,4 @@ bool checkValidationLayerSupport()
     return true;
 }
 
-} // namespace validation
-} // namespace mimir
+} // namespace mimir::validation

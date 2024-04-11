@@ -98,7 +98,6 @@ private:
     std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
     VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
-    VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE; // Vulkan debug output handle
     VkRenderPass render_pass = VK_NULL_HANDLE;
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;

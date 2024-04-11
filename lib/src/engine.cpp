@@ -421,7 +421,7 @@ void MimirEngine::createInstance()
 
     if (validation::enable_layers)
     {
-        // Details about the debug messenger and its callback
+        VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
         validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
             instance, &debug_create_info, nullptr, &debug_messenger)
         );

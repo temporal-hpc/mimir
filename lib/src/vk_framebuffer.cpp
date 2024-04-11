@@ -16,6 +16,7 @@ uint32_t VulkanFramebuffer::addAttachment(VkDevice device,
 {
     FramebufferAttachment attachment{
         .image  = image,
+        .view   = VK_NULL_HANDLE,
         .format = format,
     };
 
