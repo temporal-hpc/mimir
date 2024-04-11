@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vulkan/vulkan.h>
 #include <cuda_runtime_api.h>
 
 #include <chrono> // std::chrono
@@ -8,9 +9,9 @@
 #include <thread> // std::thread
 #include <vector> // std::vector
 
-#include <mimir/deletion_queue.hpp>
-#include <mimir/engine/interop_device.hpp>
+#include <mimir/engine/interop_view.hpp>
 #include <mimir/engine/performance_monitor.hpp>
+#include <mimir/deletion_queue.hpp>
 
 namespace mimir
 {
@@ -23,6 +24,7 @@ namespace
 struct Camera;
 struct GlfwContext;
 struct InteropDevice;
+struct InteropBarrier;
 struct VulkanSwapchain;
 struct VulkanFramebuffer;
 
@@ -122,7 +124,7 @@ private:
     chrono_tp last_time = {};
 
     // Cuda interop data
-    InteropBarrier interop;
+    std::unique_ptr<InteropBarrier> interop;
     std::string shader_path;
     uint64_t current_frame = 0;
     long target_frame_time = 0;

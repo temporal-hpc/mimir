@@ -7,6 +7,7 @@
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
 #include "internal/physical_device.hpp"
+#include "internal/interop_device.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include "internal/window.hpp"
@@ -71,9 +72,9 @@ MimirEngine::~MimirEngine()
     }
     if (dev) vkDeviceWaitIdle(dev->logical_device);
 
-    if (interop.cuda_stream != nullptr)
+    if (interop->cuda_stream != nullptr)
     {
-        validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
+        validation::checkCuda(cudaStreamSynchronize(interop->cuda_stream));
     }
     for (auto& ubo : uniform_buffers)
     {
@@ -174,7 +175,7 @@ void MimirEngine::waitKernelStart()
     // Wait for Vulkan to complete its work
     //printf("Waiting for value %lu to vulkan to finish\n", wait_value);
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
-        &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
+        &interop->cuda_semaphore, &wait_params, 1, interop->cuda_stream)
     );
     wait_value += 2;
 
@@ -202,7 +203,7 @@ void MimirEngine::signalKernelFinish()
     // Signal Vulkan to continue with the updated buffers
     //printf("Signaling with value %lu that CUDA has ended\n", signal_value);
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
-        &interop.cuda_semaphore, &signal_params, 1, interop.cuda_stream)
+        &interop->cuda_semaphore, &signal_params, 1, interop->cuda_stream)
     );
     signal_value += 2;
 }
@@ -528,7 +529,7 @@ void MimirEngine::createSyncObjects()
         sync.image_acquired = dev->createSemaphore();
         sync.render_complete = dev->createSemaphore();
     }
-    interop = dev->createInteropBarrier();
+    interop = std::make_unique<InteropBarrier>(dev->createInteropBarrier());
 }
 
 void MimirEngine::cleanupSwapchain()
@@ -772,15 +773,15 @@ void MimirEngine::renderFrame()
             .pNext          = nullptr,
             .flags          = 0,
             .semaphoreCount = 1,
-            .pSemaphores    = &interop.vk_semaphore,
+            .pSemaphores    = &interop->vk_semaphore,
             .pValues        = &wait_value,
         };
         //printf("Frame %lu will wait for semaphore value %lu\n", frame_idx, wait_value);
         vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
 
-        waits.push_back(interop.vk_semaphore);
+        waits.push_back(interop->vk_semaphore);
         stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        signals.push_back(interop.vk_semaphore);
+        signals.push_back(interop->vk_semaphore);
         advance_timeline = true;
     }
 

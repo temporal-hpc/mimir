@@ -2,7 +2,7 @@
 
 #include <cuda_runtime_api.h>
 
-#include <mimir/engine/vulkan_device.hpp>
+#include "vulkan_device.hpp"
 #include <mimir/engine/interop_view.hpp>
 
 namespace mimir

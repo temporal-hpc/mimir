@@ -1,4 +1,4 @@
-#include "mimir/engine/vulkan_device.hpp"
+#include "internal/vulkan_device.hpp"
 
 #include <set> // std::set
 
