@@ -1,10 +1,10 @@
 #include <mimir/engine/interop_device.hpp>
 
-#include <cuda_runtime.h> // make_cudaExtent
 #include <cstring> // std::memcpy
 
 #include <mimir/shader_types.hpp>
 #include <mimir/validation.hpp>
+#include "internal/interop.hpp"
 
 namespace mimir
 {
@@ -75,38 +75,6 @@ void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, 
         }
     }
     vkUnmapMemory(dev, mem);
-}
-
-cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem, MemoryParams params)
-{
-    constexpr int level_count = 1; // TODO: Should be a parameter
-
-    auto comp_sz = static_cast<int>(getComponentSize(params.component_type) * 8);
-    cudaChannelFormatDesc format_desc{
-        .x = comp_sz,
-        .y = comp_sz,
-        .z = comp_sz,
-        .w = comp_sz,
-        .f = cudaChannelFormatKindUnsigned
-    };
-
-    size_t image_width  = params.element_count.x;
-    size_t image_height = params.element_count.y;
-    auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
-
-    cudaExternalMemoryMipmappedArrayDesc array_desc{
-        .offset     = 0,
-        .formatDesc = format_desc,
-        .extent     = cuda_extent,
-        .flags      = 0,
-        .numLevels  = level_count
-    };
-
-    cudaMipmappedArray_t mipmap_array;
-    validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
-        &mipmap_array, cuda_extmem, &array_desc)
-    );
-    return mipmap_array;
 }
 
 uint32_t InteropDevice::getMaxImageDimension(DataLayout layout)
@@ -214,7 +182,9 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
     };
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     interop.memory = allocateMemory(memreq, memflags, &export_info);
-    interop.cuda_extmem = importCudaExternalMemory(interop.memory, memreq.size);
+    interop.cuda_extmem = interop::importCudaExternalMemory(
+        interop.memory, memreq.size, logical_device
+    );
     deletors.add([=,this]{
         validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
         vkFreeMemory(logical_device, interop.memory, nullptr);
@@ -294,7 +264,9 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
     interop.image_memory = allocateMemory(memreq, memflags, &export_info);
-    interop.cuda_extmem = importCudaExternalMemory(interop.image_memory, memreq.size);
+    interop.cuda_extmem = interop::importCudaExternalMemory(
+        interop.image_memory, memreq.size, logical_device
+    );
     deletors.add([=,this]{
         validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
         vkFreeMemory(logical_device, interop.image_memory, nullptr);
@@ -333,7 +305,13 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     transitionImageLayout(interop.image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
-    interop.mipmap_array = createMipmapArray(interop.cuda_extmem, params);
+
+    int size = getComponentSize(params.component_type) * 8;
+    int4 comp_sz = {size, size, size, size};
+    int3 extent  = {(int)params.element_count.x, (int)params.element_count.y, 0};
+    interop.mipmap_array = interop::createMipmapArray(
+        interop.cuda_extmem, comp_sz, extent, 1
+    );
     deletors.add([=,this]{
         validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
     });
@@ -523,70 +501,6 @@ void InteropDevice::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent
     });
 }
 
-cudaExternalMemory_t InteropDevice::importCudaExternalMemory(
-    VkDeviceMemory vk_mem, VkDeviceSize size)
-{
-    // Get external memory handle function
-    VkMemoryGetFdInfoKHR fd_info{
-        .sType      = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
-        .pNext      = nullptr,
-        .memory     = vk_mem,
-        .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-    };
-    auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(
-        logical_device, "vkGetMemoryFdKHR"
-    );
-    if (!fpGetMemoryFdKHR)
-    {
-        throw std::runtime_error("Failed to retrieve function!");
-    }
-    // Get external memory handle
-    int fd = -1;
-    if (fpGetMemoryFdKHR(logical_device, &fd_info, &fd) != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to retrieve handle for buffer!");
-    }
-
-    cudaExternalMemoryHandleDesc extmem_desc{};
-    extmem_desc.type = cudaExternalMemoryHandleTypeOpaqueFd;
-    extmem_desc.size = size;
-    extmem_desc.handle.fd = fd;
-    cudaExternalMemory_t cuda_mem;
-    validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
-    return cuda_mem;
-}
-
-cudaExternalSemaphore_t InteropDevice::importCudaExternalSemaphore(
-    VkSemaphore vk_semaphore)
-{
-    // Get external semaphore handle function
-    auto fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
-        logical_device, "vkGetSemaphoreFdKHR"
-    );
-    if (!fpGetSemaphore)
-    {
-        throw std::runtime_error("Failed to retrieve semaphore function handle!");
-    }
-    VkSemaphoreGetFdInfoKHR fd_info{
-        .sType      = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR,
-        .pNext      = nullptr,
-        .semaphore  = vk_semaphore,
-        .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT,
-    };
-    // Get external semaphore handle
-    int fd = -1;
-    validation::checkVulkan(fpGetSemaphore(logical_device, &fd_info, &fd));
-
-    cudaExternalSemaphoreHandleDesc desc{};
-    desc.type      = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-    desc.handle.fd = fd;
-    desc.flags     = 0;
-
-    cudaExternalSemaphore_t cuda_semaphore;
-    validation::checkCuda(cudaImportExternalSemaphore(&cuda_semaphore, &desc));
-    return cuda_semaphore;
-}
-
 InteropBarrier InteropDevice::createInteropBarrier()
 {
     VkSemaphoreTypeCreateInfo timeline_info{
@@ -603,7 +517,7 @@ InteropBarrier InteropDevice::createInteropBarrier()
 
     InteropBarrier barrier;
     barrier.vk_semaphore = createSemaphore(&export_info);
-    barrier.cuda_semaphore = importCudaExternalSemaphore(barrier.vk_semaphore);
+    barrier.cuda_semaphore = interop::importCudaExternalSemaphore(barrier.vk_semaphore, logical_device);
     deletors.add([=]{
         validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));
     });

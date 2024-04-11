@@ -22,15 +22,6 @@ struct InteropDevice : public VulkanDevice
     // Use the constructor from the base VulkanDevice class
     using VulkanDevice::VulkanDevice;
 
-    cudaExternalMemory_t importCudaExternalMemory(
-        VkDeviceMemory vk_mem, VkDeviceSize size
-    );
-    cudaExternalSemaphore_t importCudaExternalSemaphore(
-        VkSemaphore vk_semaphore
-    );
-    InteropBarrier createInteropBarrier();
-
-    // View functions
     void initMemoryBuffer(InteropMemory &interop);
     void initMemoryImage(InteropMemory &interop);
     void initMemoryImageLinear(InteropMemory &interop);
@@ -42,6 +33,8 @@ struct InteropDevice : public VulkanDevice
     void updateLinearTexture(InteropMemory &interop);
     VkImage createImage(MemoryParams params);
     uint32_t getMaxImageDimension(DataLayout layout);
+
+    InteropBarrier createInteropBarrier();
 };
 
 } // namespace mimir
