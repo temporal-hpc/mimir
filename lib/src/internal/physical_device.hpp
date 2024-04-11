@@ -28,7 +28,7 @@ struct PhysicalDevice
         .pNext = &id_props,
         .properties = {},
     };
-    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget_properties{
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT,
         .pNext = nullptr,
         .heapBudget = {},
@@ -36,7 +36,7 @@ struct PhysicalDevice
     };
     VkPhysicalDeviceMemoryProperties2 memory{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2,
-        .pNext = &budget_properties,
+        .pNext = &budget,
         .memoryProperties = {},
     };
     VkPhysicalDeviceFeatures features{};

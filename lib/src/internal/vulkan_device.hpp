@@ -6,6 +6,7 @@
 #include <vector> // std::vector
 
 #include <mimir/deletion_queue.hpp>
+#include "physical_device.hpp"
 
 namespace mimir
 {
@@ -32,13 +33,7 @@ struct VulkanQueue
 struct VulkanDevice
 {
     // GPU used for Vulkan operations
-    VkPhysicalDevice physical_device = VK_NULL_HANDLE;
-    VkPhysicalDeviceProperties properties = {};
-    VkPhysicalDeviceFeatures features = {};
-    VkPhysicalDeviceMemoryProperties memory_properties = {};
-    VkPhysicalDeviceMemoryProperties2 memory_properties2 = {};
-    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget_properties = {};
-    uint32_t timestamp_valid_bits = 0;
+    PhysicalDevice physical_device{};
 
     VkDevice logical_device = VK_NULL_HANDLE;
     VkCommandPool command_pool = VK_NULL_HANDLE;
@@ -47,7 +42,7 @@ struct VulkanDevice
     DeviceMemoryProperties props;
     DeletionQueue deletors;
 
-    explicit VulkanDevice(VkPhysicalDevice gpu);
+    explicit VulkanDevice(PhysicalDevice dev);
     ~VulkanDevice();
 
     void initLogicalDevice(VkSurfaceKHR surface);
@@ -88,7 +83,6 @@ struct VulkanDevice
     ConvertedMemory formatMemory(uint64_t memsize) const;
     std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
     void updateMemoryProperties();
-    void listExtensions();
     VkQueryPool createQueryPool(uint32_t query_count);
 };
 

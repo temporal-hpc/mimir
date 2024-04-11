@@ -30,16 +30,8 @@ VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool, uint32
     };
 }
 
-VulkanDevice::VulkanDevice(VkPhysicalDevice gpu): physical_device{gpu}
-{
-    vkGetPhysicalDeviceProperties(physical_device, &properties);
-    vkGetPhysicalDeviceFeatures(physical_device, &features);
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
-    budget_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
-    budget_properties.pNext = nullptr;
-    memory_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
-    memory_properties2.pNext = &budget_properties;
-}
+VulkanDevice::VulkanDevice(PhysicalDevice dev): physical_device{dev}
+{}
 
 VulkanDevice::~VulkanDevice()
 {
@@ -50,7 +42,7 @@ VulkanDevice::~VulkanDevice()
 void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
 {
     props::findQueueFamilies(
-        physical_device, surface, graphics.family_index, present.family_index
+        physical_device.handle, surface, graphics.family_index, present.family_index
     );
 
     std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
@@ -109,7 +101,7 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     }
 
     validation::checkVulkan(vkCreateDevice(
-        physical_device, &create_info, nullptr, &logical_device)
+        physical_device.handle, &create_info, nullptr, &logical_device)
     );
     deletors.add([=,this](){
         vkDestroyDevice(logical_device, nullptr);
@@ -208,9 +200,10 @@ void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fu
 
 uint32_t VulkanDevice::findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties)
 {
-    for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
+    auto props = physical_device.memory.memoryProperties;
+    for (uint32_t i = 0; i < props.memoryTypeCount; ++i)
     {
-        auto flags = memory_properties.memoryTypes[i].propertyFlags;
+        auto flags = props.memoryTypes[i].propertyFlags;
         if ((type_filter & (1 << i)) && (flags & properties) == properties)
         {
             return i;
@@ -271,7 +264,7 @@ VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)
         .addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
         .mipLodBias       = 0.f,
         .anisotropyEnable = enable_anisotropy? VK_TRUE : VK_FALSE,
-        .maxAnisotropy    = properties.limits.maxSamplerAnisotropy,
+        .maxAnisotropy    = physical_device.general.properties.limits.maxSamplerAnisotropy,
         .compareEnable    = VK_FALSE,
         .compareOp        = VK_COMPARE_OP_NEVER,
         .minLod           = 0.f,
@@ -294,7 +287,7 @@ VkFormat VulkanDevice::findSupportedImageFormat(const std::vector<VkFormat>& can
     for (auto format : candidates)
     {
         VkFormatProperties props;
-        vkGetPhysicalDeviceFormatProperties(physical_device, format, &props);
+        vkGetPhysicalDeviceFormatProperties(physical_device.handle, format, &props);
 
         switch (tiling)
         {
@@ -318,7 +311,7 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
     int img_width, int img_height, int mip_levels)
 {
     VkFormatProperties format_props;
-    vkGetPhysicalDeviceFormatProperties(physical_device, img_format, &format_props);
+    vkGetPhysicalDeviceFormatProperties(physical_device.handle, img_format, &format_props);
     auto blit_support = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
     if (!(format_props.optimalTilingFeatures & blit_support))
     {
@@ -587,33 +580,19 @@ std::string VulkanDevice::readMemoryHeapFlags(VkMemoryHeapFlags flags)
 
 void VulkanDevice::updateMemoryProperties()
 {
-    vkGetPhysicalDeviceMemoryProperties2(physical_device, &memory_properties2);
-    props.heap_count = memory_properties2.memoryProperties.memoryHeapCount;
+    vkGetPhysicalDeviceMemoryProperties2(physical_device.handle, &physical_device.memory);
+    props.heap_count = physical_device.memory.memoryProperties.memoryHeapCount;
     props.gpu_usage = 0;
     props.gpu_budget = 0;
 
     for (uint32_t i = 0; i < props.heap_count; ++i)
     {
-        auto heap_flags = memory_properties2.memoryProperties.memoryHeaps[i].flags;
+        auto heap_flags = physical_device.memory.memoryProperties.memoryHeaps[i].flags;
         if (heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
         {
-            props.gpu_usage += budget_properties.heapUsage[i];
-            props.gpu_budget += budget_properties.heapBudget[i];
+            props.gpu_usage  += physical_device.budget.heapUsage[i];
+            props.gpu_budget += physical_device.budget.heapBudget[i];
         }
-    }
-}
-
-void VulkanDevice::listExtensions()
-{
-    uint32_t ext_count = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
-    std::vector<VkExtensionProperties> available(ext_count);
-    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, available.data());
-
-    printf("Available extensions:\n");
-    for (const auto& extension : available)
-    {
-        printf("  %s\n", extension.extensionName);
     }
 }
 

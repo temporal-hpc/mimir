@@ -79,11 +79,12 @@ void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, 
 
 uint32_t InteropDevice::getMaxImageDimension(DataLayout layout)
 {
+    auto limits = physical_device.general.properties.limits;
     switch (layout)
     {
-        case DataLayout::Layout1D: return properties.limits.maxImageDimension1D;
-        case DataLayout::Layout2D: return properties.limits.maxImageDimension2D;
-        case DataLayout::Layout3D: return properties.limits.maxImageDimension3D;
+        case DataLayout::Layout1D: return limits.maxImageDimension1D;
+        case DataLayout::Layout2D: return limits.maxImageDimension2D;
+        case DataLayout::Layout3D: return limits.maxImageDimension3D;
         default: return 0;
     }
 }
@@ -121,7 +122,7 @@ VkImage InteropDevice::createImage(MemoryParams params)
     };
     // TODO: Do not rely on validation layers to stop invalid image formats
     validation::checkVulkan(vkGetPhysicalDeviceImageFormatProperties2(
-        physical_device, &format_info, &format_props
+        physical_device.handle, &format_info, &format_props
     ));
 
     VkExternalMemoryImageCreateInfo extmem_info{

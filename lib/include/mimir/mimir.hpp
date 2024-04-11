@@ -138,6 +138,7 @@ private:
 
     float4 bg_color{.5f, .5f, .5f, 1.f};
 
+    void listExtensions();
     void initVulkan();
     void initImgui();
     void prepare();

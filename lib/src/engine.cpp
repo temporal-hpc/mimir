@@ -317,6 +317,20 @@ VkDescriptorSetLayoutBinding descriptorLayoutBinding(
     };
 }
 
+void MimirEngine::listExtensions()
+{
+    uint32_t ext_count = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
+    std::vector<VkExtensionProperties> available(ext_count);
+    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, available.data());
+
+    printf("Available extensions:\n");
+    for (const auto& extension : available)
+    {
+        printf("  %s\n", extension.extensionName);
+    }
+}
+
 void MimirEngine::initVulkan()
 {
     createInstance();
@@ -476,7 +490,7 @@ void MimirEngine::pickPhysicalDevice()
             if (matching && props::isDeviceSuitable(device.handle, swap->surface))
             {
                 validation::checkCuda(cudaSetDevice(curr_device));
-                dev = std::make_unique<InteropDevice>(device.handle);
+                dev = std::make_unique<InteropDevice>(device);
                 printf("Selected CUDA-Vulkan device %d: %s\n\n",
                     curr_device, device.general.properties.deviceName
                 );
@@ -500,7 +514,7 @@ void MimirEngine::initImgui()
 
     ImGui_ImplVulkan_InitInfo info{
         .Instance        = instance,
-        .PhysicalDevice  = dev->physical_device,
+        .PhysicalDevice  = dev->physical_device.handle,
         .Device          = dev->logical_device,
         .QueueFamily     = dev->graphics.family_index,
         .Queue           = dev->graphics.queue,
@@ -554,7 +568,7 @@ void MimirEngine::initSwapchain()
     uint32_t width = w;
     uint32_t height = h;
     std::vector queue_indices{dev->graphics.family_index, dev->present.family_index};
-    swap->create(width, height, options.present, queue_indices, dev->physical_device, dev->logical_device);
+    swap->create(width, height, options.present, queue_indices, dev->physical_device.handle, dev->logical_device);
     render_pass = createRenderPass();
     command_buffers = dev->createCommandBuffers(swap->image_count);
     query_pool = dev->createQueryPool(2 * command_buffers.size());
@@ -927,7 +941,7 @@ void MimirEngine::renderFrame()
 
 void MimirEngine::drawElements(uint32_t image_idx)
 {
-    auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = dev->physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1121,7 +1135,7 @@ void MimirEngine::rebuildPipeline(InteropView& view)
 
 void MimirEngine::initUniformBuffers()
 {
-    auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = dev->physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1142,7 +1156,7 @@ void MimirEngine::initUniformBuffers()
 // Update uniform buffers for view at index [view_idx] for frame [image_idx]
 void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 {
-    auto min_alignment = dev->properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = dev->physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1188,7 +1202,7 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 
 double MimirEngine::getRenderTimeResults(uint32_t cmd_idx)
 {
-    auto timestamp_period = dev->properties.limits.timestampPeriod;
+    auto timestamp_period = dev->physical_device.general.properties.limits.timestampPeriod;
     const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
 
     uint64_t buffer[2];
