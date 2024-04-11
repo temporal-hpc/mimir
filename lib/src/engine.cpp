@@ -12,7 +12,6 @@
 #include "internal/window.hpp"
 
 #include <dlfcn.h> // dladdr
-#include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <chrono> // std::chrono

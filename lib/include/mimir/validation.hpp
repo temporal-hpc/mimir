@@ -6,7 +6,7 @@
 #include <slang.h>
 
 #include <cstdio> // stderr
-#include <experimental/source_location> // std::source_location
+#include <source_location> // std::source_location
 #include <stdexcept> // std::throw
 #include <vector> // std::vector
 
@@ -15,7 +15,7 @@ namespace mimir
 namespace validation
 {
 
-using source_location = std::experimental::source_location;
+using srcloc = std::source_location;
 
 // Check if validation layers should be enabled
 #ifdef NDEBUG
@@ -30,7 +30,7 @@ const std::vector<const char*> layers = {
 };
 
 constexpr void checkCuda(cudaError_t code, bool panic = true,
-    source_location src = source_location::current())
+    srcloc src = srcloc::current())
 {
     if (code != cudaSuccess)
     {
@@ -47,7 +47,7 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
 std::string getVulkanErrorString(VkResult code);
 
 constexpr VkResult checkVulkan(VkResult code, bool panic = true,
-    source_location src = source_location::current())
+    srcloc src = srcloc::current())
 {
     if (code != VK_SUCCESS)
     {
@@ -64,7 +64,7 @@ constexpr VkResult checkVulkan(VkResult code, bool panic = true,
 }
 
 constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
-    bool panic = true, source_location src = source_location::current())
+    bool panic = true, srcloc src = srcloc::current())
 {
     if (code < 0)
     {
