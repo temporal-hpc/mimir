@@ -4,8 +4,6 @@
 #include <cuda_fp16.h> // half
 #include <vulkan/vulkan.h>
 
-#include <array> // std::array
-
 namespace mimir
 {
 

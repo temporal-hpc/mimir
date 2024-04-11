@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <ImGuiFileDialog.h>
 
+#include <array> // std::array
 #include <format> // std::format
 
 namespace mimir

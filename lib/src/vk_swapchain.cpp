@@ -1,5 +1,8 @@
 #include "mimir/engine/vk_swapchain.hpp"
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
 #include <limits> // std::numeric_limits
 
 #include <mimir/validation.hpp>

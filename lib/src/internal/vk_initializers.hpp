@@ -2,8 +2,6 @@
 
 #include <vulkan/vulkan.h>
 
-#include <span> // std::span
-
 namespace vkinit
 {
 

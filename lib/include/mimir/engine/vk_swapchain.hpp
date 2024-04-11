@@ -1,12 +1,11 @@
 #pragma once
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 #include <vector> // std::vector
 
 #include <mimir/deletion_queue.hpp>
 #include <mimir/engine/interop_view.hpp>
+
+struct GLFWwindow;
 
 namespace mimir
 {

@@ -4,9 +4,7 @@
 
 #include <vector> // std::vector
 
-namespace mimir
-{
-namespace props
+namespace mimir::props
 {
 
 struct SwapchainSupportDetails
@@ -33,5 +31,4 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
     uint32_t& graphics_family, uint32_t& present_family
 );
 
-} // namespace props
-} // namespace mimir
+} // namespace mimir::props

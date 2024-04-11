@@ -1,7 +1,7 @@
 #pragma once
 
-#include <functional>
-#include <vector>
+#include <functional> // std::function
+#include <vector> // std::vector
 
 struct DeletionQueue
 {

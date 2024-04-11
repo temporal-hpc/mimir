@@ -10,9 +10,7 @@
 #include <stdexcept> // std::throw
 #include <vector> // std::vector
 
-namespace mimir
-{
-namespace validation
+namespace mimir::validation
 {
 
 using srcloc = std::source_location;
@@ -106,5 +104,4 @@ VkDebugUtilsMessengerCreateInfoEXT debugMessengerCreateInfo();
 
 bool checkValidationLayerSupport();
 
-} // namespace validation
-} // namespace mimir
+} // namespace mimir::validation
