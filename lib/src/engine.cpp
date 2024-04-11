@@ -6,6 +6,7 @@
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
+#include "internal/physical_device.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include "internal/window.hpp"
@@ -439,7 +440,9 @@ void MimirEngine::pickPhysicalDevice()
     {
         throw std::runtime_error("could not find devices supporting CUDA");
     }
-    /*printf("Enumerating CUDA devices:\n");
+
+    auto all_devices = getDevices(instance);
+    printf("Enumerating CUDA devices:\n");
     for (int dev_id = 0; dev_id < cuda_dev_count; ++dev_id)
     {
         cudaDeviceProp dev_prop;
@@ -447,30 +450,12 @@ void MimirEngine::pickPhysicalDevice()
         printf("* ID: %d\n  Name: %s\n  Capability: %d.%d\n",
             dev_id, dev_prop.name, dev_prop.major, dev_prop.minor
         );
-    }*/
-
-    uint32_t vulkan_dev_count = 0;
-    vkEnumeratePhysicalDevices(instance, &vulkan_dev_count, nullptr);
-    if (vulkan_dev_count == 0)
-    {
-        throw std::runtime_error("could not find devices supporting Vulkan");
     }
-    std::vector<VkPhysicalDevice> devices(vulkan_dev_count);
-    vkEnumeratePhysicalDevices(instance, &vulkan_dev_count, devices.data());
-    /*printf("Enumerating Vulkan devices:\n");
-    for (const auto& dev : devices)
+    printf("Enumerating Vulkan devices:\n");
+    for (const auto& dev : all_devices)
     {
-        VkPhysicalDeviceProperties props{};
-        vkGetPhysicalDeviceProperties(dev, &props);
+        auto props = dev.general.properties;
         printf("* ID: %u\n  Name: %s\n", props.deviceID, props.deviceName);
-    }*/
-
-    auto fpGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)
-        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2");
-    if (fpGetPhysicalDeviceProperties2 == nullptr)
-    {
-        throw std::runtime_error("could not find proc address for \"vkGetPhysicalDeviceProperties2KHR\","
-            "which is needed for finding an interop-capable device");
     }
 
     int curr_device = 0, prohibited_count = 0;
@@ -484,25 +469,16 @@ void MimirEngine::pickPhysicalDevice()
             curr_device++;
             continue;
         }
-        for (const auto& ph_dev : devices)
+        for (const auto& device : all_devices)
         {
-            VkPhysicalDeviceIDProperties id_props{};
-            id_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
-            id_props.pNext = nullptr;
-
-            VkPhysicalDeviceProperties2 props2{};
-            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            props2.pNext = &id_props;
-
-            fpGetPhysicalDeviceProperties2(ph_dev, &props2);
-            auto matching = memcmp((void*)&dev_prop.uuid, id_props.deviceUUID, VK_UUID_SIZE) == 0;
-            if (matching && props::isDeviceSuitable(ph_dev, swap->surface))
+            auto matching = memcmp((void*)&dev_prop.uuid, device.id_props.deviceUUID, VK_UUID_SIZE) == 0;
+            if (matching && props::isDeviceSuitable(device.handle, swap->surface))
             {
                 validation::checkCuda(cudaSetDevice(curr_device));
-                VkPhysicalDeviceProperties props{};
-                vkGetPhysicalDeviceProperties(ph_dev, &props);
-                dev = std::make_unique<InteropDevice>(ph_dev);
-                //printf("Selected CUDA-Vulkan device %d: %s\n\n", curr_device, dev_prop.name);
+                dev = std::make_unique<InteropDevice>(device.handle);
+                printf("Selected CUDA-Vulkan device %d: %s\n\n",
+                    curr_device, device.general.properties.deviceName
+                );
                 break;
             }
         }
