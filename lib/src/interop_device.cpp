@@ -5,7 +5,6 @@
 
 #include <mimir/shader_types.hpp>
 #include <mimir/validation.hpp>
-#include "internal/vk_initializers.hpp"
 
 namespace mimir
 {
@@ -162,14 +161,23 @@ VkImage InteropDevice::createImage(MemoryParams params)
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
-
-    auto info = vkinit::imageCreateInfo(img_type, format, extent, usage);
-    info.pNext         = &extmem_info;
-    info.flags         = 0;
-    info.tiling        = tiling;
-    info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
+    VkImageCreateInfo info{
+        .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext       = &extmem_info,
+        .flags       = 0,
+        .imageType   = img_type,
+        .format      = format,
+        .extent      = extent,
+        .mipLevels   = 1,
+        .arrayLayers = 1,
+        .samples     = VK_SAMPLE_COUNT_1_BIT,
+        .tiling      = tiling,
+        .usage       = usage,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices   = nullptr,
+        .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
     VkImage image = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateImage(logical_device, &info, nullptr, &image));
     return image;
@@ -294,10 +302,29 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
 
     vkBindImageMemory(logical_device, interop.image, interop.image_memory, 0);
 
-    auto view_type = getImageViewType(params.layout);
-    auto info = vkinit::imageViewCreateInfo(interop.image,
-        view_type, interop.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
-    );
+    VkImageViewCreateInfo info{
+        .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext    = nullptr,
+        .flags    = 0,
+        .image    = interop.image,
+        .viewType = getImageViewType(params.layout),
+        .format   = interop.vk_format,
+        // Default mapping of all color channels
+        .components = VkComponentMapping{
+            .r = VK_COMPONENT_SWIZZLE_R,
+            .g = VK_COMPONENT_SWIZZLE_G,
+            .b = VK_COMPONENT_SWIZZLE_B,
+            .a = VK_COMPONENT_SWIZZLE_A,
+        },
+        // Describe image purpose and which part of it should be accesssed
+        .subresourceRange = VkImageSubresourceRange{
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        }
+    };
     validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &interop.vk_view));
     deletors.add([=,this]{
         vkDestroyImageView(logical_device, interop.vk_view, nullptr);
@@ -337,10 +364,29 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     });
     vkBindImageMemory(logical_device, interop.image, interop.image_memory, 0);
 
-    auto view_type = getImageViewType(params.layout);
-    auto info = vkinit::imageViewCreateInfo(interop.image,
-        view_type, interop.vk_format, VK_IMAGE_ASPECT_COLOR_BIT
-    );
+    VkImageViewCreateInfo info{
+        .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext    = nullptr,
+        .flags    = 0,
+        .image    = interop.image,
+        .viewType = getImageViewType(params.layout),
+        .format   = interop.vk_format,
+        // Default mapping of all color channels
+        .components = VkComponentMapping{
+            .r = VK_COMPONENT_SWIZZLE_R,
+            .g = VK_COMPONENT_SWIZZLE_G,
+            .b = VK_COMPONENT_SWIZZLE_B,
+            .a = VK_COMPONENT_SWIZZLE_A,
+        },
+        // Describe image purpose and which part of it should be accesssed
+        .subresourceRange = VkImageSubresourceRange{
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        }
+    };
     validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &interop.vk_view));
     deletors.add([=,this]{
         vkDestroyImageView(logical_device, interop.vk_view, nullptr);

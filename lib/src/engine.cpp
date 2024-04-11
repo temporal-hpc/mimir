@@ -6,7 +6,6 @@
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
-#include "internal/vk_initializers.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include "internal/window.hpp"
@@ -585,13 +584,26 @@ void MimirEngine::initSwapchain()
 
     auto images = swap->createImages(dev->logical_device);
 
-    auto depth_fmt = findDepthFormat();
-    VkExtent3D extent{ width, height, 1 };
-    auto type = VK_IMAGE_TYPE_2D;
-    auto usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    auto image_info = vkinit::imageCreateInfo(type, depth_fmt, extent, usage);
+    auto depth_format = findDepthFormat();
+    VkImageCreateInfo depth_img_info{
+        .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext       = nullptr,
+        .flags       = 0,
+        .imageType   = VK_IMAGE_TYPE_2D,
+        .format      = depth_format,
+        .extent      = { width, height, 1 },
+        .mipLevels   = 1,
+        .arrayLayers = 1,
+        .samples     = VK_SAMPLE_COUNT_1_BIT,
+        .tiling      = VK_IMAGE_TILING_OPTIMAL,
+        .usage       = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices   = nullptr,
+        .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
     validation::checkVulkan(
-        vkCreateImage(dev->logical_device, &image_info, nullptr, &depth_image)
+        vkCreateImage(dev->logical_device, &depth_img_info, nullptr, &depth_image)
     );
 
     VkMemoryRequirements mem_req;
@@ -609,11 +621,31 @@ void MimirEngine::initSwapchain()
     );
     vkBindImageMemory(dev->logical_device, depth_image, depth_memory, 0);
 
-    auto view_info = vkinit::imageViewCreateInfo(
-        depth_image, VK_IMAGE_VIEW_TYPE_2D, depth_fmt, VK_IMAGE_ASPECT_DEPTH_BIT
-    );
+    VkImageViewCreateInfo depth_view_info{
+        .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext    = nullptr,
+        .flags    = 0,
+        .image    = depth_image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format   = depth_format,
+        // Default mapping of all color channels
+        .components = VkComponentMapping{
+            .r = VK_COMPONENT_SWIZZLE_R,
+            .g = VK_COMPONENT_SWIZZLE_G,
+            .b = VK_COMPONENT_SWIZZLE_B,
+            .a = VK_COMPONENT_SWIZZLE_A,
+        },
+        // Describe image purpose and which part of it should be accesssed
+        .subresourceRange = VkImageSubresourceRange{
+            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        }
+    };
     validation::checkVulkan(
-        vkCreateImageView(dev->logical_device, &view_info, nullptr, &depth_view)
+        vkCreateImageView(dev->logical_device, &depth_view_info, nullptr, &depth_view)
     );
 
     swap->aux_deletors.add([=,this]{
@@ -643,39 +675,47 @@ void MimirEngine::updateDescriptorSets()
 {
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
+
+
         // Write MVP matrix, scene info and texture samplers
         std::vector<VkWriteDescriptorSet> updates;
-        auto& set = descriptor_sets[i];
 
         VkDescriptorBufferInfo mvp_info{
             .buffer = uniform_buffers[i].buffer,
             .offset = 0,
             .range  = sizeof(ModelViewProjection),
         };
-        auto write_mvp = vkinit::writeDescriptorBuffer(set, 0,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &mvp_info
-        );
-        updates.push_back(write_mvp);
+        VkWriteDescriptorSet write_buf{
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = descriptor_sets[i],
+            .dstBinding       = 0,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &mvp_info,
+            .pTexelBufferView = nullptr,
+        };
+        updates.push_back(write_buf);
 
         VkDescriptorBufferInfo view_info{
             .buffer = uniform_buffers[i].buffer,
             .offset = 0,
             .range  = sizeof(ViewUniforms),
         };
-        auto write_view = vkinit::writeDescriptorBuffer(set, 2,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &view_info
-        );
-        updates.push_back(write_view);
+        write_buf.dstBinding  = 2;
+        write_buf.pBufferInfo = &view_info;
+        updates.push_back(write_buf);
 
         VkDescriptorBufferInfo scene_info{
             .buffer = uniform_buffers[i].buffer,
             .offset = 0,
             .range  = sizeof(SceneUniforms),
         };
-        auto write_scene = vkinit::writeDescriptorBuffer(set, 1,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, &scene_info
-        );
-        updates.push_back(write_scene);
+        write_buf.dstBinding  = 1;
+        write_buf.pBufferInfo = &scene_info;
+        updates.push_back(write_buf);
 
         for (const auto& view : views)
         {
@@ -690,10 +730,18 @@ void MimirEngine::updateDescriptorSets()
                         .imageView   = memory.vk_view,
                         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                     };
-
-                    auto write_img = vkinit::writeDescriptorImage(set,
-                        3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &img_info
-                    );
+                    VkWriteDescriptorSet write_img{
+                        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .pNext            = nullptr,
+                        .dstSet           = descriptor_sets[i],
+                        .dstBinding       = 3,
+                        .dstArrayElement  = 0,
+                        .descriptorCount  = 1,
+                        .descriptorType   = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                        .pImageInfo       = &img_info,
+                        .pBufferInfo      = nullptr,
+                        .pTexelBufferView = nullptr,
+                    };
                     updates.push_back(write_img);
 
                     VkDescriptorImageInfo samp_info{
@@ -701,11 +749,9 @@ void MimirEngine::updateDescriptorSets()
                         .imageView   = memory.vk_view,
                         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                     };
-
-                    auto write_samp = vkinit::writeDescriptorImage(set,
-                        4, VK_DESCRIPTOR_TYPE_SAMPLER, &samp_info
-                    );
-                    updates.push_back(write_samp);
+                    write_img.dstBinding = 4;
+                    write_img.pImageInfo = &samp_info;
+                    updates.push_back(write_img);
                 }
             }
         }

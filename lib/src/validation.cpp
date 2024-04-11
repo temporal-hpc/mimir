@@ -116,7 +116,6 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance,
     }
 }
 
-// TODO: Should it be in vk_initializers?
 VkDebugUtilsMessengerCreateInfoEXT debugMessengerCreateInfo()
 {
     VkDebugUtilsMessengerCreateInfoEXT info{

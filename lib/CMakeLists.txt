@@ -11,7 +11,6 @@ target_sources(mimir PRIVATE
     src/interop_device.cpp
     src/vulkan_device.cpp
     src/vk_framebuffer.cpp
-    src/vk_initializers.cpp
     src/vk_pipeline.cpp
     src/vk_properties.cpp
     src/vk_swapchain.cpp
