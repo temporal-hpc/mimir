@@ -5,6 +5,48 @@
 namespace mimir
 {
 
+uint32_t PhysicalDevice::findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties)
+{
+    auto props = memory.memoryProperties;
+    for (uint32_t i = 0; i < props.memoryTypeCount; ++i)
+    {
+        auto flags = props.memoryTypes[i].propertyFlags;
+        if ((type_filter & (1 << i)) && (flags & properties) == properties)
+        {
+            return i;
+        }
+    }
+    return ~0;
+}
+
+VkFormatProperties PhysicalDevice::getFormatProperties(VkFormat format)
+{
+    VkFormatProperties properties{};
+    vkGetPhysicalDeviceFormatProperties(handle, format, &properties);
+    return properties;
+}
+
+DeviceMemoryStats PhysicalDevice::getMemoryStats()
+{
+    DeviceMemoryStats stats{};
+    if (handle == nullptr) { return stats; }
+
+    vkGetPhysicalDeviceMemoryProperties2(handle, &memory);
+    auto props = memory.memoryProperties;
+    stats.heap_count = props.memoryHeapCount;
+
+    for (uint32_t i = 0; i < stats.heap_count; ++i)
+    {
+        auto heap_flags = props.memoryHeaps[i].flags;
+        if (heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+        {
+            stats.usage  += budget.heapUsage[i];
+            stats.budget += budget.heapBudget[i];
+        }
+    }
+    return stats;
+}
+
 std::vector<PhysicalDevice> getDevices(VkInstance instance)
 {
     // Get how many devices are available

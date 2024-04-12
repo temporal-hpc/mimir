@@ -603,7 +603,7 @@ void MimirEngine::initSwapchain()
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .pNext = nullptr,
         .allocationSize = mem_req.size,
-        .memoryTypeIndex = dev->findMemoryType(
+        .memoryTypeIndex = dev->physical_device.findMemoryType(
             mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
         ),
     };
@@ -1251,6 +1251,25 @@ void MimirEngine::displayEngineGUI()
     ImGui::End();
 }
 
+struct ConvertedMemory
+{
+    float data;
+    std::string units;
+};
+
+ConvertedMemory formatMemory(uint64_t memsize)
+{
+    constexpr float kilobyte = 1024.f;
+    constexpr float megabyte = kilobyte * 1024.f;
+    constexpr float gigabyte = megabyte * 1024.f;
+
+    ConvertedMemory converted{};
+    converted.data = static_cast<float>(memsize) / gigabyte;
+    converted.units = "GB";
+
+    return converted;
+}
+
 void MimirEngine::showMetrics()
 {
     int w, h;
@@ -1265,12 +1284,10 @@ void MimirEngine::showMetrics()
     float total_frame_time = 0;
     for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
     auto framerate = frame_times.size() / total_frame_time;
-    //float min_fps = 1 / max_frame_time;
-    //float max_fps = 1 / min_frame_time;
 
-    dev->updateMemoryProperties();
-    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
-    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
+    auto stats = dev->physical_device.getMemoryStats();
+    auto gpu_usage  = formatMemory(stats.usage);
+    auto gpu_budget = formatMemory(stats.budget);
 
     printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.target_fps,
         framerate,perf.total_compute_time,total_pipeline_time,

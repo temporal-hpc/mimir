@@ -7,6 +7,14 @@
 namespace mimir
 {
 
+struct DeviceMemoryStats
+{
+    uint32_t heap_count = 0;
+    VkDeviceSize usage  = 0;
+    VkDeviceSize budget = 0;
+};
+
+
 // Aggregate structure containing a Vulkan physical device handle and its
 // associated properties
 // Default values are set for ready use by the various Vulkan device property
@@ -40,6 +48,10 @@ struct PhysicalDevice
         .memoryProperties = {},
     };
     VkPhysicalDeviceFeatures features{};
+
+    uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties);
+    VkFormatProperties getFormatProperties(VkFormat format);
+    DeviceMemoryStats getMemoryStats();
 };
 
 std::vector<PhysicalDevice> getDevices(VkInstance instance);

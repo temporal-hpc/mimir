@@ -198,24 +198,10 @@ void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fu
     vkFreeCommandBuffers(logical_device, command_pool, 1, &cmd);
 }
 
-uint32_t VulkanDevice::findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties)
-{
-    auto props = physical_device.memory.memoryProperties;
-    for (uint32_t i = 0; i < props.memoryTypeCount; ++i)
-    {
-        auto flags = props.memoryTypes[i].propertyFlags;
-        if ((type_filter & (1 << i)) && (flags & properties) == properties)
-        {
-            return i;
-        }
-    }
-    return ~0;
-}
-
 VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
     VkMemoryPropertyFlags properties, const void *export_info)
 {
-    auto type = findMemoryType(requirements.memoryTypeBits, properties);
+    auto type = physical_device.findMemoryType(requirements.memoryTypeBits, properties);
     VkMemoryAllocateInfo alloc_info{
         .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .pNext           = export_info,
@@ -286,9 +272,7 @@ VkFormat VulkanDevice::findSupportedImageFormat(const std::vector<VkFormat>& can
 {
     for (auto format : candidates)
     {
-        VkFormatProperties props;
-        vkGetPhysicalDeviceFormatProperties(physical_device.handle, format, &props);
-
+        auto props = physical_device.getFormatProperties(format);
         switch (tiling)
         {
             case VK_IMAGE_TILING_LINEAR:
@@ -307,13 +291,12 @@ VkFormat VulkanDevice::findSupportedImageFormat(const std::vector<VkFormat>& can
     return VK_FORMAT_UNDEFINED;
 }
 
-void VulkanDevice::generateMipmaps(VkImage image, VkFormat img_format,
+void VulkanDevice::generateMipmaps(VkImage image, VkFormat format,
     int img_width, int img_height, int mip_levels)
 {
-    VkFormatProperties format_props;
-    vkGetPhysicalDeviceFormatProperties(physical_device.handle, img_format, &format_props);
+    auto props = physical_device.getFormatProperties(format);
     auto blit_support = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-    if (!(format_props.optimalTilingFeatures & blit_support))
+    if (!(props.optimalTilingFeatures & blit_support))
     {
         throw std::runtime_error("texture image format does not support linear blitting!");
     }
@@ -554,19 +537,6 @@ void VulkanDevice::transitionImageLayout(VkImage image,
     });
 }
 
-ConvertedMemory VulkanDevice::formatMemory(uint64_t memsize) const
-{
-    constexpr float kilobyte = 1024.f;
-    constexpr float megabyte = kilobyte * 1024.f;
-    constexpr float gigabyte = megabyte * 1024.f;
-
-    ConvertedMemory converted{};
-    converted.data = static_cast<float>(memsize) / gigabyte;
-    converted.units = "GB";
-
-    return converted;
-}
-
 std::string VulkanDevice::readMemoryHeapFlags(VkMemoryHeapFlags flags)
 {
     switch (flags)
@@ -576,24 +546,6 @@ std::string VulkanDevice::readMemoryHeapFlags(VkMemoryHeapFlags flags)
         default: return "Host local heap memory";
     }
     return "";
-}
-
-void VulkanDevice::updateMemoryProperties()
-{
-    vkGetPhysicalDeviceMemoryProperties2(physical_device.handle, &physical_device.memory);
-    props.heap_count = physical_device.memory.memoryProperties.memoryHeapCount;
-    props.gpu_usage = 0;
-    props.gpu_budget = 0;
-
-    for (uint32_t i = 0; i < props.heap_count; ++i)
-    {
-        auto heap_flags = physical_device.memory.memoryProperties.memoryHeaps[i].flags;
-        if (heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
-        {
-            props.gpu_usage  += physical_device.budget.heapUsage[i];
-            props.gpu_budget += physical_device.budget.heapBudget[i];
-        }
-    }
 }
 
 VkQueryPool VulkanDevice::createQueryPool(uint32_t query_count)

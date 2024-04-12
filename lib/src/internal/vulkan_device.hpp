@@ -11,23 +11,10 @@
 namespace mimir
 {
 
-struct ConvertedMemory
-{
-    float data;
-    std::string units;
-};
-
-struct DeviceMemoryProperties
-{
-    uint32_t heap_count = 0;
-    VkDeviceSize gpu_usage = 0;
-    VkDeviceSize gpu_budget = 0;
-};
-
 struct VulkanQueue
 {
     uint32_t family_index = ~0u;
-    VkQueue queue = VK_NULL_HANDLE;
+    VkQueue queue         = VK_NULL_HANDLE;
 };
 
 struct VulkanDevice
@@ -39,7 +26,6 @@ struct VulkanDevice
     VkCommandPool command_pool = VK_NULL_HANDLE;
 
     VulkanQueue graphics, present;
-    DeviceMemoryProperties props;
     DeletionQueue deletors;
 
     explicit VulkanDevice(PhysicalDevice dev);
@@ -60,7 +46,6 @@ struct VulkanDevice
     std::vector<VkCommandBuffer> createCommandBuffers(uint32_t buffer_count);
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
-    uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags mem_props);
     VkDeviceMemory allocateMemory(VkMemoryRequirements requirements,
         VkMemoryPropertyFlags properties, const void *export_info = nullptr
     );
@@ -80,9 +65,7 @@ struct VulkanDevice
 
     VkFence createFence(VkFenceCreateFlags flags);
     VkSemaphore createSemaphore(const void *extensions = nullptr);
-    ConvertedMemory formatMemory(uint64_t memsize) const;
     std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
-    void updateMemoryProperties();
     VkQueryPool createQueryPool(uint32_t query_count);
 };
 
