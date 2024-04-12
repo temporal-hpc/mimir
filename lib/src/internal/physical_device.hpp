@@ -14,7 +14,6 @@ struct DeviceMemoryStats
     VkDeviceSize budget = 0;
 };
 
-
 // Aggregate structure containing a Vulkan physical device handle and its
 // associated properties
 // Default values are set for ready use by the various Vulkan device property

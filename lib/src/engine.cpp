@@ -81,7 +81,6 @@ MimirEngine::~MimirEngine()
         vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
         vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
     }
-
     if (dev)
     {
         cleanupSwapchain();
@@ -666,8 +665,6 @@ void MimirEngine::updateDescriptorSets()
 {
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
-
-
         // Write MVP matrix, scene info and texture samplers
         std::vector<VkWriteDescriptorSet> updates;
 
@@ -1225,10 +1222,8 @@ void MimirEngine::displayEngineGUI()
     ImGui::Begin("Scene parameters");
     //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
     ImGui::ColorEdit3("Clear color", (float*)&bg_color);
-    auto pos = camera->position;
-    ImGui::Text("Camera position: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
-    auto rot = camera->rotation;
-    ImGui::Text("Camera rotation: %.3f %.3f %.3f", rot.x, rot.y, rot.z);
+    ImGui::InputFloat3("Camera position", &camera->position.x, "%.3f");
+    ImGui::InputFloat3("Camera rotation", &camera->rotation.x, "%.3f");
 
     // Use a separate flag for choosing whether to enable the FPS limit target value
     // This avoids the unpleasant feeling of going from 0 (no FPS limit)

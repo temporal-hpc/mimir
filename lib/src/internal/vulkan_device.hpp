@@ -50,7 +50,7 @@ struct VulkanDevice
         VkMemoryPropertyFlags properties, const void *export_info = nullptr
     );
     VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-        const void *extmem_info = nullptr
+        const void *extensions = nullptr
     );
     VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
     VkFormat findSupportedImageFormat(const std::vector<VkFormat>& candidates,

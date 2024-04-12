@@ -215,14 +215,14 @@ VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
 }
 
 VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
-    VkBufferUsageFlags usage, const void *extmem_info)
+    VkBufferUsageFlags usage, const void *extensions)
 {
     VkBuffer buffer = VK_NULL_HANDLE;
     if (size > 0)
     {
         VkBufferCreateInfo info{
             .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .pNext       = extmem_info,
+            .pNext       = extensions,
             .flags       = 0,
             .size        = size,
             .usage       = usage,
@@ -230,7 +230,6 @@ VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
             .queueFamilyIndexCount = 0,
             .pQueueFamilyIndices   = nullptr,
         };
-
         validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
     }
     return buffer;
