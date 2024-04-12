@@ -3,3 +3,4 @@ build
 .cache
 .vscode
 imgui.ini
+contrib/slang/lib/slang-stdlib.bin

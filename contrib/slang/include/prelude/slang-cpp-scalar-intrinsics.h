@@ -43,7 +43,7 @@ SLANG_FORCE_INLINE float _bitCastUIntToFloat(uint32_t ui) { Union32 u; u.u = ui;
 
 
 // This impl is based on FloatToHalf that is in Slang codebase
-uint32_t f32tof16(const float value)
+SLANG_FORCE_INLINE uint32_t f32tof16(const float value)
 {
     const uint32_t inBits = _bitCastFloatToUInt(value);
 
@@ -97,7 +97,7 @@ uint32_t f32tof16(const float value)
 
 static const float g_f16tof32Magic = _bitCastIntToFloat((127 + (127 - 15)) << 23);
 
-float f16tof32(const uint32_t value)
+SLANG_FORCE_INLINE float f16tof32(const uint32_t value)
 {
     const uint32_t sign = (value & 0x8000) << 16;
     uint32_t exponent = (value & 0x7c00) >> 10;
@@ -169,7 +169,8 @@ float F32_fmod(float a, float b);
 float F32_remainder(float a, float b);
 float F32_atan2(float a, float b);
 
-float F32_frexp(float x, float* e);
+float F32_frexp(float x, int* e);
+
 float F32_modf(float x, float* ip);
 
 // Ternary
@@ -213,13 +214,8 @@ SLANG_FORCE_INLINE float F32_fmod(float a, float b) { return ::fmodf(a, b); }
 SLANG_FORCE_INLINE float F32_remainder(float a, float b) { return ::remainderf(a, b); }
 SLANG_FORCE_INLINE float F32_atan2(float a, float b) { return float(::atan2(a, b)); }
 
-SLANG_FORCE_INLINE float F32_frexp(float x, float* e)
-{
-    int ei;
-    float m = ::frexpf(x, &ei);
-    *e = float(ei);
-    return m;
-}
+SLANG_FORCE_INLINE float F32_frexp(float x, int* e) { return ::frexpf(x, e); }
+
 SLANG_FORCE_INLINE float F32_modf(float x, float* ip)
 {
     return ::modff(x, ip);
@@ -289,7 +285,7 @@ double F64_fmod(double a, double b);
 double F64_remainder(double a, double b);
 double F64_atan2(double a, double b);
 
-double F64_frexp(double x, double* e);
+double F64_frexp(double x, int* e);
 
 double F64_modf(double x, double* ip);
 
@@ -335,13 +331,7 @@ SLANG_FORCE_INLINE double F64_fmod(double a, double b) { return ::fmod(a, b); }
 SLANG_FORCE_INLINE double F64_remainder(double a, double b) { return ::remainder(a, b); }
 SLANG_FORCE_INLINE double F64_atan2(double a, double b) { return ::atan2(a, b); }
 
-SLANG_FORCE_INLINE double F64_frexp(double x, double* e)
-{
-    int ei;
-    double m = ::frexp(x, &ei);
-    *e = float(ei);
-    return m;
-}
+SLANG_FORCE_INLINE double F64_frexp(double x, int* e) { return ::frexp(x, e); }
 
 SLANG_FORCE_INLINE double F64_modf(double x, double* ip)
 {
@@ -479,7 +469,7 @@ SLANG_FORCE_INLINE int64_t I64_max(int64_t a, int64_t b) { return a > b ? a : b;
 #       include <intrin.h>
 #   endif
 
-void InterlockedAdd(uint32_t* dest, uint32_t value, uint32_t* oldValue)
+SLANG_FORCE_INLINE void InterlockedAdd(uint32_t* dest, uint32_t value, uint32_t* oldValue)
 {
 #   ifdef _WIN32
     *oldValue = _InterlockedExchangeAdd((long*)dest, (long)value);

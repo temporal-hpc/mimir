@@ -53,7 +53,8 @@
 #   define SLANG_CUDA_WARP_SIZE 32
 #endif
 
-#define SLANG_CUDA_WARP_MASK (SLANG_CUDA_WARP_SIZE - 1)
+#define SLANG_CUDA_WARP_MASK (SLANG_CUDA_WARP_SIZE - 1) // Used for masking threadIdx.x to the warp lane index
+#define SLANG_CUDA_WARP_BITMASK (~int(0))
 
 //
 #define SLANG_FORCE_INLINE inline
@@ -362,11 +363,14 @@ SLANG_CUDA_VECTOR_FLOAT_OPS(__half)
 SLANG_CUDA_FLOAT_VECTOR_MOD(float)
 SLANG_CUDA_FLOAT_VECTOR_MOD(double)
 
-#if SLANG_CUDA_RTC
+#if SLANG_CUDA_RTC || SLANG_CUDA_ENABLE_HALF
 #define SLANG_MAKE_VECTOR(T) \
     SLANG_FORCE_INLINE SLANG_CUDA_CALL T##2 make_##T##2(T x, T y) { return T##2{x, y}; }\
     SLANG_FORCE_INLINE SLANG_CUDA_CALL T##3 make_##T##3(T x, T y, T z) { return T##3{ x, y, z }; }\
     SLANG_FORCE_INLINE SLANG_CUDA_CALL T##4 make_##T##4(T x, T y, T z, T w) { return T##4{ x, y, z, w }; }
+#endif
+
+#if SLANG_CUDA_RTC
 SLANG_MAKE_VECTOR(int)
 SLANG_MAKE_VECTOR(uint)
 SLANG_MAKE_VECTOR(short)
@@ -412,6 +416,9 @@ SLANG_MAKE_VECTOR_FROM_SCALAR(float)
 SLANG_MAKE_VECTOR_FROM_SCALAR(double)
 #if SLANG_CUDA_ENABLE_HALF
 SLANG_MAKE_VECTOR_FROM_SCALAR(__half)
+#if !SLANG_CUDA_RTC
+SLANG_FORCE_INLINE SLANG_CUDA_CALL __half1 make___half1(__half x) { return __half1{x}; }
+#endif
 #endif
 
 #define SLANG_CUDA_VECTOR_ATOMIC_BINARY_IMPL(Fn,T,N) \
@@ -423,9 +430,11 @@ SLANG_MAKE_VECTOR_FROM_SCALAR(__half)
         return result; \
     }\
 
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 900
 SLANG_CUDA_VECTOR_ATOMIC_BINARY_IMPL(atomicAdd, float, 2)
-SLANG_CUDA_VECTOR_ATOMIC_BINARY_IMPL(atomicAdd, float, 3)
 SLANG_CUDA_VECTOR_ATOMIC_BINARY_IMPL(atomicAdd, float, 4)
+#endif
+SLANG_CUDA_VECTOR_ATOMIC_BINARY_IMPL(atomicAdd, float, 3)
 SLANG_CUDA_VECTOR_ATOMIC_BINARY_IMPL(atomicAdd, int, 2)
 SLANG_CUDA_VECTOR_ATOMIC_BINARY_IMPL(atomicAdd, int, 3)
 SLANG_CUDA_VECTOR_ATOMIC_BINARY_IMPL(atomicAdd, int, 4)
@@ -1016,13 +1025,8 @@ SLANG_FORCE_INLINE SLANG_CUDA_CALL float F32_fmod(float a, float b) { return ::f
 SLANG_FORCE_INLINE SLANG_CUDA_CALL float F32_remainder(float a, float b) { return ::remainderf(a, b); }
 SLANG_FORCE_INLINE SLANG_CUDA_CALL float F32_atan2(float a, float b) { return float(::atan2(a, b)); }
 
-SLANG_FORCE_INLINE SLANG_CUDA_CALL float F32_frexp(float x, float* e)
-{
-    int ei;
-    float m = ::frexpf(x, &ei);
-    *e = ei;
-    return m;
-}
+SLANG_FORCE_INLINE SLANG_CUDA_CALL float F32_frexp(float x, int* e) { return frexpf(x, e); }
+
 SLANG_FORCE_INLINE SLANG_CUDA_CALL float F32_modf(float x, float* ip)
 {
     return ::modff(x, ip);
@@ -1075,13 +1079,8 @@ SLANG_FORCE_INLINE SLANG_CUDA_CALL double F64_fmod(double a, double b) { return 
 SLANG_FORCE_INLINE SLANG_CUDA_CALL double F64_remainder(double a, double b) { return ::remainder(a, b); }
 SLANG_FORCE_INLINE SLANG_CUDA_CALL double F64_atan2(double a, double b) { return ::atan2(a, b); }
 
-SLANG_FORCE_INLINE SLANG_CUDA_CALL double F64_frexp(double x, double* e)
-{
-    int ei;
-    double m = ::frexp(x, &ei);
-    *e = ei;
-    return m;
-}
+SLANG_FORCE_INLINE SLANG_CUDA_CALL double F64_frexp(double x, int* e) { return ::frexp(x, e); }
+
 SLANG_FORCE_INLINE SLANG_CUDA_CALL double F64_modf(double x, double* ip)
 {
     return ::modf(x, ip);
@@ -1249,7 +1248,9 @@ struct ByteAddressBuffer
     SLANG_CUDA_CALL T Load(size_t index) const
     {
         SLANG_BOUND_CHECK_BYTE_ADDRESS(index, sizeof(T), sizeInBytes);
-        return *(const T*)(((const char*)data) + index);
+        T data;
+        memcpy(&data, ((const char*)this->data) + index, sizeof(T));
+        return data;
     }
     
     const uint32_t* data;
@@ -1290,7 +1291,9 @@ struct RWByteAddressBuffer
     SLANG_CUDA_CALL T Load(size_t index) const
     {
         SLANG_BOUND_CHECK_BYTE_ADDRESS(index, sizeof(T), sizeInBytes);
-        return *(const T*)((const char*)data + index);
+        T data;
+        memcpy(&data, ((const char*)this->data) + index, sizeof(T));
+        return data;
     }
     
     SLANG_CUDA_CALL void Store(size_t index, uint32_t v) const 
@@ -1326,7 +1329,7 @@ struct RWByteAddressBuffer
     SLANG_CUDA_CALL void Store(size_t index, T const& value) const
     {
         SLANG_BOUND_CHECK_BYTE_ADDRESS(index, sizeof(T), sizeInBytes);
-        *(T*)(((char*)data) + index) = value;
+        memcpy((char*)data + index, &value, sizeof(T));
     }
     
         /// Can be used in stdlib to gain access
@@ -1422,10 +1425,16 @@ __inline__ __device__ bool _waveIsSingleLane(WarpMask mask)
 }
 
 // Returns the power of 2 size of run of set bits. Returns 0 if not a suitable run.
+// Examples:
+// 0b00000000'00000000'00000000'11111111 -> 8
+// 0b11111111'11111111'11111111'11111111 -> 32
+// 0b00000000'00000000'00000000'00011111 -> 0 (since 5 is not a power of 2)
+// 0b00000000'00000000'00000000'11110000 -> 0 (since the run of bits does not start at the LSB)
+// 0b00000000'00000000'00000000'00100111 -> 0 (since it is not a single contiguous run)
 __inline__ __device__ int _waveCalcPow2Offset(WarpMask mask)
 {
     // This should be the most common case, so fast path it
-    if (mask == SLANG_CUDA_WARP_MASK)
+    if (mask == SLANG_CUDA_WARP_BITMASK)
     {
         return SLANG_CUDA_WARP_SIZE;
     }
@@ -1650,6 +1659,36 @@ __inline__ __device__ T _waveMin(WarpMask mask, T val) { return _waveReduceScala
 
 template <typename T>
 __inline__ __device__ T _waveMax(WarpMask mask, T val) { return _waveReduceScalar<WaveOpMax<T>, T>(mask, val); }
+
+// Fast-path specializations when CUDA warp reduce operators are available
+#if __CUDA_ARCH__ >= 800 // 8.x or higher
+template<>
+__inline__ __device__ unsigned _waveOr<unsigned>(WarpMask mask, unsigned val) { return __reduce_or_sync(mask, val); }
+
+template<>
+__inline__ __device__ unsigned _waveAnd<unsigned>(WarpMask mask, unsigned val) { return __reduce_and_sync(mask, val); }
+
+template<>
+__inline__ __device__ unsigned _waveXor<unsigned>(WarpMask mask, unsigned val) { return __reduce_xor_sync(mask, val); }
+
+template<>
+__inline__ __device__ unsigned _waveSum<unsigned>(WarpMask mask, unsigned val) { return __reduce_add_sync(mask, val); }
+
+template<>
+__inline__ __device__ int _waveSum<int>(WarpMask mask, int val) { return __reduce_add_sync(mask, val); }
+
+template<>
+__inline__ __device__ unsigned _waveMin<unsigned>(WarpMask mask, unsigned val) { return __reduce_min_sync(mask, val); }
+
+template<>
+__inline__ __device__ int _waveMin<int>(WarpMask mask, int val) { return __reduce_min_sync(mask, val); }
+
+template<>
+__inline__ __device__ unsigned _waveMax<unsigned>(WarpMask mask, unsigned val) { return __reduce_max_sync(mask, val); }
+
+template<>
+__inline__ __device__ int _waveMax<int>(WarpMask mask, int val) { return __reduce_max_sync(mask, val); }
+#endif
 
 
 // Multiple
@@ -2198,6 +2237,17 @@ struct TensorView
         return reinterpret_cast<T*>(data + offset);
     }
 
+    template<typename T, unsigned int N>
+    __device__ T* data_ptr_at(uint index[N])
+    {
+        uint64_t offset = 0;
+        for (unsigned int i = 0; i < N; ++i)
+        {
+            offset += strides[i] * index[i];
+        }
+        return reinterpret_cast<T*>(data + offset);
+    }
+
     template<typename T>
     __device__ T& load(uint32_t x)
     {
@@ -2209,9 +2259,19 @@ struct TensorView
         return *reinterpret_cast<T*>(data + strides[0] * x + strides[1] * y);
     }
     template<typename T>
+    __device__ T& load(uint2 index)
+    {
+        return *reinterpret_cast<T*>(data + strides[0] * index.x + strides[1] * index.y);
+    }
+    template<typename T>
     __device__ T& load(uint32_t x, uint32_t y, uint32_t z)
     {
         return *reinterpret_cast<T*>(data + strides[0] * x + strides[1] * y + strides[2] * z);
+    }
+    template<typename T>
+    __device__ T& load(uint3 index)
+    {
+        return *reinterpret_cast<T*>(data + strides[0] * index.x + strides[1] * index.y + strides[2] * index.z);
     }
     template<typename T>
     __device__ T& load(uint32_t x, uint32_t y, uint32_t z, uint32_t w)
@@ -2219,10 +2279,28 @@ struct TensorView
         return *reinterpret_cast<T*>(data + strides[0] * x + strides[1] * y + strides[2] * z + strides[3] * w);
     }
     template<typename T>
+    __device__ T& load(uint4 index)
+    {
+        return *reinterpret_cast<T*>(data + strides[0] * index.x + strides[1] * index.y + strides[2] * index.z + strides[3] * index.w);
+    }
+    template<typename T>
     __device__ T& load(uint32_t i0, uint32_t i1, uint32_t i2, uint32_t i3, uint32_t i4)
     {
         return *reinterpret_cast<T*>(data + strides[0] * i0 + strides[1] * i1 + strides[2] * i2 + strides[3] * i3 + strides[4] * i4);
     }
+
+    // Generic version of load
+    template<typename T, unsigned int N>
+    __device__ T& load(uint index[N])
+    {
+        uint64_t offset = 0;
+        for (unsigned int i = 0; i < N; ++i)
+        {
+            offset += strides[i] * index[i];
+        }
+        return *reinterpret_cast<T*>(data + offset);
+    }
+
     template<typename T>
     __device__ void store(uint32_t x, T val)
     {
@@ -2234,9 +2312,19 @@ struct TensorView
         *reinterpret_cast<T*>(data + strides[0] * x + strides[1] * y) = val;
     }
     template<typename T>
+    __device__ void store(uint2 index, T val)
+    {
+        *reinterpret_cast<T*>(data + strides[0] * index.x + strides[1] * index.y) = val;
+    }
+    template<typename T>
     __device__ void store(uint32_t x, uint32_t y, uint32_t z, T val)
     {
         *reinterpret_cast<T*>(data + strides[0] * x + strides[1] * y + strides[2] * z) = val;
+    }
+    template<typename T>
+    __device__ void store(uint3 index, T val)
+    {
+        *reinterpret_cast<T*>(data + strides[0] * index.x + strides[1] * index.y + strides[2] * index.z) = val;
     }
     template<typename T>
     __device__ void store(uint32_t x, uint32_t y, uint32_t z, uint32_t w, T val)
@@ -2245,8 +2333,25 @@ struct TensorView
             data + strides[0] * x + strides[1] * y + strides[2] * z + strides[3] * w) = val;
     }
     template<typename T>
+    __device__ void store(uint4 index, T val)
+    {
+        *reinterpret_cast<T*>(data + strides[0] * index.x + strides[1] * index.y + strides[2] * index.z + strides[3] * index.w) = val;
+    }
+    template<typename T>
     __device__ void store(uint32_t i0, uint32_t i1, uint32_t i2, uint32_t i3, uint32_t i4, T val)
     {
         *reinterpret_cast<T*>(data + strides[0] * i0 + strides[1] * i1 + strides[2] * i2 + strides[3] * i3 + strides[4] * i4) = val;
+    }
+
+    // Generic version
+    template<typename T, unsigned int N>
+    __device__ void store(uint index[N], T val)
+    {
+        uint64_t offset = 0;
+        for (unsigned int i = 0; i < N; ++i)
+        {
+            offset += strides[i] * index[i];
+        }
+        *reinterpret_cast<T*>(data + offset) = val;
     }
 };

@@ -56,7 +56,7 @@ const uint64_t kTimeoutInfinite = 0xFFFFFFFFFFFFFFFF;
 
 enum class StructType
 {
-    D3D12DeviceExtendedDesc, D3D12ExperimentalFeaturesDesc
+    D3D12DeviceExtendedDesc, D3D12ExperimentalFeaturesDesc, SlangSessionExtendedDesc
 };
 
 // TODO: Rename to Stage
@@ -296,8 +296,12 @@ public:
     x(BC6H_UF16, 16, 16) \
     x(BC6H_SF16, 16, 16) \
     x(BC7_UNORM, 16, 16) \
-    x(BC7_UNORM_SRGB, 16, 16)
-
+    x(BC7_UNORM_SRGB, 16, 16) \
+    \
+    x(R64_UINT, 8, 1) \
+    \
+    x(R64_SINT, 8, 1) \
+    \
 // TODO: This should be generated from above
 // TODO: enum class should be explicitly uint32_t or whatever's appropriate
 /// Different formats of things like pixels or elements of vertices
@@ -408,6 +412,10 @@ enum class Format
     BC6H_SF16,
     BC7_UNORM,
     BC7_UNORM_SRGB,
+
+    R64_UINT,
+    
+    R64_SINT,
 
     _Count,
 };
@@ -1460,6 +1468,7 @@ struct WindowHandle
     {
         Unknown,
         Win32Handle,
+        NSWindowHandle,
         XLibHandle,
     };
     Type type;
@@ -1469,6 +1478,13 @@ struct WindowHandle
         WindowHandle handle = {};
         handle.type = WindowHandle::Type::Win32Handle;
         handle.handleValues[0] = (intptr_t)(hwnd);
+        return handle;
+    }
+    static WindowHandle FromNSWindow(void* nswindow)
+    {
+        WindowHandle handle = {};
+        handle.type = WindowHandle::Type::NSWindowHandle;
+        handle.handleValues[0] = (intptr_t)(nswindow);
         return handle;
     }
     static WindowHandle FromXWindow(void* xdisplay, uint32_t xwindow)
@@ -1760,6 +1776,8 @@ public:
         GfxIndex startIndexLocation,
         GfxIndex baseVertexLocation,
         GfxIndex startInstanceLocation) = 0;
+    virtual SLANG_NO_THROW Result SLANG_MCALL
+        drawMeshTasks(int x, int y, int z) = 0;
 };
 
 class IComputeCommandEncoder : public IResourceCommandEncoder
@@ -2204,8 +2222,8 @@ public:
         const char* targetProfile = nullptr; // (optional) Target shader profile. If null this will be set to platform dependent default.
         SlangFloatingPointMode floatingPointMode = SLANG_FLOATING_POINT_MODE_DEFAULT;
         SlangOptimizationLevel optimizationLevel = SLANG_OPTIMIZATION_LEVEL_DEFAULT;
-        SlangTargetFlags targetFlags = 0;
-        SlangLineDirectiveMode lineDirectiveMode = SLANG_LINE_DIRECTIVE_MODE_DEFAULT;
+        SlangTargetFlags targetFlags = kDefaultTargetFlags;
+        SlangLineDirectiveMode lineDirectiveMode = SLANG_LINE_DIRECTIVE_MODE_DEFAULT;\
     };
 
     struct ShaderCacheDesc
@@ -2570,6 +2588,18 @@ public:
         const ITextureResource::Desc& desc, Size* outSize, Size* outAlignment) = 0;
 
     virtual SLANG_NO_THROW Result SLANG_MCALL getTextureRowAlignment(Size* outAlignment) = 0;
+
+    virtual SLANG_NO_THROW Result SLANG_MCALL createShaderObject2(
+        slang::ISession* slangSession,
+        slang::TypeReflection* type,
+        ShaderObjectContainerType container,
+        IShaderObject** outObject) = 0;
+
+    virtual SLANG_NO_THROW Result SLANG_MCALL createMutableShaderObject2(
+        slang::ISession* slangSession,
+        slang::TypeReflection* type,
+        ShaderObjectContainerType container,
+        IShaderObject** outObject) = 0;
 };
 
 #define SLANG_UUID_IDevice                                                               \
@@ -2614,6 +2644,11 @@ public:
         slang::IComponentType* program,
         void* pipelineDesc,
         void** outPipelineState) = 0;
+    virtual SLANG_NO_THROW Result SLANG_MCALL createMeshPipelineState(
+        IDevice* device,
+        slang::IComponentType* program,
+        void* pipelineDesc,
+        void** outPipelineState) = 0;
     virtual SLANG_NO_THROW Result SLANG_MCALL
         beforeCreateRayTracingState(IDevice* device, slang::IComponentType* program) = 0;
     virtual SLANG_NO_THROW Result SLANG_MCALL
@@ -2624,6 +2659,10 @@ public:
         0xc3d5f782, 0xeae1, 0x4da6, { 0xab, 0x40, 0x75, 0x32, 0x31, 0x2, 0xb7, 0xdc } \
     }
 
+#define SLANG_UUID_IVulkanPipelineCreationAPIDispatcher                                 \
+    {                                                                                   \
+        0x4fcf1274, 0x8752, 0x4743, { 0xb3, 0x51, 0x47, 0xcb, 0x83, 0x71, 0xef, 0x99 }  \
+    }
 
 // Global public functions
 
@@ -2685,6 +2724,13 @@ struct D3D12DeviceExtendedDesc
     const char* rootParameterShaderAttributeName = nullptr;
     bool debugBreakOnD3D12Error = false;
     uint32_t highestShaderModel = 0;
+};
+
+struct SlangSessionExtendedDesc
+{
+    StructType structType = StructType::SlangSessionExtendedDesc;
+    uint32_t compilerOptionEntryCount = 0;
+    slang::CompilerOptionEntry* compilerOptionEntries = nullptr;
 };
 
 }

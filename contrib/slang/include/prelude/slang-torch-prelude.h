@@ -72,7 +72,7 @@ struct TensorView
 };
 
 
-TensorView make_tensor_view(torch::Tensor val, const char* name, torch::ScalarType targetScalarType)
+TensorView make_tensor_view(torch::Tensor val, const char* name, torch::ScalarType targetScalarType, bool requireContiguous)
 {
     // We're currently not trying to implicitly cast or transfer to device for two reasons:
     // 1. There appears to be a bug with .to() where successive calls after the first one fail.
@@ -86,6 +86,10 @@ TensorView make_tensor_view(torch::Tensor val, const char* name, torch::ScalarTy
     // Expect tensors to be the right type.
     if (val.dtype() != targetScalarType)
         throw std::runtime_error(std::string(name).append(": tensor is not of the expected type.").c_str());
+
+    // Check that the tensor is contiguous
+    if (requireContiguous && !val.is_contiguous())
+        throw std::runtime_error(std::string(name).append(": tensor is not contiguous.").c_str());
 
     TensorView res = {};
     res.dimensionCount = val.dim();
@@ -122,6 +126,10 @@ TensorView make_tensor_view(torch::Tensor val, const char* name, torch::ScalarTy
     case torch::kInt64:
         elementSize = 8;
         res.data = (uint8_t*)val.data_ptr<int64_t>();
+        break;
+    case torch::kBool:
+        elementSize = 1;
+        res.data = (uint8_t*)val.data_ptr<bool>();
         break;
     }
 
