@@ -15,11 +15,11 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     )
 endif()
 
-set(SLANG_ENABLE_GFX OFF)
-set(SLANG_ENABLE_SLANGD OFF)
-set(SLANG_ENABLE_SLANGRT OFF)
-set(SLANG_ENABLE_TESTS OFF)
-set(SLANG_ENABLE_EXAMPLES OFF)
+set(SLANG_ENABLE_GFX        OFF)
+set(SLANG_ENABLE_SLANGD     OFF)
+set(SLANG_ENABLE_SLANGRT    OFF)
+set(SLANG_ENABLE_TESTS      OFF)
+set(SLANG_ENABLE_EXAMPLES   OFF)
 set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
 FetchContent_Declare(slang
     GIT_REPOSITORY https://github.com/shader-slang/slang.git
@@ -28,9 +28,9 @@ FetchContent_Declare(slang
 )
 
 set(GLFW_BUILD_EXAMPLES OFF)
-set(GLFW_BUILD_TESTS OFF)
-set(GLFW_BUILD_DOCS OFF)
-set(GLFW_BUILD_WAYLAND OFF) # Do not include Wayland support in GLFW
+set(GLFW_BUILD_TESTS    OFF)
+set(GLFW_BUILD_DOCS     OFF)
+set(GLFW_BUILD_WAYLAND  OFF) # Do not include Wayland support in GLFW
 FetchContent_Declare(glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git
     GIT_TAG        7b6aead9fb88b3623e3b3725ebb42670cbe4c579 # 3.4
@@ -78,7 +78,7 @@ endif()
 FetchContent_Declare(imgui_file_dialog
     GIT_REPOSITORY https://github.com/aiekick/ImGuiFileDialog.git
     GIT_TAG        f73e29fca08163fdcbd1e58fb7b67c7e56f5fa2e # v0.6.7
-    GIT_SHALLOW    1
+    GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )
 # Check if population has already been performed
