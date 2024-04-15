@@ -1,7 +1,9 @@
 #include "internal/window.hpp"
 
 #include <imgui.h>
+
 #include <mimir/mimir.hpp>
+#include <mimir/validation.hpp>
 #include "internal/camera.hpp"
 
 namespace mimir
@@ -133,6 +135,13 @@ void GlfwContext::processEvents()
 void GlfwContext::getFramebufferSize(int& w, int& h)
 {
     glfwGetFramebufferSize(window, &w, &h);
+}
+
+void GlfwContext::createSurface(VkInstance instance, void *surface)
+{
+    validation::checkVulkan(
+        glfwCreateWindowSurface(instance, window, nullptr, (VkSurfaceKHR*)surface)
+    );
 }
 
 std::vector<const char*> GlfwContext::getRequiredExtensions()

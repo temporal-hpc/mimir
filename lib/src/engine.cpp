@@ -101,7 +101,7 @@ void MimirEngine::init(ViewerOptions opts)
     auto height = options.window_size.y;
     window_context = std::make_unique<GlfwContext>();
     window_context->init(width, height, options.window_title.c_str(), this);
-    deletors.add([=,this] {
+    deletors.context.add([=,this] {
         //printf("Terminating GLFW\n");
         window_context->clean();
     });
@@ -432,7 +432,7 @@ void MimirEngine::createInstance()
         instance_info.ppEnabledLayerNames = validation::layers.data();
     }
     validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
-    deletors.add([=,this]{ vkDestroyInstance(instance, nullptr); });
+    deletors.context.add([=,this]{ vkDestroyInstance(instance, nullptr); });
 
     if (validation::enable_layers)
     {
@@ -440,7 +440,7 @@ void MimirEngine::createInstance()
         validation::checkVulkan(validation::CreateDebugUtilsMessengerEXT(
             instance, &debug_create_info, nullptr, &debug_messenger)
         );
-        deletors.add([=,this]{
+        deletors.context.add([=,this]{
             validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
         });
     }
@@ -548,6 +548,7 @@ void MimirEngine::createSyncObjects()
 void MimirEngine::cleanupSwapchain()
 {
     vkDeviceWaitIdle(dev->logical_device);
+    deletors.swapchain.flush();
     for (auto& view : views)
     {
         vkDestroyPipeline(dev->logical_device, view->pipeline, nullptr);

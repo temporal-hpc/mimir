@@ -18,6 +18,7 @@ struct GlfwContext
     bool shouldClose();
     void processEvents();
     void getFramebufferSize(int& w, int& h);
+    void createSurface(VkInstance instance, void *surface);
     std::vector<const char*> getRequiredExtensions();
 };
 

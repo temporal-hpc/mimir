@@ -127,6 +127,7 @@ private:
     std::string shader_path;
     uint64_t current_frame = 0;
     long target_frame_time = 0;
+    float4 bg_color{.5f, .5f, .5f, 1.f};
 
     //std::vector<std::unique_ptr<InteropView>> views;
     std::vector<AllocatedBuffer> uniform_buffers;
@@ -134,13 +135,12 @@ private:
     std::vector<std::unique_ptr<InteropMemory>> allocations;
     std::vector<std::unique_ptr<InteropView>> views;
     std::unique_ptr<GlfwContext> window_context;
+    struct {
+        DeletionQueue context;
+        DeletionQueue swapchain;
+        DeletionQueue views;
+    } deletors;
 
-    // Deletion queue must be declared last, so that its destructor containing
-    // the calls of the destroying functions of all other member variables are
-    // called first
-    DeletionQueue deletors;
-
-    float4 bg_color{.5f, .5f, .5f, 1.f};
 
     void listExtensions();
     void initVulkan();
