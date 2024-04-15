@@ -46,8 +46,15 @@ FetchContent_Declare(glm
     FIND_PACKAGE_ARGS
 )
 
+FetchContent_Declare(spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        7c02e204c92545f869e2f04edaab1f19fe8b19fd # v1.13.0
+    GIT_SHALLOW    ON
+    FIND_PACKAGE_ARGS
+)
+
 # Download and generate the targets provided by the above contents
-FetchContent_MakeAvailable(slang glfw glm)
+FetchContent_MakeAvailable(slang glfw glm) # TODO: Add spdlog
 
 FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
