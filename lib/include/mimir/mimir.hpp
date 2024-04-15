@@ -106,7 +106,6 @@ private:
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> command_buffers;
     std::vector<VkDescriptorSet> descriptor_sets;
-    DeletionQueue deletors;
     std::function<void(void)> gui_callback = []() { return; };
 
     // Depth buffer
@@ -135,6 +134,11 @@ private:
     std::vector<std::unique_ptr<InteropMemory>> allocations;
     std::vector<std::unique_ptr<InteropView>> views;
     std::unique_ptr<GlfwContext> window_context;
+
+    // Deletion queue must be declared last, so that its destructor containing
+    // the calls of the destroying functions of all other member variables are
+    // called first
+    DeletionQueue deletors;
 
     float4 bg_color{.5f, .5f, .5f, 1.f};
 
