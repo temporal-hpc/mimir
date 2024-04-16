@@ -246,15 +246,16 @@ void MimirEngine::updateLinearTextures()
 
 InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
 {
-    auto mem_handle = std::unique_ptr<InteropMemory>(new InteropMemory());
+    auto mem_handle = new InteropMemory();
     mem_handle->params = params;
+    deletors.views.add([=,this]{ delete mem_handle; });
 
     switch (params.resource_type)
     {
         case ResourceType::Texture:
         {
             dev.initMemoryImage(*mem_handle);
-            deletors.views.add([&,this]{
+            deletors.views.add([=,this]{
                 printf("destroy image\n");
                 vkDestroyImage(dev.logical_device, mem_handle->image, nullptr);
                 validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
@@ -268,7 +269,7 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
         case ResourceType::LinearTexture:
         {
             dev.initMemoryImageLinear(*mem_handle);
-            deletors.views.add([&,this]{
+            deletors.views.add([=,this]{
                 printf("destroy image linear\n");
                 vkDestroyImage(dev.logical_device, mem_handle->image, nullptr);
                 vkFreeMemory(dev.logical_device, mem_handle->image_memory, nullptr);
@@ -280,7 +281,7 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
         default:
         {
             dev.initMemoryBuffer(*mem_handle);
-            deletors.views.add([&,this]{
+            deletors.views.add([=,this]{
                 printf("destroy buffer\n");
                 vkDestroyBuffer(dev.logical_device, mem_handle->data_buffer, nullptr);
                 validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
@@ -290,19 +291,20 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
     }
 
     *dev_ptr = mem_handle->cuda_ptr;
-    allocations.push_back(std::move(mem_handle));
-    return allocations.back().get();
+    allocations.push_back(mem_handle);
+    return allocations.back();
 }
 
 InteropView *MimirEngine::createView(ViewParams params)
 {
-    auto view_handle = std::unique_ptr<InteropView>(new InteropView());
+    auto view_handle = new InteropView();
     view_handle->params = params;
+    deletors.views.add([=,this]{ delete view_handle; });
 
     if (params.view_type == ViewType::Image)
     {
         dev.initViewImage(*view_handle);
-        deletors.views.add([&,this]{
+        deletors.views.add([=,this]{
             printf("destroy view image\n");
             vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
             vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
@@ -311,15 +313,15 @@ InteropView *MimirEngine::createView(ViewParams params)
     else
     {
         dev.initViewBuffer(*view_handle);
-        deletors.views.add([&,this]{
+        deletors.views.add([=,this]{
             printf("destroy view buffer\n");
             vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
             vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
         });
     }
 
-    views.push_back(std::move(view_handle));
-    return views.back().get();
+    views.push_back(view_handle);
+    return views.back();
 }
 
 void MimirEngine::loadTexture(InteropMemory *interop, void *data)
@@ -1315,7 +1317,7 @@ void MimirEngine::displayEngineGUI()
 
     for (size_t i = 0; i < views.size(); ++i)
     {
-        addViewObjectGui(views[i].get(), i);
+        addViewObjectGui(views[i], i);
     }
     ImGui::End();
 }

@@ -97,14 +97,15 @@ public:
     void signalKernelFinish();
 
 private:
+    VkInstance instance                     = VK_NULL_HANDLE;
+    VkRenderPass render_pass                = VK_NULL_HANDLE;
+    VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
+    VkPipelineLayout pipeline_layout        = VK_NULL_HANDLE;
+    VkDescriptorPool descriptor_pool        = VK_NULL_HANDLE;
+
     InteropDevice dev;
     std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
-    VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle
-    VkRenderPass render_pass = VK_NULL_HANDLE;
-    VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
-    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> command_buffers;
     std::vector<VkDescriptorSet> descriptor_sets;
     std::function<void(void)> gui_callback = []() { return; };
@@ -130,12 +131,12 @@ private:
     long target_frame_time = 0;
     float4 bg_color{.5f, .5f, .5f, 1.f};
 
-    //std::vector<std::unique_ptr<InteropView>> views;
     std::vector<AllocatedBuffer> uniform_buffers;
-
-    std::vector<std::unique_ptr<InteropMemory>> allocations;
-    std::vector<std::unique_ptr<InteropView>> views;
+    std::vector<InteropMemory*> allocations;
+    std::vector<InteropView*> views;
     std::unique_ptr<GlfwContext> window_context;
+
+    // Deletion queues organized by lifetime
     struct {
         DeletionQueue context;
         DeletionQueue swapchain;
