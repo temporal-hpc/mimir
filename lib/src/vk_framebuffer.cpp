@@ -5,12 +5,6 @@
 namespace mimir
 {
 
-VulkanFramebuffer::~VulkanFramebuffer()
-{
-    //printf("framebuffer flush\n");
-    deletors.flush();
-}
-
 uint32_t VulkanFramebuffer::addAttachment(VkDevice device,
     VkImage image, VkFormat format)
 {
@@ -46,14 +40,9 @@ uint32_t VulkanFramebuffer::addAttachment(VkDevice device,
     validation::checkVulkan(
         vkCreateImageView(device, &view_info, nullptr, &attachment.view)
     );
-    deletors.add([=](){
-        //printf("destroying attachment imageview\n");
-        vkDestroyImageView(device, attachment.view, nullptr);
-    });
 
     attachments.push_back(attachment);
     //printf("Adding attachment\n");
-
     return 0;
 }
 
@@ -84,10 +73,6 @@ void VulkanFramebuffer::create(VkDevice device,
     validation::checkVulkan(
         vkCreateFramebuffer(device, &info, nullptr, &framebuffer)
     );
-    deletors.add([=,this](){
-        //printf("destroying framebuffer\n");
-        vkDestroyFramebuffer(device, framebuffer, nullptr);
-    });
 }
 
 } // namespace mimir

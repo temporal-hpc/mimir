@@ -23,9 +23,7 @@ struct VulkanFramebuffer
     VkRenderPass render_pass;
     VkSampler sampler;
     std::vector<FramebufferAttachment> attachments;
-    DeletionQueue deletors;
 
-    ~VulkanFramebuffer();
     void create(VkDevice device, VkRenderPass render_pass, VkExtent2D extent,
         VkImageView depth_view
     );

@@ -168,9 +168,6 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
     };
 
     interop.data_buffer = createBuffer(memsize, usage, &extmem_info);
-    deletors.add([=,this]{
-        vkDestroyBuffer(logical_device, interop.data_buffer, nullptr);
-    });
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(logical_device, interop.data_buffer, &memreq);
 
@@ -186,10 +183,6 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
     interop.cuda_extmem = interop::importCudaExternalMemory(
         interop.memory, memreq.size, logical_device
     );
-    deletors.add([=,this]{
-        validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
-        vkFreeMemory(logical_device, interop.memory, nullptr);
-    });
 
     // Bind the resources to the external memory allocated above
     vkBindBufferMemory(logical_device, interop.data_buffer, interop.memory, 0);
@@ -216,10 +209,6 @@ void InteropDevice::initViewBuffer(InteropView& view)
         vkGetBufferMemoryRequirements(logical_device, view.aux_buffer, &memreq);
         auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         view.aux_memory = allocateMemory(memreq, flags);
-        deletors.add([=,this]{
-            vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
-            vkFreeMemory(logical_device, view.aux_memory, nullptr);
-        });
         vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
 
         initImplicitCoords(logical_device, view.aux_memory, buffer_size, params.extent);
@@ -252,9 +241,6 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     // Init texture memory
     interop.image = createImage(params);
     interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
-    deletors.add([=,this]{
-        vkDestroyImage(logical_device, interop.image, nullptr);
-    });
     VkMemoryRequirements memreq{};
     vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
 
@@ -268,10 +254,6 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     interop.cuda_extmem = interop::importCudaExternalMemory(
         interop.image_memory, memreq.size, logical_device
     );
-    deletors.add([=,this]{
-        validation::checkCuda(cudaDestroyExternalMemory(interop.cuda_extmem));
-        vkFreeMemory(logical_device, interop.image_memory, nullptr);
-    });
 
     vkBindImageMemory(logical_device, interop.image, interop.image_memory, 0);
 
@@ -299,9 +281,6 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
         }
     };
     validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &interop.vk_view));
-    deletors.add([=,this]{
-        vkDestroyImageView(logical_device, interop.vk_view, nullptr);
-    });
 
     transitionImageLayout(interop.image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
@@ -313,9 +292,6 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     interop.mipmap_array = interop::createMipmapArray(
         interop.cuda_extmem, comp_sz, extent, 1
     );
-    deletors.add([=,this]{
-        validation::checkCuda(cudaFreeMipmappedArray(interop.mipmap_array));
-    });
 }
 
 void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
@@ -330,17 +306,11 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     // Init texture memory
     interop.image = createImage(params);
     interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
-    deletors.add([=,this]{
-        vkDestroyImage(logical_device, interop.image, nullptr);
-    });
 
     VkMemoryRequirements memreq{};
     vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     interop.image_memory = allocateMemory(memreq, memflags, nullptr);
-    deletors.add([=,this]{
-        vkFreeMemory(logical_device, interop.image_memory, nullptr);
-    });
     vkBindImageMemory(logical_device, interop.image, interop.image_memory, 0);
 
     VkImageViewCreateInfo info{
@@ -367,9 +337,6 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
         }
     };
     validation::checkVulkan(vkCreateImageView(logical_device, &info, nullptr, &interop.vk_view));
-    deletors.add([=,this]{
-        vkDestroyImageView(logical_device, interop.vk_view, nullptr);
-    });
     transitionImageLayout(interop.image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
@@ -409,10 +376,6 @@ void InteropDevice::initViewImage(InteropView& view)
         std::memcpy(data, vertices.data(), vert_size);
         std::memcpy(data + vert_size, indices.data(), ids_size);
         vkUnmapMemory(logical_device, view.aux_memory);
-        deletors.add([=,this]{
-            vkDestroyBuffer(logical_device, view.aux_buffer, nullptr);
-            vkFreeMemory(logical_device, view.aux_memory, nullptr);
-        });
 
         view.vert_buffers.push_back(view.aux_buffer);
         view.buffer_offsets.push_back(0);
@@ -515,14 +478,9 @@ InteropBarrier InteropDevice::createInteropBarrier()
         .pNext       = &timeline_info,
         .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
     };
-
     InteropBarrier barrier;
     barrier.vk_semaphore = createSemaphore(&export_info);
     barrier.cuda_semaphore = interop::importCudaExternalSemaphore(barrier.vk_semaphore, logical_device);
-    deletors.add([=]{
-        validation::checkCuda(cudaDestroyExternalSemaphore(barrier.cuda_semaphore));
-    });
-
     return barrier;
 }
 

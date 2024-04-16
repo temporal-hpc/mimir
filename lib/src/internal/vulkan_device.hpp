@@ -26,10 +26,8 @@ struct VulkanDevice
     VkCommandPool command_pool = VK_NULL_HANDLE;
 
     VulkanQueue graphics, present;
-    DeletionQueue deletors;
 
     explicit VulkanDevice(PhysicalDevice dev);
-    ~VulkanDevice();
 
     void initLogicalDevice(VkSurfaceKHR surface);
     VkCommandPool createCommandPool(uint32_t queue_idx, VkCommandPoolCreateFlags flags);

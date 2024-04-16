@@ -88,7 +88,6 @@ MimirEngine::~MimirEngine()
     }
 
     swap.reset();
-    dev.reset();
 }
 
 void MimirEngine::init(ViewerOptions opts)
@@ -103,6 +102,7 @@ void MimirEngine::init(ViewerOptions opts)
     window_context->init(width, height, options.window_title.c_str(), this);
     deletors.context.add([=,this] {
         //printf("Terminating GLFW\n");
+        printf("glfw\n");
         window_context->clean();
     });
 
@@ -260,14 +260,39 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
         case ResourceType::Texture:
         {
             dev->initMemoryImage(*mem_handle);
+            deletors.views.add([&,this]{
+                printf("destroy image\n");
+                vkDestroyImage(dev->logical_device, mem_handle->image, nullptr);
+                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
+                vkFreeMemory(dev->logical_device, mem_handle->image_memory, nullptr);
+                vkDestroyImageView(dev->logical_device, mem_handle->vk_view, nullptr);
+                validation::checkCuda(cudaFreeMipmappedArray(mem_handle->mipmap_array));
+                vkDestroySampler(dev->logical_device, mem_handle->vk_sampler, nullptr);
+            });
             break;
         }
         case ResourceType::LinearTexture:
         {
             dev->initMemoryImageLinear(*mem_handle);
+            deletors.views.add([&,this]{
+                printf("destroy image linear\n");
+                vkDestroyImage(dev->logical_device, mem_handle->image, nullptr);
+                vkFreeMemory(dev->logical_device, mem_handle->image_memory, nullptr);
+                vkDestroyImageView(dev->logical_device, mem_handle->vk_view, nullptr);
+                vkDestroySampler(dev->logical_device, mem_handle->vk_sampler, nullptr);
+            });
             break;
         }
-        default: dev->initMemoryBuffer(*mem_handle);
+        default:
+        {
+            dev->initMemoryBuffer(*mem_handle);
+            deletors.views.add([&,this]{
+                printf("destroy buffer\n");
+                vkDestroyBuffer(dev->logical_device, mem_handle->data_buffer, nullptr);
+                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
+                vkFreeMemory(dev->logical_device, mem_handle->memory, nullptr);
+            });
+        }
     }
 
     *dev_ptr = mem_handle->cuda_ptr;
@@ -280,8 +305,24 @@ InteropView *MimirEngine::createView(ViewParams params)
     auto view_handle = std::unique_ptr<InteropView>(new InteropView());
     view_handle->params = params;
 
-    if (params.view_type == ViewType::Image) dev->initViewImage(*view_handle);
-    else dev->initViewBuffer(*view_handle);
+    if (params.view_type == ViewType::Image)
+    {
+        dev->initViewImage(*view_handle);
+        deletors.views.add([&,this]{
+            printf("destroy view image\n");
+            vkDestroyBuffer(dev->logical_device, view_handle->aux_buffer, nullptr);
+            vkFreeMemory(dev->logical_device, view_handle->aux_memory, nullptr);
+        });
+    }
+    else
+    {
+        dev->initViewBuffer(*view_handle);
+        deletors.views.add([&,this]{
+            printf("destroy view buffer\n");
+            vkDestroyBuffer(dev->logical_device, view_handle->aux_buffer, nullptr);
+            vkFreeMemory(dev->logical_device, view_handle->aux_memory, nullptr);
+        });
+    }
 
     views.push_back(std::move(view_handle));
     return views.back().get();
@@ -335,8 +376,16 @@ void MimirEngine::initVulkan()
     createInstance();
     swap = std::make_unique<VulkanSwapchain>();
     swap->initSurface(instance, window_context->window);
+    deletors.context.add([&,this](){
+        vkDestroySurfaceKHR(instance, swap->surface, nullptr);
+    });
     pickPhysicalDevice();
     dev->initLogicalDevice(swap->surface);
+    deletors.context.add([&,this](){
+        printf("commandpool+device\n");
+        vkDestroyCommandPool(dev->logical_device, dev->command_pool, nullptr);
+        vkDestroyDevice(dev->logical_device, nullptr);
+    });
 
     // Create descriptor pool
     descriptor_pool = dev->createDescriptorPool({
@@ -373,6 +422,13 @@ void MimirEngine::initVulkan()
     };
     descriptor_layout = dev->createDescriptorSetLayout(layout_bindings);
     pipeline_layout = dev->createPipelineLayout(descriptor_layout);
+
+    deletors.context.add([&,this]{
+        printf("layouts\n");
+        vkDestroyDescriptorPool(dev->logical_device, descriptor_pool, nullptr);
+        vkDestroyDescriptorSetLayout(dev->logical_device, descriptor_layout, nullptr);
+        vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
+    });
 
     initSwapchain();
     initImgui(); // After command pool and render pass are created
@@ -432,7 +488,10 @@ void MimirEngine::createInstance()
         instance_info.ppEnabledLayerNames = validation::layers.data();
     }
     validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
-    deletors.context.add([=,this]{ vkDestroyInstance(instance, nullptr); });
+    deletors.context.add([=,this]{
+        printf("instance\n");
+        vkDestroyInstance(instance, nullptr);
+    });
 
     if (validation::enable_layers)
     {
@@ -441,6 +500,7 @@ void MimirEngine::createInstance()
             instance, &debug_create_info, nullptr, &debug_messenger)
         );
         deletors.context.add([=,this]{
+            printf("debugmsg\n");
             validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
         });
     }
@@ -541,28 +601,33 @@ void MimirEngine::createSyncObjects()
         sync.frame_fence = dev->createFence(VK_FENCE_CREATE_SIGNALED_BIT);
         sync.image_acquired = dev->createSemaphore();
         sync.render_complete = dev->createSemaphore();
+        deletors.context.add([&,this]{
+            printf("sync\n");
+            vkDestroyFence(dev->logical_device, sync.frame_fence, nullptr);
+            vkDestroySemaphore(dev->logical_device, sync.image_acquired, nullptr);
+            vkDestroySemaphore(dev->logical_device, sync.render_complete, nullptr);
+        });
     }
     interop = std::make_unique<InteropBarrier>(dev->createInteropBarrier());
+    deletors.context.add([&,this]{
+        printf("interopbarrier\n");
+        validation::checkCuda(cudaDestroyExternalSemaphore(interop->cuda_semaphore));
+        vkDestroySemaphore(dev->logical_device, interop->vk_semaphore, nullptr);
+    });
 }
 
 void MimirEngine::cleanupSwapchain()
 {
     vkDeviceWaitIdle(dev->logical_device);
-    deletors.swapchain.flush();
-    for (auto& view : views)
-    {
-        vkDestroyPipeline(dev->logical_device, view->pipeline, nullptr);
-    }
     /*vkFreeCommandBuffers(dev->logical_device, dev->command_pool,
         command_buffers.size(), command_buffers.data()
     );*/
-    vkDestroyRenderPass(dev->logical_device, render_pass, nullptr);
-    swap->cleanup();
-    fbs.clear();
+    deletors.swapchain.flush();
 }
 
 void MimirEngine::initSwapchain()
 {
+    printf("INIT SWAP\n");
     int w, h;
     window_context->getFramebufferSize(w, h);
     uint32_t width = w;
@@ -572,6 +637,12 @@ void MimirEngine::initSwapchain()
     render_pass = createRenderPass();
     command_buffers = dev->createCommandBuffers(swap->image_count);
     query_pool = dev->createQueryPool(2 * command_buffers.size());
+    deletors.swapchain.add([&,this]{
+        printf("querypool & swapchain\n");
+        vkDestroyRenderPass(dev->logical_device, render_pass, nullptr);
+        vkDestroySwapchainKHR(dev->logical_device, swap->swapchain, nullptr);
+        vkDestroyQueryPool(dev->logical_device, query_pool, nullptr);
+    });
 
     auto images = swap->createImages(dev->logical_device);
 
@@ -639,7 +710,7 @@ void MimirEngine::initSwapchain()
         vkCreateImageView(dev->logical_device, &depth_view_info, nullptr, &depth_view)
     );
 
-    swap->aux_deletors.add([=,this]{
+    deletors.swapchain.add([&,this]{
         vkDestroyImageView(dev->logical_device, depth_view, nullptr);
         vkDestroyImage(dev->logical_device, depth_image, nullptr);
         vkFreeMemory(dev->logical_device, depth_memory, nullptr);
@@ -651,6 +722,10 @@ void MimirEngine::initSwapchain()
         // Create a basic image view to be used as color target
         fbs[i].addAttachment(dev->logical_device, images[i], swap->color_format);
         fbs[i].create(dev->logical_device, render_pass, swap->extent, depth_view);
+        deletors.swapchain.add([&,this]{
+            vkDestroyImageView(dev->logical_device, fbs[i].attachments[0].view, nullptr);
+            vkDestroyFramebuffer(dev->logical_device, fbs[i].framebuffer, nullptr);
+        });
     }
 }
 
@@ -1107,6 +1182,9 @@ void MimirEngine::createGraphicsPipelines()
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
         views[i]->pipeline = pipelines[i];
+        deletors.swapchain.add([&,this]{
+            vkDestroyPipeline(dev->logical_device, views[i]->pipeline, nullptr);
+        });
     }
 
     // Restore original working directory

@@ -33,12 +33,6 @@ VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool, uint32
 VulkanDevice::VulkanDevice(PhysicalDevice dev): physical_device{dev}
 {}
 
-VulkanDevice::~VulkanDevice()
-{
-    //printf("Liberating resources...\n");
-    deletors.flush();
-}
-
 void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
 {
     props::findQueueFamilies(
@@ -103,9 +97,6 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     validation::checkVulkan(vkCreateDevice(
         physical_device.handle, &create_info, nullptr, &logical_device)
     );
-    deletors.add([=,this](){
-        vkDestroyDevice(logical_device, nullptr);
-    });
 
     vkGetDeviceQueue(logical_device, graphics.family_index, 0, &graphics.queue);
     vkGetDeviceQueue(logical_device, present.family_index, 0, &present.queue);
@@ -128,9 +119,6 @@ VkCommandPool VulkanDevice::createCommandPool(
     validation::checkVulkan(vkCreateCommandPool(
         logical_device, &pool_info, nullptr, &cmd_pool)
     );
-    deletors.add([=,this](){
-        vkDestroyCommandPool(logical_device, command_pool, nullptr);
-    });
 
     return cmd_pool;
 }
@@ -260,9 +248,6 @@ VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)
 
     VkSampler sampler = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateSampler(logical_device, &info, nullptr, &sampler));
-    deletors.add([=,this]{
-        vkDestroySampler(logical_device, sampler, nullptr);
-    });
     return sampler;
 }
 
@@ -401,9 +386,6 @@ VkDescriptorPool VulkanDevice::createDescriptorPool(
     validation::checkVulkan(
         vkCreateDescriptorPool(logical_device, &pool_info, nullptr, &pool)
     );
-    deletors.add([=,this]{
-        vkDestroyDescriptorPool(logical_device, pool, nullptr);
-    });
     return pool;
 }
 
@@ -422,9 +404,6 @@ VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
     validation::checkVulkan(
         vkCreateDescriptorSetLayout(logical_device, &info, nullptr, &layout)
     );
-    deletors.add([=,this](){
-        vkDestroyDescriptorSetLayout(logical_device, layout, nullptr);
-    });
     return layout;
 }
 
@@ -442,7 +421,6 @@ VkPipelineLayout VulkanDevice::createPipelineLayout(VkDescriptorSetLayout descri
     };
     VkPipelineLayout layout = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreatePipelineLayout(logical_device, &info, nullptr, &layout));
-    deletors.add([=,this]{ vkDestroyPipelineLayout(logical_device, layout, nullptr); });
     return layout;
 }
 
@@ -455,9 +433,6 @@ VkFence VulkanDevice::createFence(VkFenceCreateFlags flags)
     };
     VkFence fence = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateFence(logical_device, &info, nullptr, &fence));
-    deletors.add([=,this]{
-        vkDestroyFence(logical_device, fence, nullptr);
-    });
     return fence;
 }
 
@@ -470,9 +445,6 @@ VkSemaphore VulkanDevice::createSemaphore(const void *extensions)
     };
     VkSemaphore semaphore = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateSemaphore(logical_device, &info, nullptr, &semaphore));
-    deletors.add([=,this]{
-        vkDestroySemaphore(logical_device, semaphore, nullptr);
-    });
     return semaphore;
 }
 
@@ -562,9 +534,6 @@ VkQueryPool VulkanDevice::createQueryPool(uint32_t query_count)
 
     VkQueryPool pool = VK_NULL_HANDLE;
     validation::checkVulkan(vkCreateQueryPool(logical_device, &info, nullptr, &pool));
-    deletors.add([=,this]{
-        vkDestroyQueryPool(logical_device, pool, nullptr);
-    });
     vkResetQueryPool(logical_device, pool, 0, query_count);
     return pool;
 }

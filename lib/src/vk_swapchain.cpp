@@ -38,9 +38,6 @@ void VulkanSwapchain::initSurface(VkInstance instance, GLFWwindow *window)
     validation::checkVulkan(
         glfwCreateWindowSurface(instance, window, nullptr, &surface)
     );
-    main_deletors.add([=,this](){
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-    });
 }
 
 void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions opts,
@@ -129,11 +126,6 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
     validation::checkVulkan(vkCreateSwapchainKHR(
         device, &create_info, nullptr, &swapchain)
     );
-    aux_deletors.add([=,this](){
-        //printf("destroying swapchain\n");
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
-    });
-
     vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
 }
 
