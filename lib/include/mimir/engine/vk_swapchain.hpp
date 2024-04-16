@@ -18,7 +18,6 @@ struct VulkanSwapchain
     VkExtent2D extent;
     uint32_t image_count = 0;
 
-    void initSurface(VkInstance instance, GLFWwindow *window);
     void create(uint32_t& width, uint32_t& height, PresentOptions opts,
         std::vector<uint32_t> queue_indices, VkPhysicalDevice gpu, VkDevice device
     );

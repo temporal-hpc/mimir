@@ -1,8 +1,5 @@
 #include "mimir/engine/vk_swapchain.hpp"
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 #include <limits> // std::numeric_limits
 
 #include <mimir/validation.hpp>
@@ -20,13 +17,6 @@ VkPresentModeKHR getDesiredPresentMode(PresentOptions opts)
         case PresentOptions::TripleBuffering: return VK_PRESENT_MODE_MAILBOX_KHR;
         default: return VK_PRESENT_MODE_IMMEDIATE_KHR;
     }
-}
-
-void VulkanSwapchain::initSurface(VkInstance instance, GLFWwindow *window)
-{
-    validation::checkVulkan(
-        glfwCreateWindowSurface(instance, window, nullptr, &surface)
-    );
 }
 
 void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions opts,

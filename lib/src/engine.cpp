@@ -95,8 +95,6 @@ void MimirEngine::init(ViewerOptions opts)
     window_context = std::make_unique<GlfwContext>();
     window_context->init(width, height, options.window_title.c_str(), this);
     deletors.context.add([=,this] {
-        //printf("Terminating GLFW\n");
-        printf("glfw\n");
         window_context->clean();
     });
 
@@ -119,7 +117,6 @@ void MimirEngine::init(int width, int height)
 
 void MimirEngine::exit()
 {
-    //printf("Exiting...\n");
     window_context->exit();
 }
 
@@ -166,7 +163,6 @@ void MimirEngine::waitKernelStart()
     wait_params.params.fence.value = wait_value;
 
     // Wait for Vulkan to complete its work
-    //printf("Waiting for value %lu to vulkan to finish\n", wait_value);
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
         &interop->cuda_semaphore, &wait_params, 1, interop->cuda_stream)
     );
@@ -179,7 +175,6 @@ void MimirEngine::updateViews()
 {
     if (options.enable_sync && running)
     {
-        //printf("Kernel has ended\n");
         perf.endCuda();
         signalKernelFinish();
         kernel_working = false;
@@ -194,7 +189,6 @@ void MimirEngine::signalKernelFinish()
     signal_params.params.fence.value = signal_value;
 
     // Signal Vulkan to continue with the updated buffers
-    //printf("Signaling with value %lu that CUDA has ended\n", signal_value);
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
         &interop->cuda_semaphore, &signal_params, 1, interop->cuda_stream)
     );
@@ -256,7 +250,6 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
         {
             dev.initMemoryImage(*mem_handle);
             deletors.views.add([=,this]{
-                printf("destroy image\n");
                 vkDestroyImage(dev.logical_device, mem_handle->image, nullptr);
                 validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
                 vkFreeMemory(dev.logical_device, mem_handle->image_memory, nullptr);
@@ -270,7 +263,6 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
         {
             dev.initMemoryImageLinear(*mem_handle);
             deletors.views.add([=,this]{
-                printf("destroy image linear\n");
                 vkDestroyImage(dev.logical_device, mem_handle->image, nullptr);
                 vkFreeMemory(dev.logical_device, mem_handle->image_memory, nullptr);
                 vkDestroyImageView(dev.logical_device, mem_handle->vk_view, nullptr);
@@ -282,7 +274,6 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
         {
             dev.initMemoryBuffer(*mem_handle);
             deletors.views.add([=,this]{
-                printf("destroy buffer\n");
                 vkDestroyBuffer(dev.logical_device, mem_handle->data_buffer, nullptr);
                 validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
                 vkFreeMemory(dev.logical_device, mem_handle->memory, nullptr);
@@ -305,7 +296,6 @@ InteropView *MimirEngine::createView(ViewParams params)
     {
         dev.initViewImage(*view_handle);
         deletors.views.add([=,this]{
-            printf("destroy view image\n");
             vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
             vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
         });
@@ -314,7 +304,6 @@ InteropView *MimirEngine::createView(ViewParams params)
     {
         dev.initViewBuffer(*view_handle);
         deletors.views.add([=,this]{
-            printf("destroy view buffer\n");
             vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
             vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
         });
@@ -371,14 +360,13 @@ void MimirEngine::initVulkan()
 {
     createInstance();
     swap = std::make_unique<VulkanSwapchain>();
-    swap->initSurface(instance, window_context->window);
+    window_context->createSurface(instance, &swap->surface);
     deletors.context.add([=,this](){
         vkDestroySurfaceKHR(instance, swap->surface, nullptr);
     });
     pickPhysicalDevice();
     dev.initLogicalDevice(swap->surface);
     deletors.context.add([=,this](){
-        printf("commandpool+device\n");
         vkDestroyCommandPool(dev.logical_device, dev.command_pool, nullptr);
         vkDestroyDevice(dev.logical_device, nullptr);
     });
@@ -420,7 +408,6 @@ void MimirEngine::initVulkan()
     pipeline_layout = dev.createPipelineLayout(descriptor_layout);
 
     deletors.context.add([=,this]{
-        printf("layouts\n");
         vkDestroyDescriptorPool(dev.logical_device, descriptor_pool, nullptr);
         vkDestroyDescriptorSetLayout(dev.logical_device, descriptor_layout, nullptr);
         vkDestroyPipelineLayout(dev.logical_device, pipeline_layout, nullptr);
@@ -485,7 +472,6 @@ void MimirEngine::createInstance()
     }
     validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
     deletors.context.add([=,this]{
-        printf("instance\n");
         vkDestroyInstance(instance, nullptr);
     });
 
@@ -496,7 +482,6 @@ void MimirEngine::createInstance()
             instance, &debug_create_info, nullptr, &debug_messenger)
         );
         deletors.context.add([=,this]{
-            printf("debugmsg\n");
             validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
         });
     }
@@ -598,7 +583,6 @@ void MimirEngine::createSyncObjects()
         sync.image_acquired = dev.createSemaphore();
         sync.render_complete = dev.createSemaphore();
         deletors.context.add([=,this]{
-            printf("sync\n");
             vkDestroyFence(dev.logical_device, sync.frame_fence, nullptr);
             vkDestroySemaphore(dev.logical_device, sync.image_acquired, nullptr);
             vkDestroySemaphore(dev.logical_device, sync.render_complete, nullptr);
@@ -606,7 +590,6 @@ void MimirEngine::createSyncObjects()
     }
     interop = std::make_unique<InteropBarrier>(dev.createInteropBarrier());
     deletors.context.add([=,this]{
-        printf("interopbarrier\n");
         validation::checkCuda(cudaDestroyExternalSemaphore(interop->cuda_semaphore));
         vkDestroySemaphore(dev.logical_device, interop->vk_semaphore, nullptr);
     });
@@ -624,7 +607,6 @@ void MimirEngine::cleanupSwapchain()
 
 void MimirEngine::initSwapchain()
 {
-    printf("INIT SWAP\n");
     int w, h;
     window_context->getFramebufferSize(w, h);
     uint32_t width = w;
@@ -635,7 +617,6 @@ void MimirEngine::initSwapchain()
     command_buffers = dev.createCommandBuffers(swap->image_count);
     query_pool = dev.createQueryPool(2 * command_buffers.size());
     deletors.swapchain.add([=,this]{
-        printf("querypool & swapchain\n");
         vkDestroyRenderPass(dev.logical_device, render_pass, nullptr);
         vkDestroySwapchainKHR(dev.logical_device, swap->swapchain, nullptr);
         vkDestroyQueryPool(dev.logical_device, query_pool, nullptr);
@@ -728,7 +709,6 @@ void MimirEngine::initSwapchain()
 
 void MimirEngine::recreateSwapchain()
 {
-    //printf("Recreating swapchain\n");
     cleanupSwapchain();
     initSwapchain();
     createGraphicsPipelines();
@@ -829,9 +809,7 @@ void MimirEngine::renderFrame()
     constexpr auto timeout = 1000000000; //std::numeric_limits<uint64_t>::max();
     auto frame_sync = sync_data[frame_idx];
     auto fence = frame_sync.frame_fence;
-    //printf("Frame %lu will wait for fence\n", frame_idx);
     validation::checkVulkan(vkWaitForFences(dev.logical_device, 1, &fence, VK_TRUE, timeout));
-    //printf("Frame %lu passed fence\n", frame_idx);
     // Clear fence before placing it again
     validation::checkVulkan(vkResetFences(dev.logical_device, 1, &fence));
 
@@ -860,7 +838,6 @@ void MimirEngine::renderFrame()
             .pSemaphores    = &interop->vk_semaphore,
             .pValues        = &wait_value,
         };
-        //printf("Frame %lu will wait for semaphore value %lu\n", frame_idx, wait_value);
         vkWaitSemaphores(dev.logical_device, &wait_info, timeout);
 
         waits.push_back(interop->vk_semaphore);
