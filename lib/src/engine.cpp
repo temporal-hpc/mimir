@@ -6,8 +6,6 @@
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
-#include "internal/physical_device.hpp"
-#include "internal/interop_device.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include "internal/window.hpp"
@@ -70,7 +68,7 @@ MimirEngine::~MimirEngine()
     {
         rendering_thread.join();
     }
-    if (dev) vkDeviceWaitIdle(dev->logical_device);
+    vkDeviceWaitIdle(dev.logical_device);
 
     if (interop->cuda_stream != nullptr)
     {
@@ -78,16 +76,12 @@ MimirEngine::~MimirEngine()
     }
     for (auto& ubo : uniform_buffers)
     {
-        vkDestroyBuffer(dev->logical_device, ubo.buffer, nullptr);
-        vkFreeMemory(dev->logical_device, ubo.memory, nullptr);
-    }
-    if (dev)
-    {
-        cleanupSwapchain();
-        ImGui_ImplVulkan_Shutdown();
+        vkDestroyBuffer(dev.logical_device, ubo.buffer, nullptr);
+        vkFreeMemory(dev.logical_device, ubo.memory, nullptr);
     }
 
-    swap.reset();
+    cleanupSwapchain();
+    ImGui_ImplVulkan_Shutdown();
 }
 
 void MimirEngine::init(ViewerOptions opts)
@@ -150,7 +144,7 @@ void MimirEngine::displayAsync()
             renderFrame();
         }
         running = false;
-        vkDeviceWaitIdle(dev->logical_device);
+        vkDeviceWaitIdle(dev.logical_device);
     });
 }
 
@@ -229,7 +223,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     }
     kernel_working = false;
     running = false;
-    vkDeviceWaitIdle(dev->logical_device);
+    vkDeviceWaitIdle(dev.logical_device);
 }
 
 void MimirEngine::updateLinearTextures()
@@ -243,7 +237,7 @@ void MimirEngine::updateLinearTextures()
             {
                 if (memory.params.resource_type == ResourceType::LinearTexture)
                 {
-                    dev->updateLinearTexture(memory);
+                    dev.updateLinearTexture(memory);
                 }
             }
         }
@@ -259,38 +253,38 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
     {
         case ResourceType::Texture:
         {
-            dev->initMemoryImage(*mem_handle);
+            dev.initMemoryImage(*mem_handle);
             deletors.views.add([&,this]{
                 printf("destroy image\n");
-                vkDestroyImage(dev->logical_device, mem_handle->image, nullptr);
+                vkDestroyImage(dev.logical_device, mem_handle->image, nullptr);
                 validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
-                vkFreeMemory(dev->logical_device, mem_handle->image_memory, nullptr);
-                vkDestroyImageView(dev->logical_device, mem_handle->vk_view, nullptr);
+                vkFreeMemory(dev.logical_device, mem_handle->image_memory, nullptr);
+                vkDestroyImageView(dev.logical_device, mem_handle->vk_view, nullptr);
                 validation::checkCuda(cudaFreeMipmappedArray(mem_handle->mipmap_array));
-                vkDestroySampler(dev->logical_device, mem_handle->vk_sampler, nullptr);
+                vkDestroySampler(dev.logical_device, mem_handle->vk_sampler, nullptr);
             });
             break;
         }
         case ResourceType::LinearTexture:
         {
-            dev->initMemoryImageLinear(*mem_handle);
+            dev.initMemoryImageLinear(*mem_handle);
             deletors.views.add([&,this]{
                 printf("destroy image linear\n");
-                vkDestroyImage(dev->logical_device, mem_handle->image, nullptr);
-                vkFreeMemory(dev->logical_device, mem_handle->image_memory, nullptr);
-                vkDestroyImageView(dev->logical_device, mem_handle->vk_view, nullptr);
-                vkDestroySampler(dev->logical_device, mem_handle->vk_sampler, nullptr);
+                vkDestroyImage(dev.logical_device, mem_handle->image, nullptr);
+                vkFreeMemory(dev.logical_device, mem_handle->image_memory, nullptr);
+                vkDestroyImageView(dev.logical_device, mem_handle->vk_view, nullptr);
+                vkDestroySampler(dev.logical_device, mem_handle->vk_sampler, nullptr);
             });
             break;
         }
         default:
         {
-            dev->initMemoryBuffer(*mem_handle);
+            dev.initMemoryBuffer(*mem_handle);
             deletors.views.add([&,this]{
                 printf("destroy buffer\n");
-                vkDestroyBuffer(dev->logical_device, mem_handle->data_buffer, nullptr);
+                vkDestroyBuffer(dev.logical_device, mem_handle->data_buffer, nullptr);
                 validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
-                vkFreeMemory(dev->logical_device, mem_handle->memory, nullptr);
+                vkFreeMemory(dev.logical_device, mem_handle->memory, nullptr);
             });
         }
     }
@@ -307,20 +301,20 @@ InteropView *MimirEngine::createView(ViewParams params)
 
     if (params.view_type == ViewType::Image)
     {
-        dev->initViewImage(*view_handle);
+        dev.initViewImage(*view_handle);
         deletors.views.add([&,this]{
             printf("destroy view image\n");
-            vkDestroyBuffer(dev->logical_device, view_handle->aux_buffer, nullptr);
-            vkFreeMemory(dev->logical_device, view_handle->aux_memory, nullptr);
+            vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
+            vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
         });
     }
     else
     {
-        dev->initViewBuffer(*view_handle);
+        dev.initViewBuffer(*view_handle);
         deletors.views.add([&,this]{
             printf("destroy view buffer\n");
-            vkDestroyBuffer(dev->logical_device, view_handle->aux_buffer, nullptr);
-            vkFreeMemory(dev->logical_device, view_handle->aux_memory, nullptr);
+            vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
+            vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
         });
     }
 
@@ -330,7 +324,7 @@ InteropView *MimirEngine::createView(ViewParams params)
 
 void MimirEngine::loadTexture(InteropMemory *interop, void *data)
 {
-    dev->loadTexture(interop, data);
+    dev.loadTexture(interop, data);
 }
 
 void MimirEngine::drawGui()
@@ -376,19 +370,19 @@ void MimirEngine::initVulkan()
     createInstance();
     swap = std::make_unique<VulkanSwapchain>();
     swap->initSurface(instance, window_context->window);
-    deletors.context.add([&,this](){
+    deletors.context.add([=,this](){
         vkDestroySurfaceKHR(instance, swap->surface, nullptr);
     });
     pickPhysicalDevice();
-    dev->initLogicalDevice(swap->surface);
-    deletors.context.add([&,this](){
+    dev.initLogicalDevice(swap->surface);
+    deletors.context.add([=,this](){
         printf("commandpool+device\n");
-        vkDestroyCommandPool(dev->logical_device, dev->command_pool, nullptr);
-        vkDestroyDevice(dev->logical_device, nullptr);
+        vkDestroyCommandPool(dev.logical_device, dev.command_pool, nullptr);
+        vkDestroyDevice(dev.logical_device, nullptr);
     });
 
     // Create descriptor pool
-    descriptor_pool = dev->createDescriptorPool({
+    descriptor_pool = dev.createDescriptorPool({
         { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
         { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
@@ -420,21 +414,21 @@ void MimirEngine::initVulkan()
             VK_SHADER_STAGE_FRAGMENT_BIT
         )
     };
-    descriptor_layout = dev->createDescriptorSetLayout(layout_bindings);
-    pipeline_layout = dev->createPipelineLayout(descriptor_layout);
+    descriptor_layout = dev.createDescriptorSetLayout(layout_bindings);
+    pipeline_layout = dev.createPipelineLayout(descriptor_layout);
 
-    deletors.context.add([&,this]{
+    deletors.context.add([=,this]{
         printf("layouts\n");
-        vkDestroyDescriptorPool(dev->logical_device, descriptor_pool, nullptr);
-        vkDestroyDescriptorSetLayout(dev->logical_device, descriptor_layout, nullptr);
-        vkDestroyPipelineLayout(dev->logical_device, pipeline_layout, nullptr);
+        vkDestroyDescriptorPool(dev.logical_device, descriptor_pool, nullptr);
+        vkDestroyDescriptorSetLayout(dev.logical_device, descriptor_layout, nullptr);
+        vkDestroyPipelineLayout(dev.logical_device, pipeline_layout, nullptr);
     });
 
     initSwapchain();
     initImgui(); // After command pool and render pass are created
     createSyncObjects();
 
-    descriptor_sets = dev->createDescriptorSets(
+    descriptor_sets = dev.createDescriptorSets(
         descriptor_pool, descriptor_layout, swap->image_count
     );
 }
@@ -549,7 +543,7 @@ void MimirEngine::pickPhysicalDevice()
             if (matching && props::isDeviceSuitable(device.handle, swap->surface))
             {
                 validation::checkCuda(cudaSetDevice(curr_device));
-                dev = std::make_unique<InteropDevice>(device);
+                dev.physical_device = device;
                 printf("Selected CUDA-Vulkan device %d: %s\n\n",
                     curr_device, device.general.properties.deviceName
                 );
@@ -573,10 +567,10 @@ void MimirEngine::initImgui()
 
     ImGui_ImplVulkan_InitInfo info{
         .Instance        = instance,
-        .PhysicalDevice  = dev->physical_device.handle,
-        .Device          = dev->logical_device,
-        .QueueFamily     = dev->graphics.family_index,
-        .Queue           = dev->graphics.queue,
+        .PhysicalDevice  = dev.physical_device.handle,
+        .Device          = dev.logical_device,
+        .QueueFamily     = dev.graphics.family_index,
+        .Queue           = dev.graphics.queue,
         .DescriptorPool  = descriptor_pool,
         .RenderPass      = render_pass,
         .MinImageCount   = 3, // TODO: Check if this is true
@@ -598,31 +592,32 @@ void MimirEngine::createSyncObjects()
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
     for (auto& sync : sync_data)
     {
-        sync.frame_fence = dev->createFence(VK_FENCE_CREATE_SIGNALED_BIT);
-        sync.image_acquired = dev->createSemaphore();
-        sync.render_complete = dev->createSemaphore();
-        deletors.context.add([&,this]{
+        sync.frame_fence = dev.createFence(VK_FENCE_CREATE_SIGNALED_BIT);
+        sync.image_acquired = dev.createSemaphore();
+        sync.render_complete = dev.createSemaphore();
+        deletors.context.add([=,this]{
             printf("sync\n");
-            vkDestroyFence(dev->logical_device, sync.frame_fence, nullptr);
-            vkDestroySemaphore(dev->logical_device, sync.image_acquired, nullptr);
-            vkDestroySemaphore(dev->logical_device, sync.render_complete, nullptr);
+            vkDestroyFence(dev.logical_device, sync.frame_fence, nullptr);
+            vkDestroySemaphore(dev.logical_device, sync.image_acquired, nullptr);
+            vkDestroySemaphore(dev.logical_device, sync.render_complete, nullptr);
         });
     }
-    interop = std::make_unique<InteropBarrier>(dev->createInteropBarrier());
-    deletors.context.add([&,this]{
+    interop = std::make_unique<InteropBarrier>(dev.createInteropBarrier());
+    deletors.context.add([=,this]{
         printf("interopbarrier\n");
         validation::checkCuda(cudaDestroyExternalSemaphore(interop->cuda_semaphore));
-        vkDestroySemaphore(dev->logical_device, interop->vk_semaphore, nullptr);
+        vkDestroySemaphore(dev.logical_device, interop->vk_semaphore, nullptr);
     });
 }
 
 void MimirEngine::cleanupSwapchain()
 {
-    vkDeviceWaitIdle(dev->logical_device);
-    /*vkFreeCommandBuffers(dev->logical_device, dev->command_pool,
+    vkDeviceWaitIdle(dev.logical_device);
+    /*vkFreeCommandBuffers(dev.logical_device, dev.command_pool,
         command_buffers.size(), command_buffers.data()
     );*/
     deletors.swapchain.flush();
+    fbs.clear();
 }
 
 void MimirEngine::initSwapchain()
@@ -632,19 +627,19 @@ void MimirEngine::initSwapchain()
     window_context->getFramebufferSize(w, h);
     uint32_t width = w;
     uint32_t height = h;
-    std::vector queue_indices{dev->graphics.family_index, dev->present.family_index};
-    swap->create(width, height, options.present, queue_indices, dev->physical_device.handle, dev->logical_device);
+    std::vector queue_indices{dev.graphics.family_index, dev.present.family_index};
+    swap->create(width, height, options.present, queue_indices, dev.physical_device.handle, dev.logical_device);
     render_pass = createRenderPass();
-    command_buffers = dev->createCommandBuffers(swap->image_count);
-    query_pool = dev->createQueryPool(2 * command_buffers.size());
-    deletors.swapchain.add([&,this]{
+    command_buffers = dev.createCommandBuffers(swap->image_count);
+    query_pool = dev.createQueryPool(2 * command_buffers.size());
+    deletors.swapchain.add([=,this]{
         printf("querypool & swapchain\n");
-        vkDestroyRenderPass(dev->logical_device, render_pass, nullptr);
-        vkDestroySwapchainKHR(dev->logical_device, swap->swapchain, nullptr);
-        vkDestroyQueryPool(dev->logical_device, query_pool, nullptr);
+        vkDestroyRenderPass(dev.logical_device, render_pass, nullptr);
+        vkDestroySwapchainKHR(dev.logical_device, swap->swapchain, nullptr);
+        vkDestroyQueryPool(dev.logical_device, query_pool, nullptr);
     });
 
-    auto images = swap->createImages(dev->logical_device);
+    auto images = swap->createImages(dev.logical_device);
 
     auto depth_format = findDepthFormat();
     VkImageCreateInfo depth_img_info{
@@ -665,23 +660,23 @@ void MimirEngine::initSwapchain()
         .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
     };
     validation::checkVulkan(
-        vkCreateImage(dev->logical_device, &depth_img_info, nullptr, &depth_image)
+        vkCreateImage(dev.logical_device, &depth_img_info, nullptr, &depth_image)
     );
 
     VkMemoryRequirements mem_req;
-    vkGetImageMemoryRequirements(dev->logical_device, depth_image, &mem_req);
+    vkGetImageMemoryRequirements(dev.logical_device, depth_image, &mem_req);
     VkMemoryAllocateInfo alloc_info{
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .pNext = nullptr,
         .allocationSize = mem_req.size,
-        .memoryTypeIndex = dev->physical_device.findMemoryType(
+        .memoryTypeIndex = dev.physical_device.findMemoryType(
             mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
         ),
     };
     validation::checkVulkan(
-        vkAllocateMemory(dev->logical_device, &alloc_info, nullptr, &depth_memory)
+        vkAllocateMemory(dev.logical_device, &alloc_info, nullptr, &depth_memory)
     );
-    vkBindImageMemory(dev->logical_device, depth_image, depth_memory, 0);
+    vkBindImageMemory(dev.logical_device, depth_image, depth_memory, 0);
 
     VkImageViewCreateInfo depth_view_info{
         .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -707,24 +702,24 @@ void MimirEngine::initSwapchain()
         }
     };
     validation::checkVulkan(
-        vkCreateImageView(dev->logical_device, &depth_view_info, nullptr, &depth_view)
+        vkCreateImageView(dev.logical_device, &depth_view_info, nullptr, &depth_view)
     );
 
-    deletors.swapchain.add([&,this]{
-        vkDestroyImageView(dev->logical_device, depth_view, nullptr);
-        vkDestroyImage(dev->logical_device, depth_image, nullptr);
-        vkFreeMemory(dev->logical_device, depth_memory, nullptr);
+    deletors.swapchain.add([=,this]{
+        vkDestroyImageView(dev.logical_device, depth_view, nullptr);
+        vkDestroyImage(dev.logical_device, depth_image, nullptr);
+        vkFreeMemory(dev.logical_device, depth_memory, nullptr);
     });
 
     fbs.resize(swap->image_count);
     for (size_t i = 0; i < swap->image_count; ++i)
     {
         // Create a basic image view to be used as color target
-        fbs[i].addAttachment(dev->logical_device, images[i], swap->color_format);
-        fbs[i].create(dev->logical_device, render_pass, swap->extent, depth_view);
-        deletors.swapchain.add([&,this]{
-            vkDestroyImageView(dev->logical_device, fbs[i].attachments[0].view, nullptr);
-            vkDestroyFramebuffer(dev->logical_device, fbs[i].framebuffer, nullptr);
+        fbs[i].addAttachment(dev.logical_device, images[i], swap->color_format);
+        fbs[i].create(dev.logical_device, render_pass, swap->extent, depth_view);
+        deletors.swapchain.add([=,this]{
+            vkDestroyImageView(dev.logical_device, fbs[i].attachments[0].view, nullptr);
+            vkDestroyFramebuffer(dev.logical_device, fbs[i].framebuffer, nullptr);
         });
     }
 }
@@ -820,7 +815,7 @@ void MimirEngine::updateDescriptorSets()
             }
         }
 
-        vkUpdateDescriptorSets(dev->logical_device, updates.size(), updates.data(), 0, nullptr);
+        vkUpdateDescriptorSets(dev.logical_device, updates.size(), updates.data(), 0, nullptr);
     }
 }
 
@@ -833,10 +828,10 @@ void MimirEngine::renderFrame()
     auto frame_sync = sync_data[frame_idx];
     auto fence = frame_sync.frame_fence;
     //printf("Frame %lu will wait for fence\n", frame_idx);
-    validation::checkVulkan(vkWaitForFences(dev->logical_device, 1, &fence, VK_TRUE, timeout));
+    validation::checkVulkan(vkWaitForFences(dev.logical_device, 1, &fence, VK_TRUE, timeout));
     //printf("Frame %lu passed fence\n", frame_idx);
     // Clear fence before placing it again
-    validation::checkVulkan(vkResetFences(dev->logical_device, 1, &fence));
+    validation::checkVulkan(vkResetFences(dev.logical_device, 1, &fence));
 
     static chrono_tp start_time = std::chrono::high_resolution_clock::now();
     chrono_tp current_time = std::chrono::high_resolution_clock::now();
@@ -864,7 +859,7 @@ void MimirEngine::renderFrame()
             .pValues        = &wait_value,
         };
         //printf("Frame %lu will wait for semaphore value %lu\n", frame_idx, wait_value);
-        vkWaitSemaphores(dev->logical_device, &wait_info, timeout);
+        vkWaitSemaphores(dev.logical_device, &wait_info, timeout);
 
         waits.push_back(interop->vk_semaphore);
         stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
@@ -875,7 +870,7 @@ void MimirEngine::renderFrame()
     // Acquire image from swap chain, signaling to the image_ready semaphore
     // when the image is ready for use
     uint32_t image_idx;
-    auto result = vkAcquireNextImageKHR(dev->logical_device, swap->swapchain,
+    auto result = vkAcquireNextImageKHR(dev.logical_device, swap->swapchain,
         timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
     );
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
@@ -889,7 +884,7 @@ void MimirEngine::renderFrame()
 
     /*if (images_inflight[image_idx] != VK_NULL_HANDLE)
     {
-        vkWaitForFences(dev->logical_device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
+        vkWaitForFences(dev.logical_device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
     }
     images_inflight[image_idx] = frame.render_fence;*/
 
@@ -968,7 +963,7 @@ void MimirEngine::renderFrame()
     };
 
     // Execute command buffer using image as attachment in framebuffer
-    validation::checkVulkan(vkQueueSubmit(dev->graphics.queue, 1, &submit_info, fence));
+    validation::checkVulkan(vkQueueSubmit(dev.graphics.queue, 1, &submit_info, fence));
 
     // Return image result back to swapchain for presentation on screen
     VkPresentInfoKHR present_info{
@@ -981,7 +976,7 @@ void MimirEngine::renderFrame()
         .pImageIndices      = &image_idx,
         .pResults           = nullptr,
     };
-    result = vkQueuePresentKHR(dev->present.queue, &present_info);
+    result = vkQueuePresentKHR(dev.present.queue, &present_info);
     // Resize should be done after presentation to ensure semaphore consistency
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
     {
@@ -1014,7 +1009,7 @@ void MimirEngine::renderFrame()
 
 void MimirEngine::drawElements(uint32_t image_idx)
 {
-    auto min_alignment = dev->physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = dev.physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1072,7 +1067,7 @@ bool MimirEngine::hasStencil(VkFormat format)
 
 VkFormat MimirEngine::findDepthFormat()
 {
-    return dev->findSupportedImageFormat(
+    return dev.findSupportedImageFormat(
         {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
         VK_IMAGE_TILING_OPTIMAL,
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
@@ -1158,7 +1153,7 @@ VkRenderPass MimirEngine::createRenderPass()
     //printf("render pass attachment count: %lu\n", attachments.size());
     VkRenderPass render_pass = VK_NULL_HANDLE;
     validation::checkVulkan(
-        vkCreateRenderPass(dev->logical_device, &pass_info, nullptr, &render_pass)
+        vkCreateRenderPass(dev.logical_device, &pass_info, nullptr, &render_pass)
     );
     return render_pass;
 }
@@ -1175,15 +1170,15 @@ void MimirEngine::createGraphicsPipelines()
     // TODO: This does not allow adding views at runtime
     for (auto& view : views)
     {
-        builder.addPipeline(view->params, dev->logical_device);
+        builder.addPipeline(view->params, dev.logical_device);
     }
-    auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
+    auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
     //printf("%lu pipeline(s) created\n", pipelines.size());
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
         views[i]->pipeline = pipelines[i];
-        deletors.swapchain.add([&,this]{
-            vkDestroyPipeline(dev->logical_device, views[i]->pipeline, nullptr);
+        deletors.swapchain.add([=,this]{
+            vkDestroyPipeline(dev.logical_device, views[i]->pipeline, nullptr);
         });
     }
 
@@ -1200,10 +1195,10 @@ void MimirEngine::rebuildPipeline(InteropView& view)
     std::filesystem::current_path(shader_path);
 
     PipelineBuilder builder(pipeline_layout, swap->extent);
-    builder.addPipeline(view.params, dev->logical_device);
-    auto pipelines = builder.createPipelines(dev->logical_device, render_pass);
+    builder.addPipeline(view.params, dev.logical_device);
+    auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
     // Destroy the old view pipeline and assign the new one
-    vkDestroyPipeline(dev->logical_device, view.pipeline, nullptr);
+    vkDestroyPipeline(dev.logical_device, view.pipeline, nullptr);
     view.pipeline = pipelines[0];
 
     std::filesystem::current_path(orig_path);
@@ -1211,7 +1206,7 @@ void MimirEngine::rebuildPipeline(InteropView& view)
 
 void MimirEngine::initUniformBuffers()
 {
-    auto min_alignment = dev->physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = dev.physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1220,19 +1215,19 @@ void MimirEngine::initUniformBuffers()
     uniform_buffers.resize(swap->image_count);
     for (auto& ubo : uniform_buffers)
     {
-        ubo.buffer = dev->createBuffer(size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        ubo.buffer = dev.createBuffer(size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         VkMemoryRequirements memreq;
-        vkGetBufferMemoryRequirements(dev->logical_device, ubo.buffer, &memreq);
+        vkGetBufferMemoryRequirements(dev.logical_device, ubo.buffer, &memreq);
         auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        ubo.memory = dev->allocateMemory(memreq, mem_usage);
-        vkBindBufferMemory(dev->logical_device, ubo.buffer, ubo.memory, 0);
+        ubo.memory = dev.allocateMemory(memreq, mem_usage);
+        vkBindBufferMemory(dev.logical_device, ubo.buffer, ubo.memory, 0);
     }
 }
 
 // Update uniform buffers for view at index [view_idx] for frame [image_idx]
 void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 {
-    auto min_alignment = dev->physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = dev.physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1268,25 +1263,25 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 
         char *data = nullptr;
         auto offset = size_ubo * view_idx;
-        vkMapMemory(dev->logical_device, memory, offset, size_ubo, 0, (void**)&data);
+        vkMapMemory(dev.logical_device, memory, offset, size_ubo, 0, (void**)&data);
         std::memcpy(data, &mvp, sizeof(mvp));
         std::memcpy(data + size_mvp, &vu, sizeof(vu));
         std::memcpy(data + size_mvp + size_view, &su, sizeof(su));
-        vkUnmapMemory(dev->logical_device, memory);
+        vkUnmapMemory(dev.logical_device, memory);
     }
 }
 
 double MimirEngine::getRenderTimeResults(uint32_t cmd_idx)
 {
-    auto timestamp_period = dev->physical_device.general.properties.limits.timestampPeriod;
+    auto timestamp_period = dev.physical_device.general.properties.limits.timestampPeriod;
     const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
 
     uint64_t buffer[2];
-    validation::checkVulkan(vkGetQueryPoolResults(dev->logical_device, query_pool,
+    validation::checkVulkan(vkGetQueryPoolResults(dev.logical_device, query_pool,
         2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t),
         VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT)
     );
-    vkResetQueryPool(dev->logical_device, query_pool, cmd_idx * 2, 2);
+    vkResetQueryPool(dev.logical_device, query_pool, cmd_idx * 2, 2);
     // TODO: apply time &= timestamp_mask;
     return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
 }
@@ -1359,7 +1354,7 @@ void MimirEngine::showMetrics()
     for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
     auto framerate = frame_times.size() / total_frame_time;
 
-    auto stats = dev->physical_device.getMemoryStats();
+    auto stats = dev.physical_device.getMemoryStats();
     auto gpu_usage  = formatMemory(stats.usage);
     auto gpu_budget = formatMemory(stats.budget);
 
@@ -1373,22 +1368,22 @@ void MimirEngine::showMetrics()
     /*printf("Framebuffer size: %dx%d\n", w, h);
     printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
 
-    dev->updateMemoryProperties();
-    auto gpu_usage = dev->formatMemory(dev->props.gpu_usage);
+    dev.updateMemoryProperties();
+    auto gpu_usage = dev.formatMemory(dev.props.gpu_usage);
     printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());
-    auto gpu_budget = dev->formatMemory(dev->props.gpu_budget);
+    auto gpu_budget = dev.formatMemory(dev.props.gpu_budget);
     printf("GPU memory budget: %.2f %s\n", gpu_budget.data, gpu_budget.units.c_str());
     //this->exit();
 
-    auto props = dev->budget_properties;
-    for (int i = 0; i < static_cast<int>(dev->props.heap_count); ++i)
+    auto props = dev.budget_properties;
+    for (int i = 0; i < static_cast<int>(dev.props.heap_count); ++i)
     {
-        auto heap_usage = dev->formatMemory(props.heapUsage[i]);
+        auto heap_usage = dev.formatMemory(props.heapUsage[i]);
         printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
-        auto heap_budget = dev->formatMemory(props.heapBudget[i]);
+        auto heap_budget = dev.formatMemory(props.heapBudget[i]);
         printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
-        auto heap_flags = dev->memory_properties2.memoryProperties.memoryHeaps[i].flags;
-        printf("Heap %d flags: %s\n", i, dev->readMemoryHeapFlags(heap_flags).c_str());
+        auto heap_flags = dev.memory_properties2.memoryProperties.memoryHeaps[i].flags;
+        printf("Heap %d flags: %s\n", i, dev.readMemoryHeapFlags(heap_flags).c_str());
     }*/
 }
 

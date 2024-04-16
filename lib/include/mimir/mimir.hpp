@@ -10,6 +10,7 @@
 #include <vector> // std::vector
 
 #include <mimir/engine/interop_view.hpp>
+#include <mimir/engine/interop_device.hpp>
 #include <mimir/engine/performance_monitor.hpp>
 #include <mimir/deletion_queue.hpp>
 
@@ -96,7 +97,7 @@ public:
     void signalKernelFinish();
 
 private:
-    std::unique_ptr<InteropDevice> dev;
+    InteropDevice dev;
     std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
     VkInstance instance = VK_NULL_HANDLE; // Vulkan library handle

@@ -22,17 +22,6 @@ VkPresentModeKHR getDesiredPresentMode(PresentOptions opts)
     }
 }
 
-VulkanSwapchain::~VulkanSwapchain()
-{
-    cleanup();
-    main_deletors.flush();
-}
-
-void VulkanSwapchain::cleanup()
-{
-    aux_deletors.flush();
-}
-
 void VulkanSwapchain::initSurface(VkInstance instance, GLFWwindow *window)
 {
     validation::checkVulkan(

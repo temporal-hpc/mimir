@@ -1,4 +1,4 @@
-#include "internal/physical_device.hpp"
+#include <mimir/engine/physical_device.hpp>
 
 #include <mimir/validation.hpp>
 

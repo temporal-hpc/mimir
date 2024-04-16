@@ -2,7 +2,6 @@
 
 #include <vector> // std::vector
 
-#include <mimir/deletion_queue.hpp>
 #include <mimir/engine/interop_view.hpp>
 
 struct GLFWwindow;
@@ -19,11 +18,6 @@ struct VulkanSwapchain
     VkExtent2D extent;
     uint32_t image_count = 0;
 
-    DeletionQueue main_deletors;
-    DeletionQueue aux_deletors;
-
-    ~VulkanSwapchain();
-    void cleanup();
     void initSurface(VkInstance instance, GLFWwindow *window);
     void create(uint32_t& width, uint32_t& height, PresentOptions opts,
         std::vector<uint32_t> queue_indices, VkPhysicalDevice gpu, VkDevice device

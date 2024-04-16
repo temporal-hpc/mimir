@@ -1,4 +1,4 @@
-#include "internal/interop_device.hpp"
+#include <mimir/engine/interop_device.hpp>
 
 #include <cstring> // std::memcpy
 

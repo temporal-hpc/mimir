@@ -1,4 +1,4 @@
-#include "internal/vulkan_device.hpp"
+#include <mimir/engine/vulkan_device.hpp>
 
 #include <set> // std::set
 
@@ -29,9 +29,6 @@ VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool, uint32
         .commandBufferCount = count,
     };
 }
-
-VulkanDevice::VulkanDevice(PhysicalDevice dev): physical_device{dev}
-{}
 
 void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
 {

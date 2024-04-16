@@ -2,11 +2,11 @@
 
 #include <vulkan/vulkan.h>
 
+#include <functional> // std::function
 #include <string> // std::string
 #include <vector> // std::vector
 
-#include <mimir/deletion_queue.hpp>
-#include "physical_device.hpp"
+#include <mimir/engine/physical_device.hpp>
 
 namespace mimir
 {
@@ -21,13 +21,9 @@ struct VulkanDevice
 {
     // GPU used for Vulkan operations
     PhysicalDevice physical_device{};
-
-    VkDevice logical_device = VK_NULL_HANDLE;
+    VkDevice logical_device    = VK_NULL_HANDLE;
     VkCommandPool command_pool = VK_NULL_HANDLE;
-
     VulkanQueue graphics, present;
-
-    explicit VulkanDevice(PhysicalDevice dev);
 
     void initLogicalDevice(VkSurfaceKHR surface);
     VkCommandPool createCommandPool(uint32_t queue_idx, VkCommandPoolCreateFlags flags);
