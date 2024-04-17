@@ -795,6 +795,19 @@ void MimirEngine::updateDescriptorSets()
     }
 }
 
+void MimirEngine::waitTimelineHost()
+{
+    VkSemaphoreWaitInfo wait_info{
+        .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+        .pNext          = nullptr,
+        .flags          = 0,
+        .semaphoreCount = 1,
+        .pSemaphores    = &interop->vk_semaphore,
+        .pValues        = &interop->timeline_value,
+    };
+    vkWaitSemaphores(dev.logical_device, &wait_info, frame_timeout);
+}
+
 void MimirEngine::renderFrame()
 {
     auto frame_idx = render_timeline % MAX_FRAMES_IN_FLIGHT;
@@ -813,25 +826,7 @@ void MimirEngine::renderFrame()
     }
     float frame_time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - last_time).count();
 
-    std::vector<VkSemaphore> waits;
-    std::vector<VkPipelineStageFlags> stages;
-    std::vector<VkSemaphore> signals;
-    if (options.enable_sync && kernel_working)
-    {
-        VkSemaphoreWaitInfo wait_info{
-            .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-            .pNext          = nullptr,
-            .flags          = 0,
-            .semaphoreCount = 1,
-            .pSemaphores    = &interop->vk_semaphore,
-            .pValues        = &interop->timeline_value,
-        };
-        vkWaitSemaphores(dev.logical_device, &wait_info, frame_timeout);
-
-        waits.push_back(interop->vk_semaphore);
-        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        signals.push_back(interop->vk_semaphore);
-    }
+    //waitTimelineHost();
 
     // Acquire image from swap chain, signaling to the image_ready semaphore
     // when the image is ready for use
@@ -900,26 +895,38 @@ void MimirEngine::renderFrame()
     validation::checkVulkan(vkEndCommandBuffer(cmd));
 
     updateUniformBuffers(frame_idx);
-
-    // Fill out command buffer submission info
     render_timeline++;
-    waits.push_back(frame_sync.image_acquired);
-    stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    signals.push_back(frame_sync.render_complete);
-    std::vector<uint64_t> wait_values{ interop->timeline_value, 0 };
-    std::vector<uint64_t> signal_values{ render_timeline, 0 };
 
-    VkTimelineSemaphoreSubmitInfo semaphore_info{
-        .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-        .pNext = nullptr,
-        .waitSemaphoreValueCount   = (uint32_t)wait_values.size(),
-        .pWaitSemaphoreValues      = wait_values.data(),
-        .signalSemaphoreValueCount = (uint32_t)signal_values.size(),
-        .pSignalSemaphoreValues    = signal_values.data(),
-    };
+    // Fill submit waits & signals info
+    std::vector<VkSemaphore> waits           = {frame_sync.image_acquired};
+    std::vector<VkPipelineStageFlags> stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    std::vector<VkSemaphore> signals         = {frame_sync.render_complete};
+    std::vector<uint64_t> wait_values        = {0};
+    std::vector<uint64_t> signal_values      = {0};
+    VkTimelineSemaphoreSubmitInfo *extra     = nullptr;
+    VkTimelineSemaphoreSubmitInfo timeline_info{};
+    if (kernel_working && options.enable_sync)
+    {
+        waits.push_back(interop->vk_semaphore);
+        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        signals.push_back(interop->vk_semaphore);
+        wait_values.push_back(interop->timeline_value);
+        signal_values.push_back(render_timeline);
+
+        timeline_info = VkTimelineSemaphoreSubmitInfo{
+            .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+            .pNext = nullptr,
+            .waitSemaphoreValueCount   = (uint32_t)wait_values.size(),
+            .pWaitSemaphoreValues      = wait_values.data(),
+            .signalSemaphoreValueCount = (uint32_t)signal_values.size(),
+            .pSignalSemaphoreValues    = signal_values.data(),
+        };
+        extra = &timeline_info;
+    }
+
     VkSubmitInfo submit_info{
         .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext                = &semaphore_info,
+        .pNext                = extra,
         .waitSemaphoreCount   = (uint32_t)waits.size(),
         .pWaitSemaphores      = waits.data(),
         .pWaitDstStageMask    = stages.data(),

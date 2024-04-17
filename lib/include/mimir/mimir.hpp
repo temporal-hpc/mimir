@@ -155,6 +155,7 @@ private:
     void renderFrame();
     void drawElements(uint32_t image_idx);
     void waitKernelStart();
+    void waitTimelineHost();
 
     // GUI functions
     void displayEngineGUI();
