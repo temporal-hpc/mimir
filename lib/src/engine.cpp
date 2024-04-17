@@ -796,7 +796,6 @@ void MimirEngine::updateDescriptorSets()
                 }
             }
         }
-
         vkUpdateDescriptorSets(dev.logical_device, updates.size(), updates.data(), 0, nullptr);
     }
 }
@@ -805,12 +804,10 @@ void MimirEngine::renderFrame()
 {
     auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
 
-    // Wait for fences
-    constexpr auto timeout = 1000000000; //std::numeric_limits<uint64_t>::max();
+    // Wait for frame fence and reset it after waiting
     auto frame_sync = sync_data[frame_idx];
     auto fence = frame_sync.frame_fence;
-    validation::checkVulkan(vkWaitForFences(dev.logical_device, 1, &fence, VK_TRUE, timeout));
-    // Clear fence before placing it again
+    validation::checkVulkan(vkWaitForFences(dev.logical_device, 1, &fence, VK_TRUE, frame_timeout));
     validation::checkVulkan(vkResetFences(dev.logical_device, 1, &fence));
 
     static chrono_tp start_time = std::chrono::high_resolution_clock::now();
@@ -838,7 +835,7 @@ void MimirEngine::renderFrame()
             .pSemaphores    = &interop->vk_semaphore,
             .pValues        = &wait_value,
         };
-        vkWaitSemaphores(dev.logical_device, &wait_info, timeout);
+        vkWaitSemaphores(dev.logical_device, &wait_info, frame_timeout);
 
         waits.push_back(interop->vk_semaphore);
         stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
@@ -850,7 +847,7 @@ void MimirEngine::renderFrame()
     // when the image is ready for use
     uint32_t image_idx;
     auto result = vkAcquireNextImageKHR(dev.logical_device, swap->swapchain,
-        timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
+        frame_timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
     );
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {

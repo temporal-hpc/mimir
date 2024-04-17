@@ -20,6 +20,9 @@ namespace mimir
 namespace
 {
     static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3;
+    // Timeout value for frame acquisition and synchronization structures
+    // To remove the timeout, use std::numeric_limits<uint64_t>::max();
+    static constexpr uint64_t frame_timeout = 1000000000;
 }
 
 struct Camera;
@@ -144,6 +147,7 @@ private:
     } deletors;
 
 
+    void updateLinearTextures();
     void listExtensions();
     void initVulkan();
     void initImgui();
@@ -151,7 +155,6 @@ private:
     void renderFrame();
     void drawElements(uint32_t image_idx);
     void waitKernelStart();
-    void updateLinearTextures();
 
     // GUI functions
     void displayEngineGUI();
