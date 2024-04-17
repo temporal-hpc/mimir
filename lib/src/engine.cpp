@@ -74,11 +74,6 @@ MimirEngine::~MimirEngine()
     {
         validation::checkCuda(cudaStreamSynchronize(interop->cuda_stream));
     }
-    for (auto& ubo : uniform_buffers)
-    {
-        vkDestroyBuffer(dev.logical_device, ubo.buffer, nullptr);
-        vkFreeMemory(dev.logical_device, ubo.memory, nullptr);
-    }
 
     cleanupSwapchain();
     ImGui_ImplVulkan_Shutdown();
@@ -263,6 +258,9 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
                 vkFreeMemory(dev.logical_device, mem_handle->image_memory, nullptr);
                 vkDestroyImageView(dev.logical_device, mem_handle->vk_view, nullptr);
                 vkDestroySampler(dev.logical_device, mem_handle->vk_sampler, nullptr);
+                vkDestroyBuffer(dev.logical_device, mem_handle->data_buffer, nullptr);
+                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
+                vkFreeMemory(dev.logical_device, mem_handle->memory, nullptr);
             });
             break;
         }
@@ -786,8 +784,9 @@ void MimirEngine::updateDescriptorSets()
                         .imageView   = memory.vk_view,
                         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                     };
-                    write_img.dstBinding = 4;
-                    write_img.pImageInfo = &samp_info;
+                    write_img.dstBinding     = 4;
+                    write_img.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+                    write_img.pImageInfo     = &samp_info;
                     updates.push_back(write_img);
                 }
             }
@@ -1182,6 +1181,10 @@ void MimirEngine::initUniformBuffers()
         auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         ubo.memory = dev.allocateMemory(memreq, mem_usage);
         vkBindBufferMemory(dev.logical_device, ubo.buffer, ubo.memory, 0);
+        deletors.context.add([=,this]{
+            vkDestroyBuffer(dev.logical_device, ubo.buffer, nullptr);
+            vkFreeMemory(dev.logical_device, ubo.memory, nullptr);
+        });
     }
 }
 
