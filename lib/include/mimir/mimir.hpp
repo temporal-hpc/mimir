@@ -130,7 +130,7 @@ private:
     // Cuda interop data
     std::unique_ptr<InteropBarrier> interop;
     std::string shader_path;
-    uint64_t current_frame = 0;
+    uint64_t timeline_value = 0;
     long target_frame_time = 0;
     float4 bg_color{.5f, .5f, .5f, 1.f};
 

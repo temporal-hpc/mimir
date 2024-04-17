@@ -183,16 +183,15 @@ void MimirEngine::updateViews()
 
 void MimirEngine::signalKernelFinish()
 {
-    static uint64_t signal_value = 2;
+    interop->timeline_value++;
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
-    signal_params.params.fence.value = signal_value;
+    signal_params.params.fence.value = interop->timeline_value;
 
     // Signal Vulkan to continue with the updated buffers
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
         &interop->cuda_semaphore, &signal_params, 1, interop->cuda_stream)
     );
-    signal_value += 2;
 }
 
 void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
@@ -802,7 +801,7 @@ void MimirEngine::updateDescriptorSets()
 
 void MimirEngine::renderFrame()
 {
-    auto frame_idx = current_frame % MAX_FRAMES_IN_FLIGHT;
+    auto frame_idx = timeline_value % MAX_FRAMES_IN_FLIGHT;
 
     // Wait for frame fence and reset it after waiting
     auto frame_sync = sync_data[frame_idx];
@@ -812,13 +811,12 @@ void MimirEngine::renderFrame()
 
     static chrono_tp start_time = std::chrono::high_resolution_clock::now();
     chrono_tp current_time = std::chrono::high_resolution_clock::now();
-    if (current_frame == 0)
+    if (timeline_value == 0)
     {
         last_time = start_time;
     }
     float frame_time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - last_time).count();
 
-    static uint64_t wait_value = 0;
     static uint64_t signal_value = 1;
 
     bool advance_timeline = false;
@@ -833,7 +831,7 @@ void MimirEngine::renderFrame()
             .flags          = 0,
             .semaphoreCount = 1,
             .pSemaphores    = &interop->vk_semaphore,
-            .pValues        = &wait_value,
+            .pValues        = &interop->timeline_value,
         };
         vkWaitSemaphores(dev.logical_device, &wait_info, frame_timeout);
 
@@ -864,7 +862,7 @@ void MimirEngine::renderFrame()
     }
     images_inflight[image_idx] = frame.render_fence;*/
 
-    if (current_frame > MAX_FRAMES_IN_FLIGHT)
+    if (timeline_value > MAX_FRAMES_IN_FLIGHT)
     {
         total_pipeline_time += getRenderTimeResults(frame_idx);
     }
@@ -915,7 +913,7 @@ void MimirEngine::renderFrame()
     waits.push_back(frame_sync.image_acquired);
     stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     signals.push_back(frame_sync.render_complete);
-    std::vector<uint64_t> wait_values{ wait_value, 0 };
+    std::vector<uint64_t> wait_values{ interop->timeline_value, 0 };
     std::vector<uint64_t> signal_values{ signal_value, 0 };
 
     VkTimelineSemaphoreSubmitInfo semaphore_info{
@@ -965,13 +963,12 @@ void MimirEngine::renderFrame()
 
     total_frame_count++;
     total_graphics_time += frame_time;
-    frame_times[current_frame % frame_times.size()] = frame_time;
+    frame_times[timeline_value % frame_times.size()] = frame_time;
     last_time = current_time;
 
-    current_frame++;
+    timeline_value++;
     if (advance_timeline)
     {
-        wait_value += 2;
         signal_value += 2;
     }
 

@@ -10,9 +10,10 @@ namespace mimir
 
 struct InteropBarrier
 {
-    cudaStream_t cuda_stream = 0;
-    VkSemaphore vk_semaphore = VK_NULL_HANDLE;
+    uint64_t timeline_value                = 0;
+    VkSemaphore vk_semaphore               = VK_NULL_HANDLE;
     cudaExternalSemaphore_t cuda_semaphore = nullptr;
+    cudaStream_t cuda_stream               = 0;
 };
 
 // Class for encapsulating Vulkan device functions with Cuda interop
