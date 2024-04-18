@@ -56,6 +56,97 @@ VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
     }
 }
 
+std::string getBindingTypeString(slang::BindingType binding)
+{
+    switch (binding)
+    {
+#define STR(r) case slang::BindingType::r: return #r
+        STR(Unknown);
+        STR(Sampler);
+        STR(Texture);
+        STR(ConstantBuffer);
+        STR(ParameterBlock);
+        STR(TypedBuffer);
+        STR(RawBuffer);
+        STR(CombinedTextureSampler);
+        STR(InputRenderTarget);
+        STR(InlineUniformData);
+        STR(RayTracingAccelerationStructure);
+        STR(VaryingInput);
+        STR(VaryingOutput);
+        STR(ExistentialValue);
+        STR(PushConstant);
+        STR(MutableFlag);
+        STR(MutableTexture);
+        STR(MutableTypedBuffer);
+        STR(MutableRawBuffer);
+        STR(BaseMask);
+        STR(ExtMask);
+#undef STR
+        default: return "Unknown";
+    }
+}
+
+std::string getTypeReflectionString(slang::TypeReflection::Kind type)
+{
+    switch (type)
+    {
+#define STR(r) case slang::TypeReflection::Kind::r: return #r
+        STR(None);
+        STR(Struct);
+        STR(Array);
+        STR(Matrix);
+        STR(Vector);
+        STR(Scalar);
+        STR(ConstantBuffer);
+        STR(Resource);
+        STR(SamplerState);
+        STR(TextureBuffer);
+        STR(ShaderStorageBuffer);
+        STR(ParameterBlock);
+        STR(GenericTypeParameter);
+        STR(Interface);
+        STR(OutputStream);
+        STR(Specialized);
+        STR(Feedback);
+        STR(Pointer);
+#undef STR
+        default: return "Unknown";
+    }
+}
+
+std::string getCategoryString(slang::ParameterCategory category)
+{
+    switch (category)
+    {
+#define STR(r) case slang::r: return #r
+        STR(None);
+        STR(Mixed);
+        STR(ConstantBuffer);
+        STR(ShaderResource);
+        STR(UnorderedAccess);
+        STR(VaryingInput);
+        STR(VaryingOutput);
+        STR(SamplerState);
+        STR(Uniform);
+        STR(DescriptorTableSlot);
+        STR(SpecializationConstant);
+        STR(PushConstantBuffer);
+        STR(RegisterSpace);
+        STR(GenericResource);
+        STR(RayPayload);
+        STR(HitAttributes);
+        STR(CallablePayload);
+        STR(ShaderRecord);
+        STR(ExistentialTypeParam);
+        STR(ExistentialObjectParam);
+        STR(SubElementRegisterSpace);
+        STR(InputAttachmentIndex);
+#undef STR
+        default: return "Unknown";
+    }
+}
+
 std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     VkDevice device, const ShaderCompileParams& params)
 {
@@ -64,6 +155,7 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     // Load code from [source_path].slang as a module
     auto module = session->loadModule(params.module_path.c_str(), diag.writeRef());
     validation::checkSlang(result, diag);
+    printf("module %s\n", params.module_path.c_str());
 
     std::vector<slang::IComponentType*> components;
     components.reserve(params.entrypoints.size() + 1);
@@ -104,6 +196,31 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     validation::checkSlang(result, diag);
 
     auto layout = linked_program->getLayout();
+    /*{
+        auto param_count = layout->getParameterCount();
+        for (unsigned pp = 0; pp < param_count; ++pp)
+        {
+            auto parameter = layout->getParameterByIndex(pp);
+            auto name = parameter->getName();
+            auto index = parameter->getBindingIndex();
+            auto category = getCategoryString(parameter->getCategory());
+            auto space = parameter->getBindingSpace()
+                       + parameter->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+
+            auto type_layout = parameter->getTypeLayout();
+            auto kind = getTypeReflectionString(type_layout->getKind());
+            auto binding_count = type_layout->getBindingRangeCount();
+            auto set_count = type_layout->getDescriptorSetCount();
+            printf("param %s: binding %u, space %lu, category %s, kind %s, sets %lu\n",
+                name, index, space, category.c_str(), kind.c_str(), set_count);
+            for (int i = 0; i < binding_count; ++i)
+            {
+                auto binding_type = getBindingTypeString(type_layout->getBindingRangeType(i));
+                printf("  binding %d: %s\n", i, binding_type.c_str());
+            }
+        }
+    }*/
+
     std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
     compiled_stages.reserve(layout->getEntryPointCount());
     for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)

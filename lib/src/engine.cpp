@@ -734,15 +734,6 @@ void MimirEngine::updateDescriptorSets()
         };
         updates.push_back(write_buf);
 
-        VkDescriptorBufferInfo view_info{
-            .buffer = uniform_buffers[i].buffer,
-            .offset = 0,
-            .range  = sizeof(ViewUniforms),
-        };
-        write_buf.dstBinding  = 2;
-        write_buf.pBufferInfo = &view_info;
-        updates.push_back(write_buf);
-
         VkDescriptorBufferInfo scene_info{
             .buffer = uniform_buffers[i].buffer,
             .offset = 0,
@@ -750,6 +741,15 @@ void MimirEngine::updateDescriptorSets()
         };
         write_buf.dstBinding  = 1;
         write_buf.pBufferInfo = &scene_info;
+        updates.push_back(write_buf);
+
+        VkDescriptorBufferInfo view_info{
+            .buffer = uniform_buffers[i].buffer,
+            .offset = 0,
+            .range  = sizeof(ViewUniforms),
+        };
+        write_buf.dstBinding  = 2;
+        write_buf.pBufferInfo = &view_info;
         updates.push_back(write_buf);
 
         for (const auto& view : views)
