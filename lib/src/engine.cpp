@@ -154,7 +154,8 @@ void MimirEngine::waitKernelStart()
 {
     cudaExternalSemaphoreWaitParams wait_params{};
     wait_params.flags = 0;
-    wait_params.params.fence.value = render_timeline;
+    wait_params.params.fence.value = render_timeline+1;
+    //printf("kernel waits for render %llu\n", wait_params.params.fence.value);
 
     // Wait for Vulkan to complete its work
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
@@ -179,6 +180,7 @@ void MimirEngine::signalKernelFinish()
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
     signal_params.params.fence.value = interop->timeline_value;
+    //printf("kernel signals iteration %llu\n", signal_params.params.fence.value);
 
     // Signal Vulkan to continue with the updated buffers
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
@@ -811,6 +813,7 @@ void MimirEngine::waitTimelineHost()
 void MimirEngine::renderFrame()
 {
     auto frame_idx = render_timeline % MAX_FRAMES_IN_FLIGHT;
+    //printf("frame %lu waits for %lu and signals %lu\n", render_timeline, interop->timeline_value, render_timeline+1);
 
     // Wait for frame fence and reset it after waiting
     auto frame_sync = sync_data[frame_idx];
@@ -847,12 +850,11 @@ void MimirEngine::renderFrame()
     {
         vkWaitForFences(dev.logical_device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
     }
-    images_inflight[image_idx] = frame.render_fence;*/
-
+    images_inflight[image_idx] = frame.render_fence;
     if (render_timeline > MAX_FRAMES_IN_FLIGHT)
     {
         total_pipeline_time += getRenderTimeResults(frame_idx);
-    }
+    }*/
 
     // Retrieve a command buffer and start recording to it
     auto cmd = command_buffers[frame_idx];
@@ -865,7 +867,7 @@ void MimirEngine::renderFrame()
     };
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &cmd_info));
 
-    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
+    //vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
 
     std::array<VkClearValue, 2> clear_values{};
     setColor(clear_values[0].color.float32, bg_color);
@@ -889,7 +891,7 @@ void MimirEngine::renderFrame()
 
     // End of render pass and timestamp query
     vkCmdEndRenderPass(cmd);
-    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, frame_idx * 2 + 1);
+    //vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, frame_idx * 2 + 1);
 
     // Finalize command buffer recording, so it can be executed
     validation::checkVulkan(vkEndCommandBuffer(cmd));
@@ -911,7 +913,7 @@ void MimirEngine::renderFrame()
         stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         signals.push_back(interop->vk_semaphore);
         wait_values.push_back(interop->timeline_value);
-        signal_values.push_back(render_timeline);
+        signal_values.push_back(render_timeline+1);
 
         timeline_info = VkTimelineSemaphoreSubmitInfo{
             .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
