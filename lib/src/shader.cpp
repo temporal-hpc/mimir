@@ -155,7 +155,6 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     // Load code from [source_path].slang as a module
     auto module = session->loadModule(params.module_path.c_str(), diag.writeRef());
     validation::checkSlang(result, diag);
-    printf("module %s\n", params.module_path.c_str());
 
     std::vector<slang::IComponentType*> components;
     components.reserve(params.entrypoints.size() + 1);

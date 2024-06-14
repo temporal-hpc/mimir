@@ -2,9 +2,9 @@
 
 #include <imgui.h>
 #include <ImGuiFileDialog.h>
+#include <fmt/core.h>
 
 #include <array> // std::array
-#include <format> // std::format
 
 namespace mimir
 {
@@ -75,11 +75,11 @@ std::string getExtent(uint3 extent, DataDomain domain)
     {
         case DataDomain::Domain2D:
         {
-            return std::format("({},{})", extent.x, extent.y);
+            return fmt::format("({},{})", extent.x, extent.y);
         }
         case DataDomain::Domain3D:
         {
-            return std::format("({},{},{})", extent.x, extent.y, extent.z);
+            return fmt::format("({},{},{})", extent.x, extent.y, extent.z);
         }
         default: return "unknown";
     }
