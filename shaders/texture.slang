@@ -1,9 +1,5 @@
 import uniforms;
 
-ConstantBuffer<ModelViewProjection> mvp;
-ConstantBuffer<SceneParams> scene;
-ConstantBuffer<ViewParams> view;
-
 struct VertexInput
 {
     [[vk::location(0)]] float3 pos : POSITION;
@@ -96,7 +92,7 @@ float4 frag2d_Char4<U:IPicker>(VertexData input) : SV_Target
 [shader("fragment")]
 float4 frag3d_Int1<U:IPicker>(VertexData3d input) : SV_Target
 {
-    float4 samp = float4(Tex3d_Int1.Sample(Sampler, input.uv).rrr, 1);
+    float4 samp = float4(Tex3d_Float1.Sample(Sampler, input.uv).rrr, 1);
     return U.getColor(samp);
 }
 

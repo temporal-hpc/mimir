@@ -1,11 +1,7 @@
 import uniforms;
 
-#include "interfaces/position.slang"
-#include "interfaces/color.slang"
-
-ConstantBuffer<ModelViewProjection> mvp;
-ConstantBuffer<SceneParams> scene;
-ConstantBuffer<ViewParams> view;
+import position; // IPosition
+import color; // IColor
 
 struct VertexOutput
 {
@@ -15,10 +11,9 @@ struct VertexOutput
 };
 
 [shader("vertex")]
-VertexOutput vertexMain<P:IPosition, C:IColor>(P in_pos, C in_color)
+VertexOutput vertexMain<P:IPosition, C:IColor>(P in_pos: POSITION, C in_color: COLOR)
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
-    in_color.setDefault(view.default_color);
 
     VertexOutput output;
     float4 pos = in_pos.getPosition(scene.extent);

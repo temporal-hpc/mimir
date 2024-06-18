@@ -190,7 +190,7 @@ void Application::init()
             {
                 if (ImGui::MenuItem("Open Mesh", "Ctrl+O"))
                 {
-                    ImGuiFileDialog::Instance()->OpenDialog("LoadFileDialog", "Load mesh file", ".off", ".");
+                    ImGuiFileDialog::Instance()->OpenDialog("LoadFileDialog", "Load mesh", ".off");
                 }
                 if (ImGui::MenuItem("Save", "Ctrl+S"))
                 {
@@ -198,7 +198,7 @@ void Application::init()
                 }
                 if (ImGui::MenuItem("Save As.."))
                 {
-                    ImGuiFileDialog::Instance()->OpenDialog("SaveFileDialog", "Save mesh file", ".off", ".");
+                    ImGuiFileDialog::Instance()->OpenDialog("SaveFileDialog", "Save mesh", ".off");
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Quit", "Alt+F4"))

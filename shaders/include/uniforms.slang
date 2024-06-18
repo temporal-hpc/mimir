@@ -11,6 +11,8 @@ struct SceneParams
     int3 extent;
     int2 resolution;
     float3 camera_pos;
+    float3 light_pos;
+    float4 light_color;
 };
 
 struct ViewParams
@@ -20,3 +22,7 @@ struct ViewParams
     float depth;
     int element_count;
 };
+
+ConstantBuffer<ModelViewProjection> mvp;
+ConstantBuffer<SceneParams> scene;
+ConstantBuffer<ViewParams> view;

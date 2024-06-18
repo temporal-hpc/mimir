@@ -1,17 +1,13 @@
-import uniforms
+import uniforms;
 
-#include "interfaces/position.slang"
-#include "interfaces/color.slang"
-#include "interfaces/size.slang"
-#include "interfaces/antialias.slang"
-#include "interfaces/shapes.slang"
-#include "interfaces/rotation.slang"
+import position;  // IPosition
+import color; // IColor
+import size; // ISize
+import antialias; // IAntialiased
+import shapes; // IShape
+import rotation; // IRotation
 
 #define M_PI 3.1415926535897932384626433832795
-
-ConstantBuffer<ModelViewProjection> mvp;
-ConstantBuffer<SceneParams> scene;
-ConstantBuffer<ViewParams> view;
 
 static const float v_linewidth = 0;
 static const float u_antialias = 0;
@@ -50,9 +46,6 @@ float getMarkerSizePx(float size)
 VertexOutput vertexMain<P: IPosition, C: IColor, S: ISize>(
     P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
 {
-    in_color.setDefault(view.default_color);
-    in_size.setDefault(view.default_size);
-
     OrientationDefault in_angle;
     in_angle.setDefault(0);
 
