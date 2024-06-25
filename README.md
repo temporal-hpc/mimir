@@ -31,7 +31,12 @@ From a successful build placed at `<build_dir>`, run:
 cmake --install <build_dir> --prefix <install_prefix>
 ```
 
-By default, this will install the library at the standard system library location. Use the `--prefix` option to change the installation root folder to `<install_prefix>`.
+By default, this will install the library at the standard system library location. Use the `--prefix` option to change the installation root folder to `<install_prefix>` (by default, this will be the system library path). Another cmake application can then use `find_package(mimir)` to link with the installed library.
+If the library was installed to a non-default path `<install_prefix>`, run:
+
+```cmake
+cmake build -D CMAKE_PREFIX_PATH=<install_prefix>
+```
 
 ## Running samples
 
