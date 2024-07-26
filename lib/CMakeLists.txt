@@ -18,6 +18,24 @@ target_sources(mimir PRIVATE
     src/vk_swapchain.cpp
     src/window.cpp
 )
+target_sources(mimir PUBLIC
+    FILE_SET  library_headers
+    TYPE      HEADERS
+    BASE_DIRS include
+    FILES
+        include/mimir/mimir.hpp
+        include/mimir/deletion_queue.hpp
+        include/mimir/shader_types.hpp
+        include/mimir/validation.hpp
+        include/mimir/view_types.hpp
+        include/mimir/engine/interop_device.hpp
+        include/mimir/engine/interop_view.hpp
+        include/mimir/engine/performance_monitor.hpp
+        include/mimir/engine/physical_device.hpp
+        include/mimir/engine/vk_framebuffer.hpp
+        include/mimir/engine/vk_swapchain.hpp
+        include/mimir/engine/vulkan_device.hpp
+)
 target_include_directories(mimir PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
@@ -43,10 +61,11 @@ target_link_libraries(mimir PUBLIC
 install(
     TARGETS mimir glm glm-header-only slang glfw fmt imgui-app ImGuiFileDialog
     EXPORT MimirTargets
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION  lib
+    ARCHIVE DESTINATION  lib
+    RUNTIME DESTINATION  bin
     INCLUDES DESTINATION include
+    FILE_SET             library_headers
 )
 
 include(CMakePackageConfigHelpers)
