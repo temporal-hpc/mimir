@@ -2,8 +2,6 @@
 
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
-#define SLANG_CUDA_ENABLE_HALF
-#include <slang.h>
 
 #include <cstdio> // stderr
 #include <source_location> // std::source_location
@@ -57,34 +55,6 @@ constexpr VkResult checkVulkan(VkResult code, bool panic = true,
         {
             throw std::runtime_error("Vulkan failure!");
         };
-    }
-    return code;
-}
-
-constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
-    bool panic = true, srcloc src = srcloc::current())
-{
-    if (code < 0)
-    {
-        const char* msg = "error";
-        if (diag != nullptr)
-        {
-            msg = static_cast<const char*>(diag->getBufferPointer());
-        }
-        fprintf(stderr, "Slang assertion: %s in function %s at %s(%d)\n",
-            msg, src.function_name(), src.file_name(), src.line()
-        );
-        if (panic)
-        {
-            throw std::runtime_error("Slang failure!");
-        }
-    }
-    else if (diag != nullptr)
-    {
-        const char* msg = static_cast<const char*>(diag->getBufferPointer());
-        fprintf(stderr, "Slang warning: %s in function %s at %s(%d)\n",
-            msg, src.function_name(), src.file_name(), src.line()
-        );
     }
     return code;
 }

@@ -54,13 +54,16 @@ target_compile_options(mimir PRIVATE -Wall -Wextra
 
 find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
-target_link_libraries(mimir PUBLIC
-    Vulkan::Vulkan CUDA::cudart glm::glm slang glfw fmt imgui-app ImGuiFileDialog
+target_link_libraries(mimir
+    PUBLIC
+        Vulkan::Vulkan CUDA::cudart glm::glm glfw fmt imgui-app ImGuiFileDialog
+    PRIVATE
+        slang
 )
 
 install(
-    TARGETS mimir glm glm-header-only slang glfw fmt imgui-app ImGuiFileDialog
-    EXPORT MimirTargets
+    TARGETS              mimir glm glm-header-only glfw slang fmt imgui-app ImGuiFileDialog
+    EXPORT               MimirTargets
     LIBRARY DESTINATION  lib
     ARCHIVE DESTINATION  lib
     RUNTIME DESTINATION  bin

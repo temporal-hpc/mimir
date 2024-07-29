@@ -1,11 +1,46 @@
 #include "internal/shader.hpp"
 
+#define SLANG_CUDA_ENABLE_HALF
+#include <slang.h>
 #include <fstream> // std::ifstream
 
 #include <mimir/validation.hpp>
 
 namespace mimir
 {
+
+namespace validation
+{
+
+constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
+    bool panic = true, std::source_location src = std::source_location::current())
+{
+    if (code < 0)
+    {
+        const char* msg = "error";
+        if (diag != nullptr)
+        {
+            msg = static_cast<const char*>(diag->getBufferPointer());
+        }
+        fprintf(stderr, "Slang assertion: %s in function %s at %s(%d)\n",
+            msg, src.function_name(), src.file_name(), src.line()
+        );
+        if (panic)
+        {
+            throw std::runtime_error("Slang failure!");
+        }
+    }
+    else if (diag != nullptr)
+    {
+        const char* msg = static_cast<const char*>(diag->getBufferPointer());
+        fprintf(stderr, "Slang warning: %s in function %s at %s(%d)\n",
+            msg, src.function_name(), src.file_name(), src.line()
+        );
+    }
+    return code;
+}
+
+} // namespace validation
 
 ShaderBuilder::ShaderBuilder()
 {
