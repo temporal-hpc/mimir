@@ -75,6 +75,8 @@ struct ViewOptions
     float4 default_color{0.f,0.f,0.f,1.f};
     // Default primitive size if no per-instance size is set
     float default_size = 10.f;
+    // Index of instance inside view
+    int instance_index = 0;
     // For moving through the different slices in a 3D texture
     float depth = 0.1f;
     // External alternate shaders for use in this view
@@ -89,6 +91,7 @@ using AttributeDict = std::map<AttributeType, InteropMemory>;
 struct ViewParams
 {
     size_t element_count = 0;
+    int instance_count = 1;
     uint3 extent = {1, 1, 1};
     DataDomain data_domain;
     DomainType domain_type;

@@ -1009,7 +1009,10 @@ void MimirEngine::drawElements(uint32_t image_idx)
             case ViewType::Markers:
             case ViewType::Voxels:
             {
-                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
+                auto vertex_count = view->params.element_count;
+                auto instance_count = 1;
+                auto first_vertex = vertex_count * view->params.options.instance_index;
+                vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, 0);
                 break;
             }
             case ViewType::Edges:

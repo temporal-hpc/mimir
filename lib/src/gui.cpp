@@ -128,6 +128,12 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
         ImGui::SliderFloat("Element size (px)", &params.options.default_size, 1.f, 100.f);
         ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
         ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);
+
+        int min_instance = 0;
+        int max_instance = params.instance_count - 1;
+        ImGui::SliderScalar("Instance index", ImGuiDataType_S32, &params.options.instance_index, &min_instance, &max_instance);
+
+
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {
             addTableRow("Data domain", getDataDomain(params.data_domain));
