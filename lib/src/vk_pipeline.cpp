@@ -173,7 +173,7 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
     return compile;
 }
 
-VkPipelineDepthStencilStateCreateInfo getDepthInfo([[maybe_unused]] DataDomain domain)
+VkPipelineDepthStencilStateCreateInfo getDepthInfo()
 {
     // TODO: Decide when to apply depth testing
     bool use_depth = true; //(domain == DataDomain::Domain3D);
@@ -344,7 +344,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
         .vertex_input_info      = getVertexDescription(params),
         .input_assembly         = getAssemblyInfo(params.view_type),
         .rasterizer             = getRasterizationInfo(params.view_type),
-        .depth_stencil          = getDepthInfo(params.data_domain),
+        .depth_stencil          = getDepthInfo(),
         .color_blend_attachment = color_blend,
         .multisampling          = multisampling,
     };

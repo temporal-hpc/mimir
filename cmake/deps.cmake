@@ -6,10 +6,11 @@ set(SLANG_ENABLE_SLANGD     OFF)
 set(SLANG_ENABLE_SLANGRT    OFF)
 set(SLANG_ENABLE_TESTS      OFF)
 set(SLANG_ENABLE_EXAMPLES   OFF)
+set(SLANG_ENABLE_REPLAYER   OFF)
 set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
 FetchContent_Declare(slang
     GIT_REPOSITORY https://github.com/shader-slang/slang.git
-    GIT_TAG        c00f461aad3d997a2e1c59559421275d6339ae6f # v2024.1.22
+    GIT_TAG        bd01bd3f4b8eecbfb924b8eb4090694e44e8166c # v2024.1.26
     GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )
@@ -46,7 +47,7 @@ FetchContent_Declare(fmt
 # spdlog logging lib
 FetchContent_Declare(spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        7c02e204c92545f869e2f04edaab1f19fe8b19fd # v1.13.0
+    GIT_TAG        27cb4c76708608465c413f6d0e6b8d99a4d84302 # v1.14.1
     GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )
