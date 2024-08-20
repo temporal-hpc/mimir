@@ -4,9 +4,8 @@
 #include <string> // std::stoul
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 #include "pcg/pcg_random.hpp"
 #include "nvmlPower.hpp"

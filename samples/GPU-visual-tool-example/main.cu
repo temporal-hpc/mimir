@@ -7,9 +7,8 @@
 #include <thread> // std::thread
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 #define VEL 0.1
 #define BSIZE 256

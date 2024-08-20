@@ -1,6 +1,6 @@
 #include "mimir/engine/vk_framebuffer.hpp"
 
-#include <mimir/validation.hpp>
+#include "internal/validation.hpp"
 
 namespace mimir
 {

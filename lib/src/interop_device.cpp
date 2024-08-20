@@ -3,7 +3,7 @@
 #include <cstring> // std::memcpy
 
 #include <mimir/shader_types.hpp>
-#include <mimir/validation.hpp>
+#include "internal/validation.hpp"
 #include "internal/interop.hpp"
 
 namespace mimir

@@ -26,7 +26,6 @@ target_sources(mimir PUBLIC
         include/mimir/mimir.hpp
         include/mimir/deletion_queue.hpp
         include/mimir/shader_types.hpp
-        include/mimir/validation.hpp
         include/mimir/view_types.hpp
         include/mimir/engine/interop_device.hpp
         include/mimir/engine/interop_view.hpp

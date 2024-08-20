@@ -12,4 +12,4 @@ set_target_properties(tiuque PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
 )
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)
-target_link_libraries(tiuque PRIVATE mimir cleap)
+target_link_libraries(tiuque PRIVATE common cleap)

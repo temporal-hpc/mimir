@@ -1,5 +1,5 @@
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp>
+#include "internal/validation.hpp"
 #include <mimir/engine/vk_framebuffer.hpp>
 #include <mimir/engine/vk_swapchain.hpp>
 

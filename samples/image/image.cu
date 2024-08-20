@@ -2,9 +2,8 @@
 #include "stb/stb_image.h" // stbi_load
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 int main(int argc, char *argv[])
 {

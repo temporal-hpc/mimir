@@ -19,6 +19,6 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(deps) # cmake/deps.cmake
 
 add_subdirectory(lib)
-#add_subdirectory(samples)
+add_subdirectory(samples)
 add_subdirectory(utils)
 #add_subdirectory(shaders)

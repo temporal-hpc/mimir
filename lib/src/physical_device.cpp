@@ -1,6 +1,6 @@
 #include <mimir/engine/physical_device.hpp>
 
-#include <mimir/validation.hpp>
+#include "internal/validation.hpp"
 
 namespace mimir
 {

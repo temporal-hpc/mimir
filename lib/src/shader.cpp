@@ -4,7 +4,7 @@
 #include <slang.h>
 #include <fstream> // std::ifstream
 
-#include <mimir/validation.hpp>
+#include "internal/validation.hpp"
 
 namespace mimir
 {

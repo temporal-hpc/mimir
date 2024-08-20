@@ -30,9 +30,8 @@
 #include <ImGuiFileDialog.h>
 #include <iostream>
 
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 Application::Application(){
     myMesh = 0;
@@ -81,10 +80,10 @@ Application::Application(){
     params.options.default_color  = {0.f, 1.f, 0.f, 1.f};
     engine.createView(params);
 
-    validation::checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
+    checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
         cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)
     );
-    validation::checkCuda(cudaMemcpy(m->dm->d_eab, m->triangles,
+    checkCuda(cudaMemcpy(m->dm->d_eab, m->triangles,
         cleap_get_face_count(m) * sizeof(uint3), cudaMemcpyHostToDevice)
     );
 }

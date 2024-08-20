@@ -3,7 +3,7 @@
 #include <imgui.h>
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp>
+#include "internal/validation.hpp"
 #include "internal/camera.hpp"
 
 namespace mimir

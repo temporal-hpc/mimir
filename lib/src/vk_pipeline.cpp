@@ -4,7 +4,7 @@
 #include <map> // std::map
 
 #include <mimir/shader_types.hpp>
-#include <mimir/validation.hpp>
+#include "internal/validation.hpp"
 
 namespace mimir
 {
@@ -22,13 +22,12 @@ VkVertexInputBindingDescription vertexBinding(
 VkVertexInputAttributeDescription vertexAttribute(
     uint32_t location, uint32_t binding, VkFormat format, uint32_t offset)
 {
-    VkVertexInputAttributeDescription desc{
+    return VkVertexInputAttributeDescription{
         .location = location,
         .binding  = binding,
         .format   = format,
         .offset   = offset,
     };
-    return desc;
 }
 
 ShaderCompileParams getShaderCompileParams(ViewParams params)

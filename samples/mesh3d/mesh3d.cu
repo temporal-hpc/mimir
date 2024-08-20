@@ -3,9 +3,8 @@
 #include <vector> // std::vector
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 // Reads an .off file and only loads the points and triangles
 void loadTriangleMesh(const std::string& filename,

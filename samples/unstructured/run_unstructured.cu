@@ -3,9 +3,8 @@
 #include <string> // std::stoul
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 __global__
 void initSystem(double2 *coords, double *sizes, size_t point_count,
