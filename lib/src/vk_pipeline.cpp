@@ -3,7 +3,7 @@
 #include <cstring> // to_string
 #include <map> // std::map
 
-#include <mimir/shader_types.hpp>
+#include "internal/shader_types.hpp"
 #include "internal/validation.hpp"
 
 namespace mimir
