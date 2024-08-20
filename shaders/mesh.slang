@@ -2,6 +2,7 @@ import uniforms;
 
 import position; // IPosition
 import color; // IColor
+import size; // ISize
 
 struct VertexOutput
 {
@@ -11,7 +12,7 @@ struct VertexOutput
 };
 
 [shader("vertex")]
-VertexOutput vertexMain<P:IPosition, C:IColor>(P in_pos: POSITION, C in_color: COLOR)
+VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
 

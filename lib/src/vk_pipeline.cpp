@@ -35,6 +35,34 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
 {
     ShaderCompileParams compile;
     compile.specializations = params.options.specializations;
+
+    // Make a dictionary of the attributes that need specializing,
+    // while keeping note of the ones that were not specialized
+
+    std::map<AttributeType, std::string> specs{
+        {AttributeType::Position, "PositionDefault"},
+        {AttributeType::Color, "ColorDefault"},
+        {AttributeType::Size, "SizeDefault"}
+    };
+    if (params.view_type == ViewType::Voxels) specs[AttributeType::Position] = "PositionFloat3"; // TODO: Remove
+
+    for (const auto &[attr, memory] : params.attributes)
+    {
+        if (attr != AttributeType::Index) // TODO: Handle this properly
+        {
+            std::string spec = getAttributeType(attr);
+            spec += getComponentType(memory.params.component_type);
+            spec += std::to_string(memory.params.channel_count);
+            specs[attr] = spec;
+        }
+    }
+    // Get the list of specialization names
+    for (const auto& spec : specs)
+    {
+        //printf("%s\n", spec.second.c_str());
+        compile.specializations.push_back(spec.second);
+    }
+
     // Select source code file and entry points for the view shader
     switch (params.view_type)
     {
@@ -43,41 +71,12 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
             compile.module_path = "shaders/marker.slang";
             compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
 
-            // Make a dictionary of the attributes that need specializing,
-            // while keeping note of the ones that were not specialized
-            std::map<AttributeType, std::string> specs{
-                {AttributeType::Position, "PositionDefault"},
-                {AttributeType::Color, "ColorDefault"},
-                {AttributeType::Size, "SizeDefault"}
-            };
-            for (const auto &[attr, memory] : params.attributes)
-            {
-                if (attr != AttributeType::Index)
-                {
-                    std::string spec = getAttributeType(attr);
-                    spec += getComponentType(memory.params.component_type);
-                    spec += std::to_string(memory.params.channel_count);
-                    specs[attr] = spec;
-                }
-            }
-            /*if (params.domain_type == DomainType::Structured)
-            {
-                specs[AttributeType::Position] = "PositionFloat3";
-            }*/
-
-            // Get the list of specialization names
-            for (const auto& spec : specs)
-            {
-                compile.specializations.push_back(spec.second);
-            }
-
             // Add dimensionality specialization
             std::string marker_spec = "Marker";
             marker_spec += getDataDomain(params.data_domain);
             compile.specializations.push_back(marker_spec);
 
-            // Add shape specialization
-            // TODO: Do it properly
+            // Add shape specialization (TODO: Do it properly)
             compile.specializations.push_back("DiscShape");
             break;
         }
@@ -87,27 +86,6 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
             compile.entrypoints = {"vertexMain", "fragmentMain"};
             // Variant for pbc delaunay edges
             //compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-
-            // Make a dictionary of the attributes that need specializing,
-            // while keeping note of the ones that were not specialized
-            std::map<AttributeType, std::string> specs{
-                {AttributeType::Position, "PositionDefault"},
-                {AttributeType::Color, "ColorDefault"}
-            };
-            for (const auto &[attr, memory] : params.attributes)
-            {
-                if (attr != AttributeType::Index)
-                {
-                    std::string spec = getAttributeType(attr);
-                    spec += getComponentType(memory.params.component_type);
-                    spec += std::to_string(memory.params.channel_count);
-                    specs[attr] = spec;
-                }
-            }
-            for (const auto& spec : specs)
-            {
-                compile.specializations.push_back(spec.second);
-            }
             break;
         }
         case ViewType::Voxels:
@@ -116,25 +94,6 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
             std::string geom_entry = "geometryMain";
             geom_entry += getDataDomain(params.data_domain);
             compile.entrypoints = {"vertexImplicitMain", geom_entry, "fragmentMain"};
-
-            std::map<AttributeType, std::string> specs{
-                {AttributeType::Color, "ColorDefault"}
-            };
-            for (const auto &[attr, memory] : params.attributes)
-            {
-                if (attr != AttributeType::Index)
-                {
-                    std::string spec = getAttributeType(attr);
-                    spec += getComponentType(memory.params.component_type);
-                    spec += std::to_string(memory.params.channel_count);
-                    specs[attr] = spec;
-                }
-            }
-            for (const auto& spec : specs)
-            {
-                compile.specializations.push_back(spec.second);
-            }
-
             break;
         }
         case ViewType::Image:
@@ -142,10 +101,12 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
             compile.module_path = "shaders/texture.slang";
             // The texture shader needs a specialization for the way to interpret its content
             // as a fragment. If no specialization is set, use the RawColor spec.
+            compile.specializations.clear(); // TODO: DIR
             if (compile.specializations.empty())
             {
                 compile.specializations.push_back("RawColor");
             }
+
             std::string vert_entry = "vertex";
             std::string frag_entry = "frag";
             if (params.data_domain == DataDomain::Domain2D)
@@ -304,14 +265,15 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
     auto ext_shaders = params.options.external_shaders;
 
     std::vector<VkPipelineShaderStageCreateInfo> stages;
-    if (!ext_shaders.empty()) {
-        //printf("Loading external shaders\n");
-        stages = shader_builder.loadExternalShaders(device, ext_shaders);
-    }
-    else
+    if (ext_shaders.empty())
     {
         //printf("Compiling slang shaders\n");
         stages = shader_builder.compileModule(device, compile_params);
+    }
+    else
+    {
+        //printf("Loading external shaders\n");
+        stages = shader_builder.loadExternalShaders(device, ext_shaders);
     }
 
     VkPipelineColorBlendAttachmentState color_blend{

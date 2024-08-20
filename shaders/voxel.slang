@@ -1,7 +1,8 @@
 import uniforms;
 
 import position; // IPosition
-import color; // IColor
+import color;    // IColor
+import size;     // ISize
 
 struct VertexData
 {
@@ -25,10 +26,10 @@ VertexData vertexMain(VertexInput input)
 }
 
 [shader("vertex")]
-VertexData vertexImplicitMain<C:IColor>(float3 pos: POSITION, C in_color: COLOR)
+VertexData vertexImplicitMain<P: IPosition, C : IColor, S : ISize>(float3 in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
 {
     VertexData output;
-    output.center = float4(pos, 1);
+    output.center = float4(in_pos, 1);//in_pos.getPosition(int3(1));
     output.color  = in_color.getColor();
 
     return output;

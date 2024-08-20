@@ -78,6 +78,7 @@ int main(int argc, char **argv){
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Voxels;
     //params.view_type     = ViewType::Image;
+    //params.attributes[AttributeType::Position] = *m1; // Implicit (TODO: nullptr, do it properly)
     params.attributes[AttributeType::Color] = *m1;
     params.options.default_size = 5.f;
     /*params.options.external_shaders = {
