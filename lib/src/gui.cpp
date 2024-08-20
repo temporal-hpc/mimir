@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <ImGuiFileDialog.h>
 #include <fmt/core.h>
+#include <spdlog/spdlog.h>
 
 #include <array> // std::array
 
@@ -120,11 +121,11 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
         bool type_check = ImGui::Combo("View type", (int*)&params.view_type,
             &AllViewTypes::ItemGetter, kAllViewTypes.data(), kAllViewTypes.size()
         );
-        if (type_check) printf("View %d: switched view type to %s\n", uid, getViewType(params.view_type));
+        if (type_check) spdlog::info("View {}: switched view type to {}", uid, getViewType(params.view_type));
         bool dom_check = ImGui::Combo("Domain type", (int*)&params.domain_type,
             &AllDomains::ItemGetter, kAllDomains.data(), kAllDomains.size()
         );
-        if (dom_check) printf("View %d: switched domain type to %s\n", uid, getDomainType(params.domain_type));
+        if (dom_check) spdlog::info("View {}: switched domain type to {}", uid, getDomainType(params.domain_type));
         ImGui::SliderFloat("Element size (px)", &params.options.default_size, 1.f, 100.f);
         ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
         ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);
@@ -132,7 +133,6 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
         int min_instance = 0;
         int max_instance = params.instance_count - 1;
         ImGui::SliderScalar("Instance index", ImGuiDataType_S32, &params.options.instance_index, &min_instance, &max_instance);
-
 
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {

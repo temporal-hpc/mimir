@@ -53,7 +53,7 @@ FetchContent_Declare(spdlog
 )
 
 # Download and generate the targets provided by the above contents
-FetchContent_MakeAvailable(slang glfw glm fmt) # TODO: Add spdlog
+FetchContent_MakeAvailable(slang glfw glm fmt spdlog)
 
 # Imgui Graphical interface lib
 FetchContent_Declare(imgui

@@ -55,19 +55,19 @@ find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
 target_link_libraries(mimir
     PUBLIC
-        Vulkan::Vulkan CUDA::cudart glm::glm glfw fmt imgui-app ImGuiFileDialog
+        Vulkan::Vulkan CUDA::cudart glm::glm glfw imgui-app ImGuiFileDialog
     PRIVATE
-        slang
+        slang fmt::fmt spdlog::spdlog
 )
 
 install(
-    TARGETS              mimir glm glm-header-only glfw slang fmt imgui-app ImGuiFileDialog
-    EXPORT               MimirTargets
-    LIBRARY DESTINATION  lib
-    ARCHIVE DESTINATION  lib
-    RUNTIME DESTINATION  bin
-    INCLUDES DESTINATION include
-    FILE_SET             library_headers
+    TARGETS mimir glm glm-header-only glfw slang fmt spdlog imgui-app ImGuiFileDialog
+    EXPORT  MimirTargets
+    LIBRARY DESTINATION       lib
+    ARCHIVE DESTINATION       lib
+    RUNTIME DESTINATION       bin
+    INCLUDES DESTINATION      include
+    FILE_SET                  library_headers
 )
 
 include(CMakePackageConfigHelpers)
