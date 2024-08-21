@@ -69,6 +69,7 @@ public:
     // Main library function, which setups all the visualization interop
     InteropView *createView(ViewParams params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
+    std::shared_ptr<InteropMemory2> allocateMemory(void **dev_ptr, size_t size);
 
     void loadTexture(InteropMemory *interop, void *data);
     void display(std::function<void(void)> func, size_t iter_count);
@@ -107,7 +108,9 @@ private:
     VkDescriptorPool descriptor_pool        = VK_NULL_HANDLE;
 
     InteropDevice dev;
-    VmaAllocator allocator;
+    VmaAllocator allocator = nullptr;
+    VmaPool interop_pool   = nullptr;
+
     std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
     std::vector<VkCommandBuffer> command_buffers;

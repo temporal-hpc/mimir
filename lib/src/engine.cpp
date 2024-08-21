@@ -231,6 +231,12 @@ void MimirEngine::updateLinearTextures()
     }
 }
 
+std::shared_ptr<InteropMemory2> MimirEngine::allocateMemory(void **dev_ptr, size_t size)
+{
+    InteropMemory2 mem{};
+    return std::make_shared<InteropMemory2>(mem);
+}
+
 InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
 {
     auto mem_handle = new InteropMemory();
@@ -367,18 +373,48 @@ void MimirEngine::initVulkan()
         vkDestroyDevice(dev.logical_device, nullptr);
     });
 
+    // Create VMA handle
+    auto memtypes = dev.physical_device.memory.memoryProperties.memoryTypes;
+    auto memtype_count = dev.physical_device.memory.memoryProperties.memoryTypeCount;
+    std::vector<VkExternalMemoryHandleTypeFlagsKHR> external_memtypes(memtype_count, 0);
+    for (uint32_t i = 0; i < memtype_count; ++i)
+    {
+        auto memtype = memtypes[i];
+        if (memtype.propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        {
+            external_memtypes[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+        }
+    }
+
     VmaAllocatorCreateInfo allocator_info{
-        .flags = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT,
-        .physicalDevice = dev.physical_device.handle,
-        .device = dev.logical_device,
-        .pVulkanFunctions = nullptr,
-        .instance = instance,
-        .vulkanApiVersion = VK_API_VERSION_1_2,
+        .flags                          = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT,
+        .physicalDevice                 = dev.physical_device.handle,
+        .device                         = dev.logical_device,
+        .preferredLargeHeapBlockSize    = 0,
+        .pAllocationCallbacks           = nullptr,
+        .pDeviceMemoryCallbacks         = nullptr,
+        .pHeapSizeLimit                 = nullptr,
+        .pVulkanFunctions               = nullptr,
+        .instance                       = instance,
+        .vulkanApiVersion               = VK_API_VERSION_1_2,
+        .pTypeExternalMemoryHandleTypes = external_memtypes.data(),
     };
     validation::checkVulkan(vmaCreateAllocator(&allocator_info, &allocator));
-    deletors.context.add([=,this](){
-        vmaDestroyAllocator(allocator);
-    });
+    deletors.context.add([=,this](){ vmaDestroyAllocator(allocator); });
+
+    // Create VMA pool for external (interop) memory allocations
+    VmaPoolCreateInfo pool_info{
+        .memoryTypeIndex        = 0, // TODO
+        .flags                  = 0,
+        .blockSize              = 0,
+        .minBlockCount          = 0,
+        .maxBlockCount          = 0,
+        .priority               = 0.f, // Ignored
+        .minAllocationAlignment = 0,
+        .pMemoryAllocateNext    = nullptr,
+    };
+    validation::checkVulkan(vmaCreatePool(allocator, &pool_info, &interop_pool));
+    deletors.context.add([=,this](){ vmaDestroyPool(allocator, interop_pool); });
 
     // Create descriptor pool
     descriptor_pool = dev.createDescriptorPool({
