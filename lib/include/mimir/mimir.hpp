@@ -107,6 +107,7 @@ private:
     VkDescriptorPool descriptor_pool        = VK_NULL_HANDLE;
 
     InteropDevice dev;
+    VmaAllocator allocator;
     std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
     std::vector<VkCommandBuffer> command_buffers;

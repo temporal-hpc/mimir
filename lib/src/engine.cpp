@@ -367,6 +367,19 @@ void MimirEngine::initVulkan()
         vkDestroyDevice(dev.logical_device, nullptr);
     });
 
+    VmaAllocatorCreateInfo allocator_info{
+        .flags = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT,
+        .physicalDevice = dev.physical_device.handle,
+        .device = dev.logical_device,
+        .pVulkanFunctions = nullptr,
+        .instance = instance,
+        .vulkanApiVersion = VK_API_VERSION_1_2,
+    };
+    validation::checkVulkan(vmaCreateAllocator(&allocator_info, &allocator));
+    deletors.context.add([=,this](){
+        vmaDestroyAllocator(allocator);
+    });
+
     // Create descriptor pool
     descriptor_pool = dev.createDescriptorPool({
         { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },

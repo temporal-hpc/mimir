@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vk_mem_alloc.h"
+
 #include <map> // std::map
 #include <string> // std::string
 #include <vector> // std::vector
@@ -35,6 +37,14 @@ struct MemoryParams
     uint channel_count = 1;
     ComponentType component_type;
     ResourceType resource_type;
+};
+
+struct InteropMemory2
+{
+    // VMA object representing the underlying memory
+    VmaAllocation allocation = nullptr;
+    // Allocation memory size in bytes
+    size_t size              = 0;
 };
 
 struct InteropMemory

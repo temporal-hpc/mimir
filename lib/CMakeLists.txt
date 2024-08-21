@@ -17,6 +17,7 @@ target_sources(mimir PRIVATE
     src/vk_properties.cpp
     src/vk_swapchain.cpp
     src/window.cpp
+    src/vma_impl.cpp
 )
 target_sources(mimir PUBLIC
     FILE_SET  library_headers
@@ -56,11 +57,11 @@ target_link_libraries(mimir
     PUBLIC
         Vulkan::Vulkan CUDA::cudart glm::glm glfw imgui-app ImGuiFileDialog
     PRIVATE
-        slang fmt::fmt spdlog::spdlog
+        GPUOpen::VulkanMemoryAllocator slang fmt::fmt spdlog::spdlog
 )
 
 install(
-    TARGETS mimir glm glm-header-only glfw slang fmt spdlog imgui-app ImGuiFileDialog
+    TARGETS mimir glm glm-header-only glfw VulkanMemoryAllocator slang fmt spdlog imgui-app ImGuiFileDialog
     EXPORT  MimirTargets
     LIBRARY DESTINATION       lib
     ARCHIVE DESTINATION       lib
