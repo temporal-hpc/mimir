@@ -3,6 +3,7 @@
 #include "vk_mem_alloc.h"
 
 #include <map> // std::map
+#include <memory> // std::shared_ptr
 #include <string> // std::string
 #include <vector> // std::vector
 
@@ -37,14 +38,6 @@ struct MemoryParams
     uint channel_count = 1;
     ComponentType component_type;
     ResourceType resource_type;
-};
-
-struct InteropMemory2
-{
-    // VMA object representing the underlying memory
-    VmaAllocation allocation = nullptr;
-    // Allocation memory size in bytes
-    size_t size              = 0;
 };
 
 struct InteropMemory
@@ -128,6 +121,88 @@ struct InteropView
     std::vector<VkDeviceSize> buffer_offsets;
     VkBuffer idx_buffer = VK_NULL_HANDLE;
     VkIndexType idx_type;
+
+    // Switches view visibility from visible to invisible and viceversa.
+    // Does not modify view data in any way
+    bool toggleVisibility()
+    {
+        params.options.visible = !params.options.visible;
+        return params.options.visible;
+    }
+};
+
+struct InteropMemory2
+{
+    // Allocation memory size in bytes
+    size_t size                      = 0;
+    // Pointer to CUDA-enabled device memory
+    void *interop_ptr                = nullptr;
+    // Cuda external memory handle, provided by the Cuda interop API
+    cudaExternalMemory_t cuda_extmem = nullptr;
+    // Vulkan external device memory handle
+    VkDeviceMemory memory            = VK_NULL_HANDLE;
+
+    // VMA object representing the underlying memory
+    // VmaAllocation allocation      = nullptr;
+};
+
+struct AttributeParams
+{
+    std::shared_ptr<InteropMemory2> memory = nullptr;
+    ComponentType data_type                = ComponentType::Float;
+    uint component_count                   = 1;
+};
+
+using AttributeDict2 = std::map<AttributeType, AttributeParams>;
+
+struct ViewParams2
+{
+    size_t element_count = 0;
+    int instance_count   = 1;
+    uint3 extent = {1, 1, 1};
+    DataDomain data_domain;
+    DomainType domain_type;
+    ViewType view_type;
+    ViewOptions options;
+    AttributeDict2 attributes;
+};
+
+// Container for all vertex buffer objects associated to
+// a Mimir view object.
+struct VertexBufferData
+{
+    // Number of vertex buffers in the view.
+    // The sizes of the handles and offsets arrays equals this value.
+    size_t count = 0;
+    // Set of vertex buffer objects associated to the view.
+    std::vector<VkBuffer> handles;
+    // Start region or each buffer object in the set.
+    std::vector<VkDeviceSize> offsets;
+};
+
+// If the contained buffer handle is not null, the associated
+// view will bind said handle as an index buffer when drawing.
+struct IndexBufferData
+{
+    // Handle to index buffer object.
+    VkBuffer handle  = VK_NULL_HANDLE;
+    // Specify size of each index datum.
+    VkIndexType type = VK_INDEX_TYPE_UINT32;
+};
+
+struct ViewResources
+{
+    VertexBufferData vert_buffers;
+    IndexBufferData index_buffer;
+};
+
+struct InteropView2
+{
+    // View parameters
+    ViewParams2 params;
+
+    // Rendering pipeline associated to this view
+    VkPipeline pipeline = VK_NULL_HANDLE;
 
     // Switches view visibility from visible to invisible and viceversa.
     // Does not modify view data in any way

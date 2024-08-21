@@ -9,12 +9,15 @@
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include "internal/window.hpp"
+#include "internal/interop.hpp"
 
 #include <dlfcn.h> // dladdr
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
+
+#include <spdlog/spdlog.h>
 
 namespace mimir
 {
@@ -81,6 +84,9 @@ MimirEngine::~MimirEngine()
 
 void MimirEngine::init(ViewerOptions opts)
 {
+    spdlog::set_level(spdlog::level::trace);
+    spdlog::set_pattern("[%H:%M:%S] [%l] %v");
+
     options = opts;
     max_fps = options.present == PresentOptions::VSync? 60 : 300;
     target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
@@ -233,8 +239,66 @@ void MimirEngine::updateLinearTextures()
 
 std::shared_ptr<InteropMemory2> MimirEngine::allocateMemory(void **dev_ptr, size_t size)
 {
-    InteropMemory2 mem{};
-    return std::make_shared<InteropMemory2>(mem);
+    assert(size > 0);
+
+    // Create test buffer for querying the desired memory properties
+    VkBuffer test_buffer = VK_NULL_HANDLE;
+    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    VkExternalMemoryBufferCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    test_buffer = dev.createBuffer(size, usage, &extmem_info);
+    VkMemoryRequirements memreq{};
+    vkGetBufferMemoryRequirements(dev.logical_device, test_buffer, &memreq);
+
+    // Allocate external device memory
+    VkDeviceMemory vk_memory = VK_NULL_HANDLE;
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    vk_memory = dev.allocateMemory(memreq, memflags, &export_info);
+
+    // Export and map the external memory to CUDA
+    auto cuda_extmem = interop::importCudaExternalMemory(
+        vk_memory, memreq.size, dev.logical_device
+    );
+    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
+    validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+        dev_ptr, cuda_extmem, &buffer_desc)
+    );
+
+    // Add deletors to queue for later cleanup
+    deletors.views.add([=,this]{
+        spdlog::trace("Free interop");
+        validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
+        vkFreeMemory(dev.logical_device, vk_memory, nullptr);
+    });
+
+    // Assemble the external memory handle
+    auto mem_handle = std::make_shared<InteropMemory2>(size, *dev_ptr, cuda_extmem, vk_memory);
+
+    // Cleanup: delete test buffer, set cuda device pointer and return
+    vkDestroyBuffer(dev.logical_device, test_buffer, nullptr);
+    *dev_ptr = mem_handle->interop_ptr;
+    return mem_handle;
+}
+
+std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
+{
+    /*dev.initViewBuffer(*view_handle);
+    deletors.views.add([=,this]{
+        vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
+        vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
+    });*/
+
+    auto mem_handle = std::make_shared<InteropView2>(params, VK_NULL_HANDLE);
+    views2.push_back(mem_handle);
+    return mem_handle;
 }
 
 InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)

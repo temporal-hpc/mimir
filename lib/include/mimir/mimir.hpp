@@ -70,6 +70,7 @@ public:
     InteropView *createView(ViewParams params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
     std::shared_ptr<InteropMemory2> allocateMemory(void **dev_ptr, size_t size);
+    std::shared_ptr<InteropView2> createView(ViewParams2 params);
 
     void loadTexture(InteropMemory *interop, void *data);
     void display(std::function<void(void)> func, size_t iter_count);
@@ -141,6 +142,7 @@ private:
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<InteropMemory*> allocations;
     std::vector<InteropView*> views;
+    std::vector<std::shared_ptr<InteropView2>> views2;
     std::unique_ptr<GlfwContext> window_context;
 
     // Deletion queues organized by lifetime

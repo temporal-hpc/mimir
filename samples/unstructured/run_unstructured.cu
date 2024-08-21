@@ -50,7 +50,8 @@ int main(int argc, char *argv[])
     size_t point_count    = 100;
     size_t iter_count     = 10000;
     double2 *d_coords     = nullptr;
-    double *d_sizes        = nullptr;
+    double2 *d_coords2    = nullptr;
+    double *d_sizes       = nullptr;
     curandState *d_states = nullptr;
     int2 extent           = {200, 200};
     unsigned block_size   = 256;
@@ -67,6 +68,8 @@ int main(int argc, char *argv[])
         options.present = PresentOptions::VSync;
         MimirEngine engine;
         engine.init(options);
+
+        auto testmem = engine.allocateMemory((void**)&d_coords2, sizeof(double2) * point_count);
 
         MemoryParams m;
         m.layout          = DataLayout::Layout1D;
@@ -124,6 +127,7 @@ int main(int argc, char *argv[])
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_sizes));
+    checkCuda(cudaFree(d_coords2));
 
     return EXIT_SUCCESS;
 }
