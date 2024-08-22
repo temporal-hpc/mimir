@@ -179,7 +179,7 @@ struct BufferArray
 {
     // Number of vertex buffers in the view.
     // The sizes of the handles and offsets arrays equals this value.
-    size_t count = 0;
+    uint32_t count = 0;
     // Set of vertex buffer objects associated to the view.
     std::vector<VkBuffer> handles;
     // Start region or each buffer object in the set.

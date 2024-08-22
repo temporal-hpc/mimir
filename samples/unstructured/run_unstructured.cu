@@ -50,7 +50,6 @@ int main(int argc, char *argv[])
     size_t point_count    = 100;
     size_t iter_count     = 10000;
     double2 *d_coords     = nullptr;
-    double2 *d_coords2    = nullptr;
     double *d_sizes       = nullptr;
     curandState *d_states = nullptr;
     int2 extent           = {200, 200};
@@ -69,8 +68,31 @@ int main(int argc, char *argv[])
         MimirEngine engine;
         engine.init(options);
 
-        auto testmem = engine.allocateMemory((void**)&d_coords2, sizeof(double2) * point_count);
+        auto points = engine.allocateMemory((void**)&d_coords, sizeof(double2) * point_count);
+        auto sizes = engine.allocateMemory((void**)&d_sizes, sizeof(double) * point_count);
 
+        ViewParams2 params;
+        params.element_count = point_count;
+        params.extent        = {200, 200, 1};
+        params.data_domain   = DataDomain::Domain2D;
+        params.domain_type   = DomainType::Unstructured;
+        params.view_type     = ViewType::Markers;
+        params.options.default_size = 20.f;
+        params.attributes[AttributeType::Position] = {
+            .memory          = points,
+            .data_type       = ComponentType::Double,
+            .component_count = 2,
+            .offset          = 0,
+        };
+        params.attributes[AttributeType::Size] = {
+            .memory          = sizes,
+            .data_type       = ComponentType::Double,
+            .component_count = 1,
+            .offset          = 0,
+        };
+        engine.createView(params);
+
+        /*
         MemoryParams m;
         m.layout          = DataLayout::Layout1D;
         m.element_count.x = point_count;
@@ -90,14 +112,15 @@ int main(int argc, char *argv[])
         params.domain_type   = DomainType::Unstructured;
         params.view_type     = ViewType::Markers;
         params.options.default_size = 20.f;
-        /*params.options.external_shaders = {
-            {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-            {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
-            {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-        };*/
+        // params.options.external_shaders = {
+        //     {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
+        //     {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
+        //     {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
+        // };
         params.attributes[AttributeType::Position] = *points;
         params.attributes[AttributeType::Size] = *sizes;
         engine.createView(params);
+        */
 
         // Cannot make CUDA calls that use the target device memory before
         // registering it on the engine
@@ -128,7 +151,6 @@ int main(int argc, char *argv[])
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_sizes));
-    checkCuda(cudaFree(d_coords2));
 
     return EXIT_SUCCESS;
 }

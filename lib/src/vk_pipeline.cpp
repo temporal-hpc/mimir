@@ -258,6 +258,106 @@ VertexDescription getVertexDescription(const ViewParams params)
     return desc;
 }
 
+ShaderCompileParams getShaderCompileParams(ViewParams2 params)
+{
+    ShaderCompileParams compile;
+    compile.specializations = params.options.specializations;
+
+    // Make a dictionary of the attributes that need specializing,
+    // while keeping note of the ones that were not specialized
+
+    std::map<AttributeType, std::string> specs{
+        {AttributeType::Position, "PositionDefault"},
+        {AttributeType::Color, "ColorDefault"},
+        {AttributeType::Size, "SizeDefault"}
+    };
+    if (params.view_type == ViewType::Voxels) specs[AttributeType::Position] = "PositionFloat3"; // TODO: Remove
+
+    for (const auto &[type, attr] : params.attributes)
+    {
+        std::string spec = getAttributeType(type);
+        spec += getComponentType(attr.data_type);
+        spec += std::to_string(attr.component_count);
+        specs[type] = spec;
+    }
+    // Get the list of specialization names
+    for (const auto& spec : specs)
+    {
+        //printf("%s\n", spec.second.c_str());
+        compile.specializations.push_back(spec.second);
+    }
+
+    // Select source code file and entry points for the view shader
+    switch (params.view_type)
+    {
+        case ViewType::Markers:
+        {
+            compile.module_path = "shaders/marker.slang";
+            compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+
+            // Add dimensionality specialization
+            std::string marker_spec = "Marker";
+            marker_spec += getDataDomain(params.data_domain);
+            compile.specializations.push_back(marker_spec);
+
+            // Add shape specialization (TODO: Do it properly)
+            compile.specializations.push_back("DiscShape");
+            break;
+        }
+        case ViewType::Edges:
+        {
+            compile.module_path = "shaders/mesh.slang";
+            compile.entrypoints = {"vertexMain", "fragmentMain"};
+            // Variant for pbc delaunay edges
+            //compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+            break;
+        }
+        case ViewType::Voxels:
+        {
+            compile.module_path = "shaders/voxel.slang";
+            std::string geom_entry = "geometryMain";
+            geom_entry += getDataDomain(params.data_domain);
+            compile.entrypoints = {"vertexImplicitMain", geom_entry, "fragmentMain"};
+            break;
+        }
+        case ViewType::Image:
+        {
+            compile.module_path = "shaders/texture.slang";
+            // The texture shader needs a specialization for the way to interpret its content
+            // as a fragment. If no specialization is set, use the RawColor spec.
+            compile.specializations.clear(); // TODO: DIR
+            if (compile.specializations.empty())
+            {
+                compile.specializations.push_back("RawColor");
+            }
+
+            std::string vert_entry = "vertex";
+            std::string frag_entry = "frag";
+            if (params.data_domain == DataDomain::Domain2D)
+            {
+                vert_entry += "2dMain";
+                frag_entry += "2d_";
+            }
+            else if (params.data_domain == DataDomain::Domain3D)
+            {
+                vert_entry += "3dMain";
+                frag_entry += "3d_";
+            }
+            auto color_attr = params.attributes[AttributeType::Color];
+            frag_entry += getComponentType(color_attr.data_type);
+            frag_entry += std::to_string(color_attr.component_count);
+
+            compile.entrypoints = { vert_entry, frag_entry };
+            break;
+        }
+        default:
+        {
+            printf("Unimplemented shader generation for view type %s\n", getViewType(params.view_type));
+        }
+    }
+    return compile;
+}
+
 uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
 {
     auto compile_params = getShaderCompileParams(params);
@@ -403,6 +503,78 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     }
     pipeline_infos.clear();
     return pipelines;
+}
+
+VertexDescription getVertexDescription(const ViewParams2 params)
+{
+    VertexDescription desc;
+    uint32_t binding = 0;
+    for (const auto &[type, attr] : params.attributes)
+    {
+        uint32_t location = static_cast<uint32_t>(type);
+        auto stride = getBytesize(attr.data_type, attr.component_count);
+        auto format = getDataFormat(attr.data_type, attr.component_count);
+        desc.binding.push_back(vertexBinding(binding, stride, VK_VERTEX_INPUT_RATE_VERTEX));
+        desc.attribute.push_back(vertexAttribute(location, binding, format, 0));
+        binding++;
+    }
+    return desc;
+}
+
+uint32_t PipelineBuilder::addPipeline(const ViewParams2 params, VkDevice device)
+{
+    auto compile_params = getShaderCompileParams(params);
+    auto ext_shaders = params.options.external_shaders;
+
+    std::vector<VkPipelineShaderStageCreateInfo> stages;
+    if (ext_shaders.empty())
+    {
+        //printf("Compiling slang shaders\n");
+        stages = shader_builder.compileModule(device, compile_params);
+    }
+    else
+    {
+        //printf("Loading external shaders\n");
+        stages = shader_builder.loadExternalShaders(device, ext_shaders);
+    }
+
+    VkPipelineColorBlendAttachmentState color_blend{
+        .blendEnable         = VK_FALSE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .colorBlendOp        = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp        = VK_BLEND_OP_ADD,
+        .colorWriteMask      =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+
+    VkPipelineMultisampleStateCreateInfo multisampling{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .pNext                 = nullptr,
+        .flags                 = 0, // Currently unused
+        .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable   = VK_FALSE,
+        .minSampleShading      = 1.f,
+        .pSampleMask           = nullptr,
+        .alphaToCoverageEnable = VK_FALSE,
+        .alphaToOneEnable      = VK_FALSE,
+    };
+
+    PipelineInfo info{
+        .shader_stages          = stages,
+        .vertex_input_info      = getVertexDescription(params),
+        .input_assembly         = getAssemblyInfo(params.view_type),
+        .rasterizer             = getRasterizationInfo(params.view_type),
+        .depth_stencil          = getDepthInfo(),
+        .color_blend_attachment = color_blend,
+        .multisampling          = multisampling,
+    };
+
+    pipeline_infos.push_back(info);
+    return pipeline_infos.size() - 1;
 }
 
 } // namespace mimir

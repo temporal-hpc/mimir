@@ -141,7 +141,7 @@ private:
 
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<InteropMemory*> allocations;
-    std::vector<InteropView*> views;
+    //std::vector<InteropView*> views;
     std::vector<std::shared_ptr<InteropView2>> views2;
     std::unique_ptr<GlfwContext> window_context;
 

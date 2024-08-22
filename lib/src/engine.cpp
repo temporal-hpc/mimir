@@ -221,7 +221,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
 
 void MimirEngine::updateLinearTextures()
 {
-    for (auto& view : views)
+    /*for (auto& view : views)
     {
         // TODO: Reimplement this ugly loop
         if (view->params.view_type == ViewType::Image)
@@ -234,7 +234,7 @@ void MimirEngine::updateLinearTextures()
                 }
             }
         }
-    }
+    }*/
 }
 
 std::shared_ptr<InteropMemory2> MimirEngine::allocateMemory(void **dev_ptr, size_t size)
@@ -274,7 +274,7 @@ std::shared_ptr<InteropMemory2> MimirEngine::allocateMemory(void **dev_ptr, size
 
     // Add deletors to queue for later cleanup
     deletors.views.add([=,this]{
-        spdlog::trace("Free interop");
+        spdlog::trace("Free interop memory");
         validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
         vkFreeMemory(dev.logical_device, vk_memory, nullptr);
     });
@@ -290,7 +290,10 @@ std::shared_ptr<InteropMemory2> MimirEngine::allocateMemory(void **dev_ptr, size
 
 std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
 {
+    // TODO: Create view resources in its own function
     ViewResources res;
+    res.vbo.handles.reserve(params.attributes.size());
+    res.vbo.offsets.reserve(params.attributes.size());
     for (const auto &[type, attr] : params.attributes)
     {
         // Get buffer size
@@ -318,6 +321,7 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
         // Register buffer info in attribute array
         res.vbo.handles.push_back(attr_buffer);
         res.vbo.offsets.push_back(attr.offset);
+        res.vbo.count++;
     }
 
     // TODO: Add index buffer support (should not be an attribute)
@@ -409,8 +413,9 @@ InteropView *MimirEngine::createView(ViewParams params)
         });
     }
 
-    views.push_back(view_handle);
-    return views.back();
+    //views.push_back(view_handle);
+    //return views.back();
+    return nullptr;
 }
 
 void MimirEngine::loadTexture(InteropMemory *interop, void *data)
@@ -900,7 +905,7 @@ void MimirEngine::updateDescriptorSets()
         write_buf.dstBinding  = 2;
         write_buf.pBufferInfo = &view_info;
         updates.push_back(write_buf);
-
+/*
         for (const auto& view : views)
         {
             for (const auto &[attr, memory] : view->params.attributes)
@@ -939,7 +944,7 @@ void MimirEngine::updateDescriptorSets()
                     updates.push_back(write_img);
                 }
             }
-        }
+        }*/
         vkUpdateDescriptorSets(dev.logical_device, updates.size(), updates.data(), 0, nullptr);
     }
 }
@@ -1132,9 +1137,9 @@ void MimirEngine::drawElements(uint32_t image_idx)
     auto size_ubo = size_mvp + size_view + size_scene;
 
     auto cmd = command_buffers[image_idx];
-    for (uint32_t i = 0; i < views.size(); ++i)
+    for (uint32_t i = 0; i < views2.size(); ++i)
     {
-        auto& view = views[i];
+        auto& view = views2[i];
         if (!view->params.options.visible) continue;
         std::vector<uint32_t> offsets = {
             i * size_ubo,
@@ -1147,9 +1152,11 @@ void MimirEngine::drawElements(uint32_t image_idx)
         );
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
 
-        vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
-            view->vert_buffers.data(), view->buffer_offsets.data()
-        );
+        // vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
+        //     view->vert_buffers.data(), view->buffer_offsets.data()
+        // );
+        auto& vbo = view->resources.vbo;
+        vkCmdBindVertexBuffers(cmd, 0, vbo.count, vbo.handles.data(), vbo.offsets.data());
 
         switch (view->params.view_type)
         {
@@ -1162,18 +1169,18 @@ void MimirEngine::drawElements(uint32_t image_idx)
                 vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, 0);
                 break;
             }
-            case ViewType::Edges:
-            {
-                vkCmdBindIndexBuffer(cmd, view->idx_buffer, 0, view->idx_type);
-                vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
-                break;
-            }
-            case ViewType::Image:
-            {
-                vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
-                vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-                break;
-            }
+            // case ViewType::Edges:
+            // {
+            //     vkCmdBindIndexBuffer(cmd, view->idx_buffer, 0, view->idx_type);
+            //     vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
+            //     break;
+            // }
+            // case ViewType::Image:
+            // {
+            //     vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
+            //     vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+            //     break;
+            // }
             default: break;
         }
     }
@@ -1285,9 +1292,24 @@ void MimirEngine::createGraphicsPipelines()
 
     PipelineBuilder builder(pipeline_layout, swap->extent);
 
+    for (auto& view : views2)
+    {
+        builder.addPipeline(view->params, dev.logical_device);
+    }
+    auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
+    //printf("%lu pipeline(s) created\n", pipelines.size());
+    for (size_t i = 0; i < pipelines.size(); ++i)
+    {
+        views2[i]->pipeline = pipelines[i];
+        deletors.swapchain.add([=,this]{
+            vkDestroyPipeline(dev.logical_device, views2[i]->pipeline, nullptr);
+        });
+    }
+
+
     // Iterate through views, generating the corresponding pipelines
     // TODO: This does not allow adding views at runtime
-    for (auto& view : views)
+    /*for (auto& view : views)
     {
         builder.addPipeline(view->params, dev.logical_device);
     }
@@ -1299,7 +1321,7 @@ void MimirEngine::createGraphicsPipelines()
         deletors.swapchain.add([=,this]{
             vkDestroyPipeline(dev.logical_device, views[i]->pipeline, nullptr);
         });
-    }
+    }*/
 
     // Restore original working directory
     std::filesystem::current_path(orig_path);
@@ -1329,7 +1351,7 @@ void MimirEngine::initUniformBuffers()
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
-    auto size_ubo = (size_mvp + size_view + size_scene) * views.size();
+    auto size_ubo = (size_mvp + size_view + size_scene) * views2.size();
 
     uniform_buffers.resize(swap->image_count);
     for (auto& ubo : uniform_buffers)
@@ -1357,9 +1379,9 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
     auto size_ubo = size_mvp + size_view + size_scene;
     auto memory = uniform_buffers[image_idx].memory;
 
-    for (size_t view_idx = 0; view_idx < views.size(); ++view_idx)
+    for (size_t view_idx = 0; view_idx < views2.size(); ++view_idx)
     {
-        auto& view = views[view_idx];
+        auto& view = views2[view_idx];
 
         ModelViewProjection mvp{
             .model = glm::mat4(1.f),
@@ -1436,9 +1458,9 @@ void MimirEngine::displayEngineGUI()
     }
     if (!options.enable_fps_limit) ImGui::EndDisabled();
 
-    for (size_t i = 0; i < views.size(); ++i)
+    for (size_t i = 0; i < views2.size(); ++i)
     {
-        addViewObjectGui(views[i], i);
+        addViewObjectGui(views2[i], i);
     }
     ImGui::End();
 }

@@ -169,4 +169,65 @@ void addViewObjectGui(InteropView *view_ptr, int uid)
     ImGui::PopID();
 }
 
+
+void addViewObjectGui(std::shared_ptr<InteropView2> view_ptr, int uid)
+{
+    ImGui::PushID(view_ptr.get());
+    auto& params = view_ptr->params;
+    //bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
+    bool node_open = ImGui::CollapsingHeader("", ImGuiTreeNodeFlags_AllowItemOverlap);
+    ImGui::SameLine(); ImGui::Text("%s #%u", "View", uid);
+    ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &params.options.visible);
+    if (node_open)
+    {
+        bool type_check = ImGui::Combo("View type", (int*)&params.view_type,
+            &AllViewTypes::ItemGetter, kAllViewTypes.data(), kAllViewTypes.size()
+        );
+        if (type_check) spdlog::info("View {}: switched view type to {}", uid, getViewType(params.view_type));
+        bool dom_check = ImGui::Combo("Domain type", (int*)&params.domain_type,
+            &AllDomains::ItemGetter, kAllDomains.data(), kAllDomains.size()
+        );
+        if (dom_check) spdlog::info("View {}: switched domain type to {}", uid, getDomainType(params.domain_type));
+        ImGui::SliderFloat("Element size (px)", &params.options.default_size, 1.f, 100.f);
+        ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
+        ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);
+
+        int min_instance = 0;
+        int max_instance = params.instance_count - 1;
+        ImGui::SliderScalar("Instance index", ImGuiDataType_S32, &params.options.instance_index, &min_instance, &max_instance);
+
+        if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+        {
+            addTableRow("Data domain", getDataDomain(params.data_domain));
+            addTableRow("Data extent", getExtent(params.extent, params.data_domain));
+            ImGui::EndTable();
+        }
+        for (const auto &[type, attr] : params.attributes)
+        {
+            if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+            {
+                //addTableRow("Element count", std::to_string(info.element_count));
+                addTableRow("Attribute type", getAttributeType(type));
+                //addTableRow("Resource type", getResourceType(info.resource_type));
+                addTableRow("Data type", getComponentType(attr.data_type));
+                addTableRow("Channel count", std::to_string(attr.component_count));
+                //addTableRow("Data layout", getDataLayout(attr.layout));
+
+                /*bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
+                    &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
+                );
+                if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
+                bool data_check = addTableRowCombo("Data type", (int*)&info.component_type,
+                    &AllComponentTypes::ItemGetter, kAllComponentTypes.data(), kAllComponentTypes.size()
+                );
+                if (data_check) printf("View %d: switched data type to %s\n", uid, getComponentType(info.component_type));*/
+
+                ImGui::EndTable();
+            }
+        }
+        //ImGui::TreePop();
+    }
+    ImGui::PopID();
+}
+
 } // namespace mimir
