@@ -290,13 +290,46 @@ std::shared_ptr<InteropMemory2> MimirEngine::allocateMemory(void **dev_ptr, size
 
 std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
 {
-    /*dev.initViewBuffer(*view_handle);
-    deletors.views.add([=,this]{
-        vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
-        vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
-    });*/
+    ViewResources res;
+    for (const auto &[type, attr] : params.attributes)
+    {
+        // Get buffer size
+        auto element_size = getBytesize(attr.data_type, attr.component_count);
+        VkDeviceSize memsize = element_size * params.element_count;
+        // Input validation
+        assert(memsize <= attr.memory->size);
+        assert((params.element_count + attr.offset) * element_size < attr.memory->size);
 
-    auto mem_handle = std::make_shared<InteropView2>(params, VK_NULL_HANDLE);
+        // Get buffer usage requirements
+        auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        VkExternalMemoryBufferCreateInfo extmem_info{
+            .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+            .pNext       = nullptr,
+            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+        };
+
+        // Create and bind buffer
+        VkBuffer attr_buffer = dev.createBuffer(memsize, usage, &extmem_info);
+        deletors.views.add([=,this]{
+            vkDestroyBuffer(dev.logical_device, attr_buffer, nullptr);
+        });
+        vkBindBufferMemory(dev.logical_device, attr_buffer, attr.memory->vk_mem, 0);
+
+        // Register buffer info in attribute array
+        res.vert_buffers.handles.push_back(attr_buffer);
+        res.vert_buffers.offsets.push_back(attr.offset);
+    }
+
+    // TODO: Add index buffer support (should not be an attribute)
+    /*if (attr == AttributeType::Index)
+    {
+        res.index_buffer.handle = data_buffer;
+        res.index_buffer.type   = VK_INDEX_TYPE_UINT32; //getIndexType(memory.params.component_type);
+    }*/
+
+    // TODO: Add uniform buffer support
+
+    auto mem_handle = std::make_shared<InteropView2>(params, res, VK_NULL_HANDLE);
     views2.push_back(mem_handle);
     return mem_handle;
 }

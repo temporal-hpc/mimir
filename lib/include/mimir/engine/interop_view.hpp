@@ -140,7 +140,7 @@ struct InteropMemory2
     // Cuda external memory handle, provided by the Cuda interop API
     cudaExternalMemory_t cuda_extmem = nullptr;
     // Vulkan external device memory handle
-    VkDeviceMemory memory            = VK_NULL_HANDLE;
+    VkDeviceMemory vk_mem            = VK_NULL_HANDLE;
 
     // VMA object representing the underlying memory
     // VmaAllocation allocation      = nullptr;
@@ -148,9 +148,14 @@ struct InteropMemory2
 
 struct AttributeParams
 {
+    // Interop memory handle
     std::shared_ptr<InteropMemory2> memory = nullptr;
+    // Type of variables stored per element
     ComponentType data_type                = ComponentType::Float;
+    // Number of data_type components per datum
     uint component_count                   = 1;
+    // Offset to start of memory handle
+    VkDeviceSize offset                    = 0;
 };
 
 using AttributeDict2 = std::map<AttributeType, AttributeParams>;
@@ -194,6 +199,7 @@ struct ViewResources
 {
     VertexBufferData vert_buffers;
     IndexBufferData index_buffer;
+    // TODO: Add uniform buffer data
 };
 
 struct InteropView2
@@ -201,6 +207,8 @@ struct InteropView2
     // View parameters
     ViewParams2 params;
 
+    // Graphics resources
+    ViewResources resources;
     // Rendering pipeline associated to this view
     VkPipeline pipeline = VK_NULL_HANDLE;
 

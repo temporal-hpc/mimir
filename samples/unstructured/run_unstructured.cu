@@ -103,6 +103,7 @@ int main(int argc, char *argv[])
         // registering it on the engine
         //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
         checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
+        // engine.allocateMemory((void**)&d_states, sizeof(curandState) * point_count);
         initSystem<<<grid_size, block_size>>>(
             d_coords, d_sizes, point_count, d_states, extent, seed
         );
