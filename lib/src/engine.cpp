@@ -316,16 +316,17 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
         vkBindBufferMemory(dev.logical_device, attr_buffer, attr.memory->vk_mem, 0);
 
         // Register buffer info in attribute array
-        res.vert_buffers.handles.push_back(attr_buffer);
-        res.vert_buffers.offsets.push_back(attr.offset);
+        res.vbo.handles.push_back(attr_buffer);
+        res.vbo.offsets.push_back(attr.offset);
     }
 
     // TODO: Add index buffer support (should not be an attribute)
-    /*if (attr == AttributeType::Index)
+    if (params.indexing.memory != nullptr)
     {
-        res.index_buffer.handle = data_buffer;
-        res.index_buffer.type   = VK_INDEX_TYPE_UINT32; //getIndexType(memory.params.component_type);
-    }*/
+        VkBuffer data_buffer = VK_NULL_HANDLE;
+        res.ibo.handle = data_buffer;
+        res.ibo.type   = VK_INDEX_TYPE_UINT32; //getIndexType(memory.params.component_type);
+    }
 
     // TODO: Add uniform buffer support
 
@@ -482,7 +483,7 @@ void MimirEngine::initVulkan()
             external_memtypes[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
         }
     }
-
+/*
     VmaAllocatorCreateInfo allocator_info{
         .flags                          = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT,
         .physicalDevice                 = dev.physical_device.handle,
@@ -512,7 +513,7 @@ void MimirEngine::initVulkan()
     };
     validation::checkVulkan(vmaCreatePool(allocator, &pool_info, &interop_pool));
     deletors.context.add([=,this](){ vmaDestroyPool(allocator, interop_pool); });
-
+*/
     // Create descriptor pool
     descriptor_pool = dev.createDescriptorPool({
         { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
@@ -1349,7 +1350,7 @@ void MimirEngine::initUniformBuffers()
 // Update uniform buffers for view at index [view_idx] for frame [image_idx]
 void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 {
-    auto min_alignment = dev.physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = dev.physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);

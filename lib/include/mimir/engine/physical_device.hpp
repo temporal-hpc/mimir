@@ -51,6 +51,10 @@ struct PhysicalDevice
     uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties);
     VkFormatProperties getFormatProperties(VkFormat format);
     DeviceMemoryStats getMemoryStats();
+    VkDeviceSize getUboOffsetAlignment()
+    {
+        return general.properties.limits.minUniformBufferOffsetAlignment;
+    };
 };
 
 std::vector<PhysicalDevice> getDevices(VkInstance instance);

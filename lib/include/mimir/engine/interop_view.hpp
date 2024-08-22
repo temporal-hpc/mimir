@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vk_mem_alloc.h"
+//#include "vk_mem_alloc.h"
 
 #include <map> // std::map
 #include <memory> // std::shared_ptr
@@ -170,11 +170,12 @@ struct ViewParams2
     ViewType view_type;
     ViewOptions options;
     AttributeDict2 attributes;
+    AttributeParams indexing;
 };
 
 // Container for all vertex buffer objects associated to
 // a Mimir view object.
-struct VertexBufferData
+struct BufferArray
 {
     // Number of vertex buffers in the view.
     // The sizes of the handles and offsets arrays equals this value.
@@ -187,7 +188,7 @@ struct VertexBufferData
 
 // If the contained buffer handle is not null, the associated
 // view will bind said handle as an index buffer when drawing.
-struct IndexBufferData
+struct IndexBuffer
 {
     // Handle to index buffer object.
     VkBuffer handle  = VK_NULL_HANDLE;
@@ -197,9 +198,9 @@ struct IndexBufferData
 
 struct ViewResources
 {
-    VertexBufferData vert_buffers;
-    IndexBufferData index_buffer;
-    // TODO: Add uniform buffer data
+    BufferArray vbo;
+    IndexBuffer ibo;
+    BufferArray ubo;
 };
 
 struct InteropView2
