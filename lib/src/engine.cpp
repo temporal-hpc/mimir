@@ -297,11 +297,11 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
     for (const auto &[type, attr] : params.attributes)
     {
         // Get buffer size
-        auto element_size = getBytesize(attr.data_type, attr.component_count);
+        auto element_size = getBytesize(attr.format);
         VkDeviceSize memsize = element_size * params.element_count;
         // Input validation
         assert(memsize <= attr.memory->size);
-        assert((params.element_count + attr.offset) * element_size < attr.memory->size);
+        assert(element_size * (params.element_count + attr.offset) <= attr.memory->size);
 
         // Get buffer usage requirements
         auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;

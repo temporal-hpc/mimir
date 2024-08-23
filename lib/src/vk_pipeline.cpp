@@ -9,6 +9,72 @@
 namespace mimir
 {
 
+// Converts an interop memory data type to its Vulkan format equivalent
+constexpr VkFormat getVulkanFormat(DataFormat format)
+{
+    switch (format.type)
+    {
+        case DataType::float32: switch (format.components)
+        {
+            case 1: return VK_FORMAT_R32_SFLOAT;
+            case 2: return VK_FORMAT_R32G32_SFLOAT;
+            case 3: return VK_FORMAT_R32G32B32_SFLOAT;
+            case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::float64: switch (format.components)
+        {
+            case 1: return VK_FORMAT_R64_SFLOAT;
+            case 2: return VK_FORMAT_R64G64_SFLOAT;
+            case 3: return VK_FORMAT_R64G64B64_SFLOAT;
+            case 4: return VK_FORMAT_R64G64B64A64_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::float16: switch (format.components)
+        {
+            case 1: return VK_FORMAT_R16_SFLOAT;
+            case 2: return VK_FORMAT_R16G16_SFLOAT;
+            case 3: return VK_FORMAT_R16G16B16_SFLOAT;
+            case 4: return VK_FORMAT_R16G16B16A16_SFLOAT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::int32: switch (format.components)
+        {
+            case 1: return format.is_signed? VK_FORMAT_R32_SINT : VK_FORMAT_R32_UINT;
+            case 2: return format.is_signed? VK_FORMAT_R32G32_SINT : VK_FORMAT_R32G32_UINT;
+            case 3: return format.is_signed? VK_FORMAT_R32G32B32_SINT : VK_FORMAT_R32G32B32_UINT;
+            case 4: return format.is_signed? VK_FORMAT_R32G32B32A32_SINT : VK_FORMAT_R32G32B32A32_UINT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::int64: switch (format.components)
+        {
+            case 1: return format.is_signed? VK_FORMAT_R64_SINT : VK_FORMAT_R64_UINT;
+            case 2: return format.is_signed? VK_FORMAT_R64G64_SINT : VK_FORMAT_R64G64_UINT;
+            case 3: return format.is_signed? VK_FORMAT_R64G64B64_SINT : VK_FORMAT_R64G64B64_UINT;
+            case 4: return format.is_signed? VK_FORMAT_R64G64B64A64_SINT : VK_FORMAT_R64G64B64A64_UINT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::int8: switch (format.components)
+        {
+            case 1: return format.is_signed? VK_FORMAT_R8_SINT : VK_FORMAT_R8_UINT;
+            case 2: return format.is_signed? VK_FORMAT_R8G8_SINT : VK_FORMAT_R8G8_UINT;
+            case 3: return format.is_signed? VK_FORMAT_R8G8B8_SINT : VK_FORMAT_R8G8B8_UINT;
+            case 4: return format.is_signed? VK_FORMAT_R8G8B8A8_SINT : VK_FORMAT_R8G8B8A8_UINT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case DataType::int16: switch (format.components)
+        {
+            case 1: return format.is_signed? VK_FORMAT_R16_SINT : VK_FORMAT_R16_UINT;
+            case 2: return format.is_signed? VK_FORMAT_R16G16_SINT : VK_FORMAT_R16G16_UINT;
+            case 3: return format.is_signed? VK_FORMAT_R16G16B16_SINT : VK_FORMAT_R16G16B16_UINT;
+            case 4: return format.is_signed? VK_FORMAT_R16G16B16A16_SINT : VK_FORMAT_R16G16B16A16_UINT;
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        default: return VK_FORMAT_UNDEFINED;
+    }
+}
+
+
 VkVertexInputBindingDescription vertexBinding(
     uint32_t binding, uint32_t stride, VkVertexInputRate rate)
 {
@@ -276,8 +342,8 @@ ShaderCompileParams getShaderCompileParams(ViewParams2 params)
     for (const auto &[type, attr] : params.attributes)
     {
         std::string spec = getAttributeType(type);
-        spec += getComponentType(attr.data_type);
-        spec += std::to_string(attr.component_count);
+        spec += getDataType(attr.format.type);
+        spec += std::to_string(attr.format.components);
         specs[type] = spec;
     }
     // Get the list of specialization names
@@ -344,8 +410,8 @@ ShaderCompileParams getShaderCompileParams(ViewParams2 params)
                 frag_entry += "3d_";
             }
             auto color_attr = params.attributes[AttributeType::Color];
-            frag_entry += getComponentType(color_attr.data_type);
-            frag_entry += std::to_string(color_attr.component_count);
+            frag_entry += getDataType(color_attr.format.type);
+            frag_entry += std::to_string(color_attr.format.components);
 
             compile.entrypoints = { vert_entry, frag_entry };
             break;
@@ -512,10 +578,10 @@ VertexDescription getVertexDescription(const ViewParams2 params)
     for (const auto &[type, attr] : params.attributes)
     {
         uint32_t location = static_cast<uint32_t>(type);
-        auto stride = getBytesize(attr.data_type, attr.component_count);
-        auto format = getDataFormat(attr.data_type, attr.component_count);
+        auto stride = getBytesize(attr.format);
+        auto vk_format = getVulkanFormat(attr.format);
         desc.binding.push_back(vertexBinding(binding, stride, VK_VERTEX_INPUT_RATE_VERTEX));
-        desc.attribute.push_back(vertexAttribute(location, binding, format, 0));
+        desc.attribute.push_back(vertexAttribute(location, binding, vk_format, 0));
         binding++;
     }
     return desc;

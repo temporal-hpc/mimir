@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
         engine.init(options);
 
         auto points = engine.allocateMemory((void**)&d_coords, sizeof(double2) * point_count);
-        auto sizes = engine.allocateMemory((void**)&d_sizes, sizeof(double) * point_count);
+        auto sizes  = engine.allocateMemory((void**)&d_sizes, sizeof(double) * point_count);
 
         ViewParams2 params;
         params.element_count = point_count;
@@ -79,16 +79,12 @@ int main(int argc, char *argv[])
         params.view_type     = ViewType::Markers;
         params.options.default_size = 20.f;
         params.attributes[AttributeType::Position] = {
-            .memory          = points,
-            .data_type       = ComponentType::Double,
-            .component_count = 2,
-            .offset          = 0,
+            .memory = points,
+            .format = { .type = DataType::float64, .components = 2 },
         };
         params.attributes[AttributeType::Size] = {
-            .memory          = sizes,
-            .data_type       = ComponentType::Double,
-            .component_count = 1,
-            .offset          = 0,
+            .memory = sizes,
+            .format = { .type = DataType::float64, .components = 1 },
         };
         engine.createView(params);
 

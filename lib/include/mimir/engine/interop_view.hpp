@@ -151,11 +151,9 @@ struct AttributeParams
     // Interop memory handle
     std::shared_ptr<InteropMemory2> memory = nullptr;
     // Type of variables stored per element
-    ComponentType data_type                = ComponentType::Float;
-    // Number of data_type components per datum
-    uint component_count                   = 1;
+    DataFormat format;
     // Offset to start of memory handle
-    VkDeviceSize offset                    = 0;
+    VkDeviceSize offset = 0;
 };
 
 using AttributeDict2 = std::map<AttributeType, AttributeParams>;
