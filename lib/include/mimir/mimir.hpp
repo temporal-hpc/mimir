@@ -70,6 +70,10 @@ public:
     InteropView *createView(ViewParams params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
     std::shared_ptr<InteropMemory2> allocateMemory(void **dev_ptr, size_t size);
+    std::shared_ptr<ImageMemory> allocateTexture(cudaTextureObject_t *tex_obj, const cudaResourceDesc *res_desc,
+        const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc
+    );
+    std::shared_ptr<ImageMemory> allocateSurface(cudaSurfaceObject_t *surf_obj, const cudaResourceDesc *res_desc);
     std::shared_ptr<InteropView2> createView(ViewParams2 params);
 
     void loadTexture(InteropMemory *interop, void *data);

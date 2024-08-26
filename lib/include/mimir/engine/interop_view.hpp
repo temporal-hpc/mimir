@@ -146,6 +146,13 @@ struct InteropMemory2
     // VmaAllocation allocation      = nullptr;
 };
 
+struct ImageMemory
+{
+    cudaExternalMemory_t cuda_extmem = nullptr;
+    // Vulkan external device memory handle
+    VkDeviceMemory vk_mem            = VK_NULL_HANDLE;
+};
+
 struct AttributeParams
 {
     // Interop memory handle
@@ -164,15 +171,13 @@ struct ViewParams2
     int instance_count   = 1;
     uint3 extent = {1, 1, 1};
     DataDomain data_domain;
-    DomainType domain_type;
     ViewType view_type;
     ViewOptions options;
     AttributeDict2 attributes;
     AttributeParams indexing;
 };
 
-// Container for all vertex buffer objects associated to
-// a Mimir view object.
+// Container for all vertex buffer objects associated to a Mimir view object.
 struct BufferArray
 {
     // Number of vertex buffers in the view.
@@ -206,13 +211,13 @@ struct InteropView2
     // View parameters
     ViewParams2 params;
 
-    // Graphics resources
+    // Container for Vulkan graphics resources.
     ViewResources resources;
-    // Rendering pipeline associated to this view
+    // Rendering pipeline associated to this view.
     VkPipeline pipeline = VK_NULL_HANDLE;
 
     // Switches view visibility from visible to invisible and viceversa.
-    // Does not modify view data in any way
+    // Does not write or modify underlying data.
     bool toggleVisibility()
     {
         params.options.visible = !params.options.visible;

@@ -76,7 +76,6 @@ int main(int argc, char *argv[])
     ViewParams2 params;
     params.element_count = point_count;
     params.data_domain   = DataDomain::Domain3D;
-    params.domain_type   = DomainType::Unstructured;
     params.view_type     = ViewType::Markers;
     params.options.default_size = 20.f;
     params.attributes[AttributeType::Position] = {

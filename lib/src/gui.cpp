@@ -184,10 +184,6 @@ void addViewObjectGui(std::shared_ptr<InteropView2> view_ptr, int uid)
             &AllViewTypes::ItemGetter, kAllViewTypes.data(), kAllViewTypes.size()
         );
         if (type_check) spdlog::info("View {}: switched view type to {}", uid, getViewType(params.view_type));
-        bool dom_check = ImGui::Combo("Domain type", (int*)&params.domain_type,
-            &AllDomains::ItemGetter, kAllDomains.data(), kAllDomains.size()
-        );
-        if (dom_check) spdlog::info("View {}: switched domain type to {}", uid, getDomainType(params.domain_type));
         ImGui::SliderFloat("Element size (px)", &params.options.default_size, 1.f, 100.f);
         ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
         ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);

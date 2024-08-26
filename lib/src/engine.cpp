@@ -1159,7 +1159,10 @@ void MimirEngine::drawElements(uint32_t image_idx)
     for (uint32_t i = 0; i < views2.size(); ++i)
     {
         auto& view = views2[i];
+        // Do not draw anything if view visibility is turned off
         if (!view->params.options.visible) continue;
+
+        // Bind descriptor set and pipeline
         std::vector<uint32_t> offsets = {
             i * size_ubo,
             i * size_ubo + size_mvp + size_view,
@@ -1171,38 +1174,29 @@ void MimirEngine::drawElements(uint32_t image_idx)
         );
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
 
-        // vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
-        //     view->vert_buffers.data(), view->buffer_offsets.data()
-        // );
         auto& vbo = view->resources.vbo;
         vkCmdBindVertexBuffers(cmd, 0, vbo.count, vbo.handles.data(), vbo.offsets.data());
-
         auto vertex_count = view->params.element_count;
+
         auto& ibo = view->resources.ibo;
-        if (ibo.handle != nullptr)
+        if (ibo.handle != nullptr) // If index buffer exists, bind it and perform indexed draw
         {
             vkCmdBindIndexBuffer(cmd, ibo.handle, 0, ibo.type);
             vkCmdDrawIndexed(cmd, 3 * vertex_count, 1, 0, 0, 0);
         }
-        else
+        else // Perform regular draw with bound vertex buffers
         {
             auto instance_count = 1;
             auto first_vertex = vertex_count * view->params.options.instance_index;
             vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, 0);
         }
 
-            // case ViewType::Edges:
-            // {
-            //     vkCmdBindIndexBuffer(cmd, view->idx_buffer, 0, view->idx_type);
-            //     vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
-            //     break;
-            // }
-            // case ViewType::Image:
-            // {
-            //     vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
-            //     vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-            //     break;
-            // }
+        // case ViewType::Image:
+        // {
+        //     vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
+        //     vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+        //     break;
+        // }
     }
 }
 

@@ -237,7 +237,21 @@ int main(int argc, char *argv[])
         MimirEngine engine;
         engine.init(1920, 1080);
 
-        MemoryParams m1;
+        auto seeds = engine.allocateMemory((void**)&program.d_coords, sizeof(float2) * program.element_count);
+        auto field = engine.allocateMemory((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
+
+        ViewParams2 params;
+        params.element_count = program.element_count;
+        params.data_domain   = DataDomain::Domain2D;
+        params.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
+        params.view_type     = ViewType::Markers;
+        params.attributes[AttributeType::Position] = {
+            .memory = seeds,
+            .format = { .type = DataType::float32, .components = 2 }
+        };
+        engine.createView(params);
+
+        /*MemoryParams m1;
         m1.layout          = DataLayout::Layout1D;
         m1.element_count.x = program.element_count;
         m1.component_type  = ComponentType::Float;
@@ -269,10 +283,7 @@ int main(int argc, char *argv[])
         p2.domain_type   = DomainType::Structured;
         p2.view_type     = ViewType::Image;
         p2.attributes[AttributeType::Color] = *image;
-        auto v2 = engine.createView(p2);
-
-        //cudaMalloc((void**)&program.d_coords, sizeof(float2) * point_count);
-        //cudaMalloc((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
+        auto v2 = engine.createView(p2);*/
 
         program.setInitialState();
 
