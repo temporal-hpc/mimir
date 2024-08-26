@@ -250,4 +250,16 @@ constexpr size_t getBytesize(DataFormat format)
     return getComponentSize(format.type) * format.components;
 }
 
+constexpr VkIndexType getIndexType(DataType type)
+{
+    switch (type)
+    {
+        case DataType::int16: return VK_INDEX_TYPE_UINT16;
+        case DataType::int32: return VK_INDEX_TYPE_UINT32;
+        // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char
+        // and VK_INDEX_TYPE_NONE_KHR for default
+        default: return VK_INDEX_TYPE_UINT16;
+    }
+}
+
 } // namespace mimir

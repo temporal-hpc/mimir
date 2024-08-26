@@ -327,9 +327,28 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
     // TODO: Add index buffer support (should not be an attribute)
     if (params.indexing.memory != nullptr)
     {
-        VkBuffer data_buffer = VK_NULL_HANDLE;
-        res.ibo.handle = data_buffer;
-        res.ibo.type   = VK_INDEX_TYPE_UINT32; //getIndexType(memory.params.component_type);
+        // Get buffer size
+        auto element_size = getBytesize(params.indexing.format);
+        VkDeviceSize memsize = element_size * params.element_count;
+        // Input validation
+        assert(memsize <= params.indexing.memory->size);
+        assert(element_size * (params.element_count + params.indexing.offset) <= params.indexing.memory->size);
+
+        // Get buffer usage requirements
+        auto usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        VkExternalMemoryBufferCreateInfo extmem_info{
+            .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+            .pNext       = nullptr,
+            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+        };
+
+        // Create and bind buffer
+        VkBuffer index_buffer = dev.createBuffer(memsize, usage, &extmem_info);
+        deletors.views.add([=,this]{ vkDestroyBuffer(dev.logical_device, index_buffer, nullptr); });
+        vkBindBufferMemory(dev.logical_device, index_buffer, params.indexing.memory->vk_mem, 0);
+
+        res.ibo.handle = index_buffer;
+        res.ibo.type   = getIndexType(params.indexing.format.type);
     }
 
     // TODO: Add uniform buffer support
@@ -1158,17 +1177,20 @@ void MimirEngine::drawElements(uint32_t image_idx)
         auto& vbo = view->resources.vbo;
         vkCmdBindVertexBuffers(cmd, 0, vbo.count, vbo.handles.data(), vbo.offsets.data());
 
-        switch (view->params.view_type)
+        auto vertex_count = view->params.element_count;
+        auto& ibo = view->resources.ibo;
+        if (ibo.handle != nullptr)
         {
-            case ViewType::Markers:
-            case ViewType::Voxels:
-            {
-                auto vertex_count = view->params.element_count;
-                auto instance_count = 1;
-                auto first_vertex = vertex_count * view->params.options.instance_index;
-                vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, 0);
-                break;
-            }
+            vkCmdBindIndexBuffer(cmd, ibo.handle, 0, ibo.type);
+            vkCmdDrawIndexed(cmd, 3 * vertex_count, 1, 0, 0, 0);
+        }
+        else
+        {
+            auto instance_count = 1;
+            auto first_vertex = vertex_count * view->params.options.instance_index;
+            vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, 0);
+        }
+
             // case ViewType::Edges:
             // {
             //     vkCmdBindIndexBuffer(cmd, view->idx_buffer, 0, view->idx_type);
@@ -1181,8 +1203,6 @@ void MimirEngine::drawElements(uint32_t image_idx)
             //     vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
             //     break;
             // }
-            default: break;
-        }
     }
 }
 

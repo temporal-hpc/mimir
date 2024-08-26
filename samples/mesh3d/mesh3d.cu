@@ -61,47 +61,44 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    std::vector<float3> points;
-    std::vector<uint3> triangles;
-    loadTriangleMesh(filepath, points, triangles);
-    auto point_count = points.size();
+    std::vector<float3> h_points;
+    std::vector<uint3> h_triangles;
+    loadTriangleMesh(filepath, h_points, h_triangles);
+    auto point_count = h_points.size();
 
     MimirEngine engine;
     engine.init(1920, 1080);
     engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
 
-    MemoryParams m;
-    m.layout          = DataLayout::Layout1D;
-    m.element_count.x = point_count;
-    m.component_type  = ComponentType::Float;
-    m.channel_count   = 3;
-    m.resource_type   = ResourceType::Buffer;
-    auto pointsmem = engine.createBuffer((void**)&d_coords, m);
+    auto vertices = engine.allocateMemory((void**)&d_coords, sizeof(float3) * point_count);
+    auto edges    = engine.allocateMemory((void**)&d_triangles, sizeof(int3) * h_triangles.size());
 
-    m.element_count.x = 3 * triangles.size();
-    m.component_type  = ComponentType::Int;
-    m.channel_count   = 1;
-    m.resource_type   = ResourceType::IndexBuffer;
-    auto trimem = engine.createBuffer((void**)&d_triangles, m);
-
-    ViewParams params;
+    ViewParams2 params;
     params.element_count = point_count;
     params.data_domain   = DataDomain::Domain3D;
     params.domain_type   = DomainType::Unstructured;
     params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = *pointsmem;
+    params.options.default_size = 20.f;
+    params.attributes[AttributeType::Position] = {
+        .memory = vertices,
+        .format = { .type = DataType::float32, .components = 3 }
+    };
     engine.createView(params);
 
-    params.element_count = triangles.size();
+    // Recycle the above parameters, changing only what is needed
+    params.element_count = 3 * h_triangles.size();
     params.view_type     = ViewType::Edges;
-    params.attributes[AttributeType::Index] = *trimem;
+    params.indexing = {
+        .memory = edges,
+        .format = { .type = DataType::int32, .components = 1 }
+    };
     engine.createView(params);
 
-    checkCuda(cudaMemcpy(d_coords, points.data(),
+    checkCuda(cudaMemcpy(d_coords, h_points.data(),
         sizeof(float3) * point_count, cudaMemcpyHostToDevice)
     );
-    checkCuda(cudaMemcpy(d_triangles, triangles.data(),
-        sizeof(uint3) * triangles.size(), cudaMemcpyHostToDevice)
+    checkCuda(cudaMemcpy(d_triangles, h_triangles.data(),
+        sizeof(uint3) * h_triangles.size(), cudaMemcpyHostToDevice)
     );
 
     engine.displayAsync();
