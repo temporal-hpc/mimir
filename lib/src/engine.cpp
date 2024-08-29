@@ -12,7 +12,6 @@
 #include "internal/interop.hpp"
 
 #include <dlfcn.h> // dladdr
-#include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
@@ -79,7 +78,7 @@ MimirEngine::~MimirEngine()
     }
 
     cleanupSwapchain();
-    ImGui_ImplVulkan_Shutdown();
+    gui::shutdown();
 }
 
 void MimirEngine::init(ViewerOptions opts)
@@ -88,7 +87,7 @@ void MimirEngine::init(ViewerOptions opts)
     spdlog::set_pattern("[%H:%M:%S] [%l] %v");
 
     options = opts;
-    max_fps = options.present == PresentOptions::VSync? 60 : 300;
+    options.max_fps = options.present == PresentOptions::VSync? 60 : 300;
     target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
 
     auto width  = options.window_size.x;
@@ -138,7 +137,7 @@ void MimirEngine::displayAsync()
         while(!window_context->shouldClose())
         {
             window_context->processEvents();
-            drawGui();
+            gui::draw(camera.get(), options, views2, gui_callback);
             renderFrame();
         }
         running = false;
@@ -203,7 +202,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     while(!window_context->shouldClose())
     {
         window_context->processEvents();
-        drawGui();
+        gui::draw(camera.get(), options, views2, gui_callback);
         renderFrame();
 
         if (running) waitKernelStart();
@@ -442,18 +441,6 @@ void MimirEngine::loadTexture(InteropMemory *interop, void *data)
     dev.loadTexture(interop, data);
 }
 
-void MimirEngine::drawGui()
-{
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    if (show_demo_window) { ImGui::ShowDemoWindow(); }
-    if (options.show_metrics) { ImGui::ShowMetricsWindow(); }
-    displayEngineGUI(); // Display the builtin GUI
-    gui_callback(); // Display user-provided addons
-    ImGui::Render();
-}
-
 VkDescriptorSetLayoutBinding descriptorLayoutBinding(
     uint32_t binding, VkDescriptorType type, VkShaderStageFlags flags)
 {
@@ -581,8 +568,9 @@ void MimirEngine::initVulkan()
     });
 
     initSwapchain();
-    initImgui(); // After command pool and render pass are created
     createSyncObjects();
+    // After command pool and render pass are created
+    gui::init(dev, instance, descriptor_pool, render_pass, window_context.get());
 
     descriptor_sets = dev.createDescriptorSets(
         descriptor_pool, descriptor_layout, swap->image_count
@@ -711,34 +699,6 @@ void MimirEngine::pickPhysicalDevice()
     {
         throw std::runtime_error("No CUDA-Vulkan interop device was found");
     }
-}
-
-void MimirEngine::initImgui()
-{
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForVulkan(window_context->window, true);
-
-    ImGui_ImplVulkan_InitInfo info{
-        .Instance        = instance,
-        .PhysicalDevice  = dev.physical_device.handle,
-        .Device          = dev.logical_device,
-        .QueueFamily     = dev.graphics.family_index,
-        .Queue           = dev.graphics.queue,
-        .DescriptorPool  = descriptor_pool,
-        .RenderPass      = render_pass,
-        .MinImageCount   = 3, // TODO: Check if this is true
-        .ImageCount      = 3,
-        .MSAASamples     = VK_SAMPLE_COUNT_1_BIT,
-        .PipelineCache   = nullptr,
-        .Subpass         = 0,
-        .UseDynamicRendering = false,
-        .PipelineRenderingCreateInfo = {},
-        .Allocator         = nullptr,
-        .CheckVkResultFn   = nullptr,
-        .MinAllocationSize = 0,
-    };
-    ImGui_ImplVulkan_Init(&info);
 }
 
 void MimirEngine::createSyncObjects()
@@ -1058,7 +1018,7 @@ void MimirEngine::renderFrame()
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
     drawElements(frame_idx);
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+    gui::render(cmd);
 
     // End of render pass and timestamp query
     vkCmdEndRenderPass(cmd);
@@ -1320,7 +1280,6 @@ void MimirEngine::createGraphicsPipelines()
         });
     }
 
-
     // Iterate through views, generating the corresponding pipelines
     // TODO: This does not allow adding views at runtime
     /*for (auto& view : views)
@@ -1448,35 +1407,6 @@ double MimirEngine::getRenderTimeResults(uint32_t cmd_idx)
 void MimirEngine::setBackgroundColor(float4 color)
 {
     bg_color = color;
-}
-
-void MimirEngine::displayEngineGUI()
-{
-    ImGui::Begin("Scene parameters");
-    //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
-    ImGui::ColorEdit3("Clear color", (float*)&bg_color);
-    ImGui::InputFloat3("Camera position", &camera->position.x, "%.3f");
-    ImGui::InputFloat3("Camera rotation", &camera->rotation.x, "%.3f");
-
-    // Use a separate flag for choosing whether to enable the FPS limit target value
-    // This avoids the unpleasant feeling of going from 0 (no FPS limit)
-    // to 1 (the lowest value) in a single step
-    if (ImGui::Checkbox("Enable FPS limit", &options.enable_fps_limit))
-    {
-        target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
-    }
-    if (!options.enable_fps_limit) ImGui::BeginDisabled(true);
-    if (ImGui::SliderInt("FPS target", &options.target_fps, 1, max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
-    {
-        target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
-    }
-    if (!options.enable_fps_limit) ImGui::EndDisabled();
-
-    for (size_t i = 0; i < views2.size(); ++i)
-    {
-        addViewObjectGui(views2[i], i);
-    }
-    ImGui::End();
 }
 
 struct ConvertedMemory

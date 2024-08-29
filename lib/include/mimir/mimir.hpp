@@ -52,9 +52,11 @@ struct ViewerOptions
     PresentOptions present   = PresentOptions::VSync;
     bool enable_sync         = true;
     bool show_metrics        = false;
+    bool show_demo_window    = false;
     bool fullscreen          = true;
     bool enable_fps_limit    = false;
     int target_fps           = 60;
+    int max_fps              = 0;
     uint report_period       = 0;
 };
 
@@ -91,7 +93,6 @@ public:
     ViewerOptions options;
     bool running = false;
     bool should_resize = false;
-    bool show_demo_window = false;
 
     // Camera functions
     std::unique_ptr<Camera> camera;
@@ -145,7 +146,6 @@ private:
 
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<InteropMemory*> allocations;
-    //std::vector<InteropView*> views;
     std::vector<std::shared_ptr<InteropView2>> views2;
     std::unique_ptr<GlfwContext> window_context;
 
@@ -156,20 +156,14 @@ private:
         DeletionQueue views;
     } deletors;
 
-
     void updateLinearTextures();
     void listExtensions();
     void initVulkan();
-    void initImgui();
     void prepare();
     void renderFrame();
     void drawElements(uint32_t image_idx);
     void waitKernelStart();
     void waitTimelineHost();
-
-    // GUI functions
-    void displayEngineGUI();
-    void drawGui();
 
     // Vulkan core-related functions
     void createInstance();
@@ -192,7 +186,6 @@ private:
     VkFormat findDepthFormat();
 
     // Benchmarking
-    int max_fps = 0;
     PerformanceMonitor perf;
     VkQueryPool query_pool = VK_NULL_HANDLE;
     double total_pipeline_time = 0;

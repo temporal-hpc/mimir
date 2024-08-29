@@ -73,7 +73,7 @@ void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int 
     // Toggle demo window
     if (key == GLFW_KEY_D && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
-        app->show_demo_window = !app->show_demo_window;
+        app->options.show_demo_window = !app->options.show_demo_window;
     }
     // Toggle metrics windows
     if (key == GLFW_KEY_M && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)

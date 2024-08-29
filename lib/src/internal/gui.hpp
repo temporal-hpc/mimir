@@ -1,11 +1,17 @@
 #pragma once
 
-#include <mimir/mimir.hpp>
+#include <span> // std::span
 
-namespace mimir
+#include <mimir/mimir.hpp>
+#include "window.hpp"
+
+namespace mimir::gui
 {
 
-void addViewObjectGui(InteropView *view_ptr, int uid);
+void init(InteropDevice& dev, VkInstance instance, VkDescriptorPool pool, VkRenderPass pass, GlfwContext *win_ctx);
+void shutdown();
+void render(VkCommandBuffer cmd);
+void draw(Camera* cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropView2>> views, const std::function<void(void)>& callback);
 void addViewObjectGui(std::shared_ptr<InteropView2> view, int uid);
 
-} // namespace mimir
+} // namespace mimir::gui
