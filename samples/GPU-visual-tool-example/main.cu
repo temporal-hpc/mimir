@@ -86,7 +86,19 @@ int main(int argc, char *argv[]) {
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    MemoryParams mem;
+    auto points = engine.allocLinear((void**)&dPoints, sizeof(float2) * n);
+    ViewParams2 params;
+    params.element_count = n;
+    params.data_domain   = DataDomain::Domain2D;
+    params.view_type     = ViewType::Markers;
+    params.attributes[AttributeType::Position] = {
+        .allocation = points,
+        .format     = { .type = DataType::float32, .components = 2 }
+    };
+    params.options.default_size = .01f;
+    engine.createView(params);
+
+    /*MemoryParams mem;
     mem.layout          = DataLayout::Layout1D;
     mem.element_count.x = n;
     mem.component_type  = ComponentType::Float;
@@ -101,7 +113,7 @@ int main(int argc, char *argv[]) {
     params.view_type     = ViewType::Markers;
     params.attributes[AttributeType::Position] = *pointsmem;
     params.options.default_size = .1f;
-    engine.createView(params);
+    engine.createView(params);*/
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);

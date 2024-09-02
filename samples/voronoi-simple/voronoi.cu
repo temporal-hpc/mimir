@@ -180,18 +180,32 @@ int main(int argc, char *argv[])
     if (argc >= 3) grid_size   = std::stoul(argv[2]);
     if (argc >= 4) iter_count  = std::stod(argv[3]);
 
-    float *d_vd_dists      = nullptr;
-    float4 *d_vd_colors    = nullptr;
-    float2 *d_coords       = nullptr;
-    float4 *d_grid[2]      = {nullptr, nullptr};
-    float3 *d_colors       = nullptr;
-    int2 extent            = {grid_size, grid_size};
-    curandState *d_states  = nullptr;
+    float *d_vd_dists     = nullptr;
+    float4 *d_vd_colors   = nullptr;
+    float2 *d_coords      = nullptr;
+    float4 *d_grid[2]     = {nullptr, nullptr};
+    float3 *d_colors      = nullptr;
+    int2 extent           = {grid_size, grid_size};
+    curandState *d_states = nullptr;
 
     MimirEngine engine;
     engine.init(1920, 1080);
 
-    MemoryParams m1;
+    auto seeds = engine.allocLinear((void**)&d_coords, sizeof(float2) * point_count);
+    auto colors = engine.allocLinear((void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y);
+
+    ViewParams2 params;
+    params.element_count = point_count;
+    params.data_domain   = DataDomain::Domain2D;
+    params.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
+    params.view_type     = ViewType::Markers;
+    params.attributes[AttributeType::Position] = {
+        .allocation = seeds,
+        .format     = { .type = DataType::float32, .components = 2 }
+    };
+    engine.createView(params);
+
+    /*MemoryParams m1;
     m1.layout          = DataLayout::Layout1D;
     m1.element_count.x = point_count;
     m1.component_type  = ComponentType::Float;
@@ -223,7 +237,7 @@ int main(int argc, char *argv[])
     p2.domain_type   = DomainType::Structured;
     p2.view_type     = ViewType::Image;
     p2.attributes[AttributeType::Color] = *image;
-    auto v2 = engine.createView(p2);
+    auto v2 = engine.createView(p2);*/
 
     //cudaMalloc((void**)&d_coords, sizeof(float2) * point_count);
     //cudaMalloc((void**)&d_vd_colors, sizeof(float) * extent.x * extent.y);*/

@@ -45,11 +45,35 @@ Application::Application(){
     engine.init(viewer_opts);
 
     // TODO: Fix dptr in kernels
-	this->myMesh = new Mesh("/home/francisco/code/files_cudaview/mesh.off");
+	this->myMesh = new Mesh("/home/francisco/code/files_cudaview/bunny.off");
     auto m = this->myMesh->my_cleap_mesh;
 
     // NOTE: Cudaview code
     // TODO: Delete views
+    // TODO: Add stride to attribute params
+    auto vertices  = engine.allocLinear((void**)&m->dm->d_vbo_v, sizeof(float4) * cleap_get_vertex_count(m));
+    auto triangles = engine.allocLinear((void**)&m->dm->d_eab, sizeof(int3) * cleap_get_face_count(m));
+
+    ViewParams2 params;
+    params.element_count = cleap_get_vertex_count(m);
+    params.data_domain   = DataDomain::Domain3D;
+    params.view_type     = ViewType::Markers;
+    params.attributes[AttributeType::Position] = {
+        .allocation = vertices,
+        .format     = { .type = DataType::float32, .components = 3 }
+    };
+    engine.createView(params);
+
+    // Recycle the above parameters, changing only what is needed
+    params.element_count = cleap_get_face_count(m);
+    params.view_type     = ViewType::Edges;
+    params.indexing = {
+        .allocation = triangles,
+        .format     = { .type = DataType::int32, .components = 3 }
+    };
+    engine.createView(params);
+
+    /*
     MemoryParams mem1;
     mem1.layout          = DataLayout::Layout1D;
     mem1.element_count.x = cleap_get_vertex_count(m);
@@ -78,7 +102,7 @@ Application::Application(){
     params.view_type     = ViewType::Edges;
     params.attributes[AttributeType::Index] = *triangles;
     params.options.default_color  = {0.f, 1.f, 0.f, 1.f};
-    engine.createView(params);
+    engine.createView(params);*/
 
     checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
         cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)

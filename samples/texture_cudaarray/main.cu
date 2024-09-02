@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
     // TODO: Unused, should be a texture handle
     uchar4 *d_image = nullptr;
 
-    MemoryParams m;
+    /*MemoryParams m;
     m.layout           = DataLayout::Layout2D;
     m.element_count    = {(uint)img_width, (uint)img_height, 1};
     m.component_type   = ComponentType::Char;
@@ -222,8 +222,8 @@ int main(int argc, char *argv[])
     format_desc.z = 8;
     format_desc.w = 8;
     format_desc.f = cudaChannelFormatKindUnsigned;
-    size_t image_width  = params.extent.x;
-    size_t image_height = params.extent.y;
+    size_t image_width  = img_width;
+    size_t image_height = img_height;
     auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
 
     cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
@@ -320,7 +320,7 @@ int main(int argc, char *argv[])
 
     checkCuda(cudaDestroyTextureObject(tex_obj));
     checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayTemp));
-    checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayOrig));
+    checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayOrig));*/
 
     return EXIT_SUCCESS;
 }

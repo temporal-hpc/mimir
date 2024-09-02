@@ -101,21 +101,16 @@ int main(int argc, char *argv[])
 
     if (use_interop)
     {
-        MemoryParams m;
-        m.layout          = DataLayout::Layout1D;
-        m.element_count.x = point_count;
-        m.component_type  = ComponentType::Float;
-        m.channel_count   = 3;
-        m.resource_type   = ResourceType::Buffer;
-        auto pointsmem = engine.createBuffer((void**)&d_coords, m);
-
-        ViewParams params;
+        auto points = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
+        ViewParams2 params;
         params.element_count = point_count;
         params.data_domain   = DataDomain::Domain3D;
-        params.domain_type   = DomainType::Unstructured;
         params.extent        = extent;
         params.view_type     = ViewType::Markers;
-        params.attributes[AttributeType::Position] = *pointsmem;
+        params.attributes[AttributeType::Position] = {
+            .allocation = points,
+            .format     = { .type = DataType::float32, .components = 3 }
+        };
         engine.createView(params);
     }
     else // Run the simulation without display

@@ -60,6 +60,26 @@ int main(int argc, char **argv){
     MimirEngine engine;
     engine.init(width, height);
 
+    auto ping = engine.allocLinear((void**)&d1, sizeof(int) * n*n*n);
+    auto pong = engine.allocLinear((void**)&d2, sizeof(int) * n*n*n);
+
+    ViewParams2 params;
+    params.element_count = n*n*n;
+    params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
+    params.data_domain   = DataDomain::Domain3D;
+    params.view_type     = ViewType::Markers; // Voxels
+    // TODO: params.attributes[AttributeType::Position] = bla
+    params.attributes[AttributeType::Color] = {
+        .allocation = ping,
+        .format     = { .type = DataType::float64, .components = 1 },
+    };
+    auto v1 = engine.createView(params);
+
+    params.attributes[AttributeType::Color].allocation = pong;
+    params.options.visible = false;
+    auto v2 = engine.createView(params);
+
+/*
     MemoryParams mp;
     mp.layout         = DataLayout::Layout3D;
     mp.element_count  = {(uint)n, (uint)n, (uint)n};
@@ -79,7 +99,7 @@ int main(int argc, char **argv){
     //params.view_type     = ViewType::Image;
     //params.attributes[AttributeType::Position] = *m1; // Implicit (TODO: nullptr, do it properly)
     params.attributes[AttributeType::Color] = *m1;
-    params.options.default_size = 5.f;
+    params.options.default_size = 5.f;*/
     /*params.options.external_shaders = {
         {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/voxel_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
@@ -89,11 +109,11 @@ int main(int argc, char **argv){
         {"shaders/texture_vertex3dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/texture_frag3d_Float1.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
     };*/
-    auto v1 = engine.createView(params);
+    /*auto v1 = engine.createView(params);
 
-    params.attributes[AttributeType::Color] = *m2;
-    params.options.visible = false;
-    auto v2 = engine.createView(params);
+    //params.attributes[AttributeType::Color] = *m2;
+    //params.options.visible = false;
+    auto v2 = engine.createView(params);*/
 
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));

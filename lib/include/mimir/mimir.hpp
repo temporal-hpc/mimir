@@ -75,7 +75,7 @@ class MimirEngine
 {
 
 public:
-    MimirEngine();
+    MimirEngine(); // TODO: Replace with factory
     ~MimirEngine();
     void init(ViewerOptions opts);
     void init(int width, int height);
@@ -83,11 +83,13 @@ public:
     InteropView *createView(ViewParams params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
 
-
+    // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
     std::shared_ptr<Allocation> allocLinear(void **dev_ptr, size_t size);
+    // Allocates opaque read-only device memory, equivalent to cudaCreateTextureObject()
     std::shared_ptr<Allocation> allocTexture(cudaTextureObject_t *tex_obj, const cudaResourceDesc *res_desc,
         const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc
     );
+    // Allocates opaque RW device memory, equivalent to cudaCreateSurfaceObject()
     std::shared_ptr<Allocation> allocSurface(cudaSurfaceObject_t *surf_obj, const cudaResourceDesc *res_desc);
 
     // Creates an allocation with memory initialized for representing a structured domain
@@ -164,7 +166,7 @@ private:
 
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<InteropMemory*> allocations;
-    std::vector<std::shared_ptr<InteropView2>> views2;
+    std::vector<std::shared_ptr<InteropView2>> views;
     std::unique_ptr<GlfwContext> window_context;
 
     // Deletion queues organized by lifetime

@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
     MimirEngine engine;
     engine.init(1920, 1080);
 
-    MemoryParams m;
+    /*MemoryParams m;
     m.layout         = DataLayout::Layout2D;
     m.element_count  = {(uint)width, (uint)height, 1};
     m.component_type = ComponentType::Char;
@@ -47,8 +47,8 @@ int main(int argc, char *argv[])
     /*params.options.external_shaders = {
         {"shaders/texture_vertex2dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/texture_frag2d_Float4.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };*/
-    engine.createView(params);
+    };
+    engine.createView(params);*/
 
     auto tex_size = sizeof(uchar4) * width * height;
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));

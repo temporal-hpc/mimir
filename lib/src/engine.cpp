@@ -137,7 +137,7 @@ void MimirEngine::displayAsync()
         while(!window_context->shouldClose())
         {
             window_context->processEvents();
-            gui::draw(camera.get(), options, views2, gui_callback);
+            gui::draw(camera.get(), options, views, gui_callback);
             renderFrame();
         }
         running = false;
@@ -202,7 +202,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     while(!window_context->shouldClose())
     {
         window_context->processEvents();
-        gui::draw(camera.get(), options, views2, gui_callback);
+        gui::draw(camera.get(), options, views, gui_callback);
         renderFrame();
 
         if (running) waitKernelStart();
@@ -372,7 +372,7 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
     // TODO: Add uniform buffer support
 
     auto mem_handle = std::make_shared<InteropView2>(params, res, VK_NULL_HANDLE);
-    views2.push_back(mem_handle);
+    views.push_back(mem_handle);
     return mem_handle;
 }
 
@@ -1135,9 +1135,9 @@ void MimirEngine::drawElements(uint32_t image_idx)
     auto size_ubo = size_mvp + size_view + size_scene;
 
     auto cmd = command_buffers[image_idx];
-    for (uint32_t i = 0; i < views2.size(); ++i)
+    for (uint32_t i = 0; i < views.size(); ++i)
     {
-        auto& view = views2[i];
+        auto& view = views[i];
         // Do not draw anything if view visibility is turned off
         if (!view->params.options.visible) continue;
 
@@ -1285,7 +1285,7 @@ void MimirEngine::createGraphicsPipelines()
 
     PipelineBuilder builder(pipeline_layout, swap->extent);
 
-    for (auto& view : views2)
+    for (auto& view : views)
     {
         builder.addPipeline(view->params, dev.logical_device);
     }
@@ -1293,9 +1293,9 @@ void MimirEngine::createGraphicsPipelines()
     //printf("%lu pipeline(s) created\n", pipelines.size());
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
-        views2[i]->pipeline = pipelines[i];
+        views[i]->pipeline = pipelines[i];
         deletors.swapchain.add([=,this]{
-            vkDestroyPipeline(dev.logical_device, views2[i]->pipeline, nullptr);
+            vkDestroyPipeline(dev.logical_device, views[i]->pipeline, nullptr);
         });
     }
 
@@ -1343,7 +1343,7 @@ void MimirEngine::initUniformBuffers()
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
-    auto size_ubo = (size_mvp + size_view + size_scene) * views2.size();
+    auto size_ubo = (size_mvp + size_view + size_scene) * views.size();
 
     uniform_buffers.resize(swap->image_count);
     for (auto& ubo : uniform_buffers)
@@ -1371,9 +1371,9 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
     auto size_ubo = size_mvp + size_view + size_scene;
     auto memory = uniform_buffers[image_idx].memory;
 
-    for (size_t view_idx = 0; view_idx < views2.size(); ++view_idx)
+    for (size_t view_idx = 0; view_idx < views.size(); ++view_idx)
     {
-        auto& view = views2[view_idx];
+        auto& view = views[view_idx];
 
         ModelViewProjection mvp{
             .model = glm::mat4(1.f),
