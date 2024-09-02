@@ -71,7 +71,7 @@ public:
     // Main library function, which setups all the visualization interop
     InteropView *createView(ViewParams params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
-    std::shared_ptr<Allocation> allocBuffer(void **dev_ptr, size_t size);
+    std::shared_ptr<Allocation> allocLinear(void **dev_ptr, size_t size);
     std::shared_ptr<Allocation> allocTexture(cudaTextureObject_t *tex_obj, const cudaResourceDesc *res_desc,
         const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc
     );

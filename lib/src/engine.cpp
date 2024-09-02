@@ -236,7 +236,7 @@ void MimirEngine::updateLinearTextures()
     }*/
 }
 
-std::shared_ptr<Allocation> MimirEngine::allocBuffer(void **dev_ptr, size_t size)
+std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 

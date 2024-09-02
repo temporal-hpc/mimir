@@ -70,8 +70,8 @@ int main(int argc, char *argv[])
     engine.init(1920, 1080);
     engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
 
-    auto vertices = engine.allocBuffer((void**)&d_coords, sizeof(float3) * point_count);
-    auto edges    = engine.allocBuffer((void**)&d_triangles, sizeof(int3) * h_triangles.size());
+    auto vertices = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
+    auto edges    = engine.allocLinear((void**)&d_triangles, sizeof(int3) * h_triangles.size());
 
     ViewParams2 params;
     params.element_count = point_count;

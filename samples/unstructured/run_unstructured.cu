@@ -68,8 +68,8 @@ int main(int argc, char *argv[])
         MimirEngine engine;
         engine.init(options);
 
-        auto points = engine.allocBuffer((void**)&d_coords, sizeof(double2) * point_count);
-        auto sizes  = engine.allocBuffer((void**)&d_sizes, sizeof(double) * point_count);
+        auto points = engine.allocLinear((void**)&d_coords, sizeof(double2) * point_count);
+        auto sizes  = engine.allocLinear((void**)&d_sizes, sizeof(double) * point_count);
 
         ViewParams2 params;
         params.element_count = point_count;
@@ -121,7 +121,7 @@ int main(int argc, char *argv[])
         // registering it on the engine
         //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
         checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
-        // engine.allocBuffer((void**)&d_states, sizeof(curandState) * point_count);
+        // engine.allocLinear((void**)&d_states, sizeof(curandState) * point_count);
         initSystem<<<grid_size, block_size>>>(
             d_coords, d_sizes, point_count, d_states, extent, seed
         );

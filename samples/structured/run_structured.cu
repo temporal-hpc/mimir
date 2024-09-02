@@ -237,8 +237,8 @@ int main(int argc, char *argv[])
         MimirEngine engine;
         engine.init(1920, 1080);
 
-        auto seeds = engine.allocBuffer((void**)&program.d_coords, sizeof(float2) * program.element_count);
-        auto field = engine.allocBuffer((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
+        auto seeds = engine.allocLinear((void**)&program.d_coords, sizeof(float2) * program.element_count);
+        auto field = engine.allocLinear((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
 
         ViewParams2 params;
         params.element_count = program.element_count;
