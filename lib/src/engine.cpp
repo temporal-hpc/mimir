@@ -236,6 +236,14 @@ void MimirEngine::updateLinearTextures()
     }*/
 }
 
+std::shared_ptr<Allocation> MimirEngine::makeStructuredDomain(StructuredDomainParams params)
+{
+    auto sz = params.size;
+    assert(sz.x > 0 || sz.y > 0 || sz.z > 0);
+
+    return nullptr;
+}
+
 std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
@@ -281,9 +289,21 @@ std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size
     // Assemble the external memory handle
     auto mem_handle = std::make_shared<Allocation>(size, vk_memory, cuda_extmem);
 
-    // Cleanup: delete test buffer, set cuda device pointer and return
+    // Finishing: delete test buffer, set cuda device pointer and return
     vkDestroyBuffer(dev.logical_device, test_buffer, nullptr);
+    // TODO: push newly created pointer to allocation vector
     return mem_handle;
+}
+
+std::shared_ptr<Allocation> MimirEngine::allocTexture(cudaTextureObject_t *tex_obj,
+    const cudaResourceDesc *res_desc, const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc)
+{
+    return nullptr;
+}
+
+std::shared_ptr<Allocation> MimirEngine::allocSurface(cudaSurfaceObject_t *surf_obj, const cudaResourceDesc *res_desc)
+{
+    return nullptr;
 }
 
 std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)

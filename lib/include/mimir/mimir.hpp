@@ -71,12 +71,18 @@ public:
     // Main library function, which setups all the visualization interop
     InteropView *createView(ViewParams params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
+
+
     std::shared_ptr<Allocation> allocLinear(void **dev_ptr, size_t size);
     std::shared_ptr<Allocation> allocTexture(cudaTextureObject_t *tex_obj, const cudaResourceDesc *res_desc,
         const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc
     );
     std::shared_ptr<Allocation> allocSurface(cudaSurfaceObject_t *surf_obj, const cudaResourceDesc *res_desc);
+
+    // Creates an allocation with memory initialized for representing a structured domain
     std::shared_ptr<Allocation> makeStructuredDomain(StructuredDomainParams p);
+
+    // View creation
     std::shared_ptr<InteropView2> createView(ViewParams2 params);
 
     void loadTexture(InteropMemory *interop, void *data);
@@ -108,6 +114,8 @@ public:
     void signalKernelFinish();
 
 private:
+    VkBuffer initBuffer();
+
     VkInstance instance                     = VK_NULL_HANDLE;
     VkRenderPass render_pass                = VK_NULL_HANDLE;
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;

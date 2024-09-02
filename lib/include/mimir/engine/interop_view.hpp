@@ -143,10 +143,14 @@ struct AlignedBuffer
     }
 };
 
+enum class StructureType
+{
+    Grid,
+};
+
 struct StructuredDomainParams
 {
-    float3 offset = {0, 0, 0};
-
+    uint3 size    = {0, 0, 0};
 };
 
 struct Allocation
