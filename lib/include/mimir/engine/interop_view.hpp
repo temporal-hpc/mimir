@@ -131,34 +131,43 @@ struct InteropView
     }
 };
 
-struct InteropMemory2
+struct AlignedBuffer
+{
+    VkDeviceSize min_alignment = 0;
+    VkDeviceSize total_size    = 0;
+
+    constexpr uint32_t getAlignedSize(size_t sz)
+    {
+        // Calculate required alignment based on minimum device offset alignment
+        return min_alignment > 0? (sz + min_alignment - 1) & ~(min_alignment - 1) : sz;
+    }
+};
+
+struct StructuredDomainParams
+{
+    float3 offset = {0, 0, 0};
+
+};
+
+struct Allocation
 {
     // Allocation memory size in bytes
     size_t size                      = 0;
-    // Pointer to CUDA-enabled device memory
-    void *interop_ptr                = nullptr;
-    // Cuda external memory handle, provided by the Cuda interop API
-    cudaExternalMemory_t cuda_extmem = nullptr;
     // Vulkan external device memory handle
     VkDeviceMemory vk_mem            = VK_NULL_HANDLE;
+    // Cuda external memory handle, provided by the Cuda interop API
+    cudaExternalMemory_t cuda_extmem = nullptr;
 
     // VMA object representing the underlying memory
     // VmaAllocation allocation      = nullptr;
 };
 
-struct ImageMemory
-{
-    cudaExternalMemory_t cuda_extmem = nullptr;
-    // Vulkan external device memory handle
-    VkDeviceMemory vk_mem            = VK_NULL_HANDLE;
-};
-
 struct AttributeParams
 {
     // Interop memory handle
-    std::shared_ptr<InteropMemory2> memory = nullptr;
+    std::shared_ptr<Allocation> allocation = nullptr;
     // Type of variables stored per element
-    DataFormat format;
+    DataFormat format = {};
     // Offset to start of memory handle
     VkDeviceSize offset = 0;
 };
@@ -199,11 +208,21 @@ struct IndexBuffer
     VkIndexType type = VK_INDEX_TYPE_UINT32;
 };
 
+struct ImageData
+{
+    VkImage image        = VK_NULL_HANDLE;
+    VkImageView vk_view  = VK_NULL_HANDLE;
+    VkSampler vk_sampler = VK_NULL_HANDLE;
+    VkFormat vk_format   = VK_FORMAT_UNDEFINED;
+    VkExtent3D vk_extent = {0, 0, 0};
+};
+
 struct ViewResources
 {
     BufferArray vbo;
     IndexBuffer ibo;
     BufferArray ubo;
+    ImageData image;
 };
 
 struct InteropView2

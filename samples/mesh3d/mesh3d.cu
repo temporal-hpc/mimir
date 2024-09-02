@@ -70,8 +70,8 @@ int main(int argc, char *argv[])
     engine.init(1920, 1080);
     engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
 
-    auto vertices = engine.allocateMemory((void**)&d_coords, sizeof(float3) * point_count);
-    auto edges    = engine.allocateMemory((void**)&d_triangles, sizeof(int3) * h_triangles.size());
+    auto vertices = engine.allocBuffer((void**)&d_coords, sizeof(float3) * point_count);
+    auto edges    = engine.allocBuffer((void**)&d_triangles, sizeof(int3) * h_triangles.size());
 
     ViewParams2 params;
     params.element_count = point_count;
@@ -79,8 +79,8 @@ int main(int argc, char *argv[])
     params.view_type     = ViewType::Markers;
     params.options.default_size = 20.f;
     params.attributes[AttributeType::Position] = {
-        .memory = vertices,
-        .format = { .type = DataType::float32, .components = 3 }
+        .allocation = vertices,
+        .format    = { .type = DataType::float32, .components = 3 }
     };
     engine.createView(params);
 
@@ -88,8 +88,8 @@ int main(int argc, char *argv[])
     params.element_count = 3 * h_triangles.size();
     params.view_type     = ViewType::Edges;
     params.indexing = {
-        .memory = edges,
-        .format = { .type = DataType::int32, .components = 1 }
+        .allocation = edges,
+        .format     = { .type = DataType::int32, .components = 1 }
     };
     engine.createView(params);
 

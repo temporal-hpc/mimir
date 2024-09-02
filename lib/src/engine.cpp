@@ -236,7 +236,7 @@ void MimirEngine::updateLinearTextures()
     }*/
 }
 
-std::shared_ptr<InteropMemory2> MimirEngine::allocateMemory(void **dev_ptr, size_t size)
+std::shared_ptr<Allocation> MimirEngine::allocBuffer(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 
@@ -279,11 +279,10 @@ std::shared_ptr<InteropMemory2> MimirEngine::allocateMemory(void **dev_ptr, size
     });
 
     // Assemble the external memory handle
-    auto mem_handle = std::make_shared<InteropMemory2>(size, *dev_ptr, cuda_extmem, vk_memory);
+    auto mem_handle = std::make_shared<Allocation>(size, vk_memory, cuda_extmem);
 
     // Cleanup: delete test buffer, set cuda device pointer and return
     vkDestroyBuffer(dev.logical_device, test_buffer, nullptr);
-    *dev_ptr = mem_handle->interop_ptr;
     return mem_handle;
 }
 
@@ -315,7 +314,7 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
         deletors.views.add([=,this]{
             vkDestroyBuffer(dev.logical_device, attr_buffer, nullptr);
         });
-        vkBindBufferMemory(dev.logical_device, attr_buffer, attr.memory->vk_mem, 0);
+        vkBindBufferMemory(dev.logical_device, attr_buffer, attr.allocation->vk_mem, 0);
 
         // Register buffer info in attribute array
         res.vbo.handles.push_back(attr_buffer);
@@ -324,7 +323,7 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
     }
 
     // TODO: Add index buffer support (should not be an attribute)
-    if (params.indexing.memory != nullptr)
+    if (params.indexing.allocation != nullptr)
     {
         // Get buffer size
         auto element_size = getBytesize(params.indexing.format);
@@ -344,7 +343,7 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
         // Create and bind buffer
         VkBuffer index_buffer = dev.createBuffer(memsize, usage, &extmem_info);
         deletors.views.add([=,this]{ vkDestroyBuffer(dev.logical_device, index_buffer, nullptr); });
-        vkBindBufferMemory(dev.logical_device, index_buffer, params.indexing.memory->vk_mem, 0);
+        vkBindBufferMemory(dev.logical_device, index_buffer, params.indexing.allocation->vk_mem, 0);
 
         res.ibo.handle = index_buffer;
         res.ibo.type   = getIndexType(params.indexing.format.type);

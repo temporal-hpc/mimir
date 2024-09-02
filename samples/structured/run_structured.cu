@@ -237,8 +237,8 @@ int main(int argc, char *argv[])
         MimirEngine engine;
         engine.init(1920, 1080);
 
-        auto seeds = engine.allocateMemory((void**)&program.d_coords, sizeof(float2) * program.element_count);
-        auto field = engine.allocateMemory((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
+        auto seeds = engine.allocBuffer((void**)&program.d_coords, sizeof(float2) * program.element_count);
+        auto field = engine.allocBuffer((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
 
         ViewParams2 params;
         params.element_count = program.element_count;
@@ -246,8 +246,8 @@ int main(int argc, char *argv[])
         params.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
         params.view_type     = ViewType::Markers;
         params.attributes[AttributeType::Position] = {
-            .memory = seeds,
-            .format = { .type = DataType::float32, .components = 2 }
+            .allocation = seeds,
+            .format     = { .type = DataType::float32, .components = 2 }
         };
         engine.createView(params);
 

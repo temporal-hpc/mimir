@@ -68,8 +68,8 @@ int main(int argc, char *argv[])
         MimirEngine engine;
         engine.init(options);
 
-        auto points = engine.allocateMemory((void**)&d_coords, sizeof(double2) * point_count);
-        auto sizes  = engine.allocateMemory((void**)&d_sizes, sizeof(double) * point_count);
+        auto points = engine.allocBuffer((void**)&d_coords, sizeof(double2) * point_count);
+        auto sizes  = engine.allocBuffer((void**)&d_sizes, sizeof(double) * point_count);
 
         ViewParams2 params;
         params.element_count = point_count;
@@ -78,12 +78,12 @@ int main(int argc, char *argv[])
         params.view_type     = ViewType::Markers;
         params.options.default_size = 20.f;
         params.attributes[AttributeType::Position] = {
-            .memory = points,
-            .format = { .type = DataType::float64, .components = 2 },
+            .allocation = points,
+            .format     = { .type = DataType::float64, .components = 2 },
         };
         params.attributes[AttributeType::Size] = {
-            .memory = sizes,
-            .format = { .type = DataType::float64, .components = 1 },
+            .allocation = sizes,
+            .format     = { .type = DataType::float64, .components = 1 },
         };
         engine.createView(params);
 
@@ -121,7 +121,7 @@ int main(int argc, char *argv[])
         // registering it on the engine
         //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
         checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
-        // engine.allocateMemory((void**)&d_states, sizeof(curandState) * point_count);
+        // engine.allocBuffer((void**)&d_states, sizeof(curandState) * point_count);
         initSystem<<<grid_size, block_size>>>(
             d_coords, d_sizes, point_count, d_states, extent, seed
         );
