@@ -66,9 +66,11 @@ int main(int argc, char *argv[])
     loadTriangleMesh(filepath, h_points, h_triangles);
     auto point_count = h_points.size();
 
+    ViewerOptions options;
+    options.window.size = {1920,1080}; // Starting window size
+    options.bg_color    = {.5f, .5f, .5f, 1.f};
     MimirEngine engine;
     engine.init(1920, 1080);
-    engine.setBackgroundColor({.5f, .5f, .5f, 1.f});
 
     auto vertices = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
     auto edges    = engine.allocLinear((void**)&d_triangles, sizeof(int3) * h_triangles.size());
@@ -80,7 +82,7 @@ int main(int argc, char *argv[])
     params.options.default_size = 20.f;
     params.attributes[AttributeType::Position] = {
         .allocation = vertices,
-        .format    = { .type = DataType::float32, .components = 3 }
+        .format     = { .type = DataType::float32, .components = 3 }
     };
     engine.createView(params);
 

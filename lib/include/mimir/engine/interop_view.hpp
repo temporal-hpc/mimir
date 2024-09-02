@@ -12,7 +12,7 @@
 namespace mimir
 {
 
-enum class PresentOptions { Immediate, TripleBuffering, VSync };
+enum class PresentMode { Immediate, TripleBuffering, VSync };
 
 struct ShaderInfo
 {

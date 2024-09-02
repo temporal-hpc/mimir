@@ -8,18 +8,18 @@
 namespace mimir
 {
 
-VkPresentModeKHR getDesiredPresentMode(PresentOptions opts)
+VkPresentModeKHR getDesiredPresentMode(PresentMode opts)
 {
     switch (opts)
     {
-        case PresentOptions::Immediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
-        case PresentOptions::VSync: return VK_PRESENT_MODE_FIFO_KHR;
-        case PresentOptions::TripleBuffering: return VK_PRESENT_MODE_MAILBOX_KHR;
-        default: return VK_PRESENT_MODE_IMMEDIATE_KHR;
+        case PresentMode::Immediate:       return VK_PRESENT_MODE_IMMEDIATE_KHR;
+        case PresentMode::VSync:           return VK_PRESENT_MODE_FIFO_KHR;
+        case PresentMode::TripleBuffering: return VK_PRESENT_MODE_MAILBOX_KHR;
+        default:                           return VK_PRESENT_MODE_IMMEDIATE_KHR;
     }
 }
 
-void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions opts,
+void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentMode mode,
     std::vector<uint32_t> queue_indices, VkPhysicalDevice physical_device, VkDevice device)
 {
     VkSurfaceCapabilitiesKHR surf_caps;
@@ -45,7 +45,7 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentOptions o
         physical_device, surface, &mode_count, present_modes.data()
     );
 
-    VkPresentModeKHR present_mode = getDesiredPresentMode(opts);
+    VkPresentModeKHR present_mode = getDesiredPresentMode(mode);
 
     uint32_t format_count;
     vkGetPhysicalDeviceSurfaceFormatsKHR(

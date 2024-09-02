@@ -37,12 +37,12 @@ Application::Application(){
     myMesh = 0;
 
     ViewerOptions viewer_opts;
-    viewer_opts.window_title = "Tiuque"; // Top-level window.
-    viewer_opts.window_size = {1920, 1080};
-    viewer_opts.present = PresentOptions::VSync;
+    viewer_opts.window.title  = "Tiuque"; // Top-level window.
+    viewer_opts.window.size   = {1920, 1080};
+    viewer_opts.present.mode  = PresentMode::VSync;
     viewer_opts.report_period = 180;
+    viewer_opts.bg_color      = {0.f,0.f,0.f,1.f};
     engine.init(viewer_opts);
-    engine.setBackgroundColor({0.f,0.f,0.f,1.f});
 
     // TODO: Fix dptr in kernels
 	this->myMesh = new Mesh("/home/francisco/code/files_cudaview/mesh.off");

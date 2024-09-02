@@ -524,9 +524,9 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
             .pNext = nullptr,
             .flags = 0, // Currently unused
             .vertexBindingDescriptionCount   = (uint32_t)bindings.size(),
-            .pVertexBindingDescriptions      = bindings.empty()? nullptr : bindings.data(),
+            .pVertexBindingDescriptions      = bindings.data(),
             .vertexAttributeDescriptionCount = (uint32_t)attributes.size(),
-            .pVertexAttributeDescriptions    = attributes.empty()? nullptr : attributes.data(),
+            .pVertexAttributeDescriptions    = attributes.data(),
         });
 
         // Build the pipeline

@@ -87,13 +87,13 @@ void MimirEngine::init(ViewerOptions opts)
     spdlog::set_pattern("[%H:%M:%S] [%l] %v");
 
     options = opts;
-    options.max_fps = options.present == PresentOptions::VSync? 60 : 300;
-    target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
+    options.present.max_fps = options.present.mode == PresentMode::VSync? 60 : 300;
+    target_frame_time = getTargetFrameTime(options.present.enable_fps_limit, options.present.target_fps);
 
-    auto width  = options.window_size.x;
-    auto height = options.window_size.y;
+    auto width  = options.window.size.x;
+    auto height = options.window.size.y;
     window_context = std::make_unique<GlfwContext>();
-    window_context->init(width, height, options.window_title.c_str(), this);
+    window_context->init(width, height, options.window.title.c_str(), this);
     deletors.context.add([=,this] {
         window_context->clean();
     });
@@ -111,7 +111,7 @@ void MimirEngine::init(ViewerOptions opts)
 void MimirEngine::init(int width, int height)
 {
     ViewerOptions opts;
-    opts.window_size = {width, height};
+    opts.window.size = {width, height};
     init(opts);
 }
 
@@ -147,7 +147,7 @@ void MimirEngine::displayAsync()
 
 void MimirEngine::prepareViews()
 {
-    if (options.enable_sync && running)
+    if (options.present.enable_sync && running)
     {
         kernel_working = true;
         waitKernelStart();
@@ -171,7 +171,7 @@ void MimirEngine::waitKernelStart()
 
 void MimirEngine::updateViews()
 {
-    if (options.enable_sync && running)
+    if (options.present.enable_sync && running)
     {
         perf.endCuda();
         signalKernelFinish();
@@ -758,7 +758,7 @@ void MimirEngine::initSwapchain()
     uint32_t width = w;
     uint32_t height = h;
     std::vector queue_indices{dev.graphics.family_index, dev.present.family_index};
-    swap->create(width, height, options.present, queue_indices, dev.physical_device.handle, dev.logical_device);
+    swap->create(width, height, options.present.mode, queue_indices, dev.physical_device.handle, dev.logical_device);
     render_pass = createRenderPass();
     command_buffers = dev.createCommandBuffers(swap->image_count);
     query_pool = dev.createQueryPool(2 * command_buffers.size());
@@ -1020,7 +1020,7 @@ void MimirEngine::renderFrame()
     //vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
 
     std::array<VkClearValue, 2> clear_values{};
-    setColor(clear_values[0].color.float32, bg_color);
+    setColor(clear_values[0].color.float32, options.bg_color);
     clear_values[1].depthStencil = {1.f, 0};
 
     VkRenderPassBeginInfo render_pass_info{
@@ -1057,7 +1057,7 @@ void MimirEngine::renderFrame()
     std::vector<uint64_t> signal_values      = {0};
     VkTimelineSemaphoreSubmitInfo *extra     = nullptr;
     VkTimelineSemaphoreSubmitInfo timeline_info{};
-    if (kernel_working && options.enable_sync)
+    if (kernel_working && options.present.enable_sync)
     {
         waits.push_back(interop->vk_semaphore);
         stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
@@ -1111,7 +1111,7 @@ void MimirEngine::renderFrame()
     }
 
     // Limit frame if it was configured
-    if (options.enable_fps_limit) frameStall(target_frame_time);
+    if (options.present.enable_fps_limit) frameStall(target_frame_time);
 
     total_frame_count++;
     total_graphics_time += frame_time;
@@ -1390,9 +1390,9 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 
         auto extent = view->params.extent;
         SceneUniforms su{
-            .bg_color    = getColor(bg_color),
+            .bg_color    = getColor(options.bg_color),
             .extent      = glm::ivec3{extent.x, extent.y, extent.z},
-            .resolution  = glm::ivec2{options.window_size.x, options.window_size.y},
+            .resolution  = glm::ivec2{options.window.size.x, options.window.size.y},
             .camera_pos  = camera->position,
             .light_pos   = glm::vec3(0,0,0),
             .light_color = glm::vec4(0,0,0,0),
@@ -1421,11 +1421,6 @@ double MimirEngine::getRenderTimeResults(uint32_t cmd_idx)
     vkResetQueryPool(dev.logical_device, query_pool, cmd_idx * 2, 2);
     // TODO: apply time &= timestamp_mask;
     return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
-}
-
-void MimirEngine::setBackgroundColor(float4 color)
-{
-    bg_color = color;
 }
 
 struct ConvertedMemory
@@ -1466,7 +1461,7 @@ void MimirEngine::showMetrics()
     auto gpu_usage  = formatMemory(stats.usage);
     auto gpu_budget = formatMemory(stats.budget);
 
-    printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.target_fps,
+    printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.present.target_fps,
         framerate,perf.total_compute_time,total_pipeline_time,
         total_graphics_time,gpu_usage.data,gpu_budget.data
     );

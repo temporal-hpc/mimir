@@ -63,8 +63,8 @@ int main(int argc, char *argv[])
     {
         // Initialize engine
         ViewerOptions options;
-        options.window_size = {1920,1080}; // Starting window size
-        options.present = PresentOptions::VSync;
+        options.window.size  = {1920,1080}; // Starting window size
+        options.present.mode = PresentMode::VSync;
         MimirEngine engine;
         engine.init(options);
 

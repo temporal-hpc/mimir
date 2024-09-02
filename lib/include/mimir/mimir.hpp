@@ -45,19 +45,30 @@ struct SyncData
     VkSemaphore render_complete = VK_NULL_HANDLE;
 };
 
+struct WindowOptions
+{
+    std::string title = "Mimir";
+    int2 size         = { 800, 600 };
+    bool fullscreen   = false; // TODO: Implement
+};
+
+struct PresentOptions
+{
+    PresentMode mode      = PresentMode::Immediate;
+    bool enable_sync      = true;
+    bool enable_fps_limit = false;
+    int target_fps        = 60;
+    int max_fps           = 0;
+};
+
 struct ViewerOptions
 {
-    std::string window_title = "Mimir";
-    int2 window_size         = { 800, 600 };
-    PresentOptions present   = PresentOptions::VSync;
-    bool enable_sync         = true;
-    bool show_metrics        = false;
-    bool show_demo_window    = false;
-    bool fullscreen          = true;
-    bool enable_fps_limit    = false;
-    int target_fps           = 60;
-    int max_fps              = 0;
-    uint report_period       = 0;
+    WindowOptions window   = {};
+    PresentOptions present = {};
+    bool show_metrics      = false;
+    bool show_demo_window  = false;
+    uint report_period     = 0;
+    float4 bg_color        = {.5f, .5f, .5f, 1.f};
 };
 
 class MimirEngine
@@ -93,7 +104,6 @@ public:
     void showMetrics();
     void exit();
 
-    void setBackgroundColor(float4 color);
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
     float getTotalTime() { return total_graphics_time; }
 
@@ -151,7 +161,6 @@ private:
     std::string shader_path;
     uint64_t render_timeline = 0;
     long target_frame_time = 0;
-    float4 bg_color{.5f, .5f, .5f, 1.f};
 
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<InteropMemory*> allocations;

@@ -18,7 +18,7 @@ struct VulkanSwapchain
     VkExtent2D extent;
     uint32_t image_count = 0;
 
-    void create(uint32_t& width, uint32_t& height, PresentOptions opts,
+    void create(uint32_t& width, uint32_t& height, PresentMode mode,
         std::vector<uint32_t> queue_indices, VkPhysicalDevice gpu, VkDevice device
     );
     std::vector<VkImage> createImages(VkDevice device);
