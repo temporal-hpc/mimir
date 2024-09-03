@@ -85,14 +85,12 @@ public:
 
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
     std::shared_ptr<Allocation> allocLinear(void **dev_ptr, size_t size);
-    // Allocates opaque read-only device memory, equivalent to cudaCreateTextureObject()
-    std::shared_ptr<Allocation> allocTexture(cudaTextureObject_t *tex_obj, const cudaResourceDesc *res_desc,
-        const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc
+    // Allocates opaque device memory, equivalent to cudaMallocMipmappedArray()
+    std::shared_ptr<Allocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
+        const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
     );
-    // Allocates opaque RW device memory, equivalent to cudaCreateSurfaceObject()
-    std::shared_ptr<Allocation> allocSurface(cudaSurfaceObject_t *surf_obj, const cudaResourceDesc *res_desc);
 
-    // Creates an allocation with memory initialized for representing a structured domain
+    // Allocates device memory initialized for representing a structured domain
     std::shared_ptr<Allocation> makeStructuredDomain(StructuredDomainParams p);
 
     // View creation
@@ -126,7 +124,7 @@ public:
     void signalKernelFinish();
 
 private:
-    Allocation allocateExternalMemory(size_t size, VkBufferUsageFlags usage);
+    Allocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
     VkBuffer createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage);
 
     VkInstance instance                     = VK_NULL_HANDLE;

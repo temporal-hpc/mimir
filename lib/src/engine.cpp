@@ -249,7 +249,7 @@ std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size
     assert(size > 0);
 
     auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    auto alloc = allocateExternalMemory(size, usage);
+    auto alloc = allocExtmemBuffer(size, usage);
     cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
     validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
         dev_ptr, alloc.cuda_extmem, &buffer_desc)
@@ -259,39 +259,90 @@ std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size
     return std::make_shared<Allocation>(alloc);
 }
 
-std::shared_ptr<Allocation> MimirEngine::allocTexture(cudaTextureObject_t *tex_obj,
-    const cudaResourceDesc *res_desc, const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc)
+std::shared_ptr<Allocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
+    const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
 {
-    return nullptr;
+    assert(extent.width > 0 && extent.height > 0 && extent.depth > 0 && num_levels > 0);
+    // TODO: Validate parameters against driver limits
+
+    VkImageType type = extent.depth > 1? VK_IMAGE_TYPE_3D : extent.height > 1? VK_IMAGE_TYPE_2D : VK_IMAGE_TYPE_1D;
+    VkFormat format  = VK_FORMAT_UNDEFINED; // TODO: Determine
+
+    VkExternalMemoryImageCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+    VkImageCreateInfo info{
+        .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext       = &extmem_info,
+        .flags       = 0,
+        .imageType   = type,
+        .format      = format,
+        .extent      = VkExtent3D{ extent.width, extent.height, extent.depth },
+        .mipLevels   = num_levels,
+        .arrayLayers = 1,
+        .samples     = VK_SAMPLE_COUNT_1_BIT,
+        .tiling      = VK_IMAGE_TILING_OPTIMAL,
+        .usage       = VK_IMAGE_USAGE_SAMPLED_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices   = nullptr,
+        .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    VkImage test_image = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateImage(dev.logical_device, &info, nullptr, &test_image));
+    VkMemoryRequirements memreq{};
+    vkGetImageMemoryRequirements(dev.logical_device, test_image, &memreq);
+
+    auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+    auto vk_memory = dev.allocateMemory(memreq, memflags, &export_info);
+    auto cuda_extmem = interop::importCudaExternalMemory(
+        vk_memory, memreq.size, dev.logical_device
+    );
+
+    vkDestroyImage(dev.logical_device, test_image, nullptr);
+    Allocation alloc{memreq.size, vk_memory, cuda_extmem};
+
+    cudaExternalMemoryMipmappedArrayDesc array_desc{
+        .offset     = 0,
+        .formatDesc = *desc,
+        .extent     = extent,
+        .flags      = 0,
+        .numLevels  = num_levels,
+    };
+    validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
+        dev_arr, alloc.cuda_extmem, &array_desc)
+    );
+
+    return std::make_shared<Allocation>(alloc);
 }
 
-std::shared_ptr<Allocation> MimirEngine::allocSurface(cudaSurfaceObject_t *surf_obj, const cudaResourceDesc *res_desc)
-{
-    return nullptr;
-}
-
-Allocation MimirEngine::allocateExternalMemory(size_t size, VkBufferUsageFlags usage)
+Allocation MimirEngine::allocExtmemBuffer(size_t size, VkBufferUsageFlags usage)
 {
     // Create test buffer for querying the desired memory properties
-    VkBuffer test_buffer = VK_NULL_HANDLE;
     VkExternalMemoryBufferCreateInfo extmem_info{
         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
-    test_buffer = dev.createBuffer(size, usage, &extmem_info);
+    auto test_buffer = dev.createBuffer(size, usage, &extmem_info);
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(dev.logical_device, test_buffer, &memreq);
 
     // Allocate external device memory
-    VkDeviceMemory vk_memory = VK_NULL_HANDLE;
     VkExportMemoryAllocateInfoKHR export_info{
         .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    vk_memory = dev.allocateMemory(memreq, memflags, &export_info);
+    auto vk_memory = dev.allocateMemory(memreq, memflags, &export_info);
 
     // Export and map the external memory to CUDA
     auto cuda_extmem = interop::importCudaExternalMemory(
@@ -306,7 +357,7 @@ Allocation MimirEngine::allocateExternalMemory(size_t size, VkBufferUsageFlags u
     });
 
     vkDestroyBuffer(dev.logical_device, test_buffer, nullptr);
-    return Allocation{size, vk_memory, cuda_extmem};
+    return Allocation{memreq.size, vk_memory, cuda_extmem};
 }
 
 VkBuffer MimirEngine::createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage)

@@ -195,8 +195,13 @@ int main(int argc, char *argv[])
     MimirEngine engine;
     engine.init(width, height);
 
-    // TODO: Unused, should be a texture handle
-    uchar4 *d_image = nullptr;
+    cudaMipmappedArray_t mipmap_array = nullptr;
+    cudaChannelFormatDesc format{
+        .x = 8, .y = 8, .z = 8, .w = 8,
+        .f = cudaChannelFormatKindUnsigned,
+    };
+    auto extent = make_cudaExtent(img_width, img_height, 0);
+    auto mipmap = engine.allocMipmap(&mipmap_array, &format, extent, mip_levels);
 
     /*MemoryParams m;
     m.layout           = DataLayout::Layout2D;
