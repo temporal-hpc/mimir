@@ -1411,7 +1411,7 @@ void MimirEngine::rebuildPipeline(InteropView& view)
     std::filesystem::current_path(shader_path);
 
     PipelineBuilder builder(pipeline_layout, swap->extent);
-    builder.addPipeline(view.params, dev.logical_device);
+    //builder.addPipeline(view.params, dev.logical_device);
     auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
     // Destroy the old view pipeline and assign the new one
     vkDestroyPipeline(dev.logical_device, view.pipeline, nullptr);

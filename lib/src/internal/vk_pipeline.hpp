@@ -32,7 +32,6 @@ struct PipelineBuilder
     VkRect2D scissor;
 
     PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent);
-    uint32_t addPipeline(const ViewParams params, VkDevice device);
     uint32_t addPipeline(const ViewParams2 params, VkDevice device);
     std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
 };
