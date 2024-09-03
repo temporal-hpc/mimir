@@ -126,7 +126,8 @@ public:
     void signalKernelFinish();
 
 private:
-    VkBuffer initBuffer();
+    Allocation allocateExternalMemory(size_t size, VkBufferUsageFlags usage);
+    VkBuffer createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage);
 
     VkInstance instance                     = VK_NULL_HANDLE;
     VkRenderPass render_pass                = VK_NULL_HANDLE;

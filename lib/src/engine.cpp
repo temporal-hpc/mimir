@@ -248,9 +248,32 @@ std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size
 {
     assert(size > 0);
 
+    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    auto alloc = allocateExternalMemory(size, usage);
+    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
+    validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+        dev_ptr, alloc.cuda_extmem, &buffer_desc)
+    );
+
+    // Assemble the external memory handle
+    return std::make_shared<Allocation>(alloc);
+}
+
+std::shared_ptr<Allocation> MimirEngine::allocTexture(cudaTextureObject_t *tex_obj,
+    const cudaResourceDesc *res_desc, const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc)
+{
+    return nullptr;
+}
+
+std::shared_ptr<Allocation> MimirEngine::allocSurface(cudaSurfaceObject_t *surf_obj, const cudaResourceDesc *res_desc)
+{
+    return nullptr;
+}
+
+Allocation MimirEngine::allocateExternalMemory(size_t size, VkBufferUsageFlags usage)
+{
     // Create test buffer for querying the desired memory properties
     VkBuffer test_buffer = VK_NULL_HANDLE;
-    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     VkExternalMemoryBufferCreateInfo extmem_info{
         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
         .pNext       = nullptr,
@@ -274,10 +297,6 @@ std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size
     auto cuda_extmem = interop::importCudaExternalMemory(
         vk_memory, memreq.size, dev.logical_device
     );
-    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
-    validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-        dev_ptr, cuda_extmem, &buffer_desc)
-    );
 
     // Add deletors to queue for later cleanup
     deletors.views.add([=,this]{
@@ -286,85 +305,51 @@ std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size
         vkFreeMemory(dev.logical_device, vk_memory, nullptr);
     });
 
-    // Assemble the external memory handle
-    auto mem_handle = std::make_shared<Allocation>(size, vk_memory, cuda_extmem);
-
-    // Finishing: delete test buffer, set cuda device pointer and return
     vkDestroyBuffer(dev.logical_device, test_buffer, nullptr);
-    // TODO: push newly created pointer to allocation vector
-    return mem_handle;
+    return Allocation{size, vk_memory, cuda_extmem};
 }
 
-std::shared_ptr<Allocation> MimirEngine::allocTexture(cudaTextureObject_t *tex_obj,
-    const cudaResourceDesc *res_desc, const cudaTextureDesc *tex_desc, const cudaResourceViewDesc *view_desc)
+VkBuffer MimirEngine::createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage)
 {
-    return nullptr;
-}
+    // Get and validate buffer size against allocation size
+    VkDeviceSize memsize = getBytesize(attr.format) * element_count;
+    assert(memsize + attr.offset <= attr.memory->size);
 
-std::shared_ptr<Allocation> MimirEngine::allocSurface(cudaSurfaceObject_t *surf_obj, const cudaResourceDesc *res_desc)
-{
-    return nullptr;
+    // Create and bind buffer
+    VkExternalMemoryBufferCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    auto attr_buffer = dev.createBuffer(memsize, usage, &extmem_info);
+    deletors.views.add([=,this]{ vkDestroyBuffer(dev.logical_device, attr_buffer, nullptr); });
+    vkBindBufferMemory(dev.logical_device, attr_buffer, attr.allocation->vk_mem, 0);
+    return attr_buffer;
 }
 
 std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
 {
-    // TODO: Create view resources in its own function
     ViewResources res;
     res.vbo.handles.reserve(params.attributes.size());
     res.vbo.offsets.reserve(params.attributes.size());
+
+    // Create attribute buffers
     for (const auto &[type, attr] : params.attributes)
     {
-        // Get buffer size
-        auto element_size = getBytesize(attr.format);
-        VkDeviceSize memsize = element_size * params.element_count;
-        // Input validation
-        assert(memsize <= attr.memory->size);
-        assert(element_size * (params.element_count + attr.offset) <= attr.memory->size);
-
-        // Get buffer usage requirements
         auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        VkExternalMemoryBufferCreateInfo extmem_info{
-            .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
-            .pNext       = nullptr,
-            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-        };
-
-        // Create and bind buffer
-        VkBuffer attr_buffer = dev.createBuffer(memsize, usage, &extmem_info);
-        deletors.views.add([=,this]{
-            vkDestroyBuffer(dev.logical_device, attr_buffer, nullptr);
-        });
-        vkBindBufferMemory(dev.logical_device, attr_buffer, attr.allocation->vk_mem, 0);
-
+        auto attr_buffer = createAttributeBuffer(attr, params.element_count, usage);
         // Register buffer info in attribute array
         res.vbo.handles.push_back(attr_buffer);
         res.vbo.offsets.push_back(attr.offset);
         res.vbo.count++;
     }
 
-    // TODO: Add index buffer support (should not be an attribute)
+    // Create index buffer if its attribute was set
     if (params.indexing.allocation != nullptr)
     {
-        // Get buffer size
-        auto element_size = getBytesize(params.indexing.format);
-        VkDeviceSize memsize = element_size * params.element_count;
-        // Input validation
-        assert(memsize <= params.indexing.memory->size);
-        assert(element_size * (params.element_count + params.indexing.offset) <= params.indexing.memory->size);
-
-        // Get buffer usage requirements
         auto usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-        VkExternalMemoryBufferCreateInfo extmem_info{
-            .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
-            .pNext       = nullptr,
-            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-        };
-
-        // Create and bind buffer
-        VkBuffer index_buffer = dev.createBuffer(memsize, usage, &extmem_info);
-        deletors.views.add([=,this]{ vkDestroyBuffer(dev.logical_device, index_buffer, nullptr); });
-        vkBindBufferMemory(dev.logical_device, index_buffer, params.indexing.allocation->vk_mem, 0);
-
+        auto index_buffer = createAttributeBuffer(params.indexing, params.element_count, usage);
+        // Register index buffer info
         res.ibo.handle = index_buffer;
         res.ibo.type   = getIndexType(params.indexing.format.type);
     }
@@ -502,6 +487,7 @@ void MimirEngine::initVulkan()
     });
 
     // Create VMA handle
+    /*
     auto memtypes = dev.physical_device.memory.memoryProperties.memoryTypes;
     auto memtype_count = dev.physical_device.memory.memoryProperties.memoryTypeCount;
     std::vector<VkExternalMemoryHandleTypeFlagsKHR> external_memtypes(memtype_count, 0);
@@ -513,7 +499,7 @@ void MimirEngine::initVulkan()
             external_memtypes[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
         }
     }
-/*
+
     VmaAllocatorCreateInfo allocator_info{
         .flags                          = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT,
         .physicalDevice                 = dev.physical_device.handle,

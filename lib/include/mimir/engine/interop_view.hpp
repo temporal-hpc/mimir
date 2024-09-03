@@ -214,11 +214,11 @@ struct IndexBuffer
 
 struct ImageData
 {
-    VkImage image        = VK_NULL_HANDLE;
-    VkImageView vk_view  = VK_NULL_HANDLE;
-    VkSampler vk_sampler = VK_NULL_HANDLE;
-    VkFormat vk_format   = VK_FORMAT_UNDEFINED;
-    VkExtent3D vk_extent = {0, 0, 0};
+    VkImage handle       = VK_NULL_HANDLE;
+    VkImageView img_view = VK_NULL_HANDLE;
+    VkSampler sampler    = VK_NULL_HANDLE;
+    VkFormat format      = VK_FORMAT_UNDEFINED;
+    VkExtent3D extent    = {0, 0, 0};
 };
 
 struct ViewResources
