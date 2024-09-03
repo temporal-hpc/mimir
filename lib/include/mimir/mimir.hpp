@@ -91,7 +91,7 @@ public:
     );
 
     // Allocates device memory initialized for representing a structured domain
-    std::shared_ptr<Allocation> makeStructuredDomain(StructuredDomainParams p);
+    AttributeParams makeStructuredDomain(StructuredDomainParams p);
 
     // View creation
     std::shared_ptr<InteropView2> createView(ViewParams2 params);

@@ -2,6 +2,7 @@
 
 #include <cstring> // to_string
 #include <map> // std::map
+#include <spdlog/spdlog.h>
 
 #include "internal/shader_types.hpp"
 #include "internal/validation.hpp"
@@ -337,7 +338,6 @@ ShaderCompileParams getShaderCompileParams(ViewParams2 params)
         {AttributeType::Color, "ColorDefault"},
         {AttributeType::Size, "SizeDefault"}
     };
-    if (params.view_type == ViewType::Voxels) specs[AttributeType::Position] = "PositionFloat3"; // TODO: Remove
 
     for (const auto &[type, attr] : params.attributes)
     {
@@ -349,7 +349,7 @@ ShaderCompileParams getShaderCompileParams(ViewParams2 params)
     // Get the list of specialization names
     for (const auto& spec : specs)
     {
-        //printf("%s\n", spec.second.c_str());
+        spdlog::trace("{}", spec.second);
         compile.specializations.push_back(spec.second);
     }
 

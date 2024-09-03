@@ -67,11 +67,11 @@ int main(int argc, char **argv){
     params.element_count = n*n*n;
     params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain   = DataDomain::Domain3D;
-    params.view_type     = ViewType::Markers; // Voxels
-    // TODO: params.attributes[AttributeType::Position] = bla
+    params.view_type     = ViewType::Voxels;
+    params.attributes[AttributeType::Position] = engine.makeStructuredDomain({params.extent});
     params.attributes[AttributeType::Color] = {
         .allocation = ping,
-        .format     = { .type = DataType::float64, .components = 1 },
+        .format     = { .type = DataType::int32, .components = 1 },
     };
     auto v1 = engine.createView(params);
 

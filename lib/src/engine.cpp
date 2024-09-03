@@ -236,12 +236,58 @@ void MimirEngine::updateLinearTextures()
     }*/
 }
 
-std::shared_ptr<Allocation> MimirEngine::makeStructuredDomain(StructuredDomainParams params)
+void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, uint3 size)
+{
+    float3 *data = nullptr;
+    vkMapMemory(dev, mem, 0, memsize, 0, (void**)&data);
+    auto slice_size = size.x * size.y;
+    for (uint32_t z = 0; z < size.z; ++z)
+    {
+        auto rz = static_cast<float>(z) / size.z;
+        rz = 2 * rz - 1;
+        for (uint32_t y = 0; y < size.y; ++y)
+        {
+            auto ry = static_cast<float>(y) / size.y;
+            ry = 2 * ry - 1;
+            for (uint32_t x = 0; x < size.x; ++x)
+            {
+                auto rx = static_cast<float>(x) / size.x;
+                rx = 2 * rx - 1;
+                data[slice_size * z + size.x * y + x] = float3{rx, ry, rz};
+            }
+        }
+    }
+    vkUnmapMemory(dev, mem);
+}
+
+AttributeParams MimirEngine::makeStructuredDomain(StructuredDomainParams params)
 {
     auto sz = params.size;
     assert(sz.x > 0 || sz.y > 0 || sz.z > 0);
+    auto memsize = sizeof(float3) * sz.x * sz.y * sz.z;
 
-    return nullptr;
+    // Create test buffer for querying the desired memory properties
+    auto domain_buffer = dev.createBuffer(memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    VkMemoryRequirements memreq{};
+    vkGetBufferMemoryRequirements(dev.logical_device, domain_buffer, &memreq);
+
+    auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto vk_memory = dev.allocateMemory(memreq, flags);
+    vkBindBufferMemory(dev.logical_device, domain_buffer, vk_memory, 0);
+    initImplicitCoords(dev.logical_device, vk_memory, memreq.size, params.size);
+
+    // Add deletors to queue for later cleanup
+    deletors.views.add([=,this]{
+        spdlog::trace("Free structured domain memory");
+        vkFreeMemory(dev.logical_device, vk_memory, nullptr);
+        vkDestroyBuffer(dev.logical_device, domain_buffer, nullptr);
+    });
+
+    return AttributeParams{
+        .allocation = std::make_shared<Allocation>(memreq.size, vk_memory, nullptr),
+        .format     = { .type = DataType::float32, .components = 3 },
+        .offset     = 0,
+    };
 }
 
 std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size)
@@ -279,7 +325,7 @@ std::shared_ptr<Allocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_a
         .flags       = 0,
         .imageType   = type,
         .format      = format,
-        .extent      = VkExtent3D{ extent.width, extent.height, extent.depth },
+        .extent      = VkExtent3D{ (uint32_t)extent.width, (uint32_t)extent.height, (uint32_t)extent.depth },
         .mipLevels   = num_levels,
         .arrayLayers = 1,
         .samples     = VK_SAMPLE_COUNT_1_BIT,
@@ -1198,7 +1244,7 @@ void MimirEngine::drawElements(uint32_t image_idx)
         if (ibo.handle != nullptr) // If index buffer exists, bind it and perform indexed draw
         {
             vkCmdBindIndexBuffer(cmd, ibo.handle, 0, ibo.type);
-            vkCmdDrawIndexed(cmd, 3 * vertex_count, 1, 0, 0, 0);
+            vkCmdDrawIndexed(cmd, vertex_count, 1, 0, 0, 0);
         }
         else // Perform regular draw with bound vertex buffers
         {

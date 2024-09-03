@@ -52,7 +52,7 @@ VkBufferUsageFlags getBufferUsage(ResourceType type)
         default: return usage;
     }
 }
-
+/*
 void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, uint3 extent)
 {
     float3 *data = nullptr;
@@ -75,7 +75,7 @@ void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, 
         }
     }
     vkUnmapMemory(dev, mem);
-}
+}*/
 
 uint32_t InteropDevice::getMaxImageDimension(DataLayout layout)
 {
@@ -211,7 +211,7 @@ void InteropDevice::initViewBuffer(InteropView& view)
         view.aux_memory = allocateMemory(memreq, flags);
         vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
 
-        initImplicitCoords(logical_device, view.aux_memory, buffer_size, params.extent);
+        //initImplicitCoords(logical_device, view.aux_memory, buffer_size, params.extent);
         view.vert_buffers.push_back(view.aux_buffer);
         view.buffer_offsets.push_back(0);
     }

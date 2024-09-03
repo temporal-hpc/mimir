@@ -174,6 +174,8 @@ struct AttributeParams
     DataFormat format = {};
     // Offset to start of memory handle
     VkDeviceSize offset = 0;
+    // TODO: Set default value per attribute
+    float4 default_value;
 };
 
 using AttributeDict2 = std::map<AttributeType, AttributeParams>;
