@@ -10,27 +10,13 @@ struct VertexData
     float4 color  : COLOR;
 };
 
-struct VertexInput
-{
-    float3 pos : POSITION;
-};
-
 [shader("vertex")]
-VertexData vertexMain(VertexInput input)
+VertexData vertexMain<P : IPosition, C : IColor, S : ISize>(
+    P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
 {
     VertexData output;
-    output.center = float4(2 * (input.pos / scene.extent) - 1, 1);
-    output.color = view.default_color;
-
-    return output;
-}
-
-[shader("vertex")]
-VertexData vertexImplicitMain<P: IPosition, C : IColor, S : ISize>(float3 in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
-{
-    VertexData output;
-    output.center = float4(in_pos, 1);//in_pos.getPosition(int3(1));
-    output.color  = in_color.getColor();
+    output.center = in_pos.getPosition(scene.extent);
+    output.color = in_color.getColor();
 
     return output;
 }

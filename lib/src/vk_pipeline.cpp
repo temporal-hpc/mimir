@@ -197,7 +197,7 @@ ShaderCompileParams getShaderCompileParams(ViewParams2 params)
             compile.module_path = "shaders/voxel.slang";
             std::string geom_entry = "geometryMain";
             geom_entry += getDataDomain(params.data_domain);
-            compile.entrypoints = {"vertexImplicitMain", geom_entry, "fragmentMain"};
+            compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
         case ViewType::Image:
