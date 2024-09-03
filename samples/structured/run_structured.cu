@@ -249,26 +249,10 @@ int main(int argc, char *argv[])
             .allocation = seeds,
             .format     = { .type = DataType::float32, .components = 2 }
         };
+        params.options.default_color = {0,0,1,1};
         engine.createView(params);
 
-        /*MemoryParams m1;
-        m1.layout          = DataLayout::Layout1D;
-        m1.element_count.x = program.element_count;
-        m1.component_type  = ComponentType::Float;
-        m1.channel_count   = 2;
-        m1.resource_type   = ResourceType::Buffer;
-        auto points = engine.createBuffer((void**)&program.d_coords, m1);
-
-        ViewParams p1;
-        p1.element_count = program.element_count;
-        p1.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
-        p1.data_domain   = DataDomain::Domain2D;
-        p1.domain_type   = DomainType::Unstructured;
-        p1.view_type     = ViewType::Markers;
-        p1.attributes[AttributeType::Position] = *points;
-        p1.options.default_color = {0,0,1,1};
-        auto v1 = engine.createView(p1);
-
+        /*
         MemoryParams m2;
         m2.layout         = DataLayout::Layout2D;
         m2.element_count  = {(uint)program.extent.x, (uint)program.extent.y, 1};
@@ -283,7 +267,8 @@ int main(int argc, char *argv[])
         p2.domain_type   = DomainType::Structured;
         p2.view_type     = ViewType::Image;
         p2.attributes[AttributeType::Color] = *image;
-        auto v2 = engine.createView(p2);*/
+        auto v2 = engine.createView(p2);
+        */
 
         program.setInitialState();
 

@@ -95,25 +95,8 @@ int main(int argc, char *argv[]) {
         .allocation = points,
         .format     = { .type = DataType::float32, .components = 2 }
     };
-    params.options.default_size = .01f;
+    params.options.default_size = .02f;
     engine.createView(params);
-
-    /*MemoryParams mem;
-    mem.layout          = DataLayout::Layout1D;
-    mem.element_count.x = n;
-    mem.component_type  = ComponentType::Float;
-    mem.channel_count   = 2;
-    mem.resource_type   = ResourceType::Buffer;
-    auto pointsmem = engine.createBuffer((void**)&dPoints, mem);
-
-    ViewParams params;
-    params.element_count = n;
-    params.data_domain   = DataDomain::Domain2D;
-    params.domain_type   = DomainType::Unstructured;
-    params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = *pointsmem;
-    params.options.default_size = .1f;
-    engine.createView(params);*/
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);

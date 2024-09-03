@@ -52,30 +52,6 @@ VkBufferUsageFlags getBufferUsage(ResourceType type)
         default: return usage;
     }
 }
-/*
-void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, uint3 extent)
-{
-    float3 *data = nullptr;
-    vkMapMemory(dev, mem, 0, memsize, 0, (void**)&data);
-    auto slice_size = extent.x * extent.y;
-    for (uint32_t z = 0; z < extent.z; ++z)
-    {
-        auto rz = static_cast<float>(z) / extent.z;
-        rz = 2 * rz - 1;
-        for (uint32_t y = 0; y < extent.y; ++y)
-        {
-            auto ry = static_cast<float>(y) / extent.y;
-            ry = 2 * ry - 1;
-            for (uint32_t x = 0; x < extent.x; ++x)
-            {
-                auto rx = static_cast<float>(x) / extent.x;
-                rx = 2 * rx - 1;
-                data[slice_size * z + extent.x * y + x] = float3{rx, ry, rz};
-            }
-        }
-    }
-    vkUnmapMemory(dev, mem);
-}*/
 
 uint32_t InteropDevice::getMaxImageDimension(DataLayout layout)
 {

@@ -87,41 +87,16 @@ int main(int argc, char *argv[])
         };
         engine.createView(params);
 
-        /*
-        MemoryParams m;
-        m.layout          = DataLayout::Layout1D;
-        m.element_count.x = point_count;
-        m.component_type  = ComponentType::Double;
-        m.channel_count   = 2;
-        m.resource_type   = ResourceType::Buffer;
-        auto points = engine.createBuffer((void**)&d_coords, m);
-
-        m.component_type  = ComponentType::Double;
-        m.channel_count   = 1;
-        auto sizes = engine.createBuffer((void**)&d_sizes, m);
-
-        ViewParams params;
-        params.element_count = point_count;
-        params.extent        = {200, 200, 1};
-        params.data_domain   = DataDomain::Domain2D;
-        params.domain_type   = DomainType::Unstructured;
-        params.view_type     = ViewType::Markers;
-        params.options.default_size = 20.f;
         // params.options.external_shaders = {
         //     {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         //     {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
         //     {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
         // };
-        params.attributes[AttributeType::Position] = *points;
-        params.attributes[AttributeType::Size] = *sizes;
-        engine.createView(params);
-        */
 
         // Cannot make CUDA calls that use the target device memory before
         // registering it on the engine
         //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
         checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
-        // engine.allocLinear((void**)&d_states, sizeof(curandState) * point_count);
         initSystem<<<grid_size, block_size>>>(
             d_coords, d_sizes, point_count, d_states, extent, seed
         );
