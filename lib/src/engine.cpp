@@ -21,24 +21,6 @@
 namespace mimir
 {
 
-void setColor(float *vk_color, float4 color)
-{
-    vk_color[0] = color.x;
-    vk_color[1] = color.y;
-    vk_color[2] = color.z;
-    vk_color[3] = color.w;
-}
-
-glm::vec4 getColor(float4 color)
-{
-    glm::vec4 colorvec;
-    colorvec.x = color.x;
-    colorvec.y = color.y;
-    colorvec.z = color.z;
-    colorvec.w = color.w;
-    return colorvec;
-}
-
 // Setup the shader path so that the library can actually load them
 // Hack-ish, but works for now
 std::string getDefaultShaderPath()
@@ -1102,8 +1084,9 @@ void MimirEngine::renderFrame()
 
     //vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
 
+    // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
-    setColor(clear_values[0].color.float32, options.bg_color);
+    std::memcpy(clear_values[0].color.float32, &options.bg_color.x, sizeof(options.bg_color));
     clear_values[1].depthStencil = {1.f, 0};
 
     VkRenderPassBeginInfo render_pass_info{
@@ -1362,7 +1345,7 @@ VkRenderPass MimirEngine::createRenderPass()
 
 void MimirEngine::createGraphicsPipelines()
 {
-    //auto start = std::chrono::steady_clock::now();
+    auto start = std::chrono::steady_clock::now();
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
 
@@ -1382,27 +1365,11 @@ void MimirEngine::createGraphicsPipelines()
         });
     }
 
-    // Iterate through views, generating the corresponding pipelines
-    // TODO: This does not allow adding views at runtime
-    /*for (auto& view : views)
-    {
-        builder.addPipeline(view->params, dev.logical_device);
-    }
-    auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
-    //printf("%lu pipeline(s) created\n", pipelines.size());
-    for (size_t i = 0; i < pipelines.size(); ++i)
-    {
-        views[i]->pipeline = pipelines[i];
-        deletors.swapchain.add([=,this]{
-            vkDestroyPipeline(dev.logical_device, views[i]->pipeline, nullptr);
-        });
-    }*/
-
     // Restore original working directory
     std::filesystem::current_path(orig_path);
-    //auto end = std::chrono::steady_clock::now();
-    //auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    //printf("Creation time for all pipelines: %lu ms\n", elapsed);
+    auto end = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    spdlog::trace("Creation time for all pipelines: {} ms", elapsed);
 }
 
 void MimirEngine::rebuildPipeline(InteropView& view)
@@ -1464,16 +1431,18 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
             .proj  = camera->matrices.perspective,
         };
 
+        auto dc = view->params.options.default_color;
         ViewUniforms vu{
-            .color         = getColor(view->params.options.default_color),
+            .color         = glm::vec4(dc.x, dc.y, dc.z, dc.w),
             .size          = view->params.options.default_size,
             .depth         = view->params.options.depth,
             .element_count = view->params.options.custom_val,
         };
 
+        auto bg = options.bg_color;
         auto extent = view->params.extent;
         SceneUniforms su{
-            .bg_color    = getColor(options.bg_color),
+            .bg_color    = glm::vec4(bg.x, bg.y, bg.z, bg.w),
             .extent      = glm::ivec3{extent.x, extent.y, extent.z},
             .resolution  = glm::ivec2{options.window.size.x, options.window.size.y},
             .camera_pos  = camera->position,
