@@ -14,11 +14,12 @@
 namespace mimir::gui
 {
 
-static std::array<ViewType, 4> kAllViewTypes = {
+static std::array<ViewType, 5> kAllViewTypes = {
     ViewType::Markers,
     ViewType::Edges,
     ViewType::Voxels,
-    ViewType::Image
+    ViewType::Image,
+    ViewType::Boxes
 };
 /*
 static std::array<ResourceType, 4> kAllResources = {

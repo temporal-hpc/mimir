@@ -131,6 +131,10 @@ VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
     {
         topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     }
+    else if (view_type == ViewType::Boxes)
+    {
+        topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    }
     return VkPipelineInputAssemblyStateCreateInfo{
         .sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         .pNext    = nullptr,
@@ -228,6 +232,14 @@ ShaderCompileParams getShaderCompileParams(ViewParams2 params)
             frag_entry += std::to_string(color_attr.format.components);
 
             compile.entrypoints = { vert_entry, frag_entry };
+            break;
+        }
+        case ViewType::Boxes:
+        {
+            compile.module_path = "shaders/boxes.slang";
+            std::string geom_entry = "geometryMain";
+            geom_entry += getDataDomain(params.data_domain);
+            compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
         default:

@@ -8,7 +8,7 @@ namespace mimir
 {
 
 // Specifies the type of view that will be visualized
-enum class ViewType      { Markers, Edges, Voxels, Image };
+enum class ViewType      { Markers, Edges, Voxels, Image, Boxes };
 // Specifies the data type stored in the texture corresponding to a view
 enum class ComponentType { Int, Long, Short, Char, Float, Double, Half };
 // Specifies which cuda resource is mapped
@@ -29,6 +29,7 @@ constexpr char* getViewType(ViewType type)
         STR(Edges);
         STR(Voxels);
         STR(Image);
+        STR(Boxes);
 #undef STR
         default: return (char*)"unknown";
     }
