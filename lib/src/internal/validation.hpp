@@ -3,9 +3,10 @@
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
 
+#include <spdlog/spdlog.h>
+
 #include <cstdio> // stderr
 #include <source_location> // std::source_location
-#include <stdexcept> // std::throw
 #include <vector> // std::vector
 
 namespace mimir::validation
@@ -25,36 +26,25 @@ const std::vector<const char*> layers = {
     "VK_LAYER_KHRONOS_validation"
 };
 
-constexpr void checkCuda(cudaError_t code, bool panic = true,
-    srcloc src = srcloc::current())
+constexpr void checkCuda(cudaError_t code, srcloc src = srcloc::current())
 {
     if (code != cudaSuccess)
     {
-        fprintf(stderr, "CUDA assertion: %s in function %s at %s(%d)\n",
+        spdlog::error("CUDA assertion: {} in function {} at {}({})",
             cudaGetErrorString(code), src.function_name(), src.file_name(), src.line()
         );
-        if (panic)
-        {
-            throw std::runtime_error("CUDA failure!");
-        }
     }
 }
 
 std::string getVulkanErrorString(VkResult code);
 
-constexpr VkResult checkVulkan(VkResult code, bool panic = true,
-    srcloc src = srcloc::current())
+constexpr VkResult checkVulkan(VkResult code, srcloc src = srcloc::current())
 {
     if (code != VK_SUCCESS)
     {
-        fprintf(stderr, "Vulkan assertion: %s in function %s at %s(%d)\n",
-            getVulkanErrorString(code).c_str(),
-            src.function_name(), src.file_name(), src.line()
+        spdlog::error("Vulkan assertion: {} in function {} at {}({})",
+            getVulkanErrorString(code), src.function_name(), src.file_name(), src.line()
         );
-        if (panic)
-        {
-            throw std::runtime_error("Vulkan failure!");
-        };
     }
     return code;
 }

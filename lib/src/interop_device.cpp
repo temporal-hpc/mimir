@@ -78,7 +78,7 @@ VkImage InteropDevice::createImage(MemoryParams params)
     auto max_dim = getMaxImageDimension(params.layout);
     if (extent.width >= max_dim || extent.height >= max_dim || extent.height >= max_dim)
     {
-        throw std::runtime_error("Requested image dimensions are larger than maximum");
+        spdlog::error("Requested image dimensions are larger than maximum");
     }
 
     // Check that the upcoming image parameters are supported

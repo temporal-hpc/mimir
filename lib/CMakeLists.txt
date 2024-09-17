@@ -6,7 +6,6 @@ target_sources(mimir PRIVATE
     src/framelimit.cpp
     src/gui.cpp
     src/interop.cpp
-    src/performance_monitor.cpp
     src/physical_device.cpp
     src/shader.cpp
     src/validation.cpp

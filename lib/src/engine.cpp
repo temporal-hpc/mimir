@@ -61,6 +61,8 @@ MimirEngine::~MimirEngine()
 
     cleanupSwapchain();
     gui::shutdown();
+    deletors.views.flush();
+    deletors.context.flush();
 }
 
 void MimirEngine::init(ViewerOptions opts)
@@ -665,7 +667,7 @@ void MimirEngine::createInstance()
 {
     if (validation::enable_layers && !validation::checkValidationLayerSupport())
     {
-        throw std::runtime_error("validation layers requested, but not supported");
+        spdlog::error("validation layers requested, but not supported");
     }
 
     VkApplicationInfo app_info{
@@ -732,7 +734,7 @@ void MimirEngine::pickPhysicalDevice()
     validation::checkCuda(cudaGetDeviceCount(&cuda_dev_count));
     if (cuda_dev_count == 0)
     {
-        throw std::runtime_error("could not find devices supporting CUDA");
+        spdlog::error("could not find devices supporting CUDA");
     }
 
     auto all_devices = getDevices(instance);
@@ -770,7 +772,7 @@ void MimirEngine::pickPhysicalDevice()
             {
                 validation::checkCuda(cudaSetDevice(curr_device));
                 dev.physical_device = device;
-                printf("Selected CUDA-Vulkan device %d: %s\n\n",
+                spdlog::info("Selected interop device {}: {}",
                     curr_device, device.general.properties.deviceName
                 );
                 break;
@@ -781,7 +783,7 @@ void MimirEngine::pickPhysicalDevice()
 
     if (prohibited_count == cuda_dev_count)
     {
-        throw std::runtime_error("No CUDA-Vulkan interop device was found");
+        spdlog::error("No CUDA-Vulkan interop device was found");
     }
 }
 
@@ -1058,7 +1060,7 @@ void MimirEngine::renderFrame()
     }
     else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
     {
-        throw std::runtime_error("Failed to acquire swapchain image");
+        spdlog::error("Failed to acquire swapchain image");
     }
 
     /*if (images_inflight[image_idx] != VK_NULL_HANDLE)
@@ -1335,7 +1337,7 @@ VkRenderPass MimirEngine::createRenderPass()
         .pDependencies   = &dependency,
     };
 
-    //printf("render pass attachment count: %lu\n", attachments.size());
+    spdlog::debug("Render pass created with {} attachments", attachments.size());
     VkRenderPass render_pass = VK_NULL_HANDLE;
     validation::checkVulkan(
         vkCreateRenderPass(dev.logical_device, &pass_info, nullptr, &render_pass)
@@ -1356,7 +1358,6 @@ void MimirEngine::createGraphicsPipelines()
         builder.addPipeline(view->params, dev.logical_device);
     }
     auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
-    //printf("%lu pipeline(s) created\n", pipelines.size());
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
         views[i]->pipeline = pipelines[i];
@@ -1369,7 +1370,7 @@ void MimirEngine::createGraphicsPipelines()
     std::filesystem::current_path(orig_path);
     auto end = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    spdlog::trace("Creation time for all pipelines: {} ms", elapsed);
+    spdlog::trace("Created {} pipeline object(s) in {} ms", pipelines.size(), elapsed);
 }
 
 void MimirEngine::rebuildPipeline(InteropView& view)

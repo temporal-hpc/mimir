@@ -76,24 +76,24 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentMode mode
     auto old_swapchain = VK_NULL_HANDLE; //swapchain;
 
     VkSwapchainCreateInfoKHR create_info{
-        .sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-        .pNext            = nullptr,
-        .flags            = 0,
-        .surface          = surface,
-        .minImageCount    = image_count,
-        .imageFormat      = color_format,
-        .imageColorSpace  = color_space,
-        .imageExtent      = extent,
-        .imageArrayLayers = 1,
-        .imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .sType                 = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .pNext                 = nullptr,
+        .flags                 = 0,
+        .surface               = surface,
+        .minImageCount         = image_count,
+        .imageFormat           = color_format,
+        .imageColorSpace       = color_space,
+        .imageExtent           = extent,
+        .imageArrayLayers      = 1,
+        .imageUsage            = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
         .imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 0,
         .pQueueFamilyIndices   = nullptr,
-        .preTransform     = surf_caps.currentTransform,
-        .compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        .presentMode      = present_mode,
-        .clipped          = VK_TRUE,
-        .oldSwapchain     = old_swapchain,
+        .preTransform          = surf_caps.currentTransform,
+        .compositeAlpha        = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode           = present_mode,
+        .clipped               = VK_TRUE,
+        .oldSwapchain          = old_swapchain,
     };
 
     if (queue_indices[0] != queue_indices[1])
@@ -110,6 +110,82 @@ void VulkanSwapchain::create(uint32_t& width, uint32_t& height, PresentMode mode
 
 std::vector<VkImage> VulkanSwapchain::createImages(VkDevice device)
 {
+    vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
+    std::vector<VkImage> images(image_count);
+    vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data());
+    return images;
+}
+
+VkSwapchainKHR createSwapchain(VkDevice device, VkPhysicalDevice ph_dev, VkSurfaceKHR surf,
+    PresentMode mode, std::vector<uint32_t> queue_indices, VkSwapchainKHR old_swapchain)
+{
+    // Get a swapchain image count within surface supported limits
+    VkSurfaceCapabilitiesKHR surf_caps;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ph_dev, surf, &surf_caps);
+    uint32_t image_count = surf_caps.minImageCount + 1;
+    const auto max_image_count = surf_caps.maxImageCount;
+    if (max_image_count > 0 && image_count > max_image_count)
+    {
+        image_count = max_image_count;
+    }
+
+    // Retrieve list of surface formats supported by the current device
+    uint32_t format_count;
+    validation::checkVulkan(vkGetPhysicalDeviceSurfaceFormatsKHR(
+        ph_dev, surf, &format_count, nullptr)
+    );
+    std::vector<VkSurfaceFormatKHR> surface_formats(format_count);
+    validation::checkVulkan(vkGetPhysicalDeviceSurfaceFormatsKHR(
+        ph_dev, surf, &format_count, surface_formats.data())
+    );
+
+    // Go through available image formats and select expected image format & color space
+    VkFormat        image_format;
+    VkColorSpaceKHR color_space;
+    for (const auto& surf_format : surface_formats)
+    {
+        if (surf_format.format == VK_FORMAT_B8G8R8A8_UNORM &&
+            surf_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        {
+            image_format = surf_format.format;
+            color_space  = surf_format.colorSpace;
+        }
+    }
+
+    auto sharing_mode = (queue_indices.size() > 1 && queue_indices[0] != queue_indices[1])?
+        VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
+    auto present_mode = getDesiredPresentMode(mode);
+
+    // Create swapchain
+    VkSwapchainCreateInfoKHR info{
+        .sType                 = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .pNext                 = nullptr,
+        .flags                 = 0,
+        .surface               = surf,
+        .minImageCount         = image_count,
+        .imageFormat           = image_format,
+        .imageColorSpace       = color_space,
+        .imageExtent           = surf_caps.currentExtent,
+        .imageArrayLayers      = 1,
+        .imageUsage            = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode      = sharing_mode,
+        .queueFamilyIndexCount = static_cast<uint32_t>(queue_indices.size()),
+        .pQueueFamilyIndices   = queue_indices.data(),
+        .preTransform          = surf_caps.currentTransform,
+        .compositeAlpha        = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode           = present_mode,
+        .clipped               = VK_TRUE,
+        .oldSwapchain          = old_swapchain,
+    };
+
+    VkSwapchainKHR new_swapchain = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateSwapchainKHR(device, &info, nullptr, &new_swapchain));
+    return new_swapchain;
+}
+
+std::vector<VkImage> getImages(VkDevice device, VkSwapchainKHR swapchain)
+{
+    uint32_t image_count = 0;
     vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr);
     std::vector<VkImage> images(image_count);
     vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data());

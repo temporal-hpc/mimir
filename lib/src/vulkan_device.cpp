@@ -279,7 +279,7 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat format,
     auto blit_support = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
     if (!(props.optimalTilingFeatures & blit_support))
     {
-        throw std::runtime_error("texture image format does not support linear blitting!");
+        spdlog::error("texture image format does not support linear blitting!");
     }
 
     immediateSubmit([=](VkCommandBuffer cmd)
@@ -481,7 +481,7 @@ void VulkanDevice::transitionImageLayout(VkImage image,
     }
     else
     {
-        throw std::invalid_argument("unsupported layout transition");
+        spdlog::error("unsupported layout transition");
     }
 
     if (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
@@ -496,7 +496,7 @@ void VulkanDevice::transitionImageLayout(VkImage image,
     }
     else
     {
-        throw std::invalid_argument("unsupported layout transition");
+        spdlog::error("unsupported layout transition");
     }
 
     immediateSubmit([=](VkCommandBuffer cmd)

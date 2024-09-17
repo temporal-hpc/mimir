@@ -47,7 +47,7 @@ cudaExternalMemory_t importCudaExternalMemory(
     );
     if (!fpGetMemoryFdKHR)
     {
-        throw std::runtime_error("Failed to retrieve vkGetMemoryFdKHR function handle!");
+        spdlog::error("Failed to retrieve vkGetMemoryFdKHR function handle!");
     }
     // Get external memory handle
     int fd = -1;
@@ -71,7 +71,7 @@ cudaExternalSemaphore_t importCudaExternalSemaphore(
     );
     if (!fpGetSemaphore)
     {
-        throw std::runtime_error("Failed to retrieve vkGetSemaphoreFdKHR function handle!");
+        spdlog::error("Failed to retrieve vkGetSemaphoreFdKHR function handle!");
     }
     VkSemaphoreGetFdInfoKHR fd_info{
         .sType      = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR,

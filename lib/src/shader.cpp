@@ -13,7 +13,7 @@ namespace validation
 {
 
 constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
-    bool panic = true, std::source_location src = std::source_location::current())
+    std::source_location src = std::source_location::current())
 {
     if (code < 0)
     {
@@ -22,18 +22,14 @@ constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
         {
             msg = static_cast<const char*>(diag->getBufferPointer());
         }
-        fprintf(stderr, "Slang assertion: %s in function %s at %s(%d)\n",
+        spdlog::error("Slang assertion: {} in function {} at {}({})",
             msg, src.function_name(), src.file_name(), src.line()
         );
-        if (panic)
-        {
-            throw std::runtime_error("Slang failure!");
-        }
     }
     else if (diag != nullptr)
     {
         const char* msg = static_cast<const char*>(diag->getBufferPointer());
-        fprintf(stderr, "Slang warning: %s in function %s at %s(%d)\n",
+        spdlog::warn("Slang warning: {} in function {} at {}({})",
             msg, src.function_name(), src.file_name(), src.line()
         );
     }
@@ -308,7 +304,7 @@ std::vector<char> readFile(const std::string& filename)
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
     if (!file.is_open())
     {
-        throw std::runtime_error("failed to open file!");
+        spdlog::error("readFile: failed to open file {}", filename);
     }
 
     // Use read position to determine filesize and allocate output buffer
