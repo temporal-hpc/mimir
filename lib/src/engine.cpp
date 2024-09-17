@@ -1,28 +1,35 @@
 #include <mimir/mimir.hpp>
-#include "internal/validation.hpp"
 #include <mimir/engine/vk_framebuffer.hpp>
-#include <mimir/engine/vk_swapchain.hpp>
 
 #include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
+#include "internal/interop.hpp"
+#include "internal/validation.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
 #include "internal/window.hpp"
-#include "internal/interop.hpp"
 
 #include <dlfcn.h> // dladdr
-#include <backends/imgui_impl_vulkan.h>
 #include <chrono> // std::chrono
 #include <filesystem> // std::filesystem
-
-#include <spdlog/spdlog.h>
 
 namespace mimir
 {
 
+VkPresentModeKHR getDesiredPresentMode(PresentMode opts)
+{
+    switch (opts)
+    {
+        case PresentMode::Immediate:       return VK_PRESENT_MODE_IMMEDIATE_KHR;
+        case PresentMode::VSync:           return VK_PRESENT_MODE_FIFO_KHR;
+        case PresentMode::TripleBuffering: return VK_PRESENT_MODE_MAILBOX_KHR;
+        default:                           return VK_PRESENT_MODE_IMMEDIATE_KHR;
+    }
+}
+
 // Setup the shader path so that the library can actually load them
-// Hack-ish, but works for now
+// Hackish and Linux-only, but works for now
 std::string getDefaultShaderPath()
 {
     // If shaders are installed in library path, set working directory there
@@ -59,7 +66,7 @@ MimirEngine::~MimirEngine()
         validation::checkCuda(cudaStreamSynchronize(interop->cuda_stream));
     }
 
-    cleanupSwapchain();
+    cleanupGraphics();
     gui::shutdown();
     deletors.views.flush();
     deletors.context.flush();
@@ -107,7 +114,7 @@ void MimirEngine::exit()
 void MimirEngine::prepare()
 {
     initUniformBuffers();
-    createGraphicsPipelines();
+    createViewPipelines();
     updateDescriptorSets();
     updateLinearTextures();
 }
@@ -555,13 +562,12 @@ void MimirEngine::listExtensions()
 void MimirEngine::initVulkan()
 {
     createInstance();
-    swap = std::make_unique<VulkanSwapchain>();
-    window_context->createSurface(instance, &swap->surface);
+    window_context->createSurface(instance, &surface);
     deletors.context.add([=,this](){
-        vkDestroySurfaceKHR(instance, swap->surface, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
     });
     pickPhysicalDevice();
-    dev.initLogicalDevice(swap->surface);
+    dev.initLogicalDevice(surface);
     deletors.context.add([=,this](){
         vkDestroyCommandPool(dev.logical_device, dev.command_pool, nullptr);
         vkDestroyDevice(dev.logical_device, nullptr);
@@ -653,13 +659,13 @@ void MimirEngine::initVulkan()
         vkDestroyPipelineLayout(dev.logical_device, pipeline_layout, nullptr);
     });
 
-    initSwapchain();
+    initGraphics();
     createSyncObjects();
     // After command pool and render pass are created
     gui::init(dev, instance, descriptor_pool, render_pass, window_context.get());
 
     descriptor_sets = dev.createDescriptorSets(
-        descriptor_pool, descriptor_layout, swap->image_count
+        descriptor_pool, descriptor_layout, swapchain.image_count
     );
 }
 
@@ -768,7 +774,7 @@ void MimirEngine::pickPhysicalDevice()
         for (const auto& device : all_devices)
         {
             auto matching = memcmp((void*)&dev_prop.uuid, device.id_props.deviceUUID, VK_UUID_SIZE) == 0;
-            if (matching && props::isDeviceSuitable(device.handle, swap->surface))
+            if (matching && props::isDeviceSuitable(device.handle, surface))
             {
                 validation::checkCuda(cudaSetDevice(curr_device));
                 dev.physical_device = device;
@@ -808,34 +814,35 @@ void MimirEngine::createSyncObjects()
     });
 }
 
-void MimirEngine::cleanupSwapchain()
+void MimirEngine::cleanupGraphics()
 {
     vkDeviceWaitIdle(dev.logical_device);
     /*vkFreeCommandBuffers(dev.logical_device, dev.command_pool,
         command_buffers.size(), command_buffers.data()
     );*/
-    deletors.swapchain.flush();
+    deletors.graphics.flush();
     fbs.clear();
 }
 
-void MimirEngine::initSwapchain()
+void MimirEngine::initGraphics()
 {
-    int w, h;
-    window_context->getFramebufferSize(w, h);
-    uint32_t width = w;
-    uint32_t height = h;
+    // Initialize swapchain
+    int width, height;
+    window_context->getFramebufferSize(width, height);
+    auto present_mode = getDesiredPresentMode(options.present.mode);
     std::vector queue_indices{dev.graphics.family_index, dev.present.family_index};
-    swap->create(width, height, options.present.mode, queue_indices, dev.physical_device.handle, dev.logical_device);
+    swapchain = Swapchain::make(dev.logical_device, dev.physical_device.handle,
+        surface, width, height, present_mode, queue_indices
+    );
+
     render_pass = createRenderPass();
-    command_buffers = dev.createCommandBuffers(swap->image_count);
+    command_buffers = dev.createCommandBuffers(swapchain.image_count);
     query_pool = dev.createQueryPool(2 * command_buffers.size());
-    deletors.swapchain.add([=,this]{
+    deletors.graphics.add([=,this]{
         vkDestroyRenderPass(dev.logical_device, render_pass, nullptr);
-        vkDestroySwapchainKHR(dev.logical_device, swap->swapchain, nullptr);
+        vkDestroySwapchainKHR(dev.logical_device, swapchain.current, nullptr);
         vkDestroyQueryPool(dev.logical_device, query_pool, nullptr);
     });
-
-    auto images = swap->createImages(dev.logical_device);
 
     auto depth_format = findDepthFormat();
     VkImageCreateInfo depth_img_info{
@@ -844,7 +851,7 @@ void MimirEngine::initSwapchain()
         .flags       = 0,
         .imageType   = VK_IMAGE_TYPE_2D,
         .format      = depth_format,
-        .extent      = { width, height, 1 },
+        .extent      = { swapchain.extent.width, swapchain.extent.height, 1 },
         .mipLevels   = 1,
         .arrayLayers = 1,
         .samples     = VK_SAMPLE_COUNT_1_BIT,
@@ -901,30 +908,30 @@ void MimirEngine::initSwapchain()
         vkCreateImageView(dev.logical_device, &depth_view_info, nullptr, &depth_view)
     );
 
-    deletors.swapchain.add([=,this]{
+    deletors.graphics.add([=,this]{
         vkDestroyImageView(dev.logical_device, depth_view, nullptr);
         vkDestroyImage(dev.logical_device, depth_image, nullptr);
         vkFreeMemory(dev.logical_device, depth_memory, nullptr);
     });
 
-    fbs.resize(swap->image_count);
-    for (size_t i = 0; i < swap->image_count; ++i)
+    fbs.resize(swapchain.image_count);
+    for (uint32_t i = 0; i < swapchain.image_count; ++i)
     {
         // Create a basic image view to be used as color target
-        fbs[i].addAttachment(dev.logical_device, images[i], swap->color_format);
-        fbs[i].create(dev.logical_device, render_pass, swap->extent, depth_view);
-        deletors.swapchain.add([=,this]{
+        fbs[i].addAttachment(dev.logical_device, swapchain.images[i], swapchain.format);
+        fbs[i].create(dev.logical_device, render_pass, swapchain.extent, depth_view);
+        deletors.graphics.add([=,this]{
             vkDestroyImageView(dev.logical_device, fbs[i].attachments[0].view, nullptr);
             vkDestroyFramebuffer(dev.logical_device, fbs[i].framebuffer, nullptr);
         });
     }
 }
 
-void MimirEngine::recreateSwapchain()
+void MimirEngine::recreateGraphics()
 {
-    cleanupSwapchain();
-    initSwapchain();
-    createGraphicsPipelines();
+    cleanupGraphics();
+    initGraphics();
+    createViewPipelines();
 }
 
 void MimirEngine::updateDescriptorSets()
@@ -1051,12 +1058,12 @@ void MimirEngine::renderFrame()
     // Acquire image from swap chain, signaling to the image_ready semaphore
     // when the image is ready for use
     uint32_t image_idx;
-    auto result = vkAcquireNextImageKHR(dev.logical_device, swap->swapchain,
+    auto result = vkAcquireNextImageKHR(dev.logical_device, swapchain.current,
         frame_timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
     );
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
-        recreateSwapchain();
+        recreateGraphics();
     }
     else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
     {
@@ -1096,7 +1103,7 @@ void MimirEngine::renderFrame()
         .pNext           = nullptr,
         .renderPass      = render_pass,
         .framebuffer     = fbs[image_idx].framebuffer,
-        .renderArea      = { {0, 0}, swap->extent },
+        .renderArea      = { {0, 0}, swapchain.extent },
         .clearValueCount = (uint32_t)clear_values.size(),
         .pClearValues    = clear_values.data(),
     };
@@ -1166,7 +1173,7 @@ void MimirEngine::renderFrame()
         .waitSemaphoreCount = 1,
         .pWaitSemaphores    = &frame_sync.render_complete,
         .swapchainCount     = 1,
-        .pSwapchains        = &swap->swapchain,
+        .pSwapchains        = &swapchain.current,
         .pImageIndices      = &image_idx,
         .pResults           = nullptr,
     };
@@ -1174,7 +1181,7 @@ void MimirEngine::renderFrame()
     // Resize should be done after presentation to ensure semaphore consistency
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
     {
-        recreateSwapchain();
+        recreateGraphics();
         should_resize = false;
     }
 
@@ -1265,7 +1272,7 @@ VkRenderPass MimirEngine::createRenderPass()
 {
     VkAttachmentDescription color{
         .flags          = 0,
-        .format         = swap->color_format,
+        .format         = swapchain.format,
         .samples        = VK_SAMPLE_COUNT_1_BIT,
         .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
@@ -1345,13 +1352,13 @@ VkRenderPass MimirEngine::createRenderPass()
     return render_pass;
 }
 
-void MimirEngine::createGraphicsPipelines()
+void MimirEngine::createViewPipelines()
 {
     auto start = std::chrono::steady_clock::now();
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
 
-    PipelineBuilder builder(pipeline_layout, swap->extent);
+    PipelineBuilder builder(pipeline_layout, swapchain.extent);
 
     for (auto& view : views)
     {
@@ -1361,7 +1368,7 @@ void MimirEngine::createGraphicsPipelines()
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
         views[i]->pipeline = pipelines[i];
-        deletors.swapchain.add([=,this]{
+        deletors.graphics.add([=,this]{
             vkDestroyPipeline(dev.logical_device, views[i]->pipeline, nullptr);
         });
     }
@@ -1378,7 +1385,7 @@ void MimirEngine::rebuildPipeline(InteropView& view)
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
 
-    PipelineBuilder builder(pipeline_layout, swap->extent);
+    PipelineBuilder builder(pipeline_layout, swapchain.extent);
     //builder.addPipeline(view.params, dev.logical_device);
     auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
     // Destroy the old view pipeline and assign the new one
@@ -1396,7 +1403,7 @@ void MimirEngine::initUniformBuffers()
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
     auto size_ubo = (size_mvp + size_view + size_scene) * views.size();
 
-    uniform_buffers.resize(swap->image_count);
+    uniform_buffers.resize(swapchain.image_count);
     for (auto& ubo : uniform_buffers)
     {
         ubo.buffer = dev.createBuffer(size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);

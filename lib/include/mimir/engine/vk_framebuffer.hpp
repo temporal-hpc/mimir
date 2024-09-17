@@ -4,8 +4,6 @@
 
 #include <vector> // std::vector
 
-#include <mimir/deletion_queue.hpp>
-
 namespace mimir
 {
 

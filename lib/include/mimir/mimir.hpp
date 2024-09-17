@@ -12,7 +12,8 @@
 #include <mimir/engine/interop_view.hpp>
 #include <mimir/engine/interop_device.hpp>
 #include <mimir/engine/performance_monitor.hpp>
-#include <mimir/deletion_queue.hpp>
+#include <mimir/engine/swapchain.hpp>
+#include <mimir/engine/deletion_queue.hpp>
 
 namespace mimir
 {
@@ -29,7 +30,6 @@ struct Camera;
 struct GlfwContext;
 struct InteropDevice;
 struct InteropBarrier;
-struct VulkanSwapchain;
 struct VulkanFramebuffer;
 
 struct AllocatedBuffer
@@ -132,12 +132,13 @@ private:
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
     VkPipelineLayout pipeline_layout        = VK_NULL_HANDLE;
     VkDescriptorPool descriptor_pool        = VK_NULL_HANDLE;
+    VkSurfaceKHR surface                    = VK_NULL_HANDLE;
 
     InteropDevice dev;
+    Swapchain swapchain;
     //VmaAllocator allocator = nullptr;
     //VmaPool interop_pool   = nullptr;
 
-    std::unique_ptr<VulkanSwapchain> swap;
     std::vector<VulkanFramebuffer> fbs;
     std::vector<VkCommandBuffer> command_buffers;
     std::vector<VkDescriptorSet> descriptor_sets;
@@ -171,7 +172,7 @@ private:
     // Deletion queues organized by lifetime
     struct {
         DeletionQueue context;
-        DeletionQueue swapchain;
+        DeletionQueue graphics;
         DeletionQueue views;
     } deletors;
 
@@ -192,10 +193,10 @@ private:
     VkRenderPass createRenderPass();
 
     // Swapchain-related functions
-    void initSwapchain();
-    void cleanupSwapchain();
-    void recreateSwapchain();
-    void createGraphicsPipelines();
+    void initGraphics();
+    void cleanupGraphics();
+    void recreateGraphics();
+    void createViewPipelines();
     void rebuildPipeline(InteropView& view);
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);

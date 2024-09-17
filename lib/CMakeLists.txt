@@ -8,13 +8,13 @@ target_sources(mimir PRIVATE
     src/interop.cpp
     src/physical_device.cpp
     src/shader.cpp
+    src/swapchain.cpp
     src/validation.cpp
     src/interop_device.cpp
     src/vulkan_device.cpp
     src/vk_framebuffer.cpp
     src/vk_pipeline.cpp
     src/vk_properties.cpp
-    src/vk_swapchain.cpp
     src/window.cpp
     src/vma_impl.cpp
 )
@@ -24,14 +24,14 @@ target_sources(mimir PUBLIC
     BASE_DIRS include
     FILES
         include/mimir/mimir.hpp
-        include/mimir/deletion_queue.hpp
+        include/mimir/engine/deletion_queue.hpp
         include/mimir/view_types.hpp
         include/mimir/engine/interop_device.hpp
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/performance_monitor.hpp
         include/mimir/engine/physical_device.hpp
+        include/mimir/engine/swapchain.hpp
         include/mimir/engine/vk_framebuffer.hpp
-        include/mimir/engine/vk_swapchain.hpp
         include/mimir/engine/vulkan_device.hpp
 )
 target_include_directories(mimir PUBLIC
