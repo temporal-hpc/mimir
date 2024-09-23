@@ -111,6 +111,7 @@ int main(int argc, char *argv[])
         };
         // Start rendering loop with the above function
         engine.display(cuda_call, iter_count);
+        engine.exit();
     }
     catch (const std::exception& e)
     {

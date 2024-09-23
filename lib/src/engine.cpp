@@ -436,7 +436,7 @@ VkBuffer MimirEngine::createAttributeBuffer(const AttributeParams attr, size_t e
 {
     // Get and validate buffer size against allocation size
     VkDeviceSize memsize = getBytesize(attr.format) * element_count;
-    assert(memsize + attr.offset <= attr.memory->size);
+    assert(memsize + attr.offset <= attr.allocation->size);
 
     // Create and bind buffer
     VkExternalMemoryBufferCreateInfo extmem_info{
