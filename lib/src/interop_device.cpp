@@ -2,7 +2,7 @@
 
 #include <cstring> // std::memcpy
 
-#include "internal/shader_types.hpp"
+#include <mimir/engine/shader_types.hpp>
 #include "internal/validation.hpp"
 #include "internal/interop.hpp"
 

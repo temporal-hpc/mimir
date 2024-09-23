@@ -42,7 +42,7 @@ Application::Application(){
     viewer_opts.present.mode  = PresentMode::VSync;
     viewer_opts.report_period = 180;
     viewer_opts.bg_color      = {0.f,0.f,0.f,1.f};
-    engine.init(viewer_opts);
+    engine = MimirEngine::make(viewer_opts);
 
     // TODO: Fix dptr in kernels
 	this->myMesh = new Mesh("/home/francisco/Downloads/mushroom.off");

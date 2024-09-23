@@ -1,5 +1,5 @@
 #include "internal/gui.hpp"
-#include "internal/camera.hpp"
+#include <mimir/engine/camera.hpp>
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -157,7 +157,7 @@ void addViewObjectGui(std::shared_ptr<InteropView> view_ptr, int uid)
     ImGui::PopID();
 }
 
-void draw(Camera* cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropView>> views, const std::function<void(void)>& callback)
+void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropView>> views, const std::function<void(void)>& callback)
 {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -169,8 +169,8 @@ void draw(Camera* cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropVie
     ImGui::Begin("Scene parameters");
     //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
     ImGui::ColorEdit3("Clear color", (float*)&opts.bg_color);
-    ImGui::InputFloat3("Camera position", &cam->position.x, "%.3f");
-    ImGui::InputFloat3("Camera rotation", &cam->rotation.x, "%.3f");
+    ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f");
+    ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f");
 
     // Use a separate flag for choosing whether to enable the FPS limit target value
     // This avoids the unpleasant feeling of going from 0 (no FPS limit)
@@ -196,11 +196,11 @@ void draw(Camera* cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropVie
     ImGui::Render();
 }
 
-void init(InteropDevice& dev, VkInstance instance, VkDescriptorPool pool, VkRenderPass pass, GlfwContext *win_ctx)
+void init(InteropDevice& dev, VkInstance instance, VkDescriptorPool pool, VkRenderPass pass, const GlfwContext& win_ctx)
 {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForVulkan(win_ctx->window, true);
+    ImGui_ImplGlfw_InitForVulkan(win_ctx.window, true);
 
     ImGui_ImplVulkan_InitInfo info{
         .Instance        = instance,

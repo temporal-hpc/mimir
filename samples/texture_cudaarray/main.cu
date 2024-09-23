@@ -192,8 +192,7 @@ int main(int argc, char *argv[])
     printf("Loaded '%s', '%d'x'%d pixels \n", filepath.c_str(), img_width, img_height);
 
     int width = 1920, height = 1080;
-    MimirEngine engine;
-    engine.init(width, height);
+    auto engine = MimirEngine::make(width, height);
 
     cudaMipmappedArray_t mipmap_array = nullptr;
     cudaChannelFormatDesc format{

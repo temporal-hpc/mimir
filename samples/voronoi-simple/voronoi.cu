@@ -188,8 +188,7 @@ int main(int argc, char *argv[])
     int2 extent           = {grid_size, grid_size};
     curandState *d_states = nullptr;
 
-    MimirEngine engine;
-    engine.init(1920, 1080);
+    auto engine = MimirEngine::make(1920, 1080);
 
     auto seeds = engine.allocLinear((void**)&d_coords, sizeof(float2) * point_count);
     auto colors = engine.allocLinear((void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y);

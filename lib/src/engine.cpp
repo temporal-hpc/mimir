@@ -1,14 +1,11 @@
 #include <mimir/mimir.hpp>
-#include <mimir/engine/vk_framebuffer.hpp>
 
-#include "internal/camera.hpp"
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
 #include "internal/interop.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_pipeline.hpp"
 #include "internal/vk_properties.hpp"
-#include "internal/window.hpp"
 
 #include <dlfcn.h> // dladdr
 #include <chrono> // std::chrono
@@ -48,12 +45,86 @@ std::string getDefaultShaderPath()
     }
 }
 
-MimirEngine::MimirEngine():
-    camera{ std::make_unique<Camera>() },
-    shader_path{ getDefaultShaderPath() }
-{}
+MimirEngine MimirEngine::make(ViewerOptions opts)
+{
+    MimirEngine engine{
+        .options             = opts,
+        .running             = false,
+        .should_resize       = false,
+        .camera              = {},
+        .view_updated        = false,
+        .mouse_pos           = {0.f, 0.f},
+        .instance            = VK_NULL_HANDLE,
+        .render_pass         = VK_NULL_HANDLE,
+        .descriptor_layout   = VK_NULL_HANDLE,
+        .pipeline_layout     = VK_NULL_HANDLE,
+        .descriptor_pool     = VK_NULL_HANDLE,
+        .surface             = VK_NULL_HANDLE,
+        .dev                 = {},
+        .swapchain           = {},
+        .fbs                 = {},
+        .command_buffers     = {},
+        .descriptor_sets     = {},
+        .gui_callback        = []() { return; },
+        .depth_image         = VK_NULL_HANDLE,
+        .depth_memory        = VK_NULL_HANDLE,
+        .depth_view          = VK_NULL_HANDLE,
+        .sync_data           = {},
+        .kernel_working      = false,
+        .rendering_thread    = {},
+        .last_time           = {},
+        .interop             = {},
+        .shader_path         = getDefaultShaderPath(),
+        .render_timeline     = 0,
+        .target_frame_time   = 0,
+        .uniform_buffers     = {},
+        .allocations         = {},
+        .views               = {},
+        .window_context      = {},
+        .perf                = {},
+        .query_pool          = VK_NULL_HANDLE,
+        .total_pipeline_time = 0,
+        .frame_times         = {},
+        .total_graphics_time = 0,
+        .total_frame_count   = 0,
+    };
 
-MimirEngine::~MimirEngine()
+    spdlog::set_level(spdlog::level::trace);
+    spdlog::set_pattern("[%H:%M:%S] [%l] %v");
+
+    engine.options.present.max_fps = engine.options.present.mode == PresentMode::VSync? 60 : 300;
+    engine.target_frame_time = getTargetFrameTime(
+        engine.options.present.enable_fps_limit, engine.options.present.target_fps
+    );
+
+    auto width  = engine.options.window.size.x;
+    auto height = engine.options.window.size.y;
+    engine.window_context = {};
+    engine.window_context.init(width, height, engine.options.window.title.c_str(), &engine);
+    engine.deletors.context.add([&] {
+        engine.window_context.clean();
+    });
+
+    engine.initVulkan();
+
+    //engine.camera.flipY = true;
+    engine.camera.type = Camera::CameraType::LookAt;
+    engine.camera.setPosition(glm::vec3(0.f, 0.f, -2.85f)); //(glm::vec3(0.f, 0.f, -3.75f));
+    engine.camera.setRotation(glm::vec3(0.f, 0.f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
+    engine.camera.setRotationSpeed(0.5f);
+    engine.camera.setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
+
+    return engine;
+}
+
+MimirEngine MimirEngine::make(int width, int height)
+{
+    ViewerOptions opts;
+    opts.window.size = {width, height};
+    return MimirEngine::make(opts);
+}
+
+void MimirEngine::exit()
 {
     if (rendering_thread.joinable())
     {
@@ -61,54 +132,16 @@ MimirEngine::~MimirEngine()
     }
     vkDeviceWaitIdle(dev.logical_device);
 
-    if (interop->cuda_stream != nullptr)
+    if (interop.cuda_stream != nullptr)
     {
-        validation::checkCuda(cudaStreamSynchronize(interop->cuda_stream));
+        validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
     }
 
     cleanupGraphics();
     gui::shutdown();
+    window_context.exit();
     deletors.views.flush();
     deletors.context.flush();
-}
-
-void MimirEngine::init(ViewerOptions opts)
-{
-    spdlog::set_level(spdlog::level::trace);
-    spdlog::set_pattern("[%H:%M:%S] [%l] %v");
-
-    options = opts;
-    options.present.max_fps = options.present.mode == PresentMode::VSync? 60 : 300;
-    target_frame_time = getTargetFrameTime(options.present.enable_fps_limit, options.present.target_fps);
-
-    auto width  = options.window.size.x;
-    auto height = options.window.size.y;
-    window_context = std::make_unique<GlfwContext>();
-    window_context->init(width, height, options.window.title.c_str(), this);
-    deletors.context.add([=,this] {
-        window_context->clean();
-    });
-
-    initVulkan();
-
-    camera->type = Camera::CameraType::LookAt;
-    //camera->flipY = true;
-    camera->setPosition(glm::vec3(0.f, 0.f, -2.85f)); //(glm::vec3(0.f, 0.f, -3.75f));
-    camera->setRotation(glm::vec3(0.f, 0.f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
-    camera->setRotationSpeed(0.5f);
-    camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
-}
-
-void MimirEngine::init(int width, int height)
-{
-    ViewerOptions opts;
-    opts.window.size = {width, height};
-    init(opts);
-}
-
-void MimirEngine::exit()
-{
-    window_context->exit();
 }
 
 void MimirEngine::prepare()
@@ -125,10 +158,10 @@ void MimirEngine::displayAsync()
     running = true;
     rendering_thread = std::thread([this]()
     {
-        while(!window_context->shouldClose())
+        while(!window_context.shouldClose())
         {
-            window_context->processEvents();
-            gui::draw(camera.get(), options, views, gui_callback);
+            window_context.processEvents();
+            gui::draw(camera, options, views, gui_callback);
             renderFrame();
         }
         running = false;
@@ -155,7 +188,7 @@ void MimirEngine::waitKernelStart()
 
     // Wait for Vulkan to complete its work
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
-        &interop->cuda_semaphore, &wait_params, 1, interop->cuda_stream)
+        &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
     updateLinearTextures();
 }
@@ -172,15 +205,15 @@ void MimirEngine::updateViews()
 
 void MimirEngine::signalKernelFinish()
 {
-    interop->timeline_value++;
+    interop.timeline_value++;
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
-    signal_params.params.fence.value = interop->timeline_value;
+    signal_params.params.fence.value = interop.timeline_value;
     //printf("kernel signals iteration %llu\n", signal_params.params.fence.value);
 
     // Signal Vulkan to continue with the updated buffers
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
-        &interop->cuda_semaphore, &signal_params, 1, interop->cuda_stream)
+        &interop.cuda_semaphore, &signal_params, 1, interop.cuda_stream)
     );
 }
 
@@ -190,10 +223,10 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     running = true;
     kernel_working = true;
     size_t iter_idx = 0;
-    while(!window_context->shouldClose())
+    while(!window_context.shouldClose())
     {
-        window_context->processEvents();
-        gui::draw(camera.get(), options, views, gui_callback);
+        window_context.processEvents();
+        gui::draw(camera, options, views, gui_callback);
         renderFrame();
 
         if (running) waitKernelStart();
@@ -562,7 +595,7 @@ void MimirEngine::listExtensions()
 void MimirEngine::initVulkan()
 {
     createInstance();
-    window_context->createSurface(instance, &surface);
+    window_context.createSurface(instance, &surface);
     deletors.context.add([=,this](){
         vkDestroySurfaceKHR(instance, surface, nullptr);
     });
@@ -662,7 +695,7 @@ void MimirEngine::initVulkan()
     initGraphics();
     createSyncObjects();
     // After command pool and render pass are created
-    gui::init(dev, instance, descriptor_pool, render_pass, window_context.get());
+    gui::init(dev, instance, descriptor_pool, render_pass, window_context);
 
     descriptor_sets = dev.createDescriptorSets(
         descriptor_pool, descriptor_layout, swapchain.image_count
@@ -687,7 +720,7 @@ void MimirEngine::createInstance()
     };
 
     // List additional required validation layers
-    auto extensions = window_context->getRequiredExtensions();
+    auto extensions = window_context.getRequiredExtensions();
     if (validation::enable_layers)
     {
         // Enable debugging message extension
@@ -807,10 +840,10 @@ void MimirEngine::createSyncObjects()
             vkDestroySemaphore(dev.logical_device, sync.render_complete, nullptr);
         });
     }
-    interop = std::make_unique<InteropBarrier>(dev.createInteropBarrier());
+    interop = dev.createInteropBarrier();
     deletors.context.add([=,this]{
-        validation::checkCuda(cudaDestroyExternalSemaphore(interop->cuda_semaphore));
-        vkDestroySemaphore(dev.logical_device, interop->vk_semaphore, nullptr);
+        validation::checkCuda(cudaDestroyExternalSemaphore(interop.cuda_semaphore));
+        vkDestroySemaphore(dev.logical_device, interop.vk_semaphore, nullptr);
     });
 }
 
@@ -828,7 +861,7 @@ void MimirEngine::initGraphics()
 {
     // Initialize swapchain
     int width, height;
-    window_context->getFramebufferSize(width, height);
+    window_context.getFramebufferSize(width, height);
     auto present_mode = getDesiredPresentMode(options.present.mode);
     std::vector queue_indices{dev.graphics.family_index, dev.present.family_index};
     swapchain = Swapchain::make(dev.logical_device, dev.physical_device.handle,
@@ -1029,8 +1062,8 @@ void MimirEngine::waitTimelineHost()
         .pNext          = nullptr,
         .flags          = 0,
         .semaphoreCount = 1,
-        .pSemaphores    = &interop->vk_semaphore,
-        .pValues        = &interop->timeline_value,
+        .pSemaphores    = &interop.vk_semaphore,
+        .pValues        = &interop.timeline_value,
     };
     vkWaitSemaphores(dev.logical_device, &wait_info, frame_timeout);
 }
@@ -1038,7 +1071,7 @@ void MimirEngine::waitTimelineHost()
 void MimirEngine::renderFrame()
 {
     auto frame_idx = render_timeline % MAX_FRAMES_IN_FLIGHT;
-    //printf("frame %lu waits for %lu and signals %lu\n", render_timeline, interop->timeline_value, render_timeline+1);
+    //printf("frame %lu waits for %lu and signals %lu\n", render_timeline, interop.timeline_value, render_timeline+1);
 
     // Wait for frame fence and reset it after waiting
     auto frame_sync = sync_data[frame_idx];
@@ -1046,8 +1079,8 @@ void MimirEngine::renderFrame()
     validation::checkVulkan(vkWaitForFences(dev.logical_device, 1, &fence, VK_TRUE, frame_timeout));
     validation::checkVulkan(vkResetFences(dev.logical_device, 1, &fence));
 
-    static chrono_tp start_time = std::chrono::high_resolution_clock::now();
-    chrono_tp current_time = std::chrono::high_resolution_clock::now();
+    static auto start_time = std::chrono::high_resolution_clock::now();
+    auto current_time = std::chrono::high_resolution_clock::now();
     if (render_timeline == 0)
     {
         last_time = start_time;
@@ -1135,10 +1168,10 @@ void MimirEngine::renderFrame()
     VkTimelineSemaphoreSubmitInfo timeline_info{};
     if (kernel_working && options.present.enable_sync)
     {
-        waits.push_back(interop->vk_semaphore);
+        waits.push_back(interop.vk_semaphore);
         stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        signals.push_back(interop->vk_semaphore);
-        wait_values.push_back(interop->timeline_value);
+        signals.push_back(interop.vk_semaphore);
+        wait_values.push_back(interop.timeline_value);
         signal_values.push_back(render_timeline+1);
 
         timeline_info = VkTimelineSemaphoreSubmitInfo{
@@ -1436,8 +1469,8 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 
         ModelViewProjection mvp{
             .model = glm::mat4(1.f),
-            .view  = camera->matrices.view,
-            .proj  = camera->matrices.perspective,
+            .view  = camera.matrices.view,
+            .proj  = camera.matrices.perspective,
         };
 
         auto dc = view->params.options.default_color;
@@ -1454,7 +1487,7 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
             .bg_color    = glm::vec4(bg.x, bg.y, bg.z, bg.w),
             .extent      = glm::ivec3{extent.x, extent.y, extent.z},
             .resolution  = glm::ivec2{options.window.size.x, options.window.size.y},
-            .camera_pos  = camera->position,
+            .camera_pos  = camera.position,
             .light_pos   = glm::vec3(0,0,0),
             .light_color = glm::vec4(0,0,0,0),
         };
@@ -1506,7 +1539,7 @@ ConvertedMemory formatMemory(uint64_t memsize)
 void MimirEngine::showMetrics()
 {
     int w, h;
-    window_context->getFramebufferSize(w, h);
+    window_context.getFramebufferSize(w, h);
     std::string label;
     if (w == 0 && h == 0) label = "None";
     else if (w == 1920 && h == 1080) label = "FHD";

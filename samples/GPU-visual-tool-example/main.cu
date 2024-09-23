@@ -73,14 +73,12 @@ int main(int argc, char *argv[]) {
     //CUDA_CALL(cudaMalloc((void **)&dPoints, n * sizeof(float2)));
     CUDA_CALL(cudaMalloc((void **)&dStates, n * sizeof(curandState)));
 
-    int width = 900, height = 900;
-    MimirEngine engine;
-
     // [VULKAN] I) CREAR UNA VENTANA VULKAN
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)
     // [OTRA OPCION] FLIB_crearVentanaSync(WIDTH, HEIGHT, ...)
     // En este momento, la ventana podria aparecer (en negro, sin datos aun)
-    engine.init(width, height);
+    int width = 900, height = 900;
+    auto engine = MimirEngine::make(width, height);
 
     // [VULKAN] II) "PASAR LOS DATOS AL VISUALIZADOR"
     // FLIB_linkData(&dPoints);

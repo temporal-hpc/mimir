@@ -96,8 +96,7 @@ int main(int argc, char *argv[])
         .enable_sync = enable_sync,
         .target_fps  = target_fps,
     };
-    MimirEngine engine;
-    engine.init(options);
+    auto engine = MimirEngine::make(options);
 
     if (use_interop)
     {

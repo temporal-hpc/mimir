@@ -65,8 +65,7 @@ int main(int argc, char *argv[])
         ViewerOptions options;
         options.window.size  = {1920,1080}; // Starting window size
         options.present.mode = PresentMode::VSync;
-        MimirEngine engine;
-        engine.init(options);
+        auto engine = MimirEngine::make(options);
 
         auto points = engine.allocLinear((void**)&d_coords, sizeof(double2) * point_count);
         auto sizes  = engine.allocLinear((void**)&d_sizes, sizeof(double) * point_count);

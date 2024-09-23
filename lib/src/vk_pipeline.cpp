@@ -4,7 +4,7 @@
 #include <map> // std::map
 #include <spdlog/spdlog.h>
 
-#include "internal/shader_types.hpp"
+#include <mimir/engine/shader_types.hpp>
 #include "internal/validation.hpp"
 
 namespace mimir

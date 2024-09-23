@@ -1,4 +1,4 @@
-#include "internal/camera.hpp"
+#include <mimir/engine/camera.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 

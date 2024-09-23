@@ -234,8 +234,7 @@ int main(int argc, char *argv[])
     JumpFloodProgram program(point_count, 512, 512);
     try
     {
-        MimirEngine engine;
-        engine.init(1920, 1080);
+        auto engine = MimirEngine::make(1920, 1080);
 
         auto seeds = engine.allocLinear((void**)&program.d_coords, sizeof(float2) * program.element_count);
         auto field = engine.allocLinear((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);

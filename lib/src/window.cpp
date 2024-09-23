@@ -1,10 +1,10 @@
-#include "internal/window.hpp"
+#include <mimir/engine/window.hpp>
 
 #include <imgui.h>
 
 #include <mimir/mimir.hpp>
 #include "internal/validation.hpp"
-#include "internal/camera.hpp"
+#include <mimir/engine/camera.hpp>
 
 namespace mimir
 {
@@ -23,17 +23,17 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
 
     if (app->mouse_buttons.left)
     {
-        auto rot = app->camera->rotation_speed;
-        app->camera->rotate(glm::vec3(dy * rot, -dx * rot, 0.f));
+        auto rot = app->camera.rotation_speed;
+        app->camera.rotate(glm::vec3(dy * rot, -dx * rot, 0.f));
         app->view_updated = true;
     }
     if (app->mouse_buttons.right)
     {
-        app->camera->translate(glm::vec3(0.f, 0.f, dy * .005f));
+        app->camera.translate(glm::vec3(0.f, 0.f, dy * .005f));
     }
     if (app->mouse_buttons.middle)
     {
-        app->camera->translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
+        app->camera.translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
     }
     app->mouse_pos = make_float2(xpos, ypos);
 }

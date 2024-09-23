@@ -5,15 +5,17 @@
 
 #include <chrono> // std::chrono
 #include <functional> // std::function
-#include <memory> // std::unique_ptr
 #include <thread> // std::thread
 #include <vector> // std::vector
 
+#include <mimir/engine/camera.hpp>
+#include <mimir/engine/deletion_queue.hpp>
 #include <mimir/engine/interop_view.hpp>
 #include <mimir/engine/interop_device.hpp>
 #include <mimir/engine/performance_monitor.hpp>
 #include <mimir/engine/swapchain.hpp>
-#include <mimir/engine/deletion_queue.hpp>
+#include <mimir/engine/vk_framebuffer.hpp>
+#include <mimir/engine/window.hpp>
 
 namespace mimir
 {
@@ -25,12 +27,6 @@ namespace
     // To remove the timeout, use std::numeric_limits<uint64_t>::max();
     static constexpr uint64_t frame_timeout = 1000000000;
 }
-
-struct Camera;
-struct GlfwContext;
-struct InteropDevice;
-struct InteropBarrier;
-struct VulkanFramebuffer;
 
 struct AllocatedBuffer
 {
@@ -71,14 +67,11 @@ struct ViewerOptions
     float4 bg_color        = {.5f, .5f, .5f, 1.f};
 };
 
-class MimirEngine
+struct MimirEngine
 {
 
-public:
-    MimirEngine(); // TODO: Replace with factory
-    ~MimirEngine();
-    void init(ViewerOptions opts);
-    void init(int width, int height);
+    static MimirEngine make(ViewerOptions opts);
+    static MimirEngine make(int width, int height);
     // Main library function, which setups all the visualization interop
     InteropViewOld *createView(ViewParamsOld params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
@@ -108,31 +101,30 @@ public:
     float getTotalTime() { return total_graphics_time; }
 
     ViewerOptions options;
-    bool running = false;
-    bool should_resize = false;
+    bool running;
+    bool should_resize;
 
     // Camera functions
-    std::unique_ptr<Camera> camera;
+    Camera camera;
     struct {
         bool left = false;
         bool right = false;
         bool middle = false;
     } mouse_buttons;
-    bool view_updated = false;
+    bool view_updated;
     float2 mouse_pos;
 
     void signalKernelFinish();
 
-private:
     Allocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
     VkBuffer createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage);
 
-    VkInstance instance                     = VK_NULL_HANDLE;
-    VkRenderPass render_pass                = VK_NULL_HANDLE;
-    VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
-    VkPipelineLayout pipeline_layout        = VK_NULL_HANDLE;
-    VkDescriptorPool descriptor_pool        = VK_NULL_HANDLE;
-    VkSurfaceKHR surface                    = VK_NULL_HANDLE;
+    VkInstance instance;
+    VkRenderPass render_pass;
+    VkDescriptorSetLayout descriptor_layout;
+    VkPipelineLayout pipeline_layout;
+    VkDescriptorPool descriptor_pool;
+    VkSurfaceKHR surface;
 
     InteropDevice dev;
     Swapchain swapchain;
@@ -142,32 +134,31 @@ private:
     std::vector<VulkanFramebuffer> fbs;
     std::vector<VkCommandBuffer> command_buffers;
     std::vector<VkDescriptorSet> descriptor_sets;
-    std::function<void(void)> gui_callback = []() { return; };
+    std::function<void(void)> gui_callback;
 
     // Depth buffer
-    VkImage depth_image = VK_NULL_HANDLE;
-    VkDeviceMemory depth_memory = VK_NULL_HANDLE;
-    VkImageView depth_view = VK_NULL_HANDLE;
+    VkImage depth_image;
+    VkDeviceMemory depth_memory;
+    VkImageView depth_view;
 
     // Synchronization structures
     std::array<SyncData, MAX_FRAMES_IN_FLIGHT> sync_data;
 
     // CPU thread synchronization variables
-    bool kernel_working = false;
+    bool kernel_working;
     std::thread rendering_thread;
-    using chrono_tp = std::chrono::time_point<std::chrono::high_resolution_clock>;
-    chrono_tp last_time = {};
+    std::chrono::time_point<std::chrono::high_resolution_clock> last_time;
 
     // Cuda interop data
-    std::unique_ptr<InteropBarrier> interop;
+    InteropBarrier interop;
     std::string shader_path;
-    uint64_t render_timeline = 0;
-    long target_frame_time = 0;
+    uint64_t render_timeline;
+    long target_frame_time;
 
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<InteropMemory*> allocations;
     std::vector<std::shared_ptr<InteropView>> views;
-    std::unique_ptr<GlfwContext> window_context;
+    GlfwContext window_context;
 
     // Deletion queues organized by lifetime
     struct {
@@ -207,12 +198,16 @@ private:
 
     // Benchmarking
     PerformanceMonitor perf;
-    VkQueryPool query_pool = VK_NULL_HANDLE;
-    double total_pipeline_time = 0;
+    VkQueryPool query_pool;
+    double total_pipeline_time;
     double getRenderTimeResults(uint32_t cmd_idx);
-    std::array<float,240> frame_times{};
-    float total_graphics_time = 0;
-    size_t total_frame_count = 0;
+    std::array<float,240> frame_times;
+    float total_graphics_time;
+    size_t total_frame_count;
 };
+
+static_assert(std::is_default_constructible_v<MimirEngine>);
+//static_assert(std::is_nothrow_default_constructible_v<MimirEngine>);
+//static_assert(std::is_trivially_default_constructible_v<MimirEngine>);
 
 } // namespace mimir

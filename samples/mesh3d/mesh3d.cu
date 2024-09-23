@@ -69,8 +69,7 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size = {1920,1080}; // Starting window size
     options.bg_color    = {.5f, .5f, .5f, 1.f};
-    MimirEngine engine;
-    engine.init(1920, 1080);
+    auto engine = MimirEngine::make(options);
 
     auto vertices = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
     auto edges    = engine.allocLinear((void**)&d_triangles, sizeof(int3) * h_triangles.size());

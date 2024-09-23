@@ -27,8 +27,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    MimirEngine engine;
-    engine.init(1920, 1080);
+    auto engine = MimirEngine::make(1920, 1080);
 
     /*MemoryParams m;
     m.layout         = DataLayout::Layout2D;

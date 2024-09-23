@@ -57,8 +57,7 @@ int main(int argc, char **argv){
     init_prob(n, original, seed, prob);
 
     int width = 1920, height = 1080;
-    MimirEngine engine;
-    engine.init(width, height);
+    auto engine = MimirEngine::make(width, height);
 
     auto ping = engine.allocLinear((void**)&d1, sizeof(int) * n*n*n);
     auto pong = engine.allocLinear((void**)&d2, sizeof(int) * n*n*n);
