@@ -7,7 +7,7 @@
 #include <string> // std::string
 #include <vector> // std::vector
 
-#include <mimir/view_types.hpp>
+#include <mimir/engine/view_types.hpp>
 
 namespace mimir
 {

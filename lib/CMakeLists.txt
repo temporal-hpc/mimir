@@ -25,7 +25,7 @@ target_sources(mimir PUBLIC
     FILES
         include/mimir/mimir.hpp
         include/mimir/engine/deletion_queue.hpp
-        include/mimir/view_types.hpp
+        include/mimir/engine/view_types.hpp
         include/mimir/engine/interop_device.hpp
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/performance_monitor.hpp

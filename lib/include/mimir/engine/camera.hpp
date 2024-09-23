@@ -14,11 +14,7 @@ private:
     void updateViewMatrix();
 
 public:
-    enum class CameraType
-    {
-        LookAt,
-        FirstPerson
-    };
+    enum class CameraType { LookAt, FirstPerson };
     CameraType type = CameraType::LookAt;
 
     glm::vec3 rotation = glm::vec3();
