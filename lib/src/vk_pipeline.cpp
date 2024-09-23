@@ -144,7 +144,7 @@ VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
     };
 }
 
-ShaderCompileParams getShaderCompileParams(ViewParams2 params)
+ShaderCompileParams getShaderCompileParams(ViewParams params)
 {
     ShaderCompileParams compile;
     compile.specializations = params.options.specializations;
@@ -341,7 +341,7 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     return pipelines;
 }
 
-VertexDescription getVertexDescription(const ViewParams2 params)
+VertexDescription getVertexDescription(const ViewParams params)
 {
     VertexDescription desc;
     desc.binding.reserve(params.attributes.size());
@@ -366,7 +366,7 @@ VertexDescription getVertexDescription(const ViewParams2 params)
     return desc;
 }
 
-uint32_t PipelineBuilder::addPipeline(const ViewParams2 params, VkDevice device)
+uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
 {
     auto compile_params = getShaderCompileParams(params);
     auto ext_shaders = params.options.external_shaders;

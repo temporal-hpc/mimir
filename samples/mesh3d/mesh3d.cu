@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
     auto vertices = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
     auto edges    = engine.allocLinear((void**)&d_triangles, sizeof(int3) * h_triangles.size());
 
-    ViewParams2 params;
+    ViewParams params;
     params.element_count = point_count;
     params.data_domain   = DataDomain::Domain3D;
     params.view_type     = ViewType::Markers;

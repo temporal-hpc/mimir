@@ -18,7 +18,7 @@ VkImageTiling getImageTiling(ResourceType type)
     }
 }
 
-// Converts a InteropView image type to its Vulkan equivalent
+// Converts a InteropViewOld image type to its Vulkan equivalent
 VkImageType getImageType(DataLayout layout)
 {
     switch (layout)
@@ -29,7 +29,7 @@ VkImageType getImageType(DataLayout layout)
     }
 }
 
-// Converts a InteropView layout type to its Vulkan equivalent
+// Converts a InteropViewOld layout type to its Vulkan equivalent
 VkImageViewType getImageViewType(DataLayout layout)
 {
     switch (layout)
@@ -172,7 +172,7 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
     );
 }
 
-void InteropDevice::initViewBuffer(InteropView& view)
+void InteropDevice::initViewBuffer(InteropViewOld& view)
 {
     const auto &params = view.params;
     // For structured domain views, initialize auxiliary resources and memory
@@ -318,7 +318,7 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     );
 }
 
-void InteropDevice::initViewImage(InteropView& view)
+void InteropDevice::initViewImage(InteropViewOld& view)
 {
     const auto &params = view.params;
     if (params.domain_type == DomainType::Structured)

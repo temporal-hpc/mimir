@@ -15,7 +15,7 @@ struct SceneParams
     float4 light_color;
 };
 
-struct ViewParams
+struct ViewParamsOld
 {
     float4 default_color;
     float default_size;
@@ -25,4 +25,4 @@ struct ViewParams
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
-ConstantBuffer<ViewParams> view;
+ConstantBuffer<ViewParamsOld> view;

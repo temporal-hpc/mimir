@@ -240,7 +240,7 @@ int main(int argc, char *argv[])
         auto seeds = engine.allocLinear((void**)&program.d_coords, sizeof(float2) * program.element_count);
         auto field = engine.allocLinear((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
 
-        ViewParams2 params;
+        ViewParams params;
         params.element_count = program.element_count;
         params.data_domain   = DataDomain::Domain2D;
         params.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
@@ -261,7 +261,7 @@ int main(int argc, char *argv[])
         m2.resource_type  = ResourceType::LinearTexture;
         auto image = engine.createBuffer((void**)&program.d_distances, m2);
 
-        ViewParams p2;
+        ViewParamsOld p2;
         p2.element_count = program.extent.x * program.extent.y;
         p2.data_domain   = DataDomain::Domain2D;
         p2.domain_type   = DomainType::Structured;

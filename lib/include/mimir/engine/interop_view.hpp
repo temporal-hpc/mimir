@@ -91,7 +91,7 @@ struct ViewOptions
 
 using AttributeDict = std::map<AttributeType, InteropMemory>;
 
-struct ViewParams
+struct ViewParamsOld
 {
     size_t element_count = 0;
     int instance_count = 1;
@@ -103,10 +103,10 @@ struct ViewParams
     AttributeDict attributes;
 };
 
-struct InteropView
+struct InteropViewOld
 {
     // View parameters
-    ViewParams params;
+    ViewParamsOld params;
 
     // Rendering pipeline associated to this view
     VkPipeline pipeline       = VK_NULL_HANDLE;
@@ -180,7 +180,7 @@ struct AttributeParams
 
 using AttributeDict2 = std::map<AttributeType, AttributeParams>;
 
-struct ViewParams2
+struct ViewParams
 {
     size_t element_count = 0;
     int instance_count   = 1;
@@ -231,10 +231,10 @@ struct ViewResources
     ImageData image;
 };
 
-struct InteropView2
+struct InteropView
 {
     // View parameters
-    ViewParams2 params;
+    ViewParams params;
 
     // Container for Vulkan graphics resources.
     ViewResources resources;

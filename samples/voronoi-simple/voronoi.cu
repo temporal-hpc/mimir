@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
     auto seeds = engine.allocLinear((void**)&d_coords, sizeof(float2) * point_count);
     auto colors = engine.allocLinear((void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y);
 
-    ViewParams2 params;
+    ViewParams params;
     params.element_count = point_count;
     params.data_domain   = DataDomain::Domain2D;
     params.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
@@ -213,7 +213,7 @@ int main(int argc, char *argv[])
     m1.resource_type   = ResourceType::Buffer;
     auto points = engine.createBuffer((void**)&d_coords, m1);
 
-    ViewParams p1;
+    ViewParamsOld p1;
     p1.element_count = point_count;
     p1.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
     p1.data_domain   = DataDomain::Domain2D;
@@ -231,7 +231,7 @@ int main(int argc, char *argv[])
     m2.resource_type  = ResourceType::LinearTexture;
     auto image = engine.createBuffer((void**)&d_vd_colors, m2);
 
-    ViewParams p2;
+    ViewParamsOld p2;
     p2.element_count = extent.x * extent.y;
     p2.data_domain   = DataDomain::Domain2D;
     p2.domain_type   = DomainType::Structured;

@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
     auto points = engine.allocLinear((void**)&dPoints, sizeof(float2) * n);
-    ViewParams2 params;
+    ViewParams params;
     params.element_count = n;
     params.data_domain   = DataDomain::Domain2D;
     params.view_type     = ViewType::Markers;

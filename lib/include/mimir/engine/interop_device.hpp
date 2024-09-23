@@ -26,8 +26,8 @@ struct InteropDevice : public VulkanDevice
     void initMemoryBuffer(InteropMemory &interop);
     void initMemoryImage(InteropMemory &interop);
     void initMemoryImageLinear(InteropMemory &interop);
-    void initViewBuffer(InteropView& view);
-    void initViewImage(InteropView& view);
+    void initViewBuffer(InteropViewOld& view);
+    void initViewImage(InteropViewOld& view);
 
     void loadTexture(InteropMemory *interop, void *data);
     void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);

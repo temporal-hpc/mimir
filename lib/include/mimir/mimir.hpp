@@ -80,7 +80,7 @@ public:
     void init(ViewerOptions opts);
     void init(int width, int height);
     // Main library function, which setups all the visualization interop
-    InteropView *createView(ViewParams params);
+    InteropViewOld *createView(ViewParamsOld params);
     InteropMemory *createBuffer(void **dev_ptr, MemoryParams params);
 
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
@@ -94,7 +94,7 @@ public:
     AttributeParams makeStructuredDomain(StructuredDomainParams p);
 
     // View creation
-    std::shared_ptr<InteropView2> createView(ViewParams2 params);
+    std::shared_ptr<InteropView> createView(ViewParams params);
 
     void loadTexture(InteropMemory *interop, void *data);
     void display(std::function<void(void)> func, size_t iter_count);
@@ -166,7 +166,7 @@ private:
 
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<InteropMemory*> allocations;
-    std::vector<std::shared_ptr<InteropView2>> views;
+    std::vector<std::shared_ptr<InteropView>> views;
     std::unique_ptr<GlfwContext> window_context;
 
     // Deletion queues organized by lifetime
@@ -197,7 +197,7 @@ private:
     void cleanupGraphics();
     void recreateGraphics();
     void createViewPipelines();
-    void rebuildPipeline(InteropView& view);
+    void rebuildPipeline(InteropViewOld& view);
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);
 

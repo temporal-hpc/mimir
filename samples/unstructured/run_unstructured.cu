@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
         auto points = engine.allocLinear((void**)&d_coords, sizeof(double2) * point_count);
         auto sizes  = engine.allocLinear((void**)&d_sizes, sizeof(double) * point_count);
 
-        ViewParams2 params;
+        ViewParams params;
         params.element_count = point_count;
         params.extent        = {200, 200, 1};
         params.data_domain   = DataDomain::Domain2D;

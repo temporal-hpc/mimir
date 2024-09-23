@@ -415,7 +415,7 @@ VkBuffer MimirEngine::createAttributeBuffer(const AttributeParams attr, size_t e
     return attr_buffer;
 }
 
-std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
+std::shared_ptr<InteropView> MimirEngine::createView(ViewParams params)
 {
     ViewResources res;
     res.vbo.handles.reserve(params.attributes.size());
@@ -444,7 +444,7 @@ std::shared_ptr<InteropView2> MimirEngine::createView(ViewParams2 params)
 
     // TODO: Add uniform buffer support
 
-    auto mem_handle = std::make_shared<InteropView2>(params, res, VK_NULL_HANDLE);
+    auto mem_handle = std::make_shared<InteropView>(params, res, VK_NULL_HANDLE);
     views.push_back(mem_handle);
     return mem_handle;
 }
@@ -500,9 +500,9 @@ InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
     return allocations.back();
 }
 
-InteropView *MimirEngine::createView(ViewParams params)
+InteropViewOld *MimirEngine::createView(ViewParamsOld params)
 {
-    auto view_handle = new InteropView();
+    auto view_handle = new InteropViewOld();
     view_handle->params = params;
     deletors.views.add([=,this]{ delete view_handle; });
 
@@ -1381,7 +1381,7 @@ void MimirEngine::createViewPipelines()
     spdlog::trace("Created {} pipeline object(s) in {} ms", pipelines.size(), elapsed);
 }
 
-void MimirEngine::rebuildPipeline(InteropView& view)
+void MimirEngine::rebuildPipeline(InteropViewOld& view)
 {
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);

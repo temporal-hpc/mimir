@@ -102,7 +102,7 @@ int main(int argc, char *argv[])
     if (use_interop)
     {
         auto points = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
-        ViewParams2 params;
+        ViewParams params;
         params.element_count = point_count;
         params.data_domain   = DataDomain::Domain3D;
         params.extent        = extent;

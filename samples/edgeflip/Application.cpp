@@ -54,7 +54,7 @@ Application::Application(){
     auto vertices  = engine.allocLinear((void**)&m->dm->d_vbo_v, sizeof(float4) * cleap_get_vertex_count(m));
     auto triangles = engine.allocLinear((void**)&m->dm->d_eab, sizeof(int3) * cleap_get_face_count(m));
 
-    ViewParams2 params;
+    ViewParams params;
     params.element_count = cleap_get_vertex_count(m);
     params.data_domain   = DataDomain::Domain3D;
     params.view_type     = ViewType::Markers;

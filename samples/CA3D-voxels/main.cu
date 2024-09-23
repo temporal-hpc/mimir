@@ -63,7 +63,7 @@ int main(int argc, char **argv){
     auto ping = engine.allocLinear((void**)&d1, sizeof(int) * n*n*n);
     auto pong = engine.allocLinear((void**)&d2, sizeof(int) * n*n*n);
 
-    ViewParams2 params;
+    ViewParams params;
     params.element_count = n*n*n;
     params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain   = DataDomain::Domain3D;

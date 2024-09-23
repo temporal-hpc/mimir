@@ -212,7 +212,7 @@ int main(int argc, char *argv[])
     auto image = engine.createBuffer((void**)&d_image, m);
     engine.loadTexture(image, img_data);
 
-    ViewParams params;
+    ViewParamsOld params;
     params.element_count = img_width * img_height;
     params.extent        = {(unsigned)img_width, (unsigned)img_height, 1};
     params.data_domain   = DataDomain::Domain2D;
