@@ -5,13 +5,18 @@ namespace mimir
 
 struct PerformanceMonitor
 {
-    cudaStream_t stream = 0;
-    float total_compute_time = 0;
-    cudaEvent_t start = nullptr, stop = nullptr;
+    cudaStream_t stream;
+    float total_compute_time;
+    cudaEvent_t start, stop;
 
     static PerformanceMonitor make(cudaStream_t monitored_stream = 0)
     {
-        PerformanceMonitor monitor{.stream = monitored_stream};
+        PerformanceMonitor monitor{
+            .stream = monitored_stream,
+            .total_compute_time = 0,
+            .start = nullptr,
+            .stop = nullptr,
+        };
         cudaEventCreate(&monitor.start);
         cudaEventCreate(&monitor.stop);
         return monitor;
@@ -33,5 +38,6 @@ struct PerformanceMonitor
 
 static_assert(std::is_default_constructible_v<PerformanceMonitor>);
 static_assert(std::is_nothrow_default_constructible_v<PerformanceMonitor>);
+static_assert(std::is_trivially_default_constructible_v<PerformanceMonitor>);
 
 } // namespace mimir

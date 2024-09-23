@@ -8,7 +8,13 @@ namespace mimir
 Swapchain Swapchain::make(VkDevice device, VkPhysicalDevice ph_dev, VkSurfaceKHR surf,
     int width, int height, VkPresentModeKHR mode, std::vector<uint32_t> queue_indices)
 {
-    Swapchain sc;
+    Swapchain sc{
+        .current     = VK_NULL_HANDLE,
+        .old         = VK_NULL_HANDLE,
+        .format      = VK_FORMAT_UNDEFINED,
+        .extent      = { 0, 0 },
+        .image_count = 0,
+    };
 
     // Get a swapchain image count within surface supported limits
     VkSurfaceCapabilitiesKHR surf_caps;
@@ -83,11 +89,14 @@ Swapchain Swapchain::make(VkDevice device, VkPhysicalDevice ph_dev, VkSurfaceKHR
     };
     validation::checkVulkan(vkCreateSwapchainKHR(device, &info, nullptr, &sc.current));
 
-    // Get swapchain image array with specified number of images
-    sc.images.resize(sc.image_count);
-    vkGetSwapchainImagesKHR(device, sc.current, &sc.image_count, sc.images.data());
-
     return sc;
+}
+
+std::vector<VkImage> Swapchain::getImages(VkDevice device)
+{
+    std::vector<VkImage> images(image_count);
+    vkGetSwapchainImagesKHR(device, current, &image_count, images.data());
+    return images;
 }
 
 } // namespace mimir

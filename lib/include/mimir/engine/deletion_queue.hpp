@@ -21,3 +21,6 @@ struct DeletionQueue
         deletors.clear();
     }
 };
+
+static_assert(std::is_default_constructible_v<DeletionQueue>);
+static_assert(std::is_nothrow_default_constructible_v<DeletionQueue>);

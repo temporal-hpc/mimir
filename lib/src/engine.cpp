@@ -915,10 +915,11 @@ void MimirEngine::initGraphics()
     });
 
     fbs.resize(swapchain.image_count);
+    auto sc_images = swapchain.getImages(dev.logical_device);
     for (uint32_t i = 0; i < swapchain.image_count; ++i)
     {
         // Create a basic image view to be used as color target
-        fbs[i].addAttachment(dev.logical_device, swapchain.images[i], swapchain.format);
+        fbs[i].addAttachment(dev.logical_device, sc_images[i], swapchain.format);
         fbs[i].create(dev.logical_device, render_pass, swapchain.extent, depth_view);
         deletors.graphics.add([=,this]{
             vkDestroyImageView(dev.logical_device, fbs[i].attachments[0].view, nullptr);
