@@ -3,6 +3,7 @@ add_library(mimir STATIC)
 target_sources(mimir PRIVATE
     src/engine.cpp
     src/camera.cpp
+    src/framebuffer.cpp
     src/framelimit.cpp
     src/gui.cpp
     src/interop.cpp
@@ -12,7 +13,6 @@ target_sources(mimir PRIVATE
     src/validation.cpp
     src/interop_device.cpp
     src/vulkan_device.cpp
-    src/vk_framebuffer.cpp
     src/vk_pipeline.cpp
     src/vk_properties.cpp
     src/window.cpp
@@ -25,14 +25,14 @@ target_sources(mimir PUBLIC
     FILES
         include/mimir/mimir.hpp
         include/mimir/engine/deletion_queue.hpp
-        include/mimir/engine/view_types.hpp
+        include/mimir/engine/framebuffer.hpp
         include/mimir/engine/interop_device.hpp
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/performance_monitor.hpp
         include/mimir/engine/physical_device.hpp
         include/mimir/engine/swapchain.hpp
-        include/mimir/engine/vk_framebuffer.hpp
         include/mimir/engine/vulkan_device.hpp
+        include/mimir/engine/view_types.hpp
 )
 target_include_directories(mimir PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

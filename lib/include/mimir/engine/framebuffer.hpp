@@ -2,10 +2,21 @@
 
 #include <vulkan/vulkan.h>
 
+#include <mimir/engine/swapchain.hpp>
 #include <vector> // std::vector
+#include <span> // std::span
 
 namespace mimir
 {
+
+struct Framebuffer
+{
+    VkFramebuffer handle;
+
+    static Framebuffer make(VkDevice device, VkPhysicalDevice ph_dev,
+        Swapchain swapchain, VkRenderPass render_pass
+    );
+};
 
 struct FramebufferAttachment
 {

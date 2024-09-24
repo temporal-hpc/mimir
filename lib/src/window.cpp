@@ -45,6 +45,7 @@ constexpr int checkGlfw(int code, std::source_location src = std::source_locatio
 namespace mimir
 {
 
+// Helper to retrieve engine pointer from handle associated to GLFW window object
 MimirEngine *getHandler(GLFWwindow *window)
 {
     return reinterpret_cast<MimirEngine*>(glfwGetWindowUserPointer(window));
@@ -56,30 +57,31 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
     auto app = getHandler(window);
     auto& ctx = app->window_context;
 
+    // Compute displacements from previously registered position
     auto new_x = static_cast<float>(xpos);
-    auto new_y = static_cast<float>(ypos);
     auto dx = ctx.mouse_pos.x - new_x;
+    auto new_y = static_cast<float>(ypos);
     auto dy = ctx.mouse_pos.y - new_y;
 
-    if (ctx.mouse_buttons.left)
+    if (ctx.mouse_buttons.left) // Rotation
     {
         auto rot = app->camera.rotation_speed;
         app->camera.rotate(glm::vec3(dy * rot, -dx * rot, 0.f));
         app->view_updated = true;
     }
-    if (ctx.mouse_buttons.right)
+    if (ctx.mouse_buttons.right) // Translation
     {
         app->camera.translate(glm::vec3(0.f, 0.f, dy * .005f));
     }
-    if (ctx.mouse_buttons.middle)
+    if (ctx.mouse_buttons.middle) // Zoom
     {
         app->camera.translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
     }
+    // Update last registered mouse position
     ctx.mouse_pos = { .x = new_x, .y = new_y };
 }
 
-// Helper to transform button events (pressed, released) into flags
-// (pressed = true, not pressed = false)
+// Helper to transform button events (pressed, released) into flags (true only if pressed)
 bool handleMouseButton(int button, int action, int b)
 {
     auto pressed  = (button == b && action == GLFW_PRESS);

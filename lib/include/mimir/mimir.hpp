@@ -10,11 +10,11 @@
 
 #include <mimir/engine/camera.hpp>
 #include <mimir/engine/deletion_queue.hpp>
+#include <mimir/engine/framebuffer.hpp>
 #include <mimir/engine/interop_view.hpp>
 #include <mimir/engine/interop_device.hpp>
 #include <mimir/engine/performance_monitor.hpp>
 #include <mimir/engine/swapchain.hpp>
-#include <mimir/engine/vk_framebuffer.hpp>
 #include <mimir/engine/window.hpp>
 
 namespace mimir
