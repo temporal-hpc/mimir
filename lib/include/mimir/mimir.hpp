@@ -106,13 +106,7 @@ struct MimirEngine
 
     // Camera functions
     Camera camera;
-    struct {
-        bool left = false;
-        bool right = false;
-        bool middle = false;
-    } mouse_buttons;
     bool view_updated;
-    float2 mouse_pos;
 
     void signalKernelFinish();
 

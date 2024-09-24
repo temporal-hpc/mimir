@@ -52,9 +52,7 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .running             = false,
         .should_resize       = false,
         .camera              = {},
-        .mouse_buttons       = { .left = false, .right = false, .middle = false, },
         .view_updated        = false,
-        .mouse_pos           = {0.f, 0.f},
         .instance            = VK_NULL_HANDLE,
         .render_pass         = VK_NULL_HANDLE,
         .descriptor_layout   = VK_NULL_HANDLE,
@@ -101,11 +99,8 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
 
     auto width  = engine.options.window.size.x;
     auto height = engine.options.window.size.y;
-    engine.window_context = {};
-    engine.window_context.init(width, height, engine.options.window.title.c_str(), &engine);
-    engine.deletors.context.add([&] {
-        engine.window_context.clean();
-    });
+    engine.window_context = GlfwContext::make(width, height, engine.options.window.title.c_str(), &engine);
+    engine.deletors.context.add([&] { engine.window_context.clean(); });
 
     engine.initVulkan();
 
@@ -722,7 +717,7 @@ void MimirEngine::createInstance()
     };
 
     // List additional required validation layers
-    auto extensions = window_context.getRequiredExtensions();
+    auto extensions = GlfwContext::getRequiredExtensions();
     if (validation::enable_layers)
     {
         // Enable debugging message extension

@@ -10,16 +10,23 @@ namespace mimir
 
 struct GlfwContext
 {
-    GLFWwindow *window = nullptr;
+    GLFWwindow *window;
+    struct { float x, y; } mouse_pos;
+    struct { bool left, right, middle; } mouse_buttons;
 
-    void init(int width, int height, const char* title, void *engine);
     void clean();
     void exit();
     bool shouldClose();
     void processEvents();
     void getFramebufferSize(int& w, int& h);
     void createSurface(VkInstance instance, void *surface);
-    std::vector<const char*> getRequiredExtensions();
+
+    static GlfwContext make(int width, int height, const char* title, void *engine);
+    static std::vector<const char*> getRequiredExtensions();
 };
+
+static_assert(std::is_default_constructible_v<GlfwContext>);
+static_assert(std::is_nothrow_default_constructible_v<GlfwContext>);
+static_assert(std::is_trivially_default_constructible_v<GlfwContext>);
 
 } // namespace mimir
