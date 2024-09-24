@@ -102,7 +102,6 @@ struct MimirEngine
 
     ViewerOptions options;
     bool running;
-    bool should_resize;
 
     // Camera functions
     Camera camera;

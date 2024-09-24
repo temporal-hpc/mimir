@@ -13,6 +13,7 @@ struct GlfwContext
     GLFWwindow *window;
     struct { float x, y; } mouse_pos;
     struct { bool left, right, middle; } mouse_buttons;
+    bool resize_requested;
 
     void clean();
     void exit();

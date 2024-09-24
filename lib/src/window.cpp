@@ -6,7 +6,6 @@
 #include <mimir/engine/camera.hpp>
 #include "internal/validation.hpp"
 
-
 namespace mimir::validation
 {
 
@@ -79,34 +78,34 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
     ctx.mouse_pos = { .x = new_x, .y = new_y };
 }
 
+// Helper to transform button events (pressed, released) into flags
+// (pressed = true, not pressed = false)
+bool handleMouseButton(int button, int action, int b)
+{
+    auto pressed  = (button == b && action == GLFW_PRESS);
+    auto released = (button == b && action == GLFW_RELEASE);
+    return pressed && !released;
+}
+
 // Translates GLFW mouse actions into Viewer flags for detecting camera actions
 void mouseButtonCallback(GLFWwindow *window, int button, int action,[[maybe_unused]] int mods)
 {
     auto app = getHandler(window);
     auto& ctx = app->window_context;
-    // Perform action only if GUI does not want to use mouse input
-    // (if not hovering over a menu item)
-    if (!ImGui::GetIO().WantCaptureMouse)
-    {
-        if (action == GLFW_PRESS)
-        {
-            if (button == GLFW_MOUSE_BUTTON_MIDDLE)     ctx.mouse_buttons.middle = true;
-            else if (button == GLFW_MOUSE_BUTTON_LEFT)  ctx.mouse_buttons.left = true;
-            else if (button == GLFW_MOUSE_BUTTON_RIGHT) ctx.mouse_buttons.right = true;
-        }
-        else if (action == GLFW_RELEASE)
-        {
-            if (button == GLFW_MOUSE_BUTTON_MIDDLE)     ctx.mouse_buttons.middle = false;
-            else if (button == GLFW_MOUSE_BUTTON_LEFT)  ctx.mouse_buttons.left = false;
-            else if (button == GLFW_MOUSE_BUTTON_RIGHT) ctx.mouse_buttons.right = false;
-        }
-    }
+
+    // Perform action only if GUI does not want mouse input (e.g. not hovering over a menu item)
+    if (ImGui::GetIO().WantCaptureMouse) { return; }
+    ctx.mouse_buttons = {
+        .left   = handleMouseButton(button, action, GLFW_MOUSE_BUTTON_LEFT),
+        .right  = handleMouseButton(button, action, GLFW_MOUSE_BUTTON_RIGHT),
+        .middle = handleMouseButton(button, action, GLFW_MOUSE_BUTTON_MIDDLE),
+    };
 }
 
 void framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
 {
     auto app = getHandler(window);
-    app->should_resize = true;
+    app->window_context.resize_requested = true;
 }
 
 void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int action, int mods)
@@ -153,9 +152,10 @@ GlfwContext GlfwContext::make(int width, int height, const char* title, void *en
     glfwSetWindowCloseCallback(window, windowCloseCallback);
 
     return {
-        .window        = window,
-        .mouse_pos     = { .x = 0.f, .y = 0.f },
-        .mouse_buttons = { .left = false, .right = false, .middle = false },
+        .window           = window,
+        .mouse_pos        = { .x = 0.f, .y = 0.f },
+        .mouse_buttons    = { .left = false, .right = false, .middle = false },
+        .resize_requested = false,
     };
 }
 

@@ -50,7 +50,6 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
     MimirEngine engine{
         .options             = opts,
         .running             = false,
-        .should_resize       = false,
         .camera              = {},
         .view_updated        = false,
         .instance            = VK_NULL_HANDLE,
@@ -1210,10 +1209,10 @@ void MimirEngine::renderFrame()
     };
     result = vkQueuePresentKHR(dev.present.queue, &present_info);
     // Resize should be done after presentation to ensure semaphore consistency
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || window_context.resize_requested)
     {
         recreateGraphics();
-        should_resize = false;
+        window_context.resize_requested = false;
     }
 
     // Limit frame if it was configured
