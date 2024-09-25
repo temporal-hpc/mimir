@@ -15,6 +15,7 @@
 #include <mimir/engine/interop.hpp>
 #include <mimir/engine/interop_view.hpp>
 #include <mimir/engine/performance_monitor.hpp>
+#include <mimir/engine/pipeline.hpp>
 #include <mimir/engine/swapchain.hpp>
 #include <mimir/engine/window.hpp>
 

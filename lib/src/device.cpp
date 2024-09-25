@@ -55,19 +55,17 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
 {
     constexpr auto family_empty = ~0u;
     // Assign index to queue families that could be found
-    uint32_t queue_family_count = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(dev, &queue_family_count, nullptr);
-    std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-    vkGetPhysicalDeviceQueueFamilyProperties(dev, &queue_family_count,
-        queue_families.data()
-    );
+    uint32_t family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(dev, &family_count, nullptr);
+    std::vector<VkQueueFamilyProperties> families(family_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(dev, &family_count, families.data());
 
     graphics_family = present_family = family_empty;
 
     // Find at least one queue family that supports VK_QUEUE_GRAPHICS_BIT
-    for (uint32_t i = 0; i < queue_family_count; ++i)
+    for (uint32_t i = 0; i < family_count; ++i)
     {
-        auto family = queue_families[i];
+        auto family = families[i];
         if (family.queueCount > 0)
         {
             if (graphics_family == family_empty && family.queueFlags & VK_QUEUE_GRAPHICS_BIT
@@ -103,25 +101,20 @@ std::vector<const char*> getRequiredDeviceExtensions()
     };
 }
 
-bool checkAllExtensionsSupported(VkPhysicalDevice dev,
-  const std::vector<const char*>& device_extensions)
+bool checkAllExtensionsSupported(VkPhysicalDevice dev, std::span<const char*> expected)
 {
     // Enumerate extensions and check if all required extensions are included
     uint32_t ext_count;
     vkEnumerateDeviceExtensionProperties(dev, nullptr, &ext_count, nullptr);
-    std::vector<VkExtensionProperties> available_extensions(ext_count);
-    vkEnumerateDeviceExtensionProperties(dev, nullptr, &ext_count,
-        available_extensions.data()
-    );
+    std::vector<VkExtensionProperties> available(ext_count);
+    vkEnumerateDeviceExtensionProperties(dev, nullptr, &ext_count, available.data() );
 
-    std::set<std::string> required_extensions(
-        device_extensions.begin(), device_extensions.end()
-    );
-    for (const auto& extension : available_extensions)
+    std::set<std::string> required( expected.begin(), expected.end() );
+    for (const auto& extension : available)
     {
-        required_extensions.erase(extension.extensionName);
+        required.erase(extension.extensionName);
     }
-    return required_extensions.empty();
+    return required.empty();
 }
 
 SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKHR surface)
@@ -134,9 +127,7 @@ SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKH
     if (format_count != 0)
     {
         details.formats.resize(format_count);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(
-            dev, surface, &format_count, details.formats.data()
-        );
+        vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &format_count, details.formats.data());
     }
 
     uint32_t mode_count;
@@ -144,9 +135,7 @@ SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKH
     if (mode_count != 0)
     {
         details.present_modes.resize(mode_count);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(
-            dev, surface, &mode_count, details.present_modes.data()
-        );
+        vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &mode_count, details.present_modes.data());
     }
     return details;
 }
@@ -154,7 +143,7 @@ SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKH
 bool isDeviceSuitable(VkPhysicalDevice dev, VkSurfaceKHR surface)
 {
     uint32_t graphics_idx, present_idx;
-    auto has_queues = findQueueFamilies(dev, surface, graphics_idx, present_idx);
+    auto has_queues          = findQueueFamilies(dev, surface, graphics_idx, present_idx);
     auto device_extensions   = getRequiredDeviceExtensions();
     auto supports_extensions = checkAllExtensionsSupported(dev, device_extensions);
     auto swapchain_support   = getSwapchainProperties(dev, surface);
@@ -166,7 +155,7 @@ bool isDeviceSuitable(VkPhysicalDevice dev, VkSurfaceKHR surface)
         && supported_features.samplerAnisotropy;
 }
 
-PhysicalDevice pickDevice(VkInstance instance, VkSurfaceKHR surface)
+PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
 {
     int cuda_dev_count = 0;
     validation::checkCuda(cudaGetDeviceCount(&cuda_dev_count));
@@ -210,9 +199,7 @@ PhysicalDevice pickDevice(VkInstance instance, VkSurfaceKHR surface)
             if (matching && isDeviceSuitable(device.handle, surface))
             {
                 validation::checkCuda(cudaSetDevice(curr_device));
-                spdlog::info("Selected interop device {}: {}",
-                    curr_device, device.general.properties.deviceName
-                );
+                spdlog::info("Selected interop device {}: {}", curr_device, device.general.properties.deviceName);
                 chosen_device = device;
                 break;
             }

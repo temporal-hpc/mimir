@@ -1,4 +1,4 @@
-#include "internal/shader.hpp"
+#include <mimir/engine/shader.hpp>
 
 #define SLANG_CUDA_ENABLE_HALF
 #include <slang.h>
@@ -6,10 +6,7 @@
 
 #include "internal/validation.hpp"
 
-namespace mimir
-{
-
-namespace validation
+namespace mimir::validation
 {
 
 constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
@@ -36,10 +33,16 @@ constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
     return code;
 }
 
-} // namespace validation
+} // namespace mimir::validation
 
-ShaderBuilder::ShaderBuilder()
+namespace mimir
 {
+
+ShaderBuilder ShaderBuilder::make()
+{
+    Slang::ComPtr<slang::IGlobalSession> global_session;
+    Slang::ComPtr<slang::ISession> session;
+
     // Create global session to work with the Slang API
     validation::checkSlang(slang::createGlobalSession(global_session.writeRef()));
 
@@ -59,6 +62,11 @@ ShaderBuilder::ShaderBuilder()
 
     // Obtain a compilation session that scopes compilation and code loading
     validation::checkSlang(global_session->createSession(session_desc, session.writeRef()));
+
+    return {
+        .global_session = global_session,
+        .session        = session,
+    };
 }
 
 VkPipelineShaderStageCreateInfo shaderStageInfo(

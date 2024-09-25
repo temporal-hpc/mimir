@@ -21,7 +21,6 @@ struct ShaderCompileParams
 
 struct ShaderBuilder
 {
-    ShaderBuilder();
     Slang::ComPtr<slang::IGlobalSession> global_session;
     Slang::ComPtr<slang::ISession> session;
 
@@ -31,6 +30,8 @@ struct ShaderBuilder
     std::vector<VkPipelineShaderStageCreateInfo> loadExternalShaders(
         VkDevice device, const std::vector<ShaderInfo> shaders
     );
+
+    static ShaderBuilder make();
 };
 
 } // namespace mimir

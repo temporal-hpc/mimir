@@ -1,4 +1,4 @@
-#include "internal/vk_pipeline.hpp"
+#include <mimir/engine/pipeline.hpp>
 
 #include <cstring> // to_string
 #include <map> // std::map
@@ -98,11 +98,15 @@ VkPipelineDepthStencilStateCreateInfo getDepthInfo()
     };
 }
 
-PipelineBuilder::PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent):
-    pipeline_layout{layout},
-    viewport{0.f, 0.f, (float)extent.width, (float)extent.height, 0.f, 1.f},
-    scissor{ {0, 0}, extent }
-{}
+PipelineBuilder PipelineBuilder::make(VkPipelineLayout layout, VkExtent2D extent)
+{
+    return {
+        .shader_builder  = ShaderBuilder::make(),
+        .pipeline_layout = layout,
+        .viewport        = {0.f, 0.f, (float)extent.width, (float)extent.height, 0.f, 1.f},
+        .scissor         = { {0,0}, extent },
+    };
+}
 
 VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
 {

@@ -3,7 +3,6 @@
 #include <cuda_runtime_api.h>
 
 #include <mimir/engine/interop_view.hpp>
-#include <mimir/engine/vulkan_device.hpp>
 
 namespace mimir
 {
@@ -12,9 +11,6 @@ namespace mimir
 // Inherited from VulkanDevice to encapsulate Cuda-related code
 struct InteropDevice : public VulkanDevice
 {
-    // Use the constructor from the base VulkanDevice class
-    using VulkanDevice::VulkanDevice;
-
     void initMemoryBuffer(InteropMemory &interop);
     void initMemoryImage(InteropMemory &interop);
     void initMemoryImageLinear(InteropMemory &interop);

@@ -4,7 +4,6 @@
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
 #include "internal/validation.hpp"
-#include "internal/vk_pipeline.hpp"
 
 #include <dlfcn.h> // dladdr
 #include <chrono> // std::chrono
@@ -612,7 +611,7 @@ void MimirEngine::initVulkan()
     deletors.context.add([=,this](){
         vkDestroySurfaceKHR(instance, surface, nullptr);
     });
-    physical_device = pickDevice(instance, surface);
+    physical_device = pickPhysicalDevice(instance, surface);
 
     findQueueFamilies(physical_device.handle, surface, graphics.family_index, present.family_index);
     std::set unique_queue_families{ graphics.family_index, present.family_index };
@@ -1285,7 +1284,7 @@ VkRenderPass MimirEngine::createRenderPass()
         .dependencyFlags = 0,
     };
 
-    VkRenderPassCreateInfo pass_info{
+    VkRenderPassCreateInfo info{
         .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         .pNext           = nullptr,
         .flags           = 0, // Can be VK_RENDER_PASS_CREATE_TRANSFORM_BIT_QCOM
@@ -1297,22 +1296,19 @@ VkRenderPass MimirEngine::createRenderPass()
         .pDependencies   = &dependency,
     };
 
-    spdlog::debug("Render pass created with {} attachments", attachments.size());
     VkRenderPass render_pass = VK_NULL_HANDLE;
-    validation::checkVulkan(
-        vkCreateRenderPass(device, &pass_info, nullptr, &render_pass)
-    );
+    validation::checkVulkan(vkCreateRenderPass(device, &info, nullptr, &render_pass));
+    spdlog::debug("Render pass created with {} attachment(s)", attachments.size());
     return render_pass;
 }
 
-void MimirEngine::createViewPipelines()
+void MimirEngine::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> views*/)
 {
     auto start = std::chrono::steady_clock::now();
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
 
-    PipelineBuilder builder(pipeline_layout, swapchain.extent);
-
+    auto builder = PipelineBuilder::make(pipeline_layout, swapchain.extent);
     for (auto& view : views)
     {
         builder.addPipeline(view->params, device);
@@ -1338,7 +1334,7 @@ void MimirEngine::rebuildPipeline(InteropViewOld& view)
     auto orig_path = std::filesystem::current_path();
     std::filesystem::current_path(shader_path);
 
-    PipelineBuilder builder(pipeline_layout, swapchain.extent);
+    auto builder = PipelineBuilder::make(pipeline_layout, swapchain.extent);
     //builder.addPipeline(view.params, device);
     auto pipelines = builder.createPipelines(device, render_pass);
     // Destroy the old view pipeline and assign the new one

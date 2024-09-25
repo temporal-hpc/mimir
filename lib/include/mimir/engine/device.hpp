@@ -48,7 +48,6 @@ struct PhysicalDevice
     };
     VkPhysicalDeviceFeatures features{};
 
-
     DeviceMemoryStats getMemoryStats();
     VkDeviceSize getUboOffsetAlignment()
     {
@@ -56,7 +55,7 @@ struct PhysicalDevice
     };
 };
 
-PhysicalDevice pickDevice(VkInstance instance, VkSurfaceKHR surface);
+PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface);
 VkDevice createLogicalDevice(VkPhysicalDevice ph_dev, std::span<uint32_t> queue_families);
 
 bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,

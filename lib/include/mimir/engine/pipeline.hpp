@@ -1,6 +1,6 @@
 #pragma once
 
-#include "shader.hpp"
+#include <mimir/engine/shader.hpp>
 
 namespace mimir
 {
@@ -31,9 +31,10 @@ struct PipelineBuilder
     VkViewport viewport;
     VkRect2D scissor;
 
-    PipelineBuilder(VkPipelineLayout layout, VkExtent2D extent);
     uint32_t addPipeline(const ViewParams params, VkDevice device);
     std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
+
+    static PipelineBuilder make(VkPipelineLayout layout, VkExtent2D extent);
 };
 
 } // namespace mimir

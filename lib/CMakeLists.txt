@@ -8,12 +8,12 @@ target_sources(mimir PRIVATE
     src/framelimit.cpp
     src/gui.cpp
     src/interop.cpp
+    src/pipeline.cpp
     src/resources.cpp
     src/shader.cpp
     src/swapchain.cpp
     src/validation.cpp
     #src/interop_device.cpp
-    src/vk_pipeline.cpp
     src/window.cpp
     src/vma_impl.cpp
 )
@@ -29,6 +29,7 @@ target_sources(mimir PUBLIC
         include/mimir/engine/interop.hpp
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/performance_monitor.hpp
+        include/mimir/engine/pipeline.hpp
         include/mimir/engine/resources.hpp
         include/mimir/engine/swapchain.hpp
         include/mimir/engine/view_types.hpp
@@ -53,9 +54,9 @@ find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
 target_link_libraries(mimir
     PUBLIC
-        Vulkan::Vulkan CUDA::cudart glm::glm glfw imgui-app ImGuiFileDialog
+        Vulkan::Vulkan CUDA::cudart slang glm::glm glfw imgui-app ImGuiFileDialog
     PRIVATE
-        GPUOpen::VulkanMemoryAllocator slang fmt::fmt spdlog::spdlog
+        GPUOpen::VulkanMemoryAllocator fmt::fmt spdlog::spdlog
 )
 
 install(
