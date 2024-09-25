@@ -4,7 +4,6 @@
 
 #include <mimir/engine/shader_types.hpp>
 #include <mimir/engine/resources.hpp>
-#include <mimir/engine/image.hpp>
 #include "internal/validation.hpp"
 #include "internal/interop.hpp"
 

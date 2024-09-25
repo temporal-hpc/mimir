@@ -8,6 +8,23 @@
 namespace mimir
 {
 
+struct ImageParams
+{
+    VkImageType type;
+    VkFormat format;
+    VkExtent3D extent;
+    VkImageTiling tiling;
+    VkImageUsageFlags usage;
+};
+
+VkFormatProperties getImageFormatProperties(VkPhysicalDevice ph_dev, VkFormat format);
+
+VkFormat findSupportedImageFormat(VkPhysicalDevice ph_dev, std::span<VkFormat> candidates,
+    VkImageTiling tiling, VkFormatFeatureFlags features
+);
+
+VkImage createImage(VkDevice device, VkPhysicalDevice ph_dev, ImageParams params);
+
 uint32_t findMemoryType(VkPhysicalDeviceMemoryProperties available,
     uint32_t type_filter, VkMemoryPropertyFlags requested
 );

@@ -14,8 +14,7 @@ struct DeviceMemoryStats
     VkDeviceSize budget = 0;
 };
 
-// Aggregate structure containing a Vulkan physical device handle and its
-// associated properties
+// Aggregate structure containing a Vulkan physical device handle and its associated properties
 // Default values are set for ready use by the various Vulkan device property
 // retrieval functions, filling the empty values below with device information
 struct PhysicalDevice
@@ -48,6 +47,7 @@ struct PhysicalDevice
     };
     VkPhysicalDeviceFeatures features{};
 
+
     DeviceMemoryStats getMemoryStats();
     VkDeviceSize getUboOffsetAlignment()
     {
@@ -55,6 +55,13 @@ struct PhysicalDevice
     };
 };
 
-std::vector<PhysicalDevice> getDevices(VkInstance instance);
+PhysicalDevice pickDevice(VkInstance instance, VkSurfaceKHR surface);
+
+bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
+    uint32_t& graphics_family, uint32_t& present_family
+);
+
+// Handle additional extensions required by CUDA interop
+std::vector<const char*> getRequiredDeviceExtensions();
 
 } // namespace mimir

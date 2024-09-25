@@ -1,14 +1,13 @@
 add_library(mimir STATIC)
 
 target_sources(mimir PRIVATE
+    src/device.cpp
     src/engine.cpp
     src/camera.cpp
     src/framebuffer.cpp
     src/framelimit.cpp
     src/gui.cpp
-    src/image.cpp
     src/interop.cpp
-    src/physical_device.cpp
     src/resources.cpp
     src/shader.cpp
     src/swapchain.cpp
@@ -16,7 +15,6 @@ target_sources(mimir PRIVATE
     src/interop_device.cpp
     src/vulkan_device.cpp
     src/vk_pipeline.cpp
-    src/vk_properties.cpp
     src/window.cpp
     src/vma_impl.cpp
 )
@@ -27,12 +25,11 @@ target_sources(mimir PUBLIC
     FILES
         include/mimir/mimir.hpp
         include/mimir/engine/deletion_queue.hpp
+        include/mimir/engine/device.hpp
         include/mimir/engine/framebuffer.hpp
-        include/mimir/engine/image.hpp
         include/mimir/engine/interop_device.hpp
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/performance_monitor.hpp
-        include/mimir/engine/physical_device.hpp
         include/mimir/engine/resources.hpp
         include/mimir/engine/swapchain.hpp
         include/mimir/engine/vulkan_device.hpp

@@ -2,10 +2,9 @@
 
 #include <set> // std::set
 
-#include <mimir/engine/image.hpp>
+#include <mimir/engine/device.hpp>
 #include <mimir/engine/resources.hpp>
 #include "internal/validation.hpp"
-#include "internal/vk_properties.hpp"
 
 namespace mimir
 {
@@ -23,9 +22,7 @@ uint32_t getAlignedSize(size_t original_size, size_t min_alignment)
 
 void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
 {
-    props::findQueueFamilies(
-        physical_device.handle, surface, graphics.family_index, present.family_index
-    );
+    findQueueFamilies(physical_device.handle, surface, graphics.family_index, present.family_index);
 
     std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
     std::set unique_queue_families{ graphics.family_index, present.family_index };
@@ -63,7 +60,7 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     vk11features.pNext = &vk12features;
     vk11features.storageInputOutput16 = VK_FALSE;
 
-    auto device_extensions = props::getRequiredDeviceExtensions();
+    auto device_extensions = getRequiredDeviceExtensions();
     VkDeviceCreateInfo create_info{
         .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext                   = &vk11features,
@@ -158,7 +155,7 @@ VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
 void VulkanDevice::generateMipmaps(VkImage image, VkFormat format,
     int img_width, int img_height, int mip_levels)
 {
-    auto props = getFormatProperties(physical_device.handle, format);
+    auto props = getImageFormatProperties(physical_device.handle, format);
     auto blit_support = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
     if (!(props.optimalTilingFeatures & blit_support))
     {

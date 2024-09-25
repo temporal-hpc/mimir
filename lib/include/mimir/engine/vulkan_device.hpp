@@ -6,7 +6,7 @@
 #include <string> // std::string
 #include <vector> // std::vector
 
-#include <mimir/engine/physical_device.hpp>
+#include <mimir/engine/device.hpp>
 
 namespace mimir
 {

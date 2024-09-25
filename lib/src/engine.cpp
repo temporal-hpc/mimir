@@ -1,13 +1,12 @@
 #include <mimir/mimir.hpp>
 
-#include <mimir/engine/image.hpp>
+#include <mimir/engine/device.hpp>
 #include <mimir/engine/resources.hpp>
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
 #include "internal/interop.hpp"
 #include "internal/validation.hpp"
 #include "internal/vk_pipeline.hpp"
-#include "internal/vk_properties.hpp"
 
 #include <dlfcn.h> // dladdr
 #include <chrono> // std::chrono
@@ -600,7 +599,7 @@ void MimirEngine::initVulkan()
     deletors.context.add([=,this](){
         vkDestroySurfaceKHR(instance, surface, nullptr);
     });
-    pickPhysicalDevice();
+    dev.physical_device = pickDevice(instance, surface);
     dev.initLogicalDevice(surface);
     deletors.context.add([=,this](){
         vkDestroyCommandPool(dev.logical_device, dev.command_pool, nullptr);
@@ -766,65 +765,6 @@ void MimirEngine::createInstance()
         deletors.context.add([=,this]{
             validation::DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
         });
-    }
-}
-
-void MimirEngine::pickPhysicalDevice()
-{
-    int cuda_dev_count = 0;
-    validation::checkCuda(cudaGetDeviceCount(&cuda_dev_count));
-    if (cuda_dev_count == 0)
-    {
-        spdlog::error("could not find devices supporting CUDA");
-    }
-
-    auto all_devices = getDevices(instance);
-    printf("Enumerating CUDA devices:\n");
-    for (int dev_id = 0; dev_id < cuda_dev_count; ++dev_id)
-    {
-        cudaDeviceProp dev_prop;
-        cudaGetDeviceProperties(&dev_prop, dev_id);
-        printf("* ID: %d\n  Name: %s\n  Capability: %d.%d\n",
-            dev_id, dev_prop.name, dev_prop.major, dev_prop.minor
-        );
-    }
-    printf("Enumerating Vulkan devices:\n");
-    for (const auto& dev : all_devices)
-    {
-        auto props = dev.general.properties;
-        printf("* ID: %u\n  Name: %s\n", props.deviceID, props.deviceName);
-    }
-
-    int curr_device = 0, prohibited_count = 0;
-    while (curr_device < cuda_dev_count)
-    {
-        cudaDeviceProp dev_prop;
-        cudaGetDeviceProperties(&dev_prop, curr_device);
-        if (dev_prop.computeMode == cudaComputeModeProhibited)
-        {
-            prohibited_count++;
-            curr_device++;
-            continue;
-        }
-        for (const auto& device : all_devices)
-        {
-            auto matching = memcmp((void*)&dev_prop.uuid, device.id_props.deviceUUID, VK_UUID_SIZE) == 0;
-            if (matching && props::isDeviceSuitable(device.handle, surface))
-            {
-                validation::checkCuda(cudaSetDevice(curr_device));
-                dev.physical_device = device;
-                spdlog::info("Selected interop device {}: {}",
-                    curr_device, device.general.properties.deviceName
-                );
-                break;
-            }
-        }
-        curr_device++;
-    }
-
-    if (prohibited_count == cuda_dev_count)
-    {
-        spdlog::error("No CUDA-Vulkan interop device was found");
     }
 }
 
@@ -1257,7 +1197,7 @@ void MimirEngine::drawElements(uint32_t image_idx)
         auto vertex_count = view->params.element_count;
 
         auto& ibo = view->resources.ibo;
-        if (ibo.handle != nullptr) // If index buffer exists, bind it and perform indexed draw
+        if (ibo.handle != VK_NULL_HANDLE) // If index buffer exists, bind it and perform indexed draw
         {
             vkCmdBindIndexBuffer(cmd, ibo.handle, 0, ibo.type);
             vkCmdDrawIndexed(cmd, vertex_count, 1, 0, 0, 0);
@@ -1276,11 +1216,6 @@ void MimirEngine::drawElements(uint32_t image_idx)
         //     break;
         // }
     }
-}
-
-bool MimirEngine::hasStencil(VkFormat format)
-{
-    return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
 VkFormat MimirEngine::findDepthFormat()

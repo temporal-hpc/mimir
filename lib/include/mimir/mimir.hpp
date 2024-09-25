@@ -171,7 +171,6 @@ struct MimirEngine
 
     // Vulkan core-related functions
     void createInstance();
-    void pickPhysicalDevice();
     void createSyncObjects();
     void updateDescriptorSets();
     VkRenderPass createRenderPass();
@@ -186,7 +185,6 @@ struct MimirEngine
     void updateUniformBuffers(uint32_t image_idx);
 
     // Depth buffering
-    bool hasStencil(VkFormat format);
     VkFormat findDepthFormat();
 
     // Benchmarking
