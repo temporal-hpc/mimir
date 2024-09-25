@@ -131,27 +131,6 @@ void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fu
     vkFreeCommandBuffers(logical_device, command_pool, 1, &cmd);
 }
 
-VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
-    VkBufferUsageFlags usage, const void *extensions)
-{
-    VkBuffer buffer = VK_NULL_HANDLE;
-    if (size > 0)
-    {
-        VkBufferCreateInfo info{
-            .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .pNext       = extensions,
-            .flags       = 0,
-            .size        = size,
-            .usage       = usage,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices   = nullptr,
-        };
-        validation::checkVulkan(vkCreateBuffer(logical_device, &info, nullptr, &buffer));
-    }
-    return buffer;
-}
-
 void VulkanDevice::generateMipmaps(VkImage image, VkFormat format,
     int img_width, int img_height, int mip_levels)
 {

@@ -29,9 +29,6 @@ struct VulkanDevice
 
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
-    VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-        const void *extensions = nullptr
-    );
     void generateMipmaps(VkImage image, VkFormat img_format,
         int img_width, int img_height, int mip_levels
     );

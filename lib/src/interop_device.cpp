@@ -95,7 +95,7 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
 
-    interop.data_buffer = createBuffer(memsize, usage, &extmem_info);
+    interop.data_buffer = createBuffer(logical_device, memsize, usage, &extmem_info);
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(logical_device, interop.data_buffer, &memreq);
 
@@ -133,7 +133,7 @@ void InteropDevice::initViewBuffer(InteropViewOld& view)
     {
         // Allocate memory and bind it to buffers
         auto buffer_size = sizeof(float3) * params.element_count;
-        view.aux_buffer = createBuffer(buffer_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        view.aux_buffer = createBuffer(logical_device, buffer_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
         VkMemoryRequirements memreq{};
         vkGetBufferMemoryRequirements(logical_device, view.aux_buffer, &memreq);
         auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -293,7 +293,7 @@ void InteropDevice::initViewImage(InteropViewOld& view)
 
         // Auxiliary buffer for holding a quad and its indices
         auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-        view.aux_buffer = createBuffer(vert_size + ids_size, usage);
+        view.aux_buffer = createBuffer(logical_device, vert_size + ids_size, usage);
         VkMemoryRequirements memreq{};
         vkGetBufferMemoryRequirements(logical_device, view.aux_buffer, &memreq);
 
@@ -345,7 +345,7 @@ void InteropDevice::loadTexture(InteropMemory *interop, void *img_data)
 
     // Create staging buffer to copy image data
     VkDeviceSize staging_size = image_width * image_height * 4;
-    auto staging_buffer = createBuffer(staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    auto staging_buffer = createBuffer(logical_device, staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     VkMemoryRequirements staging_req;
     vkGetBufferMemoryRequirements(logical_device, staging_buffer, &staging_req);
     auto available = physical_device.memory.memoryProperties;

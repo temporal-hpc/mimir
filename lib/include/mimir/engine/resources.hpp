@@ -23,6 +23,10 @@ VkFormat findSupportedImageFormat(VkPhysicalDevice ph_dev, std::span<VkFormat> c
     VkImageTiling tiling, VkFormatFeatureFlags features
 );
 
+VkBuffer createBuffer(VkDevice device, VkDeviceSize size,
+    VkBufferUsageFlags usage, const void *extensions=nullptr
+);
+
 VkImage createImage(VkDevice device, VkPhysicalDevice ph_dev, ImageParams params);
 
 uint32_t findMemoryType(VkPhysicalDeviceMemoryProperties available,

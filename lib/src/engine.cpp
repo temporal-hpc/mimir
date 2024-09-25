@@ -288,7 +288,7 @@ AttributeParams MimirEngine::makeStructuredDomain(StructuredDomainParams params)
     auto memsize = sizeof(float3) * sz.x * sz.y * sz.z;
 
     // Create test buffer for querying the desired memory properties
-    auto domain_buffer = dev.createBuffer(memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    auto domain_buffer = createBuffer(dev.logical_device, memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(dev.logical_device, domain_buffer, &memreq);
 
@@ -400,7 +400,7 @@ Allocation MimirEngine::allocExtmemBuffer(size_t size, VkBufferUsageFlags usage)
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
-    auto test_buffer = dev.createBuffer(size, usage, &extmem_info);
+    auto test_buffer = createBuffer(dev.logical_device, size, usage, &extmem_info);
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(dev.logical_device, test_buffer, &memreq);
 
@@ -442,7 +442,7 @@ VkBuffer MimirEngine::createAttributeBuffer(const AttributeParams attr, size_t e
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
-    auto attr_buffer = dev.createBuffer(memsize, usage, &extmem_info);
+    auto attr_buffer = createBuffer(dev.logical_device, memsize, usage, &extmem_info);
     deletors.views.add([=,this]{ vkDestroyBuffer(dev.logical_device, attr_buffer, nullptr); });
     vkBindBufferMemory(dev.logical_device, attr_buffer, attr.allocation->vk_mem, 0);
     return attr_buffer;
@@ -482,7 +482,7 @@ std::shared_ptr<InteropView> MimirEngine::createView(ViewParams params)
     return mem_handle;
 }
 
-InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
+InteropMemory *MimirEngine::createBufferOld(void **dev_ptr, MemoryParams params)
 {
     auto mem_handle = new InteropMemory();
     mem_handle->params = params;
@@ -1371,7 +1371,7 @@ void MimirEngine::initUniformBuffers()
     auto available = dev.physical_device.memory.memoryProperties;
     for (auto& ubo : uniform_buffers)
     {
-        ubo.buffer = dev.createBuffer(size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        ubo.buffer = createBuffer(dev.logical_device, size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         VkMemoryRequirements memreq{};
         vkGetBufferMemoryRequirements(dev.logical_device, ubo.buffer, &memreq);
         auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;

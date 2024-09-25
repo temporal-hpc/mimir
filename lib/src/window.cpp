@@ -127,7 +127,7 @@ void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int 
 
 void windowCloseCallback(GLFWwindow *window)
 {
-    spdlog::trace("Executing window close callback");
+    spdlog::trace("Triggering window close callback");
     auto engine = getHandler(window);
     engine->running = false;
     engine->signalKernelFinish();

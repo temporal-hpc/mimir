@@ -35,6 +35,24 @@ VkDeviceMemory allocateMemory(VkDevice device, VkPhysicalDeviceMemoryProperties 
     return memory;
 }
 
+VkBuffer createBuffer(VkDevice device, VkDeviceSize size,
+    VkBufferUsageFlags usage, const void *extensions)
+{
+    VkBufferCreateInfo info{
+        .sType                 = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext                 = extensions,
+        .flags                 = 0,
+        .size                  = size,
+        .usage                 = usage,
+        .sharingMode           = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices   = nullptr,
+    };
+    VkBuffer buffer = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateBuffer(device, &info, nullptr, &buffer));
+    return buffer;
+}
+
 VkFormatProperties getImageFormatProperties(VkPhysicalDevice ph_dev, VkFormat format)
 {
     VkFormatProperties properties{};
