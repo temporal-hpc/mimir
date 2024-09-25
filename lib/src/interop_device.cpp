@@ -5,7 +5,6 @@
 #include <mimir/engine/shader_types.hpp>
 #include <mimir/engine/resources.hpp>
 #include "internal/validation.hpp"
-#include "internal/interop.hpp"
 
 namespace mimir
 {
@@ -397,25 +396,6 @@ void InteropDevice::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent
         auto layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         vkCmdCopyBufferToImage(cmd, buffer, image, layout, 1, &region);
     });
-}
-
-InteropBarrier InteropDevice::createInteropBarrier()
-{
-    VkSemaphoreTypeCreateInfo timeline_info{
-        .sType         = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-        .pNext         = nullptr,
-        .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
-        .initialValue  = 0
-    };
-    VkExportSemaphoreCreateInfoKHR export_info{
-        .sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR,
-        .pNext       = &timeline_info,
-        .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
-    };
-    InteropBarrier barrier;
-    barrier.vk_semaphore = createSemaphore(logical_device, &export_info);
-    barrier.cuda_semaphore = interop::importCudaExternalSemaphore(barrier.vk_semaphore, logical_device);
-    return barrier;
 }
 
 } // namespace mimir

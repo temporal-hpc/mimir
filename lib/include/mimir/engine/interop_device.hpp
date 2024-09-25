@@ -8,14 +8,6 @@
 namespace mimir
 {
 
-struct InteropBarrier
-{
-    uint64_t timeline_value                = 0;
-    VkSemaphore vk_semaphore               = VK_NULL_HANDLE;
-    cudaExternalSemaphore_t cuda_semaphore = nullptr;
-    cudaStream_t cuda_stream               = 0;
-};
-
 // Class for encapsulating Vulkan device functions with Cuda interop
 // Inherited from VulkanDevice to encapsulate Cuda-related code
 struct InteropDevice : public VulkanDevice
@@ -34,8 +26,6 @@ struct InteropDevice : public VulkanDevice
     void updateLinearTexture(InteropMemory &interop);
     VkImage createImage2(MemoryParams params);
     uint32_t getMaxImageDimension(DataLayout layout);
-
-    InteropBarrier createInteropBarrier();
 };
 
 } // namespace mimir

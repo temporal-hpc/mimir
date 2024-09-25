@@ -12,8 +12,7 @@ target_sources(mimir PRIVATE
     src/shader.cpp
     src/swapchain.cpp
     src/validation.cpp
-    src/interop_device.cpp
-    src/vulkan_device.cpp
+    #src/interop_device.cpp
     src/vk_pipeline.cpp
     src/window.cpp
     src/vma_impl.cpp
@@ -27,12 +26,11 @@ target_sources(mimir PUBLIC
         include/mimir/engine/deletion_queue.hpp
         include/mimir/engine/device.hpp
         include/mimir/engine/framebuffer.hpp
-        include/mimir/engine/interop_device.hpp
+        include/mimir/engine/interop.hpp
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/performance_monitor.hpp
         include/mimir/engine/resources.hpp
         include/mimir/engine/swapchain.hpp
-        include/mimir/engine/vulkan_device.hpp
         include/mimir/engine/view_types.hpp
 )
 target_include_directories(mimir PUBLIC

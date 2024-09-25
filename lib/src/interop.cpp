@@ -1,11 +1,37 @@
-#include "internal/interop.hpp"
+#include <mimir/engine/interop.hpp>
 
 #include <cuda_runtime.h> // make_cudaExtent
 
+#include <mimir/engine/resources.hpp>
 #include "internal/validation.hpp"
 
 namespace mimir::interop
 {
+
+Barrier Barrier::make(VkDevice device)
+{
+    Barrier barrier{
+        .timeline_value = 0,
+        .vk_semaphore   = VK_NULL_HANDLE,
+        .cuda_semaphore = nullptr,
+        .cuda_stream    = 0,
+    };
+
+    VkSemaphoreTypeCreateInfo timeline_info{
+        .sType         = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+        .pNext         = nullptr,
+        .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+        .initialValue  = 0
+    };
+    VkExportSemaphoreCreateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR,
+        .pNext       = &timeline_info,
+        .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    barrier.vk_semaphore   = createSemaphore(device, &export_info);
+    barrier.cuda_semaphore = importCudaExternalSemaphore(barrier.vk_semaphore, device);
+    return barrier;
+}
 
 cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem,
     int4 component_size, int3 extent, unsigned level_count)

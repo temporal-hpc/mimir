@@ -227,6 +227,66 @@ PhysicalDevice pickDevice(VkInstance instance, VkSurfaceKHR surface)
     return chosen_device;
 }
 
+VkDevice createLogicalDevice(VkPhysicalDevice ph_dev, std::span<uint32_t> queue_families)
+{
+    std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
+    auto queue_priority = 1.f;
+    for (auto queue_family : queue_families)
+    {
+        VkDeviceQueueCreateInfo queue_create_info{
+            .sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .pNext            = nullptr,
+            .flags            = 0,
+            .queueFamilyIndex = queue_family,
+            .queueCount       = 1,
+            .pQueuePriorities = &queue_priority,
+        };
+        queue_create_infos.push_back(queue_create_info);
+    }
+
+    // TODO: These features are not always used in every case,
+    // so they should not be always enforced (for greater compatibility)
+    VkPhysicalDeviceFeatures device_features{};
+    device_features.samplerAnisotropy = VK_TRUE;
+    device_features.fillModeNonSolid  = VK_TRUE; // Enable wireframe
+    device_features.geometryShader    = VK_TRUE;
+    device_features.shaderFloat64     = VK_TRUE;
+
+    VkPhysicalDeviceVulkan12Features vk12features{};
+    vk12features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    vk12features.pNext = nullptr;
+    vk12features.timelineSemaphore = VK_TRUE; // Enable timeline semaphores
+    vk12features.hostQueryReset    = VK_TRUE; // Enable resetting queries from host code
+
+    VkPhysicalDeviceVulkan11Features vk11features{};
+    vk11features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    vk11features.pNext = &vk12features;
+    vk11features.storageInputOutput16 = VK_FALSE;
+
+    auto device_extensions = getRequiredDeviceExtensions();
+    VkDeviceCreateInfo create_info{
+        .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext                   = &vk11features,
+        .flags                   = 0,
+        .queueCreateInfoCount    = (uint32_t)queue_create_infos.size(),
+        .pQueueCreateInfos       = queue_create_infos.data(),
+        .enabledLayerCount       = 0,
+        .ppEnabledLayerNames     = nullptr,
+        .enabledExtensionCount   = (uint32_t)device_extensions.size(),
+        .ppEnabledExtensionNames = device_extensions.data(),
+        .pEnabledFeatures        = &device_features,
+    };
+    if (validation::enable_layers)
+    {
+        create_info.enabledLayerCount   = validation::layers.size();
+        create_info.ppEnabledLayerNames = validation::layers.data();
+    }
+
+    VkDevice device = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateDevice(ph_dev, &create_info, nullptr, &device));
+    return device;
+}
+
 DeviceMemoryStats PhysicalDevice::getMemoryStats()
 {
     DeviceMemoryStats stats{};

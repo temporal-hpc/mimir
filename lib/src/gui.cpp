@@ -196,7 +196,8 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropVie
     ImGui::Render();
 }
 
-void init(InteropDevice& dev, VkInstance instance, VkDescriptorPool pool, VkRenderPass pass, const GlfwContext& win_ctx)
+void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescriptorPool pool, VkRenderPass pass,
+    VulkanQueue queue, const GlfwContext& win_ctx)
 {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -204,10 +205,10 @@ void init(InteropDevice& dev, VkInstance instance, VkDescriptorPool pool, VkRend
 
     ImGui_ImplVulkan_InitInfo info{
         .Instance        = instance,
-        .PhysicalDevice  = dev.physical_device.handle,
-        .Device          = dev.logical_device,
-        .QueueFamily     = dev.graphics.family_index,
-        .Queue           = dev.graphics.queue,
+        .PhysicalDevice  = ph_dev,
+        .Device          = device,
+        .QueueFamily     = queue.family_index,
+        .Queue           = queue.queue,
         .DescriptorPool  = pool,
         .RenderPass      = pass,
         .MinImageCount   = 3, // TODO: Check if this is true

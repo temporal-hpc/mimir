@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <span> // std::span
 #include <vector> // std::vector
 
 namespace mimir
@@ -56,6 +57,7 @@ struct PhysicalDevice
 };
 
 PhysicalDevice pickDevice(VkInstance instance, VkSurfaceKHR surface);
+VkDevice createLogicalDevice(VkPhysicalDevice ph_dev, std::span<uint32_t> queue_families);
 
 bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
     uint32_t& graphics_family, uint32_t& present_family

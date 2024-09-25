@@ -10,9 +10,10 @@
 
 #include <mimir/engine/camera.hpp>
 #include <mimir/engine/deletion_queue.hpp>
+#include <mimir/engine/device.hpp>
 #include <mimir/engine/framebuffer.hpp>
+#include <mimir/engine/interop.hpp>
 #include <mimir/engine/interop_view.hpp>
-#include <mimir/engine/interop_device.hpp>
 #include <mimir/engine/performance_monitor.hpp>
 #include <mimir/engine/swapchain.hpp>
 #include <mimir/engine/window.hpp>
@@ -67,6 +68,12 @@ struct ViewerOptions
     float4 bg_color        = {.5f, .5f, .5f, 1.f};
 };
 
+struct VulkanQueue
+{
+    uint32_t family_index = ~0u;
+    VkQueue queue         = VK_NULL_HANDLE;
+};
+
 struct MimirEngine
 {
 
@@ -107,19 +114,18 @@ struct MimirEngine
     Camera camera;
     bool view_updated;
 
-    void signalKernelFinish();
-
-    Allocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
-    VkBuffer createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage);
-
     VkInstance instance;
+    PhysicalDevice physical_device{};
+    VulkanQueue graphics, present;
+    VkDevice device;
+    VkCommandPool command_pool;
+
     VkRenderPass render_pass;
     VkDescriptorSetLayout descriptor_layout;
     VkPipelineLayout pipeline_layout;
     VkDescriptorPool descriptor_pool;
     VkSurfaceKHR surface;
 
-    InteropDevice dev;
     Swapchain swapchain;
     //VmaAllocator allocator = nullptr;
     //VmaPool interop_pool   = nullptr;
@@ -143,7 +149,7 @@ struct MimirEngine
     std::chrono::time_point<std::chrono::high_resolution_clock> last_time;
 
     // Cuda interop data
-    InteropBarrier interop;
+    interop::Barrier interop;
     std::string shader_path;
     uint64_t render_timeline;
     long target_frame_time;
@@ -186,6 +192,20 @@ struct MimirEngine
 
     // Depth buffering
     VkFormat findDepthFormat();
+
+    void signalKernelFinish();
+
+    Allocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
+    VkBuffer createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage);
+
+    void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+
+    void generateMipmaps(VkImage image, VkFormat img_format,
+        int img_width, int img_height, int mip_levels
+    );
+    void transitionImageLayout(VkImage image,
+        VkImageLayout old_layout, VkImageLayout new_layout
+    );
 
     // Benchmarking
     PerformanceMonitor perf;
