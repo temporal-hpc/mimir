@@ -29,6 +29,8 @@ VkBuffer createBuffer(VkDevice device, VkDeviceSize size,
 
 VkImage createImage(VkDevice device, VkPhysicalDevice ph_dev, ImageParams params);
 
+VkImageView createImageView(VkDevice device, VkImage image, ImageParams params, VkImageAspectFlags flags);
+
 uint32_t findMemoryType(VkPhysicalDeviceMemoryProperties available,
     uint32_t type_filter, VkMemoryPropertyFlags requested
 );

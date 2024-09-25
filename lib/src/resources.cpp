@@ -139,6 +139,36 @@ VkImage createImage(VkDevice device, VkPhysicalDevice ph_dev, ImageParams params
     return image;
 }
 
+VkImageView createImageView(VkDevice device, VkImage image, ImageParams params, VkImageAspectFlags flags)
+{
+    VkImageViewCreateInfo info{
+        .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext    = nullptr,
+        .flags    = 0,
+        .image    = image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format   = params.format,
+        // Default mapping of all color channels
+        .components = VkComponentMapping{
+            .r = VK_COMPONENT_SWIZZLE_R,
+            .g = VK_COMPONENT_SWIZZLE_G,
+            .b = VK_COMPONENT_SWIZZLE_B,
+            .a = VK_COMPONENT_SWIZZLE_A,
+        },
+        // Describe image purpose and which part of it should be accesssed
+        .subresourceRange = VkImageSubresourceRange{
+            .aspectMask     = flags,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        }
+    };
+    VkImageView view = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateImageView(device, &info, nullptr, &view));
+    return view;
+}
+
 VkCommandPool createCommandPool(VkDevice device,
     uint32_t queue_idx, VkCommandPoolCreateFlags flags)
 {

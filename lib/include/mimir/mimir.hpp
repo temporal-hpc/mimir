@@ -112,7 +112,6 @@ struct MimirEngine
 
     // Camera functions
     Camera camera;
-    bool view_updated;
 
     VkInstance instance;
     PhysicalDevice physical_device{};
@@ -142,6 +141,7 @@ struct MimirEngine
 
     // Synchronization structures
     std::array<SyncData, MAX_FRAMES_IN_FLIGHT> sync_data;
+    interop::Barrier interop;
 
     // CPU thread synchronization variables
     bool kernel_working;
@@ -149,7 +149,6 @@ struct MimirEngine
     std::chrono::time_point<std::chrono::high_resolution_clock> last_time;
 
     // Cuda interop data
-    interop::Barrier interop;
     std::string shader_path;
     uint64_t render_timeline;
     long target_frame_time;

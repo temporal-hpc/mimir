@@ -67,7 +67,6 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
     {
         auto rot = app->camera.rotation_speed;
         app->camera.rotate(glm::vec3(dy * rot, -dx * rot, 0.f));
-        app->view_updated = true;
     }
     if (ctx.mouse_buttons.right) // Translation
     {

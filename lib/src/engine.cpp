@@ -62,7 +62,6 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .options             = opts,
         .running             = false,
         .camera              = {},
-        .view_updated        = false,
         .instance            = VK_NULL_HANDLE,
         .physical_device     = {},
         .graphics            = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
@@ -83,10 +82,10 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .depth_memory        = VK_NULL_HANDLE,
         .depth_view          = VK_NULL_HANDLE,
         .sync_data           = {},
+        .interop             = {},
         .kernel_working      = false,
         .rendering_thread    = {},
         .last_time           = {},
-        .interop             = {},
         .shader_path         = getDefaultShaderPath(),
         .render_timeline     = 0,
         .target_frame_time   = 0,
@@ -854,47 +853,12 @@ void MimirEngine::initGraphics()
     depth_image = createImage(device, physical_device.handle, params);
 
     auto available = physical_device.memory.memoryProperties;
-    VkMemoryRequirements mem_req;
+    VkMemoryRequirements mem_req{};
     vkGetImageMemoryRequirements(device, depth_image, &mem_req);
-    VkMemoryAllocateInfo alloc_info{
-        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext = nullptr,
-        .allocationSize = mem_req.size,
-        .memoryTypeIndex = findMemoryType(available,
-            mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-        ),
-    };
-    validation::checkVulkan(
-        vkAllocateMemory(device, &alloc_info, nullptr, &depth_memory)
-    );
+    depth_memory = allocateMemory(device, available, mem_req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     vkBindImageMemory(device, depth_image, depth_memory, 0);
 
-    VkImageViewCreateInfo depth_view_info{
-        .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-        .pNext    = nullptr,
-        .flags    = 0,
-        .image    = depth_image,
-        .viewType = VK_IMAGE_VIEW_TYPE_2D,
-        .format   = params.format,
-        // Default mapping of all color channels
-        .components = VkComponentMapping{
-            .r = VK_COMPONENT_SWIZZLE_R,
-            .g = VK_COMPONENT_SWIZZLE_G,
-            .b = VK_COMPONENT_SWIZZLE_B,
-            .a = VK_COMPONENT_SWIZZLE_A,
-        },
-        // Describe image purpose and which part of it should be accesssed
-        .subresourceRange = VkImageSubresourceRange{
-            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
-            .baseMipLevel   = 0,
-            .levelCount     = 1,
-            .baseArrayLayer = 0,
-            .layerCount     = 1,
-        }
-    };
-    validation::checkVulkan(
-        vkCreateImageView(device, &depth_view_info, nullptr, &depth_view)
-    );
+    depth_view = createImageView(device, depth_image, params, VK_IMAGE_ASPECT_DEPTH_BIT);
 
     deletors.graphics.add([=,this]{
         vkDestroyImageView(device, depth_view, nullptr);
