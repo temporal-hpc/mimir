@@ -3,6 +3,8 @@
 #include <cstring> // std::memcpy
 
 #include <mimir/engine/shader_types.hpp>
+#include <mimir/engine/resources.hpp>
+#include <mimir/engine/image.hpp>
 #include "internal/validation.hpp"
 #include "internal/interop.hpp"
 
@@ -65,67 +67,18 @@ uint32_t InteropDevice::getMaxImageDimension(DataLayout layout)
     }
 }
 
-VkImage InteropDevice::createImage(MemoryParams params)
+VkImage InteropDevice::createImage2(MemoryParams mp)
 {
-    auto img_type = getImageType(params.layout);
-    auto format   = getDataFormat(params.component_type, params.channel_count);
-    auto tiling   = VK_IMAGE_TILING_OPTIMAL;
-    auto sz = params.element_count;
-    VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    VkExtent3D extent = {sz.x, sz.y, sz.z};
+    auto sz = mp.element_count;
+    ImageParams params{
+        .type   = getImageType(mp.layout),
+        .format = getDataFormat(mp.component_type, mp.channel_count),
+        .extent = {sz.x, sz.y, sz.z},
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+    };
 
-    // TODO: Check if texture is within bounds
-    auto max_dim = getMaxImageDimension(params.layout);
-    if (extent.width >= max_dim || extent.height >= max_dim || extent.height >= max_dim)
-    {
-        spdlog::error("Requested image dimensions are larger than maximum");
-    }
-
-    // Check that the upcoming image parameters are supported
-    VkPhysicalDeviceImageFormatInfo2 format_info{
-        .sType  = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
-        .pNext  = nullptr,
-        .format = format,
-        .type   = img_type,
-        .tiling = tiling,
-        .usage  = usage,
-        .flags  = 0
-    };
-    VkImageFormatProperties2 format_props{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
-        .pNext = nullptr,
-        .imageFormatProperties = {} // To be filled in function below
-    };
-    // TODO: Do not rely on validation layers to stop invalid image formats
-    validation::checkVulkan(vkGetPhysicalDeviceImageFormatProperties2(
-        physical_device.handle, &format_info, &format_props
-    ));
-
-    VkExternalMemoryImageCreateInfo extmem_info{
-        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-        .pNext       = nullptr,
-        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-    };
-    VkImageCreateInfo info{
-        .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .pNext       = &extmem_info,
-        .flags       = 0,
-        .imageType   = img_type,
-        .format      = format,
-        .extent      = extent,
-        .mipLevels   = 1,
-        .arrayLayers = 1,
-        .samples     = VK_SAMPLE_COUNT_1_BIT,
-        .tiling      = tiling,
-        .usage       = usage,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .queueFamilyIndexCount = 0,
-        .pQueueFamilyIndices   = nullptr,
-        .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
-    };
-    VkImage image = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateImage(logical_device, &info, nullptr, &image));
-    return image;
+    return createImage(logical_device, physical_device.handle, params);
 }
 
 void InteropDevice::initMemoryBuffer(InteropMemory& interop)
@@ -154,8 +107,9 @@ void InteropDevice::initMemoryBuffer(InteropMemory& interop)
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
+    auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    interop.memory = allocateMemory(memreq, memflags, &export_info);
+    interop.memory = allocateMemory(logical_device, available, memreq, memflags, &export_info);
     interop.cuda_extmem = interop::importCudaExternalMemory(
         interop.memory, memreq.size, logical_device
     );
@@ -184,7 +138,8 @@ void InteropDevice::initViewBuffer(InteropViewOld& view)
         VkMemoryRequirements memreq{};
         vkGetBufferMemoryRequirements(logical_device, view.aux_buffer, &memreq);
         auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        view.aux_memory = allocateMemory(memreq, flags);
+        auto available = physical_device.memory.memoryProperties;
+        view.aux_memory = allocateMemory(logical_device, available, memreq, flags);
         vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
 
         //initImplicitCoords(logical_device, view.aux_memory, buffer_size, params.extent);
@@ -215,8 +170,8 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
     interop.vk_format = getDataFormat(params.component_type, params.channel_count);
 
     // Init texture memory
-    interop.image = createImage(params);
-    interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
+    interop.image = createImage2(params);
+    interop.vk_sampler = createSampler(logical_device, VK_FILTER_NEAREST, true);
     VkMemoryRequirements memreq{};
     vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
 
@@ -226,7 +181,8 @@ void InteropDevice::initMemoryImage(InteropMemory& interop)
         .pNext = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
-    interop.image_memory = allocateMemory(memreq, memflags, &export_info);
+    auto available = physical_device.memory.memoryProperties;
+    interop.image_memory = allocateMemory(logical_device, available, memreq, memflags, &export_info);
     interop.cuda_extmem = interop::importCudaExternalMemory(
         interop.image_memory, memreq.size, logical_device
     );
@@ -280,13 +236,14 @@ void InteropDevice::initMemoryImageLinear(InteropMemory& interop)
     interop.vk_format = getDataFormat(params.component_type, params.channel_count);
 
     // Init texture memory
-    interop.image = createImage(params);
-    interop.vk_sampler = createSampler(VK_FILTER_NEAREST, true);
+    interop.image = createImage2(params);
+    interop.vk_sampler = createSampler(logical_device, VK_FILTER_NEAREST, true);
 
     VkMemoryRequirements memreq{};
     vkGetImageMemoryRequirements(logical_device, interop.image, &memreq);
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    interop.image_memory = allocateMemory(memreq, memflags, nullptr);
+    auto available = physical_device.memory.memoryProperties;
+    interop.image_memory = allocateMemory(logical_device, available, memreq, memflags, nullptr);
     vkBindImageMemory(logical_device, interop.image, interop.image_memory, 0);
 
     VkImageViewCreateInfo info{
@@ -343,7 +300,8 @@ void InteropDevice::initViewImage(InteropViewOld& view)
 
         // Allocate memory and bind it to buffers
         auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        view.aux_memory = allocateMemory(memreq, flags);
+        auto available = physical_device.memory.memoryProperties;
+        view.aux_memory = allocateMemory(logical_device, available, memreq, flags);
         vkBindBufferMemory(logical_device, view.aux_buffer, view.aux_memory, 0);
 
         // Init image quad coords and indices
@@ -391,7 +349,8 @@ void InteropDevice::loadTexture(InteropMemory *interop, void *img_data)
     auto staging_buffer = createBuffer(staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     VkMemoryRequirements staging_req;
     vkGetBufferMemoryRequirements(logical_device, staging_buffer, &staging_req);
-    auto staging_memory = allocateMemory(staging_req,
+    auto available = physical_device.memory.memoryProperties;
+    auto staging_memory = allocateMemory(logical_device, available, staging_req,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );
     vkBindBufferMemory(logical_device, staging_buffer, staging_memory, 0);
@@ -455,7 +414,7 @@ InteropBarrier InteropDevice::createInteropBarrier()
         .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
     };
     InteropBarrier barrier;
-    barrier.vk_semaphore = createSemaphore(&export_info);
+    barrier.vk_semaphore = createSemaphore(logical_device, &export_info);
     barrier.cuda_semaphore = interop::importCudaExternalSemaphore(barrier.vk_semaphore, logical_device);
     return barrier;
 }

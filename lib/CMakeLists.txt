@@ -6,8 +6,10 @@ target_sources(mimir PRIVATE
     src/framebuffer.cpp
     src/framelimit.cpp
     src/gui.cpp
+    src/image.cpp
     src/interop.cpp
     src/physical_device.cpp
+    src/resources.cpp
     src/shader.cpp
     src/swapchain.cpp
     src/validation.cpp
@@ -26,10 +28,12 @@ target_sources(mimir PUBLIC
         include/mimir/mimir.hpp
         include/mimir/engine/deletion_queue.hpp
         include/mimir/engine/framebuffer.hpp
+        include/mimir/engine/image.hpp
         include/mimir/engine/interop_device.hpp
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/performance_monitor.hpp
         include/mimir/engine/physical_device.hpp
+        include/mimir/engine/resources.hpp
         include/mimir/engine/swapchain.hpp
         include/mimir/engine/vulkan_device.hpp
         include/mimir/engine/view_types.hpp

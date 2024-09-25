@@ -5,27 +5,6 @@
 namespace mimir
 {
 
-uint32_t PhysicalDevice::findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties)
-{
-    auto props = memory.memoryProperties;
-    for (uint32_t i = 0; i < props.memoryTypeCount; ++i)
-    {
-        auto flags = props.memoryTypes[i].propertyFlags;
-        if ((type_filter & (1 << i)) && (flags & properties) == properties)
-        {
-            return i;
-        }
-    }
-    return ~0;
-}
-
-VkFormatProperties PhysicalDevice::getFormatProperties(VkFormat format)
-{
-    VkFormatProperties properties{};
-    vkGetPhysicalDeviceFormatProperties(handle, format, &properties);
-    return properties;
-}
-
 DeviceMemoryStats PhysicalDevice::getMemoryStats()
 {
     DeviceMemoryStats stats{};

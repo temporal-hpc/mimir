@@ -1,5 +1,7 @@
 #include <mimir/mimir.hpp>
 
+#include <mimir/engine/image.hpp>
+#include <mimir/engine/resources.hpp>
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
 #include "internal/interop.hpp"
@@ -291,8 +293,9 @@ AttributeParams MimirEngine::makeStructuredDomain(StructuredDomainParams params)
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(dev.logical_device, domain_buffer, &memreq);
 
+    auto available = dev.physical_device.memory.memoryProperties;
     auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    auto vk_memory = dev.allocateMemory(memreq, flags);
+    auto vk_memory = allocateMemory(dev.logical_device, available, memreq, flags);
     vkBindBufferMemory(dev.logical_device, domain_buffer, vk_memory, 0);
     initImplicitCoords(dev.logical_device, vk_memory, memreq.size, params.size);
 
@@ -361,13 +364,14 @@ std::shared_ptr<Allocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_a
     VkMemoryRequirements memreq{};
     vkGetImageMemoryRequirements(dev.logical_device, test_image, &memreq);
 
+    auto available = dev.physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     VkExportMemoryAllocateInfoKHR export_info{
         .sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
         .pNext = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
-    auto vk_memory = dev.allocateMemory(memreq, memflags, &export_info);
+    auto vk_memory = allocateMemory(dev.logical_device, available, memreq, memflags, &export_info);
     auto cuda_extmem = interop::importCudaExternalMemory(
         vk_memory, memreq.size, dev.logical_device
     );
@@ -407,8 +411,9 @@ Allocation MimirEngine::allocExtmemBuffer(size_t size, VkBufferUsageFlags usage)
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
+    auto available = dev.physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    auto vk_memory = dev.allocateMemory(memreq, memflags, &export_info);
+    auto vk_memory = allocateMemory(dev.logical_device, available, memreq, memflags, &export_info);
 
     // Export and map the external memory to CUDA
     auto cuda_extmem = interop::importCudaExternalMemory(
@@ -647,7 +652,7 @@ void MimirEngine::initVulkan()
     deletors.context.add([=,this](){ vmaDestroyPool(allocator, interop_pool); });
 */
     // Create descriptor pool
-    descriptor_pool = dev.createDescriptorPool({
+    std::vector<VkDescriptorPoolSize> pool_sizes{
         { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
         { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
@@ -659,7 +664,8 @@ void MimirEngine::initVulkan()
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
         { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-    });
+    };
+    descriptor_pool = createDescriptorPool(dev.logical_device, pool_sizes);
 
     // Create descriptor set and pipeline layouts
     std::vector<VkDescriptorSetLayoutBinding> layout_bindings{
@@ -679,8 +685,8 @@ void MimirEngine::initVulkan()
             VK_SHADER_STAGE_FRAGMENT_BIT
         )
     };
-    descriptor_layout = dev.createDescriptorSetLayout(layout_bindings);
-    pipeline_layout = dev.createPipelineLayout(descriptor_layout);
+    descriptor_layout = createDescriptorSetLayout(dev.logical_device, layout_bindings);
+    pipeline_layout = createPipelineLayout(dev.logical_device, descriptor_layout);
 
     deletors.context.add([=,this]{
         vkDestroyDescriptorPool(dev.logical_device, descriptor_pool, nullptr);
@@ -693,7 +699,7 @@ void MimirEngine::initVulkan()
     // After command pool and render pass are created
     gui::init(dev, instance, descriptor_pool, render_pass, window_context);
 
-    descriptor_sets = dev.createDescriptorSets(
+    descriptor_sets = createDescriptorSets(dev.logical_device,
         descriptor_pool, descriptor_layout, swapchain.image_count
     );
 }
@@ -827,9 +833,9 @@ void MimirEngine::createSyncObjects()
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
     for (auto& sync : sync_data)
     {
-        sync.frame_fence = dev.createFence(VK_FENCE_CREATE_SIGNALED_BIT);
-        sync.image_acquired = dev.createSemaphore();
-        sync.render_complete = dev.createSemaphore();
+        sync.frame_fence = createFence(dev.logical_device, VK_FENCE_CREATE_SIGNALED_BIT);
+        sync.image_acquired = createSemaphore(dev.logical_device);
+        sync.render_complete = createSemaphore(dev.logical_device);
         deletors.context.add([=,this]{
             vkDestroyFence(dev.logical_device, sync.frame_fence, nullptr);
             vkDestroySemaphore(dev.logical_device, sync.image_acquired, nullptr);
@@ -865,43 +871,31 @@ void MimirEngine::initGraphics()
     );
 
     render_pass = createRenderPass();
-    command_buffers = dev.createCommandBuffers(swapchain.image_count);
-    query_pool = dev.createQueryPool(2 * command_buffers.size());
+    command_buffers = createCommandBuffers(dev.logical_device, dev.command_pool, swapchain.image_count);
+    query_pool = createQueryPool(dev.logical_device, 2 * command_buffers.size());
     deletors.graphics.add([=,this]{
         vkDestroyRenderPass(dev.logical_device, render_pass, nullptr);
         vkDestroySwapchainKHR(dev.logical_device, swapchain.current, nullptr);
         vkDestroyQueryPool(dev.logical_device, query_pool, nullptr);
     });
 
-    auto depth_format = findDepthFormat();
-    VkImageCreateInfo depth_img_info{
-        .sType                 = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .pNext                 = nullptr,
-        .flags                 = 0,
-        .imageType             = VK_IMAGE_TYPE_2D,
-        .format                = depth_format,
-        .extent                = { swapchain.extent.width, swapchain.extent.height, 1 },
-        .mipLevels             = 1,
-        .arrayLayers           = 1,
-        .samples               = VK_SAMPLE_COUNT_1_BIT,
-        .tiling                = VK_IMAGE_TILING_OPTIMAL,
-        .usage                 = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-        .sharingMode           = VK_SHARING_MODE_EXCLUSIVE,
-        .queueFamilyIndexCount = 0,
-        .pQueueFamilyIndices   = nullptr,
-        .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
+    ImageParams params{
+        .type   = VK_IMAGE_TYPE_2D,
+        .format = findDepthFormat(),
+        .extent = { swapchain.extent.width, swapchain.extent.height, 1 },
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage  = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
     };
-    validation::checkVulkan(
-        vkCreateImage(dev.logical_device, &depth_img_info, nullptr, &depth_image)
-    );
+    depth_image = createImage(dev.logical_device, dev.physical_device.handle, params);
 
+    auto available = dev.physical_device.memory.memoryProperties;
     VkMemoryRequirements mem_req;
     vkGetImageMemoryRequirements(dev.logical_device, depth_image, &mem_req);
     VkMemoryAllocateInfo alloc_info{
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .pNext = nullptr,
         .allocationSize = mem_req.size,
-        .memoryTypeIndex = dev.physical_device.findMemoryType(
+        .memoryTypeIndex = findMemoryType(available,
             mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
         ),
     };
@@ -916,7 +910,7 @@ void MimirEngine::initGraphics()
         .flags    = 0,
         .image    = depth_image,
         .viewType = VK_IMAGE_VIEW_TYPE_2D,
-        .format   = depth_format,
+        .format   = params.format,
         // Default mapping of all color channels
         .components = VkComponentMapping{
             .r = VK_COMPONENT_SWIZZLE_R,
@@ -1291,8 +1285,13 @@ bool MimirEngine::hasStencil(VkFormat format)
 
 VkFormat MimirEngine::findDepthFormat()
 {
-    return dev.findSupportedImageFormat(
-        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+    std::vector<VkFormat> candidate_formats{
+        VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D24_UNORM_S8_UINT
+    };
+    return findSupportedImageFormat(dev.physical_device.handle,
+        candidate_formats,
         VK_IMAGE_TILING_OPTIMAL,
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
     );
@@ -1434,13 +1433,14 @@ void MimirEngine::initUniformBuffers()
     auto size_ubo = (size_mvp + size_view + size_scene) * views.size();
 
     uniform_buffers.resize(swapchain.image_count);
+    auto available = dev.physical_device.memory.memoryProperties;
     for (auto& ubo : uniform_buffers)
     {
         ubo.buffer = dev.createBuffer(size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-        VkMemoryRequirements memreq;
+        VkMemoryRequirements memreq{};
         vkGetBufferMemoryRequirements(dev.logical_device, ubo.buffer, &memreq);
         auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        ubo.memory = dev.allocateMemory(memreq, mem_usage);
+        ubo.memory = allocateMemory(dev.logical_device, available, memreq, mem_usage);
         vkBindBufferMemory(dev.logical_device, ubo.buffer, ubo.memory, 0);
         deletors.context.add([=,this]{
             vkDestroyBuffer(dev.logical_device, ubo.buffer, nullptr);

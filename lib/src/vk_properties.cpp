@@ -48,7 +48,7 @@ bool isDeviceSuitable(VkPhysicalDevice dev, VkSurfaceKHR surface)
     auto supports_extensions = checkAllExtensionsSupported(dev, device_extensions);
     auto swapchain_support   = getSwapchainProperties(dev, surface);
     auto swapchain_adequate  = !swapchain_support.formats.empty() &&
-                                !swapchain_support.present_modes.empty();
+                               !swapchain_support.present_modes.empty();
     VkPhysicalDeviceFeatures supported_features;
     vkGetPhysicalDeviceFeatures(dev, &supported_features);
     return supports_extensions && swapchain_adequate && has_queues

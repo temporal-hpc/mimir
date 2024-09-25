@@ -26,29 +26,11 @@ struct VulkanDevice
     VulkanQueue graphics, present;
 
     void initLogicalDevice(VkSurfaceKHR surface);
-    VkCommandPool createCommandPool(uint32_t queue_idx, VkCommandPoolCreateFlags flags);
-    VkDescriptorPool createDescriptorPool(const std::vector<VkDescriptorPoolSize>& sizes);
 
-    std::vector<VkDescriptorSet> createDescriptorSets(
-        VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count
-    );
-    VkDescriptorSetLayout createDescriptorSetLayout(
-        const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings
-    );
-    VkPipelineLayout createPipelineLayout(VkDescriptorSetLayout descriptor_layout);
-
-    std::vector<VkCommandBuffer> createCommandBuffers(uint32_t buffer_count);
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
-    VkDeviceMemory allocateMemory(VkMemoryRequirements requirements,
-        VkMemoryPropertyFlags properties, const void *export_info = nullptr
-    );
     VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
         const void *extensions = nullptr
-    );
-    VkSampler createSampler(VkFilter filter, bool enable_anisotropy);
-    VkFormat findSupportedImageFormat(const std::vector<VkFormat>& candidates,
-        VkImageTiling tiling, VkFormatFeatureFlags features
     );
     void generateMipmaps(VkImage image, VkFormat img_format,
         int img_width, int img_height, int mip_levels
@@ -57,10 +39,7 @@ struct VulkanDevice
         VkImageLayout old_layout, VkImageLayout new_layout
     );
 
-    VkFence createFence(VkFenceCreateFlags flags);
-    VkSemaphore createSemaphore(const void *extensions = nullptr);
     std::string readMemoryHeapFlags(VkMemoryHeapFlags flags);
-    VkQueryPool createQueryPool(uint32_t query_count);
 };
 
 uint32_t getAlignedSize(size_t original_size, size_t min_alignment);

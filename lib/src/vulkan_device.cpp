@@ -2,6 +2,8 @@
 
 #include <set> // std::set
 
+#include <mimir/engine/image.hpp>
+#include <mimir/engine/resources.hpp>
 #include "internal/validation.hpp"
 #include "internal/vk_properties.hpp"
 
@@ -17,17 +19,6 @@ uint32_t getAlignedSize(size_t original_size, size_t min_alignment)
 		aligned_size = (aligned_size + min_alignment - 1) & ~(min_alignment - 1);
 	}
 	return aligned_size;
-}
-
-VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool, uint32_t count)
-{
-    return VkCommandBufferAllocateInfo{
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .pNext              = nullptr,
-        .commandPool        = pool,
-        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = count,
-    };
 }
 
 void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
@@ -98,62 +89,21 @@ void VulkanDevice::initLogicalDevice(VkSurfaceKHR surface)
     vkGetDeviceQueue(logical_device, graphics.family_index, 0, &graphics.queue);
     vkGetDeviceQueue(logical_device, present.family_index, 0, &present.queue);
 
-    command_pool = createCommandPool(graphics.family_index,
+    command_pool = createCommandPool(logical_device, graphics.family_index,
         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
     );
 }
 
-VkCommandPool VulkanDevice::createCommandPool(
-    uint32_t queue_idx, VkCommandPoolCreateFlags flags)
-{
-    VkCommandPool cmd_pool = VK_NULL_HANDLE;
-    VkCommandPoolCreateInfo pool_info{
-        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .pNext            = nullptr,
-        .flags            = flags,
-        .queueFamilyIndex = queue_idx,
-    };
-    validation::checkVulkan(vkCreateCommandPool(
-        logical_device, &pool_info, nullptr, &cmd_pool)
-    );
-
-    return cmd_pool;
-}
-
-std::vector<VkDescriptorSet> VulkanDevice::createDescriptorSets(
-    VkDescriptorPool pool, VkDescriptorSetLayout layout, uint32_t set_count)
-{
-    std::vector<VkDescriptorSetLayout> layouts(set_count, layout);
-    VkDescriptorSetAllocateInfo alloc_info{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .pNext              = nullptr,
-        .descriptorPool     = pool,
-        .descriptorSetCount = set_count,
-        .pSetLayouts        = layouts.data(),
-    };
-
-    std::vector<VkDescriptorSet> sets(set_count, VK_NULL_HANDLE);
-    validation::checkVulkan(
-        vkAllocateDescriptorSets(logical_device, &alloc_info, sets.data())
-    );
-    return sets;
-}
-
-std::vector<VkCommandBuffer> VulkanDevice::createCommandBuffers(uint32_t buffer_count)
-{
-    std::vector<VkCommandBuffer> buffers(buffer_count, VK_NULL_HANDLE);
-    auto alloc_info = commandBufferAllocateInfo(command_pool, buffer_count);
-    validation::checkVulkan(vkAllocateCommandBuffers(
-        logical_device, &alloc_info, buffers.data())
-    );
-    return buffers;
-}
-
 void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
 {
-    auto queue = graphics.queue;
     VkCommandBuffer cmd;
-    auto alloc_info = commandBufferAllocateInfo(command_pool, 1);
+    auto alloc_info = VkCommandBufferAllocateInfo{
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext              = nullptr,
+        .commandPool        = command_pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
     validation::checkVulkan(vkAllocateCommandBuffers(logical_device, &alloc_info, &cmd));
 
     // Begin command buffer recording with a only-one-use buffer
@@ -178,25 +128,10 @@ void VulkanDevice::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fu
         .signalSemaphoreCount = 0,
         .pSignalSemaphores    = nullptr,
     };
+    auto queue = graphics.queue;
     validation::checkVulkan(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
     vkQueueWaitIdle(queue);
     vkFreeCommandBuffers(logical_device, command_pool, 1, &cmd);
-}
-
-VkDeviceMemory VulkanDevice::allocateMemory(VkMemoryRequirements requirements,
-    VkMemoryPropertyFlags properties, const void *export_info)
-{
-    auto type = physical_device.findMemoryType(requirements.memoryTypeBits, properties);
-    VkMemoryAllocateInfo alloc_info{
-        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext           = export_info,
-        .allocationSize  = requirements.size,
-        .memoryTypeIndex = type,
-    };
-
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-    validation::checkVulkan(vkAllocateMemory(logical_device, &alloc_info, nullptr, &memory));
-    return memory;
 }
 
 VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
@@ -220,62 +155,10 @@ VkBuffer VulkanDevice::createBuffer(VkDeviceSize size,
     return buffer;
 }
 
-VkSampler VulkanDevice::createSampler(VkFilter filter, bool enable_anisotropy)
-{
-    VkSamplerCreateInfo info{
-        .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .pNext            = nullptr,
-        .flags            = 0,
-        .magFilter        = filter,
-        .minFilter        = filter,
-        .mipmapMode       = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-        .addressModeU     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeV     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .mipLodBias       = 0.f,
-        .anisotropyEnable = enable_anisotropy? VK_TRUE : VK_FALSE,
-        .maxAnisotropy    = physical_device.general.properties.limits.maxSamplerAnisotropy,
-        .compareEnable    = VK_FALSE,
-        .compareOp        = VK_COMPARE_OP_NEVER,
-        .minLod           = 0.f,
-        .maxLod           = VK_LOD_CLAMP_NONE,
-        .borderColor      = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
-        .unnormalizedCoordinates = VK_FALSE,
-    };
-
-    VkSampler sampler = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateSampler(logical_device, &info, nullptr, &sampler));
-    return sampler;
-}
-
-VkFormat VulkanDevice::findSupportedImageFormat(const std::vector<VkFormat>& candidates,
-    VkImageTiling tiling, VkFormatFeatureFlags features)
-{
-    for (auto format : candidates)
-    {
-        auto props = physical_device.getFormatProperties(format);
-        switch (tiling)
-        {
-            case VK_IMAGE_TILING_LINEAR:
-            {
-                if ((props.linearTilingFeatures & features) == features) return format;
-                break;
-            }
-            case VK_IMAGE_TILING_OPTIMAL:
-            {
-                if ((props.optimalTilingFeatures & features) == features) return format;
-                break;
-            }
-            default: return VK_FORMAT_UNDEFINED;
-        }
-    }
-    return VK_FORMAT_UNDEFINED;
-}
-
 void VulkanDevice::generateMipmaps(VkImage image, VkFormat format,
     int img_width, int img_height, int mip_levels)
 {
-    auto props = physical_device.getFormatProperties(format);
+    auto props = getFormatProperties(physical_device.handle, format);
     auto blit_support = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
     if (!(props.optimalTilingFeatures & blit_support))
     {
@@ -367,84 +250,6 @@ void VulkanDevice::generateMipmaps(VkImage image, VkFormat format,
     });
 }
 
-VkDescriptorPool VulkanDevice::createDescriptorPool(
-    const std::vector<VkDescriptorPoolSize>& pool_sizes)
-{
-    VkDescriptorPoolCreateInfo pool_info{
-        .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .pNext         = nullptr,
-        .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets       = 1000,
-        .poolSizeCount = (uint32_t)pool_sizes.size(),
-        .pPoolSizes    = pool_sizes.data(),
-    };
-
-    VkDescriptorPool pool = VK_NULL_HANDLE;
-    validation::checkVulkan(
-        vkCreateDescriptorPool(logical_device, &pool_info, nullptr, &pool)
-    );
-    return pool;
-}
-
-VkDescriptorSetLayout VulkanDevice::createDescriptorSetLayout(
-    const std::vector<VkDescriptorSetLayoutBinding>& layout_bindings)
-{
-    VkDescriptorSetLayoutCreateInfo info{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext        = nullptr,
-        .flags        = 0,
-        .bindingCount = (uint32_t)layout_bindings.size(),
-        .pBindings    = layout_bindings.data(),
-    };
-
-    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-    validation::checkVulkan(
-        vkCreateDescriptorSetLayout(logical_device, &info, nullptr, &layout)
-    );
-    return layout;
-}
-
-VkPipelineLayout VulkanDevice::createPipelineLayout(VkDescriptorSetLayout descriptor_layout)
-{
-    std::vector<VkDescriptorSetLayout> layouts{descriptor_layout};
-    VkPipelineLayoutCreateInfo info{
-        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .pNext                  = nullptr,
-        .flags                  = 0, // Currently unused
-        .setLayoutCount         = (uint32_t)layouts.size(),
-        .pSetLayouts            = layouts.data(),
-        .pushConstantRangeCount = 0,
-        .pPushConstantRanges    = nullptr,
-    };
-    VkPipelineLayout layout = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreatePipelineLayout(logical_device, &info, nullptr, &layout));
-    return layout;
-}
-
-VkFence VulkanDevice::createFence(VkFenceCreateFlags flags)
-{
-    VkFenceCreateInfo info{
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = flags,
-    };
-    VkFence fence = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateFence(logical_device, &info, nullptr, &fence));
-    return fence;
-}
-
-VkSemaphore VulkanDevice::createSemaphore(const void *extensions)
-{
-    VkSemaphoreCreateInfo info{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .pNext = extensions,
-        .flags = 0, // Unused
-    };
-    VkSemaphore semaphore = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateSemaphore(logical_device, &info, nullptr, &semaphore));
-    return semaphore;
-}
-
 void VulkanDevice::transitionImageLayout(VkImage image,
     VkImageLayout old_layout, VkImageLayout new_layout)
 {
@@ -514,25 +319,6 @@ std::string VulkanDevice::readMemoryHeapFlags(VkMemoryHeapFlags flags)
         default: return "Host local heap memory";
     }
     return "";
-}
-
-VkQueryPool VulkanDevice::createQueryPool(uint32_t query_count)
-{
-    VkQueryPoolCreateInfo info{
-        .sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
-        .pNext      = nullptr,
-        .flags      = 0,
-        .queryType  = VK_QUERY_TYPE_TIMESTAMP,
-        // Number of queries is twice the number of command buffers, to store space
-        // for queries before and after rendering
-        .queryCount = query_count, //command_buffers.size() * 2;
-        .pipelineStatistics = 0,
-    };
-
-    VkQueryPool pool = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateQueryPool(logical_device, &info, nullptr, &pool));
-    vkResetQueryPool(logical_device, pool, 0, query_count);
-    return pool;
 }
 
 } // namespace mimir

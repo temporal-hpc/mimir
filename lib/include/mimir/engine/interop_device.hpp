@@ -32,7 +32,7 @@ struct InteropDevice : public VulkanDevice
     void loadTexture(InteropMemory *interop, void *data);
     void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);
     void updateLinearTexture(InteropMemory &interop);
-    VkImage createImage(MemoryParams params);
+    VkImage createImage2(MemoryParams params);
     uint32_t getMaxImageDimension(DataLayout layout);
 
     InteropBarrier createInteropBarrier();

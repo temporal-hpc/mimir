@@ -48,8 +48,6 @@ struct PhysicalDevice
     };
     VkPhysicalDeviceFeatures features{};
 
-    uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties);
-    VkFormatProperties getFormatProperties(VkFormat format);
     DeviceMemoryStats getMemoryStats();
     VkDeviceSize getUboOffsetAlignment()
     {
