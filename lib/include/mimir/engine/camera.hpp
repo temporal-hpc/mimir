@@ -1,6 +1,6 @@
 #pragma once
 
-#include "shader_types.hpp"
+#include <mimir/engine/shader_types.hpp>
 
 namespace mimir
 {

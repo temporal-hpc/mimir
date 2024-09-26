@@ -23,6 +23,7 @@ target_sources(mimir PUBLIC
     BASE_DIRS include
     FILES
         include/mimir/mimir.hpp
+        include/mimir/engine/camera.hpp
         include/mimir/engine/deletion_queue.hpp
         include/mimir/engine/device.hpp
         include/mimir/engine/framebuffer.hpp
@@ -31,6 +32,7 @@ target_sources(mimir PUBLIC
         include/mimir/engine/performance_monitor.hpp
         include/mimir/engine/pipeline.hpp
         include/mimir/engine/resources.hpp
+        include/mimir/engine/shader_types.hpp
         include/mimir/engine/swapchain.hpp
         include/mimir/engine/view_types.hpp
 )
@@ -54,9 +56,9 @@ find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
 target_link_libraries(mimir
     PUBLIC
-        Vulkan::Vulkan CUDA::cudart slang glm::glm glfw imgui-app ImGuiFileDialog
+        Vulkan::Vulkan CUDA::cudart slang glm::glm fmt::fmt glfw imgui-app ImGuiFileDialog
     PRIVATE
-        GPUOpen::VulkanMemoryAllocator fmt::fmt spdlog::spdlog
+        GPUOpen::VulkanMemoryAllocator spdlog::spdlog
 )
 
 install(
@@ -66,6 +68,7 @@ install(
     ARCHIVE DESTINATION       lib
     RUNTIME DESTINATION       bin
     INCLUDES DESTINATION      include
+#    PUBLIC_HEADER DESTINATION include
     FILE_SET                  library_headers
 )
 
