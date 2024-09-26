@@ -20,54 +20,6 @@ struct ShaderInfo
     VkShaderStageFlagBits stage = VK_SHADER_STAGE_ALL_GRAPHICS;
 };
 
-constexpr VkIndexType getIndexType(ComponentType type)
-{
-    switch (type)
-    {
-        case ComponentType::Int: return VK_INDEX_TYPE_UINT32;
-        // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char
-        // and VK_INDEX_TYPE_NONE_KHR for default
-        default: return VK_INDEX_TYPE_UINT16;
-    }
-}
-
-struct MemoryParams
-{
-    DataLayout layout = DataLayout::Layout1D;
-    uint3 element_count = {1, 1, 1};
-    uint channel_count = 1;
-    ComponentType component_type;
-    ResourceType resource_type;
-};
-
-struct InteropMemory
-{
-    // View parameters
-    MemoryParams params;
-
-    // Cuda external memory handle, provided by the Cuda interop API
-    cudaExternalMemory_t cuda_extmem = nullptr;
-
-    // Raw Cuda pointer which can be passed to the library user
-    // for use in kernels, as per cudaMalloc
-    void *cuda_ptr = nullptr;
-    // Vulkan buffer handle
-    VkBuffer data_buffer = VK_NULL_HANDLE;
-    // Vulkan external device memory
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-
-    // Image members
-    cudaMipmappedArray_t mipmap_array = nullptr;
-    VkDeviceMemory image_memory = nullptr;
-    VkImage image        = VK_NULL_HANDLE;
-    VkImageView vk_view  = VK_NULL_HANDLE;
-    // TODO: Move sampler creation to engine
-    // But the sampler field should still remain here
-    VkSampler vk_sampler = VK_NULL_HANDLE;
-    VkFormat vk_format   = VK_FORMAT_UNDEFINED;
-    VkExtent3D vk_extent = {0, 0, 0};
-};
-
 struct ViewOptions
 {
     // Customizable name for the view
@@ -87,48 +39,6 @@ struct ViewOptions
     // For specializing slang shaders associated to this view
     std::vector<std::string> specializations;
     int custom_val = 0;
-};
-
-using AttributeDict = std::map<AttributeType, InteropMemory>;
-
-struct ViewParamsOld
-{
-    size_t element_count = 0;
-    int instance_count = 1;
-    uint3 extent = {1, 1, 1};
-    DataDomain data_domain;
-    DomainType domain_type;
-    ViewType view_type;
-    ViewOptions options;
-    AttributeDict attributes;
-};
-
-struct InteropViewOld
-{
-    // View parameters
-    ViewParamsOld params;
-
-    // Rendering pipeline associated to this view
-    VkPipeline pipeline       = VK_NULL_HANDLE;
-    // Auxiliary buffer for storing vertex and index buffers
-    VkBuffer aux_buffer       = VK_NULL_HANDLE;
-    // Auxiliary memory allocation for the above
-    VkDeviceMemory aux_memory = VK_NULL_HANDLE;
-    // Offset in bytes where index buffer starts inside aux_memory
-    VkDeviceSize index_offset = 0;
-
-    std::vector<VkBuffer> vert_buffers;
-    std::vector<VkDeviceSize> buffer_offsets;
-    VkBuffer idx_buffer = VK_NULL_HANDLE;
-    VkIndexType idx_type;
-
-    // Switches view visibility from visible to invisible and viceversa.
-    // Does not modify view data in any way
-    bool toggleVisibility()
-    {
-        params.options.visible = !params.options.visible;
-        return params.options.visible;
-    }
 };
 
 struct AlignedBuffer
@@ -178,7 +88,7 @@ struct AttributeParams
     float4 default_value;
 };
 
-using AttributeDict2 = std::map<AttributeType, AttributeParams>;
+using AttributeDict = std::map<AttributeType, AttributeParams>;
 
 struct ViewParams
 {
@@ -188,7 +98,7 @@ struct ViewParams
     DataDomain data_domain;
     ViewType view_type;
     ViewOptions options;
-    AttributeDict2 attributes;
+    AttributeDict attributes;
     AttributeParams indexing;
 };
 
@@ -241,8 +151,7 @@ struct InteropView
     // Rendering pipeline associated to this view.
     VkPipeline pipeline = VK_NULL_HANDLE;
 
-    // Switches view visibility from visible to invisible and viceversa.
-    // Does not write or modify underlying data.
+    // Switches view state between visible and invisible; does not modify underlying data.
     bool toggleVisibility()
     {
         params.options.visible = !params.options.visible;

@@ -79,7 +79,6 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .render_timeline     = 0,
         .target_frame_time   = 0,
         .uniform_buffers     = {},
-        .allocations         = {},
         .views               = {},
         .window_context      = {},
         .camera              = {},

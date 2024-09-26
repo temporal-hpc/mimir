@@ -77,32 +77,6 @@ struct VulkanQueue
 
 struct MimirEngine
 {
-    static MimirEngine make(ViewerOptions opts);
-    static MimirEngine make(int width, int height);
-
-    // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
-    std::shared_ptr<Allocation> allocLinear(void **dev_ptr, size_t size);
-    // Allocates opaque device memory, equivalent to cudaMallocMipmappedArray()
-    std::shared_ptr<Allocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
-        const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
-    );
-
-    // Allocates device memory initialized for representing a structured domain
-    AttributeParams makeStructuredDomain(StructuredDomainParams p);
-
-    // View creation
-    std::shared_ptr<InteropView> createView(ViewParams params);
-
-    void display(std::function<void(void)> func, size_t iter_count);
-    void displayAsync();
-    void prepareViews();
-    void updateViews();
-    void showMetrics();
-    void exit();
-
-    void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
-    float getTotalTime() { return total_graphics_time; }
-
     ViewerOptions options;
     bool running;
 
@@ -147,7 +121,6 @@ struct MimirEngine
     long target_frame_time;
 
     std::vector<AllocatedBuffer> uniform_buffers;
-    std::vector<InteropMemory*> allocations;
     std::vector<std::shared_ptr<InteropView>> views;
     GlfwContext window_context;
     Camera camera;
@@ -158,6 +131,41 @@ struct MimirEngine
         DeletionQueue graphics;
         DeletionQueue views;
     } deletors;
+
+    // Benchmarking
+    PerformanceMonitor perf;
+    VkQueryPool query_pool;
+    double total_pipeline_time;
+    double getRenderTimeResults(uint32_t cmd_idx);
+    std::array<float,240> frame_times;
+    float total_graphics_time;
+    size_t total_frame_count;
+
+    static MimirEngine make(ViewerOptions opts);
+    static MimirEngine make(int width, int height);
+
+    // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
+    std::shared_ptr<Allocation> allocLinear(void **dev_ptr, size_t size);
+    // Allocates opaque device memory, equivalent to cudaMallocMipmappedArray()
+    std::shared_ptr<Allocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
+        const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
+    );
+
+    // Allocates device memory initialized for representing a structured domain
+    AttributeParams makeStructuredDomain(StructuredDomainParams p);
+
+    // View creation
+    std::shared_ptr<InteropView> createView(ViewParams params);
+
+    void display(std::function<void(void)> func, size_t iter_count);
+    void displayAsync();
+    void prepareViews();
+    void updateViews();
+    void showMetrics();
+    void exit();
+
+    void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
+    float getTotalTime() { return total_graphics_time; }
 
     void updateLinearTextures();
     void listExtensions();
@@ -198,15 +206,6 @@ struct MimirEngine
     void transitionImageLayout(VkImage image,
         VkImageLayout old_layout, VkImageLayout new_layout
     );
-
-    // Benchmarking
-    PerformanceMonitor perf;
-    VkQueryPool query_pool;
-    double total_pipeline_time;
-    double getRenderTimeResults(uint32_t cmd_idx);
-    std::array<float,240> frame_times;
-    float total_graphics_time;
-    size_t total_frame_count;
 };
 
 static_assert(std::is_default_constructible_v<MimirEngine>);

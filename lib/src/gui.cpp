@@ -21,44 +21,12 @@ static std::array<ViewType, 5> kAllViewTypes = {
     ViewType::Image,
     ViewType::Boxes
 };
-/*
-static std::array<ResourceType, 4> kAllResources = {
-    ResourceType::Buffer,
-    ResourceType::IndexBuffer,
-    ResourceType::Texture,
-    ResourceType::LinearTexture
-};
-static std::array<ComponentType, 7> kAllComponentTypes = {
-    ComponentType::Int,
-    ComponentType::Long,
-    ComponentType::Short,
-    ComponentType::Char,
-    ComponentType::Float,
-    ComponentType::Double,
-    ComponentType::Half
-};*/
 
-struct AllResources
-{
-    static bool ItemGetter(void* data, int n, const char** out_str)
-    {
-        *out_str = getResourceType(((ResourceType*)data)[n]);
-        return true;
-    }
-};
 struct AllViewTypes
 {
     static bool ItemGetter(void* data, int n, const char** out_str)
     {
         *out_str = getViewType(((ViewType*)data)[n]);
-        return true;
-    }
-};
-struct AllComponentTypes
-{
-    static bool ItemGetter(void* data, int n, const char** out_str)
-    {
-        *out_str = getComponentType(((ComponentType*)data)[n]);
         return true;
     }
 };
