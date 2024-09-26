@@ -32,7 +32,6 @@ target_sources(mimir PUBLIC
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/performance_monitor.hpp
         include/mimir/engine/pipeline.hpp
-        include/mimir/engine/resources.hpp
         include/mimir/engine/shader_types.hpp
         include/mimir/engine/swapchain.hpp
         include/mimir/engine/view_types.hpp

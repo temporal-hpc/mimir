@@ -1,4 +1,4 @@
-#include <mimir/engine/resources.hpp>
+#include "internal/resources.hpp"
 
 #include <spdlog/spdlog.h>
 #include "internal/validation.hpp"

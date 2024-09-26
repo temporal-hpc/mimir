@@ -1,9 +1,8 @@
 #include <mimir/mimir.hpp>
 
-#include <mimir/engine/camera.hpp>
-#include <mimir/engine/resources.hpp>
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
+#include "internal/resources.hpp"
 #include "internal/validation.hpp"
 
 #include <chrono> // std::chrono

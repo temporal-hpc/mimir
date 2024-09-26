@@ -2,7 +2,7 @@
 
 #include <cuda_runtime.h> // make_cudaExtent
 
-#include <mimir/engine/resources.hpp>
+#include "internal/resources.hpp"
 #include "internal/validation.hpp"
 
 namespace mimir::interop
