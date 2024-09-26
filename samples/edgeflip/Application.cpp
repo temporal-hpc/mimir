@@ -56,7 +56,7 @@ Application::Application(){
 
     ViewParams params;
     params.element_count = cleap_get_vertex_count(m);
-    params.data_domain   = DataDomain::Domain3D;
+    params.data_domain   = DomainType::Domain3D;
     params.view_type     = ViewType::Markers;
     params.attributes[AttributeType::Position] = {
         .allocation = vertices,

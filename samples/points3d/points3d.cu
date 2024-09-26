@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
         auto points = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
         ViewParams params;
         params.element_count = point_count;
-        params.data_domain   = DataDomain::Domain3D;
+        params.data_domain   = DomainType::Domain3D;
         params.extent        = extent;
         params.view_type     = ViewType::Markers;
         params.attributes[AttributeType::Position] = {

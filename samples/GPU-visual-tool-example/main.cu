@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
     auto points = engine.allocLinear((void**)&dPoints, sizeof(float2) * n);
     ViewParams params;
     params.element_count = n;
-    params.data_domain   = DataDomain::Domain2D;
+    params.data_domain   = DomainType::Domain2D;
     params.view_type     = ViewType::Markers;
     params.attributes[AttributeType::Position] = {
         .allocation = points,

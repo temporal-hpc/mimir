@@ -31,15 +31,15 @@ struct AllViewTypes
     }
 };
 
-std::string getExtent(uint3 extent, DataDomain domain)
+std::string getExtent(uint3 extent, DomainType domain)
 {
     switch (domain)
     {
-        case DataDomain::Domain2D:
+        case DomainType::Domain2D:
         {
             return fmt::format("({},{})", extent.x, extent.y);
         }
-        case DataDomain::Domain3D:
+        case DomainType::Domain3D:
         {
             return fmt::format("({},{},{})", extent.x, extent.y, extent.z);
         }
@@ -93,7 +93,7 @@ void addViewObjectGui(std::shared_ptr<InteropView> view_ptr, int uid)
 
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {
-            addTableRow("Data domain", getDataDomain(params.data_domain));
+            addTableRow("Data domain", getDomainType(params.data_domain));
             addTableRow("Data extent", getExtent(params.extent, params.data_domain));
             ImGui::EndTable();
         }

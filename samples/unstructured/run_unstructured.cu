@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
         ViewParams params;
         params.element_count = point_count;
         params.extent        = {200, 200, 1};
-        params.data_domain   = DataDomain::Domain2D;
+        params.data_domain   = DomainType::Domain2D;
         params.view_type     = ViewType::Markers;
         params.options.default_size = 20.f;
         params.attributes[AttributeType::Position] = {

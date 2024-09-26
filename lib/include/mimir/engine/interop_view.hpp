@@ -95,7 +95,7 @@ struct ViewParams
     size_t element_count = 0;
     int instance_count   = 1;
     uint3 extent = {1, 1, 1};
-    DataDomain data_domain;
+    DomainType data_domain;
     ViewType view_type;
     ViewOptions options;
     AttributeDict attributes;

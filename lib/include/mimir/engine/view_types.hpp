@@ -10,7 +10,7 @@ namespace mimir
 // Specifies the type of view that will be visualized
 enum class ViewType      { Markers, Edges, Voxels, Image, Boxes };
 // Specifies the number of spatial dimensions in the view
-enum class DataDomain    { Domain2D, Domain3D };
+enum class DomainType    { Domain2D, Domain3D };
 
 enum class AttributeType { Position, Color, Size };
 
@@ -41,12 +41,12 @@ constexpr char* getViewType(ViewType type)
     }
 }
 
-constexpr char* getDataDomain(DataDomain d)
+constexpr char* getDomainType(DomainType d)
 {
     switch (d)
     {
-        case DataDomain::Domain2D: return (char*)"2D";
-        case DataDomain::Domain3D: return (char*)"3D";
+        case DomainType::Domain2D: return (char*)"2D";
+        case DomainType::Domain3D: return (char*)"3D";
         default: return (char*)"unknown";
     }
 }

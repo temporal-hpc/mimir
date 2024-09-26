@@ -101,7 +101,7 @@ constexpr VkFormat getVulkanFormat(DataFormat format)
 VkPipelineDepthStencilStateCreateInfo getDepthInfo()
 {
     // TODO: Decide when to apply depth testing
-    bool use_depth = true; //(domain == DataDomain::Domain3D);
+    bool use_depth = true; //(domain == DomainType::Domain3D);
     bool depth_test = use_depth;
     bool depth_write = use_depth;
     VkCompareOp compare_op = VK_COMPARE_OP_LESS;
@@ -208,7 +208,7 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
 
             // Add dimensionality specialization
             std::string marker_spec = "Marker";
-            marker_spec += getDataDomain(params.data_domain);
+            marker_spec += getDomainType(params.data_domain);
             compile.specializations.push_back(marker_spec);
 
             // Add shape specialization (TODO: Do it properly)
@@ -227,7 +227,7 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
         {
             compile.module_path = "shaders/voxel.slang";
             std::string geom_entry = "geometryMain";
-            geom_entry += getDataDomain(params.data_domain);
+            geom_entry += getDomainType(params.data_domain);
             compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
@@ -244,12 +244,12 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
 
             std::string vert_entry = "vertex";
             std::string frag_entry = "frag";
-            if (params.data_domain == DataDomain::Domain2D)
+            if (params.data_domain == DomainType::Domain2D)
             {
                 vert_entry += "2dMain";
                 frag_entry += "2d_";
             }
-            else if (params.data_domain == DataDomain::Domain3D)
+            else if (params.data_domain == DomainType::Domain3D)
             {
                 vert_entry += "3dMain";
                 frag_entry += "3d_";
@@ -265,7 +265,7 @@ ShaderCompileParams getShaderCompileParams(ViewParams params)
         {
             compile.module_path = "shaders/boxes.slang";
             std::string geom_entry = "geometryMain";
-            geom_entry += getDataDomain(params.data_domain);
+            geom_entry += getDomainType(params.data_domain);
             compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }

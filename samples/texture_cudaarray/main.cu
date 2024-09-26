@@ -214,7 +214,7 @@ int main(int argc, char *argv[])
     ViewParamsOld params;
     params.element_count = img_width * img_height;
     params.extent        = {(unsigned)img_width, (unsigned)img_height, 1};
-    params.data_domain   = DataDomain::Domain2D;
+    params.data_domain   = DomainType::Domain2D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Image;
     params.attributes[AttributeType::Color] = *image;

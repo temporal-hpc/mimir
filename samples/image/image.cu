@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 
     ViewParamsOld params;
     params.element_count = width * height;
-    params.data_domain   = DataDomain::Domain2D;
+    params.data_domain   = DomainType::Domain2D;
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Image;
     params.attributes[AttributeType::Color] = *pixels;

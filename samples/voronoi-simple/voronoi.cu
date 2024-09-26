@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
 
     ViewParams params;
     params.element_count = point_count;
-    params.data_domain   = DataDomain::Domain2D;
+    params.data_domain   = DomainType::Domain2D;
     params.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
     params.view_type     = ViewType::Markers;
     params.attributes[AttributeType::Position] = {
@@ -215,7 +215,7 @@ int main(int argc, char *argv[])
     ViewParamsOld p1;
     p1.element_count = point_count;
     p1.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
-    p1.data_domain   = DataDomain::Domain2D;
+    p1.data_domain   = DomainType::Domain2D;
     p1.domain_type   = DomainType::Unstructured;
     p1.view_type     = ViewType::Markers;
     p1.attributes[AttributeType::Position] = *points;
@@ -232,7 +232,7 @@ int main(int argc, char *argv[])
 
     ViewParamsOld p2;
     p2.element_count = extent.x * extent.y;
-    p2.data_domain   = DataDomain::Domain2D;
+    p2.data_domain   = DomainType::Domain2D;
     p2.domain_type   = DomainType::Structured;
     p2.view_type     = ViewType::Image;
     p2.attributes[AttributeType::Color] = *image;

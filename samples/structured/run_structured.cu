@@ -241,7 +241,7 @@ int main(int argc, char *argv[])
 
         ViewParams params;
         params.element_count = program.element_count;
-        params.data_domain   = DataDomain::Domain2D;
+        params.data_domain   = DomainType::Domain2D;
         params.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
         params.view_type     = ViewType::Markers;
         params.attributes[AttributeType::Position] = {
@@ -262,7 +262,7 @@ int main(int argc, char *argv[])
 
         ViewParamsOld p2;
         p2.element_count = program.extent.x * program.extent.y;
-        p2.data_domain   = DataDomain::Domain2D;
+        p2.data_domain   = DomainType::Domain2D;
         p2.domain_type   = DomainType::Structured;
         p2.view_type     = ViewType::Image;
         p2.attributes[AttributeType::Color] = *image;
