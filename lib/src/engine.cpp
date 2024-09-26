@@ -50,7 +50,6 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
 {
     MimirEngine engine{
         .options             = opts,
-        .running             = false,
         .instance            = VK_NULL_HANDLE,
         .physical_device     = {},
         .graphics            = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
@@ -73,6 +72,7 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .depth_view          = VK_NULL_HANDLE,
         .sync_data           = {},
         .interop             = {},
+        .running             = false,
         .kernel_working      = false,
         .rendering_thread    = {},
         .last_time           = {},
@@ -84,11 +84,7 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .camera              = {},
         .deletors            = {},
         .perf                = {},
-        .query_pool          = VK_NULL_HANDLE,
-        .total_pipeline_time = 0,
-        .frame_times         = {},
-        .total_graphics_time = 0,
-        .total_frame_count   = 0,
+        .metrics             = {},
     };
 
     spdlog::set_level(spdlog::level::trace);
@@ -717,9 +713,7 @@ void MimirEngine::createSyncObjects()
 void MimirEngine::cleanupGraphics()
 {
     vkDeviceWaitIdle(device);
-    /*vkFreeCommandBuffers(device, dev.command_pool,
-        command_buffers.size(), command_buffers.data()
-    );*/
+    //vkFreeCommandBuffers(device, command_pool, command_buffers.size(), command_buffers.data());
     deletors.graphics.flush();
     fbs.clear();
 }
@@ -737,11 +731,13 @@ void MimirEngine::initGraphics()
 
     render_pass = createRenderPass();
     command_buffers = createCommandBuffers(device, command_pool, swapchain.image_count);
-    query_pool = createQueryPool(device, 2 * command_buffers.size());
+    auto timestamp_period = physical_device.general.properties.limits.timestampPeriod;
+    metrics = MetricsCollector::make(device, 2 * command_buffers.size(), timestamp_period, 240);
+
     deletors.graphics.add([=,this]{
         vkDestroyRenderPass(device, render_pass, nullptr);
         vkDestroySwapchainKHR(device, swapchain.current, nullptr);
-        vkDestroyQueryPool(device, query_pool, nullptr);
+        vkDestroyQueryPool(device, metrics.query_pool, nullptr);
     });
 
     ImageParams params{
@@ -1043,9 +1039,7 @@ void MimirEngine::renderFrame()
     // Limit frame if it was configured
     if (options.present.enable_fps_limit) frameStall(target_frame_time);
 
-    total_frame_count++;
-    total_graphics_time += frame_time;
-    frame_times[render_timeline % frame_times.size()] = frame_time;
+    metrics.advanceFrame(frame_time);
     last_time = current_time;
 
     /*if (options.report_period > 0 && frame_time > options.report_period)
@@ -1300,21 +1294,6 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
     }
 }
 
-double MimirEngine::getRenderTimeResults(uint32_t cmd_idx)
-{
-    auto timestamp_period = physical_device.general.properties.limits.timestampPeriod;
-    const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
-
-    uint64_t buffer[2];
-    validation::checkVulkan(vkGetQueryPoolResults(device, query_pool,
-        2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t),
-        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT)
-    );
-    vkResetQueryPool(device, query_pool, cmd_idx * 2, 2);
-    // TODO: apply time &= timestamp_mask;
-    return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
-}
-
 struct ConvertedMemory
 {
     float data;
@@ -1355,18 +1334,15 @@ void MimirEngine::showMetrics()
     else if (w == 2560 && h == 1440) label = "QHD";
     else if (w == 3840 && h == 2160) label = "UHD";
 
-    auto frame_sample_size = std::min(frame_times.size(), total_frame_count);
-    float total_frame_time = 0;
-    for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
-    auto framerate = frame_times.size() / total_frame_time;
+    auto framerate = metrics.getFramerate();
 
     auto stats = physical_device.getMemoryStats();
     auto gpu_usage  = formatMemory(stats.usage);
     auto gpu_budget = formatMemory(stats.budget);
 
     printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.present.target_fps,
-        framerate,perf.total_compute_time,total_pipeline_time,
-        total_graphics_time,gpu_usage.data,gpu_budget.data
+        framerate,perf.total_compute_time,metrics.total_pipeline_time,
+        metrics.total_graphics_time,gpu_usage.data,gpu_budget.data
     );
 
     //auto fps = ImGui::GetIO().Framerate; printf("\nFPS %f\n", fps);

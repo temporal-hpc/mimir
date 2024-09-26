@@ -326,23 +326,4 @@ VkSemaphore createSemaphore(VkDevice device, const void *extensions)
     return semaphore;
 }
 
-VkQueryPool createQueryPool(VkDevice device, uint32_t query_count)
-{
-    // Number of queries is twice the number of command buffers, to store space
-    // for queries before and after rendering
-    VkQueryPoolCreateInfo info{
-        .sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
-        .pNext      = nullptr,
-        .flags      = 0,
-        .queryType  = VK_QUERY_TYPE_TIMESTAMP,
-        .queryCount = query_count, //command_buffers.size() * 2;
-        .pipelineStatistics = 0,
-    };
-
-    VkQueryPool pool = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateQueryPool(device, &info, nullptr, &pool));
-    vkResetQueryPool(device, pool, 0, query_count);
-    return pool;
-}
-
 } // namespace mimir

@@ -14,6 +14,7 @@
 #include <mimir/engine/framebuffer.hpp>
 #include <mimir/engine/interop.hpp>
 #include <mimir/engine/interop_view.hpp>
+#include <mimir/engine/metrics.hpp>
 #include <mimir/engine/performance_monitor.hpp>
 #include <mimir/engine/pipeline.hpp>
 #include <mimir/engine/swapchain.hpp>
@@ -78,7 +79,6 @@ struct VulkanQueue
 struct MimirEngine
 {
     ViewerOptions options;
-    bool running;
 
     VkInstance instance;
     PhysicalDevice physical_device{};
@@ -112,6 +112,7 @@ struct MimirEngine
     interop::Barrier interop;
 
     // CPU thread synchronization variables
+    bool running;
     bool kernel_working;
     std::thread rendering_thread;
     std::chrono::time_point<std::chrono::high_resolution_clock> last_time;
@@ -134,12 +135,7 @@ struct MimirEngine
 
     // Benchmarking
     PerformanceMonitor perf;
-    VkQueryPool query_pool;
-    double total_pipeline_time;
-    double getRenderTimeResults(uint32_t cmd_idx);
-    std::array<float,240> frame_times;
-    float total_graphics_time;
-    size_t total_frame_count;
+    MetricsCollector metrics;
 
     static MimirEngine make(ViewerOptions opts);
     static MimirEngine make(int width, int height);
@@ -165,7 +161,7 @@ struct MimirEngine
     void exit();
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
-    float getTotalTime() { return total_graphics_time; }
+    float getTotalTime() { return metrics.total_graphics_time; }
 
     void updateLinearTextures();
     void listExtensions();

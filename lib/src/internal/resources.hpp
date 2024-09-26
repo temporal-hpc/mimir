@@ -67,6 +67,4 @@ VkFence createFence(VkDevice device, VkFenceCreateFlags flags);
 
 VkSemaphore createSemaphore(VkDevice device, const void *extensions = nullptr);
 
-VkQueryPool createQueryPool(VkDevice device, uint32_t query_count);
-
 } // namespace mimir
