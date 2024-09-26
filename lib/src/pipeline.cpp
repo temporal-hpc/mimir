@@ -396,6 +396,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
 {
     auto orig_path   = std::filesystem::current_path();
     auto shader_path = getDefaultShaderPath();
+    spdlog::debug("Original path: {}, shader path: {}", orig_path.string(), shader_path);
     std::filesystem::current_path(shader_path);
 
     auto compile_params = getShaderCompileParams(params);

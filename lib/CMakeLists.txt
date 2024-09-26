@@ -32,9 +32,11 @@ target_sources(mimir PUBLIC
         include/mimir/engine/performance_monitor.hpp
         include/mimir/engine/pipeline.hpp
         include/mimir/engine/resources.hpp
+        include/mimir/engine/shader.hpp
         include/mimir/engine/shader_types.hpp
         include/mimir/engine/swapchain.hpp
         include/mimir/engine/view_types.hpp
+        include/mimir/engine/window.hpp
 )
 target_include_directories(mimir PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
