@@ -1,6 +1,10 @@
 #pragma once
 
-#include <mimir/engine/shader.hpp>
+#include <vulkan/vulkan.h>
+
+#include <vector> // std::vector
+
+#include <mimir/engine/interop_view.hpp>
 
 namespace mimir
 {
@@ -25,7 +29,6 @@ struct PipelineInfo
 
 struct PipelineBuilder
 {
-    ShaderBuilder shader_builder;
     std::vector<PipelineInfo> pipeline_infos;
     VkPipelineLayout pipeline_layout;
     VkViewport viewport;

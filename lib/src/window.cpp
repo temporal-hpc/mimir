@@ -65,14 +65,14 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
 
     if (ctx.mouse_buttons.left) // Rotation
     {
-        auto rot = app->camera.rotation_speed;
-        app->camera.rotate(glm::vec3(dy * rot, -dx * rot, 0.f));
+        auto speed = app->camera.rotation_speed;
+        app->camera.rotate(glm::vec3(dy * speed, -dx * speed, 0.f));
     }
-    if (ctx.mouse_buttons.right) // Translation
+    if (ctx.mouse_buttons.right) // Zoom
     {
         app->camera.translate(glm::vec3(0.f, 0.f, dy * .005f));
     }
-    if (ctx.mouse_buttons.middle) // Zoom
+    if (ctx.mouse_buttons.middle) // Translation
     {
         app->camera.translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
     }

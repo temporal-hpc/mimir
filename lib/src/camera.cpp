@@ -18,16 +18,10 @@ void Camera::updateViewMatrix()
     {
         translation.y *= -1.f;
     }
-    glm::mat4 transmat = glm::translate(glm::mat4(1.f), translation);
 
-    if (type == CameraType::FirstPerson)
-    {
-        matrices.view = rotmat * transmat;
-    }
-    else
-    {
-        matrices.view = transmat * rotmat;
-    }
+    glm::mat4 transmat = glm::translate(glm::mat4(1.f), translation);
+    matrices.view = (type == CameraType::FirstPerson)? rotmat * transmat : transmat * rotmat;
+
     view_pos = glm::vec4(position, 0.f) * glm::vec4(-1.f, 1.f, -1.f, 1.f);
     updated = true;
 }

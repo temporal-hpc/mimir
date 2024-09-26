@@ -1,4 +1,4 @@
-#include <mimir/engine/shader.hpp>
+#include "internal/shader.hpp"
 
 #define SLANG_CUDA_ENABLE_HALF
 #include <slang.h>

@@ -7,6 +7,7 @@
 #include <map> // std::map
 
 #include <mimir/engine/shader_types.hpp>
+#include "internal/shader.hpp"
 #include "internal/validation.hpp"
 
 // Setup the shader path so that the library can actually load them
@@ -123,7 +124,7 @@ VkPipelineDepthStencilStateCreateInfo getDepthInfo()
 PipelineBuilder PipelineBuilder::make(VkPipelineLayout layout, VkExtent2D extent)
 {
     return {
-        .shader_builder  = ShaderBuilder::make(),
+        .pipeline_infos  = {},
         .pipeline_layout = layout,
         .viewport        = {0.f, 0.f, (float)extent.width, (float)extent.height, 0.f, 1.f},
         .scissor         = { {0,0}, extent },
@@ -399,6 +400,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
     spdlog::debug("Original path: {}, shader path: {}", orig_path.string(), shader_path);
     std::filesystem::current_path(shader_path);
 
+    auto shader_builder = ShaderBuilder::make();
     auto compile_params = getShaderCompileParams(params);
     auto ext_shaders = params.options.external_shaders;
 

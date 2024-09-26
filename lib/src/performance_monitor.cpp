@@ -3,21 +3,27 @@
 namespace mimir
 {
 
-PerformanceMonitor::PerformanceMonitor(cudaStream_t stream)
-    : monitored_stream(stream)
+PerformanceMonitor PerformanceMonitor::make(cudaStream_t monitored_stream)
 {
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    PerformanceMonitor monitor{
+        .stream             = monitored_stream,
+        .total_compute_time = 0,
+        .start              = nullptr,
+        .stop               = nullptr,
+    };
+    cudaEventCreate(&monitor.start);
+    cudaEventCreate(&monitor.stop);
+    return monitor;
 }
 
 void PerformanceMonitor::startCuda()
 {
-    cudaEventRecord(start, monitored_stream);
+    cudaEventRecord(start, stream);
 }
 
 float PerformanceMonitor::endCuda()
 {
-    cudaEventRecord(stop, monitored_stream);
+    cudaEventRecord(stop, stream);
     cudaEventSynchronize(stop);
     float timems = 0;
     cudaEventElapsedTime(&timems, start, stop);

@@ -2,7 +2,7 @@ find_package(OpenMP)
 
 add_library(common INTERFACE)
 target_compile_features(common INTERFACE cxx_std_20)
-target_include_directories(common INTERFACE SYSTEM include)
+target_include_directories(common SYSTEM INTERFACE include)
 target_link_libraries(common INTERFACE mimir)
 
 add_subdirectory(powermon)
