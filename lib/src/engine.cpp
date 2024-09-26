@@ -1,5 +1,6 @@
 #include <mimir/mimir.hpp>
 
+#include <mimir/engine/camera.hpp>
 #include <mimir/engine/resources.hpp>
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
@@ -33,12 +34,24 @@ uint32_t getAlignedSize(size_t original_size, size_t min_alignment)
 	return aligned_size;
 }
 
+// Creates a camera initialized with sensible defaults
+Camera defaultCamera(int width, int height)
+{
+    auto camera = Camera::make();
+    camera.type           = Camera::CameraType::LookAt;
+    camera.rotation_speed = 0.5f;
+    //camera.flipY = true;
+    camera.setPosition(glm::vec3(0.f, 0.f, -2.85f));
+    camera.setRotation(glm::vec3(0.f, 0.f, 0.f));
+    camera.setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
+    return camera;
+}
+
 MimirEngine MimirEngine::make(ViewerOptions opts)
 {
     MimirEngine engine{
         .options             = opts,
         .running             = false,
-        .camera              = {},
         .instance            = VK_NULL_HANDLE,
         .physical_device     = {},
         .graphics            = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
@@ -70,6 +83,7 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .allocations         = {},
         .views               = {},
         .window_context      = {},
+        .camera              = {},
         .deletors            = {},
         .perf                = {},
         .query_pool          = VK_NULL_HANDLE,
@@ -91,15 +105,9 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
     auto height = engine.options.window.size.y;
     engine.window_context = GlfwContext::make(width, height, engine.options.window.title.c_str(), &engine);
     engine.deletors.context.add([&] { engine.window_context.clean(); });
+    engine.camera = defaultCamera(width, height);
 
     engine.initVulkan();
-
-    //engine.camera.flipY = true;
-    engine.camera.type = Camera::CameraType::LookAt;
-    engine.camera.setPosition(glm::vec3(0.f, 0.f, -2.85f)); //(glm::vec3(0.f, 0.f, -3.75f));
-    engine.camera.setRotation(glm::vec3(0.f, 0.f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
-    engine.camera.setRotationSpeed(0.5f);
-    engine.camera.setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
 
     return engine;
 }
@@ -142,8 +150,9 @@ void MimirEngine::prepare()
 void MimirEngine::displayAsync()
 {
     prepare();
+
     running = true;
-    rendering_thread = std::thread([this]()
+    rendering_thread = std::thread([&,this]()
     {
         while(!window_context.shouldClose())
         {
@@ -207,6 +216,7 @@ void MimirEngine::signalKernelFinish()
 void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();
+
     running = true;
     kernel_working = true;
     size_t iter_idx = 0;

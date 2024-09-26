@@ -5,6 +5,24 @@
 namespace mimir
 {
 
+Camera Camera::make()
+{
+    return Camera{
+        .type           = CameraType::LookAt,
+        .rotation       = glm::vec3(),
+        .position       = glm::vec3(),
+        .view_pos       = glm::vec4(),
+        .rotation_speed = 1.f,
+        .movement_speed = 1.f,
+        .fov            = 0.f,
+        .near_clip      = 0.f,
+        .far_clip       = 0.f,
+        .updated        = false,
+        .flip_y         = false,
+        .matrices       = { .perspective = glm::mat4(), .view = glm::mat4() }
+    };
+}
+
 void Camera::updateViewMatrix()
 {
     glm::mat4 rotmat(1.f);
@@ -26,28 +44,13 @@ void Camera::updateViewMatrix()
     updated = true;
 }
 
-bool Camera::moving()
-{
-    return keys.left || keys.right || keys.up || keys.down;
-}
-
-float Camera::getNearClip()
-{
-    return z_near;
-}
-
-float Camera::getFarClip()
-{
-    return z_far;
-}
-
 void Camera::setPerspective(float fov, float aspect, float znear, float zfar)
 {
-    this->fov    = fov;
-    this->z_near = znear;
-    this->z_far  = zfar;
+    this->fov       = fov;
+    this->near_clip = znear;
+    this->far_clip  = zfar;
 
-    matrices.perspective = glm::perspective(glm::radians(fov), aspect, z_near, z_far);
+    matrices.perspective = glm::perspective(glm::radians(fov), aspect, near_clip, far_clip);
     if (flip_y)
     {
         matrices.perspective[1][1] *= -1.f;
@@ -56,7 +59,7 @@ void Camera::setPerspective(float fov, float aspect, float znear, float zfar)
 
 void Camera::updateAspectRatio(float aspect)
 {
-    matrices.perspective = glm::perspective(glm::radians(fov), aspect, z_near, z_far);
+    matrices.perspective = glm::perspective(glm::radians(fov), aspect, near_clip, far_clip);
     if (flip_y)
     {
         matrices.perspective[1][1] *= -1.f;
@@ -91,16 +94,6 @@ void Camera::translate(glm::vec3 delta)
 {
     this->position += delta;
     updateViewMatrix();
-}
-
-void Camera::setRotationSpeed(float rot_speed)
-{
-    this->rotation_speed = rot_speed;
-}
-
-void Camera::setMovementSpeed(float mov_speed)
-{
-    this->movement_speed = mov_speed;
 }
 
 } // namespace mimir

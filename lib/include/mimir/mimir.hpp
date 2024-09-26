@@ -106,9 +106,6 @@ struct MimirEngine
     ViewerOptions options;
     bool running;
 
-    // Camera functions
-    Camera camera;
-
     VkInstance instance;
     PhysicalDevice physical_device{};
     VulkanQueue graphics, present;
@@ -153,6 +150,7 @@ struct MimirEngine
     std::vector<InteropMemory*> allocations;
     std::vector<std::shared_ptr<InteropView>> views;
     GlfwContext window_context;
+    Camera camera;
 
     // Deletion queues organized by lifetime
     struct {
