@@ -5,9 +5,7 @@
 #include "internal/gui.hpp"
 #include "internal/validation.hpp"
 
-#include <dlfcn.h> // dladdr
 #include <chrono> // std::chrono
-#include <filesystem> // std::filesystem
 #include <set> // std::set
 
 namespace mimir
@@ -21,26 +19,6 @@ VkPresentModeKHR getDesiredPresentMode(PresentMode opts)
         case PresentMode::VSync:           return VK_PRESENT_MODE_FIFO_KHR;
         case PresentMode::TripleBuffering: return VK_PRESENT_MODE_MAILBOX_KHR;
         default:                           return VK_PRESENT_MODE_IMMEDIATE_KHR;
-    }
-}
-
-// Setup the shader path so that the library can actually load them
-// Hackish and Linux-only, but works for now
-std::string getDefaultShaderPath()
-{
-    // If shaders are installed in library path, set working directory there
-    Dl_info dl_info;
-    dladdr((void*)getDefaultShaderPath, &dl_info);
-    auto lib_pathname = dl_info.dli_fname;
-    if (lib_pathname != nullptr)
-    {
-        std::filesystem::path lib_path(lib_pathname);
-        return lib_path.parent_path().string();
-    }
-    else // Use executable path as working dir
-    {
-        auto exe_folder = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
-        return exe_folder;
     }
 }
 
@@ -73,6 +51,7 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .descriptor_pool     = VK_NULL_HANDLE,
         .surface             = VK_NULL_HANDLE,
         .swapchain           = {},
+        .pipeline_builder    = {},
         .fbs                 = {},
         .command_buffers     = {},
         .descriptor_sets     = {},
@@ -85,7 +64,6 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .kernel_working      = false,
         .rendering_thread    = {},
         .last_time           = {},
-        .shader_path         = getDefaultShaderPath(),
         .render_timeline     = 0,
         .target_frame_time   = 0,
         .uniform_buffers     = {},
@@ -494,90 +472,6 @@ std::shared_ptr<InteropView> MimirEngine::createView(ViewParams params)
     return mem_handle;
 }
 
-InteropMemory *MimirEngine::createBufferOld(void **dev_ptr, MemoryParams params)
-{
-    auto mem_handle = new InteropMemory();
-    mem_handle->params = params;
-    deletors.views.add([=,this]{ delete mem_handle; });
-
-    /*switch (params.resource_type)
-    {
-        case ResourceType::Texture:
-        {
-            dev.initMemoryImage(*mem_handle);
-            deletors.views.add([=,this]{
-                vkDestroyImage(device, mem_handle->image, nullptr);
-                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
-                vkFreeMemory(device, mem_handle->image_memory, nullptr);
-                vkDestroyImageView(device, mem_handle->vk_view, nullptr);
-                validation::checkCuda(cudaFreeMipmappedArray(mem_handle->mipmap_array));
-                vkDestroySampler(device, mem_handle->vk_sampler, nullptr);
-            });
-            break;
-        }
-        case ResourceType::LinearTexture:
-        {
-            dev.initMemoryImageLinear(*mem_handle);
-            deletors.views.add([=,this]{
-                vkDestroyImage(device, mem_handle->image, nullptr);
-                vkFreeMemory(device, mem_handle->image_memory, nullptr);
-                vkDestroyImageView(device, mem_handle->vk_view, nullptr);
-                vkDestroySampler(device, mem_handle->vk_sampler, nullptr);
-                vkDestroyBuffer(device, mem_handle->data_buffer, nullptr);
-                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
-                vkFreeMemory(device, mem_handle->memory, nullptr);
-            });
-            break;
-        }
-        default:
-        {
-            dev.initMemoryBuffer(*mem_handle);
-            deletors.views.add([=,this]{
-                vkDestroyBuffer(device, mem_handle->data_buffer, nullptr);
-                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
-                vkFreeMemory(device, mem_handle->memory, nullptr);
-            });
-        }
-    }*/
-
-    *dev_ptr = mem_handle->cuda_ptr;
-    allocations.push_back(mem_handle);
-    return allocations.back();
-}
-
-InteropViewOld *MimirEngine::createView(ViewParamsOld params)
-{
-    auto view_handle = new InteropViewOld();
-    view_handle->params = params;
-    deletors.views.add([=,this]{ delete view_handle; });
-
-    /*if (params.view_type == ViewType::Image)
-    {
-        dev.initViewImage(*view_handle);
-        deletors.views.add([=,this]{
-            vkDestroyBuffer(device, view_handle->aux_buffer, nullptr);
-            vkFreeMemory(device, view_handle->aux_memory, nullptr);
-        });
-    }
-    else
-    {
-        dev.initViewBuffer(*view_handle);
-        deletors.views.add([=,this]{
-            vkDestroyBuffer(device, view_handle->aux_buffer, nullptr);
-            vkFreeMemory(device, view_handle->aux_memory, nullptr);
-        });
-    }*/
-
-    //views.push_back(view_handle);
-    //return views.back();
-    return nullptr;
-}
-
-void MimirEngine::loadTexture(InteropMemory *interop, void *data)
-{
-    //dev.loadTexture(interop, data);
-}
-
 VkDescriptorSetLayoutBinding descriptorLayoutBinding(
     uint32_t binding, VkDescriptorType type, VkShaderStageFlags flags)
 {
@@ -983,7 +877,7 @@ void MimirEngine::waitTimelineHost()
         .pSemaphores    = &interop.vk_semaphore,
         .pValues        = &interop.timeline_value,
     };
-    vkWaitSemaphores(device, &wait_info, frame_timeout);
+    validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
 }
 
 void MimirEngine::renderFrame()
@@ -1020,6 +914,7 @@ void MimirEngine::renderFrame()
     else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
     {
         spdlog::error("Failed to acquire swapchain image");
+        return;
     }
 
     /*if (images_inflight[image_idx] != VK_NULL_HANDLE)
@@ -1305,43 +1200,22 @@ VkRenderPass MimirEngine::createRenderPass()
 void MimirEngine::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> views*/)
 {
     auto start = std::chrono::steady_clock::now();
-    auto orig_path = std::filesystem::current_path();
-    std::filesystem::current_path(shader_path);
 
-    auto builder = PipelineBuilder::make(pipeline_layout, swapchain.extent);
+    pipeline_builder = PipelineBuilder::make(pipeline_layout, swapchain.extent);
     for (auto& view : views)
     {
-        builder.addPipeline(view->params, device);
+        pipeline_builder.addPipeline(view->params, device);
     }
-    auto pipelines = builder.createPipelines(device, render_pass);
+    auto pipelines = pipeline_builder.createPipelines(device, render_pass);
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
         views[i]->pipeline = pipelines[i];
-        deletors.graphics.add([=,this]{
-            vkDestroyPipeline(device, views[i]->pipeline, nullptr);
-        });
+        deletors.graphics.add([=,this]{ vkDestroyPipeline(device, views[i]->pipeline, nullptr); });
     }
 
-    // Restore original working directory
-    std::filesystem::current_path(orig_path);
     auto end = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     spdlog::trace("Created {} pipeline object(s) in {} ms", pipelines.size(), elapsed);
-}
-
-void MimirEngine::rebuildPipeline(InteropViewOld& view)
-{
-    auto orig_path = std::filesystem::current_path();
-    std::filesystem::current_path(shader_path);
-
-    auto builder = PipelineBuilder::make(pipeline_layout, swapchain.extent);
-    //builder.addPipeline(view.params, device);
-    auto pipelines = builder.createPipelines(device, render_pass);
-    // Destroy the old view pipeline and assign the new one
-    vkDestroyPipeline(device, view.pipeline, nullptr);
-    view.pipeline = pipelines[0];
-
-    std::filesystem::current_path(orig_path);
 }
 
 void MimirEngine::initUniformBuffers()
@@ -1682,6 +1556,7 @@ void MimirEngine::transitionImageLayout(VkImage image, VkImageLayout old_layout,
     else
     {
         spdlog::error("unsupported layout transition");
+        return;
     }
 
     if (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
@@ -1697,6 +1572,7 @@ void MimirEngine::transitionImageLayout(VkImage image, VkImageLayout old_layout,
     else
     {
         spdlog::error("unsupported layout transition");
+        return;
     }
 
     immediateSubmit([=](VkCommandBuffer cmd)

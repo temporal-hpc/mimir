@@ -5,6 +5,7 @@
 #include <vulkan/vulkan.h>
 
 #include <string> // std::string
+#include <span> // std::span
 #include <vector> // std::vector
 
 #include <mimir/engine/interop_view.hpp> // ShaderInfo
@@ -28,10 +29,14 @@ struct ShaderBuilder
         VkDevice device, const ShaderCompileParams& params
     );
     std::vector<VkPipelineShaderStageCreateInfo> loadExternalShaders(
-        VkDevice device, const std::vector<ShaderInfo> shaders
+        VkDevice device, std::span<ShaderInfo> shaders
     );
 
     static ShaderBuilder make();
 };
+
+static_assert(std::is_default_constructible_v<ShaderBuilder>);
+//static_assert(std::is_nothrow_default_constructible_v<ShaderBuilder>);
+//static_assert(std::is_trivially_default_constructible_v<ShaderBuilder>);
 
 } // namespace mimir

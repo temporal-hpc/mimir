@@ -65,4 +65,8 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
 // Handle additional extensions required by CUDA interop
 std::vector<const char*> getRequiredDeviceExtensions();
 
+static_assert(std::is_default_constructible_v<PhysicalDevice>);
+static_assert(std::is_nothrow_default_constructible_v<PhysicalDevice>);
+//static_assert(std::is_trivially_default_constructible_v<PhysicalDevice>);
+
 } // namespace mimir

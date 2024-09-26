@@ -1,11 +1,33 @@
 #include <mimir/engine/pipeline.hpp>
 
-#include <cstring> // to_string
-#include <map> // std::map
 #include <spdlog/spdlog.h>
+#include <dlfcn.h> // dladdr
+#include <cstring> // to_string
+#include <filesystem> // std::filesystem
+#include <map> // std::map
 
 #include <mimir/engine/shader_types.hpp>
 #include "internal/validation.hpp"
+
+// Setup the shader path so that the library can actually load them
+// Hackish and Linux-only, but works for now
+std::string getDefaultShaderPath()
+{
+    // If shaders are installed in library path, set working directory there
+    Dl_info dl_info;
+    dladdr((void*)getDefaultShaderPath, &dl_info);
+    auto lib_pathname = dl_info.dli_fname;
+    if (lib_pathname != nullptr)
+    {
+        std::filesystem::path lib_path(lib_pathname);
+        return lib_path.parent_path().string();
+    }
+    else // Use executable path as working dir
+    {
+        auto exe_folder = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
+        return exe_folder;
+    }
+}
 
 namespace mimir
 {
@@ -372,6 +394,10 @@ VertexDescription getVertexDescription(const ViewParams params)
 
 uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
 {
+    auto orig_path   = std::filesystem::current_path();
+    auto shader_path = getDefaultShaderPath();
+    std::filesystem::current_path(shader_path);
+
     auto compile_params = getShaderCompileParams(params);
     auto ext_shaders = params.options.external_shaders;
 
@@ -421,6 +447,9 @@ uint32_t PipelineBuilder::addPipeline(const ViewParams params, VkDevice device)
         .color_blend_attachment = color_blend,
         .multisampling          = multisampling,
     };
+
+    // Restore original working directory
+    std::filesystem::current_path(orig_path);
 
     pipeline_infos.push_back(info);
     return pipeline_infos.size() - 1;

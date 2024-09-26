@@ -289,8 +289,7 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
 }
 
 // Read buffer with shader bytecode and create a shader module from it
-VkShaderModule createShaderModule(
-    const std::vector<char>& code, VkDevice device)
+VkShaderModule createShaderModule(std::string_view code, VkDevice device)
 {
     VkShaderModuleCreateInfo info{
         .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -313,6 +312,7 @@ std::vector<char> readFile(const std::string& filename)
     if (!file.is_open())
     {
         spdlog::error("readFile: failed to open file {}", filename);
+        return {};
     }
 
     // Use read position to determine filesize and allocate output buffer
@@ -326,12 +326,13 @@ std::vector<char> readFile(const std::string& filename)
 }
 
 std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::loadExternalShaders(
-    VkDevice device, const std::vector<ShaderInfo> shaders)
+    VkDevice device, std::span<ShaderInfo> shaders)
 {
     std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
     for (const auto& info : shaders)
     {
-        auto shader_module = createShaderModule(readFile(info.filepath), device);
+        auto shader_code = readFile(info.filepath).data();
+        auto shader_module = createShaderModule(shader_code, device);
         auto shader_info = shaderStageInfo(info.stage, shader_module);
         compiled_stages.push_back(shader_info);
     }

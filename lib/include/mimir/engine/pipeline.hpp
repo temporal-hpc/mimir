@@ -37,4 +37,8 @@ struct PipelineBuilder
     static PipelineBuilder make(VkPipelineLayout layout, VkExtent2D extent);
 };
 
+static_assert(std::is_default_constructible_v<PipelineBuilder>);
+//static_assert(std::is_nothrow_default_constructible_v<PipelineBuilder>);
+//static_assert(std::is_trivially_default_constructible_v<PipelineBuilder>);
+
 } // namespace mimir

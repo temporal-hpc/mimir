@@ -77,12 +77,8 @@ struct VulkanQueue
 
 struct MimirEngine
 {
-
     static MimirEngine make(ViewerOptions opts);
     static MimirEngine make(int width, int height);
-    // Main library function, which setups all the visualization interop
-    InteropViewOld *createView(ViewParamsOld params);
-    InteropMemory *createBufferOld(void **dev_ptr, MemoryParams params);
 
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
     std::shared_ptr<Allocation> allocLinear(void **dev_ptr, size_t size);
@@ -97,7 +93,6 @@ struct MimirEngine
     // View creation
     std::shared_ptr<InteropView> createView(ViewParams params);
 
-    void loadTexture(InteropMemory *interop, void *data);
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
     void prepareViews();
@@ -127,6 +122,7 @@ struct MimirEngine
     VkSurfaceKHR surface;
 
     Swapchain swapchain;
+    PipelineBuilder pipeline_builder;
     //VmaAllocator allocator = nullptr;
     //VmaPool interop_pool   = nullptr;
 
@@ -150,7 +146,6 @@ struct MimirEngine
     std::chrono::time_point<std::chrono::high_resolution_clock> last_time;
 
     // Cuda interop data
-    std::string shader_path;
     uint64_t render_timeline;
     long target_frame_time;
 
@@ -186,7 +181,6 @@ struct MimirEngine
     void cleanupGraphics();
     void recreateGraphics();
     void createViewPipelines();
-    void rebuildPipeline(InteropViewOld& view);
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);
 

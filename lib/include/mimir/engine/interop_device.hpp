@@ -9,7 +9,7 @@ namespace mimir
 
 // Class for encapsulating Vulkan device functions with Cuda interop
 // Inherited from VulkanDevice to encapsulate Cuda-related code
-struct InteropDevice : public VulkanDevice
+struct InteropDevice
 {
     void initMemoryBuffer(InteropMemory &interop);
     void initMemoryImage(InteropMemory &interop);
