@@ -82,8 +82,8 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .window_context      = {},
         .camera              = {},
         .deletors            = {},
-        .perf                = {},
-        .metrics             = {},
+        .graphics_monitor    = {},
+        .compute_monitor     = {},
     };
 
     spdlog::set_level(spdlog::level::trace);
@@ -164,7 +164,7 @@ void MimirEngine::prepareViews()
     {
         kernel_working = true;
         waitKernelStart();
-        perf.startCuda();
+        compute_monitor.startWatch();
     }
 }
 
@@ -186,7 +186,7 @@ void MimirEngine::updateViews()
 {
     if (options.present.enable_sync && running)
     {
-        perf.endCuda();
+        compute_monitor.stopWatch();
         signalKernelFinish();
         kernel_working = false;
     }
@@ -730,13 +730,18 @@ void MimirEngine::initGraphics()
 
     render_pass = createRenderPass();
     command_buffers = createCommandBuffers(device, command_pool, swapchain.image_count);
+
+    // Initialize metrics monitoring
     auto timestamp_period = physical_device.general.properties.limits.timestampPeriod;
-    metrics = MetricsCollector::make(device, 2 * command_buffers.size(), timestamp_period, 240);
+    graphics_monitor = metrics::GraphicsMonitor::make(device, 2 * command_buffers.size(), timestamp_period, 240);
+    compute_monitor = metrics::ComputeMonitor::make(0);
 
     deletors.graphics.add([=,this]{
         vkDestroyRenderPass(device, render_pass, nullptr);
         vkDestroySwapchainKHR(device, swapchain.current, nullptr);
-        vkDestroyQueryPool(device, metrics.query_pool, nullptr);
+        vkDestroyQueryPool(device, graphics_monitor.query_pool, nullptr);
+        cudaEventDestroy(compute_monitor.start);
+        cudaEventDestroy(compute_monitor.stop);
     });
 
     ImageParams params{
@@ -1315,15 +1320,15 @@ void MimirEngine::showMetrics()
     else if (w == 2560 && h == 1440) label = "QHD";
     else if (w == 3840 && h == 2160) label = "UHD";
 
-    auto framerate = metrics.getFramerate();
+    auto framerate = graphics_monitor.getFramerate();
 
     auto stats = physical_device.getMemoryStats();
     auto gpu_usage  = formatMemory(stats.usage);
     auto gpu_budget = formatMemory(stats.budget);
 
     printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.present.target_fps,
-        framerate,perf.total_compute_time,metrics.total_pipeline_time,
-        metrics.total_graphics_time,gpu_usage.data,gpu_budget.data
+        framerate,compute_monitor.total_compute_time,graphics_monitor.total_pipeline_time,
+        graphics_monitor.total_graphics_time,gpu_usage.data,gpu_budget.data
     );
 
     //auto fps = ImGui::GetIO().Framerate; printf("\nFPS %f\n", fps);

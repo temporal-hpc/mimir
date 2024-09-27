@@ -2,7 +2,7 @@
 
 #include "internal/validation.hpp"
 
-namespace mimir
+namespace mimir::metrics
 {
 
 VkQueryPool createQueryPool(VkDevice device, uint32_t query_count)
@@ -24,7 +24,7 @@ VkQueryPool createQueryPool(VkDevice device, uint32_t query_count)
     return pool;
 }
 
-MetricsCollector MetricsCollector::make(VkDevice device, uint32_t query_count, float period, size_t storage_size)
+GraphicsMonitor GraphicsMonitor::make(VkDevice device, uint32_t query_count, float period, size_t storage_size)
 {
     return {
         .query_pool          = createQueryPool(device, query_count),
@@ -38,7 +38,7 @@ MetricsCollector MetricsCollector::make(VkDevice device, uint32_t query_count, f
     };
 }
 
-double MetricsCollector::getRenderTimeResults(VkDevice device, uint32_t cmd_idx)
+double GraphicsMonitor::getRenderTimeResults(VkDevice device, uint32_t cmd_idx)
 {
     uint64_t buffer[2];
     validation::checkVulkan(vkGetQueryPoolResults(device, query_pool,
@@ -51,7 +51,7 @@ double MetricsCollector::getRenderTimeResults(VkDevice device, uint32_t cmd_idx)
     return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
 }
 
-float MetricsCollector::getFramerate()
+float GraphicsMonitor::getFramerate()
 {
     auto frame_sample_size = std::min(frame_times.size(), total_frame_count);
     float total_frame_time = 0;
@@ -59,14 +59,14 @@ float MetricsCollector::getFramerate()
     return frame_times.size() / total_frame_time;
 }
 
-void MetricsCollector::startFrameWatch()
+void GraphicsMonitor::startFrameWatch()
 {
     // If a frame has already been measured, use the previous end point as start for the next
     // Otherwise, use current time as start
     frame_start = (frame_end == TimePoint{})? std::chrono::high_resolution_clock::now() : frame_end;
 }
 
-float MetricsCollector::stopFrameWatch()
+float GraphicsMonitor::stopFrameWatch()
 {
     frame_end = std::chrono::high_resolution_clock::now();
     auto frame_time = std::chrono::duration<float, std::chrono::seconds::period>(frame_end - frame_start).count();
@@ -77,18 +77,46 @@ float MetricsCollector::stopFrameWatch()
     return frame_time;
 }
 
-void MetricsCollector::startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
+void GraphicsMonitor::startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
 }
 
-void MetricsCollector::stopRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
+void GraphicsMonitor::stopRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, frame_idx * 2 + 1);
     // if (render_timeline > MAX_FRAMES_IN_FLIGHT)
     // {
     //     total_pipeline_time += getRenderTimeResults(frame_idx);
     // }
+}
+
+ComputeMonitor ComputeMonitor::make(cudaStream_t monitored_stream)
+{
+    ComputeMonitor monitor{
+        .stream             = monitored_stream,
+        .total_compute_time = 0,
+        .start              = nullptr,
+        .stop               = nullptr,
+    };
+    cudaEventCreate(&monitor.start);
+    cudaEventCreate(&monitor.stop);
+    return monitor;
+}
+
+void ComputeMonitor::startWatch()
+{
+    cudaEventRecord(start, stream);
+}
+
+float ComputeMonitor::stopWatch()
+{
+    cudaEventRecord(stop, stream);
+    cudaEventSynchronize(stop);
+    float timems = 0;
+    cudaEventElapsedTime(&timems, start, stop);
+    total_compute_time += timems / 1000.f;
+    return timems;
 }
 
 } // namespace mimir

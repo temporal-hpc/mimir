@@ -14,7 +14,6 @@
 #include <mimir/engine/interop.hpp>
 #include <mimir/engine/interop_view.hpp>
 #include <mimir/engine/metrics.hpp>
-#include <mimir/engine/performance_monitor.hpp>
 #include <mimir/engine/pipeline.hpp>
 #include <mimir/engine/swapchain.hpp>
 #include <mimir/engine/window.hpp>
@@ -132,8 +131,8 @@ struct MimirEngine
     } deletors;
 
     // Benchmarking
-    PerformanceMonitor perf;
-    MetricsCollector metrics;
+    metrics::GraphicsMonitor graphics_monitor;
+    metrics::ComputeMonitor compute_monitor;
 
     static MimirEngine make(ViewerOptions opts);
     static MimirEngine make(int width, int height);
@@ -159,7 +158,7 @@ struct MimirEngine
     void exit();
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
-    float getTotalTime() { return metrics.total_graphics_time; }
+    float getTotalTime() { return graphics_monitor.total_graphics_time; }
 
     void updateLinearTextures();
     void listExtensions();

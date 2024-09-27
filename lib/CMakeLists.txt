@@ -9,7 +9,6 @@ target_sources(mimir PRIVATE
     src/gui.cpp
     src/interop.cpp
     src/metrics.cpp
-    src/performance_monitor.cpp
     src/pipeline.cpp
     src/resources.cpp
     src/shader.cpp
@@ -32,7 +31,6 @@ target_sources(mimir PUBLIC
         include/mimir/engine/interop.hpp
         include/mimir/engine/interop_view.hpp
         include/mimir/engine/metrics.hpp
-        include/mimir/engine/performance_monitor.hpp
         include/mimir/engine/pipeline.hpp
         include/mimir/engine/shader_types.hpp
         include/mimir/engine/swapchain.hpp
