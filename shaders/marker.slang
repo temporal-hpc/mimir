@@ -71,7 +71,7 @@ void geometryMain<M: IMarker>(point VertexOutput input[1],
     output.size = input[0].size;
     output.ele_size = input[0].size;
 
-    M marker;
+    M marker = {};
     MarkerOffsets offsets = marker.getVertexOffsets(view_proj, output.ele_size, scene.resolution, scene.extent);
     float4 dx = offsets.dx;
     float4 dy = offsets.dy;
@@ -101,7 +101,7 @@ FragmentOutput fragmentMain<S: IShape2D>(GeometryOutput input)
     float2 rot = input.rotation;
     p = float2(rot.x * p.x - rot.y * p.y, rot.y * p.x + rot.x * p.y);
 
-    S shape;
+    S shape = {};
     float distance = shape.apply(p * input.size, input.ele_size);
 
     Filled aa;

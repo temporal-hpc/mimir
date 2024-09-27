@@ -9,16 +9,16 @@ FetchContent_Declare(vma
 )
 
 # Slang shader lib
-set(SLANG_VERSION 2024.1.27)
+set(SLANG_VERSION 2024.1.34)
 FetchContent_Declare(
     slang
     URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
 )
 FetchContent_GetProperties(slang)
 if(NOT slang_POPULATED)
-    # Fetch the content using previously declared details
     FetchContent_Populate(slang)
 
+    # Add imported target containing the precompiled shared library
     add_library(slang UNKNOWN IMPORTED)
     set_target_properties(slang PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES ${slang_SOURCE_DIR}/include
@@ -79,12 +79,12 @@ FetchContent_Declare(spdlog
 )
 
 # Download and generate the targets provided by the above contents
-FetchContent_MakeAvailable(vma slang glfw glm fmt spdlog)
+FetchContent_MakeAvailable(vma glfw glm fmt spdlog)
 
 # Imgui Graphical interface lib
 FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        277ae93c41314ba5f4c7444f37c4319cdf07e8cf # v1.90.4
+    GIT_TAG        a9f72ab6818c3e55544378aa44c7659de7e5510f # v1.91.2
     GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )
