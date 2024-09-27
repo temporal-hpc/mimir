@@ -75,7 +75,6 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .running             = false,
         .kernel_working      = false,
         .rendering_thread    = {},
-        .last_time           = {},
         .render_timeline     = 0,
         .target_frame_time   = 0,
         .uniform_buffers     = {},
@@ -894,15 +893,6 @@ void MimirEngine::renderFrame()
     auto fence = frame_sync.frame_fence;
     validation::checkVulkan(vkWaitForFences(device, 1, &fence, VK_TRUE, frame_timeout));
     validation::checkVulkan(vkResetFences(device, 1, &fence));
-
-    static auto start_time = std::chrono::high_resolution_clock::now();
-    auto current_time = std::chrono::high_resolution_clock::now();
-    if (render_timeline == 0)
-    {
-        last_time = start_time;
-    }
-    float frame_time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - last_time).count();
-
     //waitTimelineHost();
 
     // Acquire image from swap chain, signaling to the image_ready semaphore
@@ -926,10 +916,7 @@ void MimirEngine::renderFrame()
         vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
     }
     images_inflight[image_idx] = frame.render_fence;
-    if (render_timeline > MAX_FRAMES_IN_FLIGHT)
-    {
-        total_pipeline_time += getRenderTimeResults(frame_idx);
-    }*/
+    */
 
     // Retrieve a command buffer and start recording to it
     auto cmd = command_buffers[frame_idx];
@@ -1035,9 +1022,6 @@ void MimirEngine::renderFrame()
 
     // Limit frame if it was configured
     if (options.present.enable_fps_limit) frameStall(target_frame_time);
-
-    metrics.advanceFrame(frame_time);
-    last_time = current_time;
 
     /*if (options.report_period > 0 && frame_time > options.report_period)
     {

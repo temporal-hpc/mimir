@@ -3,7 +3,6 @@
 #include <vulkan/vulkan.h>
 #include <cuda_runtime_api.h>
 
-#include <chrono> // std::chrono
 #include <functional> // std::function
 #include <thread> // std::thread
 #include <vector> // std::vector
@@ -115,7 +114,6 @@ struct MimirEngine
     bool running;
     bool kernel_working;
     std::thread rendering_thread;
-    std::chrono::time_point<std::chrono::high_resolution_clock> last_time;
 
     // Cuda interop data
     uint64_t render_timeline;

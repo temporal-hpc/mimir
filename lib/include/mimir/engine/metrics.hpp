@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <chrono> // std::chrono
 #include <vector> // std::vector
 
 namespace mimir
@@ -16,13 +17,23 @@ struct MetricsCollector
     size_t total_frame_count;
     float timestamp_period;
 
+    using TimePoint = std::chrono::time_point<std::chrono::high_resolution_clock>;
+    TimePoint frame_start;
+    TimePoint frame_end;
+
     static MetricsCollector make(VkDevice device, uint32_t query_count, float period, size_t storage_size);
-    void advanceFrame(float frame_time);
     double getRenderTimeResults(VkDevice device, uint32_t cmd_idx);
     float getFramerate();
+
+    void startFrameWatch();
+    float stopFrameWatch();
 
     void startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx);
     void stopRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx);
 };
+
+static_assert(std::is_default_constructible_v<MetricsCollector>);
+//static_assert(std::is_nothrow_default_constructible_v<MetricsCollector>);
+//static_assert(std::is_trivially_default_constructible_v<MetricsCollector>);
 
 } // namespace mimir

@@ -33,14 +33,9 @@ MetricsCollector MetricsCollector::make(VkDevice device, uint32_t query_count, f
         .total_graphics_time = 0.f,
         .total_frame_count   = 0,
         .timestamp_period    = period,
+        .frame_start         = {},
+        .frame_end           = {}
     };
-}
-
-void MetricsCollector::advanceFrame(float frame_time)
-{
-    total_graphics_time += frame_time;
-    frame_times[total_frame_count % frame_times.size()] = frame_time;
-    total_frame_count++;
 }
 
 double MetricsCollector::getRenderTimeResults(VkDevice device, uint32_t cmd_idx)
@@ -64,6 +59,24 @@ float MetricsCollector::getFramerate()
     return frame_times.size() / total_frame_time;
 }
 
+void MetricsCollector::startFrameWatch()
+{
+    // If a frame has already been measured, use the previous end point as start for the next
+    // Otherwise, use current time as start
+    frame_start = (frame_end == TimePoint{})? std::chrono::high_resolution_clock::now() : frame_end;
+}
+
+float MetricsCollector::stopFrameWatch()
+{
+    frame_end = std::chrono::high_resolution_clock::now();
+    auto frame_time = std::chrono::duration<float, std::chrono::seconds::period>(frame_end - frame_start).count();
+
+    total_graphics_time += frame_time;
+    frame_times[total_frame_count % frame_times.size()] = frame_time;
+    total_frame_count++;
+    return frame_time;
+}
+
 void MetricsCollector::startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
@@ -72,6 +85,10 @@ void MetricsCollector::startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
 void MetricsCollector::stopRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, frame_idx * 2 + 1);
+    // if (render_timeline > MAX_FRAMES_IN_FLIGHT)
+    // {
+    //     total_pipeline_time += getRenderTimeResults(frame_idx);
+    // }
 }
 
 } // namespace mimir
