@@ -64,4 +64,14 @@ float MetricsCollector::getFramerate()
     return frame_times.size() / total_frame_time;
 }
 
+void MetricsCollector::startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
+{
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
+}
+
+void MetricsCollector::stopRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
+{
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, frame_idx * 2 + 1);
+}
+
 } // namespace mimir

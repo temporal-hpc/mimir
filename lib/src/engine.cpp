@@ -941,8 +941,7 @@ void MimirEngine::renderFrame()
         .pInheritanceInfo = nullptr,
     };
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &cmd_info));
-
-    //vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
+    //metrics.startRenderWatch(cmd, frame_idx);
 
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
@@ -964,11 +963,9 @@ void MimirEngine::renderFrame()
 
     drawElements(frame_idx);
     gui::render(cmd);
-
-    // End of render pass and timestamp query
     vkCmdEndRenderPass(cmd);
-    //vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, frame_idx * 2 + 1);
 
+    //metrics.stopRenderWatch(cmd, frame_idx);
     // Finalize command buffer recording, so it can be executed
     validation::checkVulkan(vkEndCommandBuffer(cmd));
 

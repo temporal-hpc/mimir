@@ -20,6 +20,9 @@ struct MetricsCollector
     void advanceFrame(float frame_time);
     double getRenderTimeResults(VkDevice device, uint32_t cmd_idx);
     float getFramerate();
+
+    void startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx);
+    void stopRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx);
 };
 
 } // namespace mimir
