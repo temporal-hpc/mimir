@@ -63,7 +63,7 @@ target_link_libraries(mimir
 )
 
 install(
-    TARGETS mimir glm glm-header-only glfw VulkanMemoryAllocator slang fmt spdlog imgui-app ImGuiFileDialog
+    TARGETS mimir glm glm-header-only glfw VulkanMemoryAllocator fmt spdlog imgui-app ImGuiFileDialog
     EXPORT  MimirTargets
     LIBRARY DESTINATION       lib
     ARCHIVE DESTINATION       lib

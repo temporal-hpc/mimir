@@ -9,19 +9,37 @@ FetchContent_Declare(vma
 )
 
 # Slang shader lib
-set(SLANG_ENABLE_GFX        OFF)
-set(SLANG_ENABLE_SLANGD     OFF)
-set(SLANG_ENABLE_SLANGRT    OFF)
-set(SLANG_ENABLE_TESTS      OFF)
-set(SLANG_ENABLE_EXAMPLES   OFF)
-set(SLANG_ENABLE_REPLAYER   OFF)
-set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
-FetchContent_Declare(slang
-    GIT_REPOSITORY https://github.com/shader-slang/slang.git
-    GIT_TAG        bd01bd3f4b8eecbfb924b8eb4090694e44e8166c # v2024.1.26
-    GIT_SHALLOW    ON
-    FIND_PACKAGE_ARGS
+set(SLANG_VERSION 2024.1.27)
+FetchContent_Declare(
+    slang
+    URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
 )
+FetchContent_GetProperties(slang)
+if(NOT slang_POPULATED)
+    # Fetch the content using previously declared details
+    FetchContent_Populate(slang)
+
+    add_library(slang UNKNOWN IMPORTED)
+    set_target_properties(slang PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES ${slang_SOURCE_DIR}/include
+        IMPORTED_LOCATION ${slang_SOURCE_DIR}/lib/libslang.so
+    )
+endif()
+
+# set(SLANG_ENABLE_GFX        OFF)
+# set(SLANG_ENABLE_SLANGD     OFF)
+# set(SLANG_ENABLE_SLANGRT    OFF)
+# set(SLANG_ENABLE_TESTS      OFF)
+# set(SLANG_ENABLE_EXAMPLES   OFF)
+# set(SLANG_ENABLE_REPLAYER   OFF)
+# set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
+# FetchContent_Declare(slang
+#     GIT_REPOSITORY https://github.com/shader-slang/slang.git
+#     GIT_TAG        bd01bd3f4b8eecbfb924b8eb4090694e44e8166c # v2024.1.26
+#     GIT_SHALLOW    ON
+#     FIND_PACKAGE_ARGS
+# )
+# FetchContent_MakeAvailable(slang)
 
 # GLFW windowing lib
 set(GLFW_BUILD_EXAMPLES OFF)
