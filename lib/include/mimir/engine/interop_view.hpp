@@ -31,7 +31,7 @@ struct ViewOptions
     // Default primitive size if no per-instance size is set
     float default_size = 10.f;
     // Index of instance inside view
-    int instance_index = 0;
+    int scenario_index = 0;
     // For moving through the different slices in a 3D texture
     float depth = 0.1f;
     // External alternate shaders for use in this view
@@ -93,13 +93,14 @@ using AttributeDict = std::map<AttributeType, AttributeParams>;
 struct ViewParams
 {
     size_t element_count = 0;
-    int instance_count   = 1;
     uint3 extent = {1, 1, 1};
     DomainType data_domain;
     ViewType view_type;
     ViewOptions options;
     AttributeDict attributes;
     AttributeParams indexing;
+    std::vector<uint32_t> offsets;
+    std::vector<uint32_t> sizes;
 };
 
 // Container for all vertex buffer objects associated to a Mimir view object.

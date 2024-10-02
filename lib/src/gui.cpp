@@ -87,9 +87,9 @@ void addViewObjectGui(std::shared_ptr<InteropView> view_ptr, int uid)
         ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
         ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);
 
-        int min_instance = 0;
-        int max_instance = params.instance_count - 1;
-        ImGui::SliderScalar("Instance index", ImGuiDataType_S32, &params.options.instance_index, &min_instance, &max_instance);
+        int min_scenario = 0;
+        int max_scenario = params.offsets.size() - 1;
+        ImGui::SliderScalar("scenario", ImGuiDataType_S32, &params.options.scenario_index, &min_scenario, &max_scenario);
 
         if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
         {

@@ -1075,8 +1075,17 @@ void MimirEngine::drawElements(uint32_t image_idx)
         }
         else // Perform regular draw with bound vertex buffers
         {
-            auto instance_count = 1;
-            auto first_vertex = vertex_count * view->params.options.instance_index;
+            // Instanced rendering is not supported currently
+            uint32_t instance_count = 1;
+
+            uint32_t scenario_count = view->params.offsets.size();
+            uint32_t scenario_idx = view->params.options.scenario_index;
+            uint32_t first_vertex = 0;
+            if (scenario_idx < scenario_count)
+            {
+                vertex_count = view->params.sizes[scenario_idx];
+                first_vertex = view->params.offsets[scenario_idx];
+            }
             vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, 0);
         }
 
