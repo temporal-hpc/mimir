@@ -42,7 +42,7 @@ void geometryMain2D(line VertexData input[2], inout TriangleStream<BoxData> stre
     float4 p0 = input[0].position;
     float4 p1 = input[1].position;
     output.pos = p0;
-    output.color = { p0.x, p1.y, 1.f, 1.f };
+    output.color = { p0.x / (p0.x + p1.x), p0.y / (p1.y + p0.y), 1.f, 1.f };
 
     float2 vertices[4] = { { p0.x, p1.y }, p1.xy, p0.xy, { p1.x, p0.y } };
     // float2 texcoords[4] = { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } };

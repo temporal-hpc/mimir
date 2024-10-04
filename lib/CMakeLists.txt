@@ -24,6 +24,7 @@ target_sources(mimir PUBLIC
     BASE_DIRS include
     FILES
         include/mimir/mimir.hpp
+        include/mimir/engine/engine.hpp
         include/mimir/engine/camera.hpp
         include/mimir/engine/deletion_queue.hpp
         include/mimir/engine/device.hpp

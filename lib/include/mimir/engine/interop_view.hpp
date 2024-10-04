@@ -41,28 +41,6 @@ struct ViewOptions
     int custom_val = 0;
 };
 
-struct AlignedBuffer
-{
-    VkDeviceSize min_alignment = 0;
-    VkDeviceSize total_size    = 0;
-
-    constexpr uint32_t getAlignedSize(size_t sz)
-    {
-        // Calculate required alignment based on minimum device offset alignment
-        return min_alignment > 0? (sz + min_alignment - 1) & ~(min_alignment - 1) : sz;
-    }
-};
-
-enum class StructureType
-{
-    Grid,
-};
-
-struct StructuredDomainParams
-{
-    uint3 size    = {0, 0, 0};
-};
-
 struct Allocation
 {
     // Allocation memory size in bytes
@@ -84,8 +62,6 @@ struct AttributeParams
     DataFormat format = {};
     // Offset to start of memory handle
     VkDeviceSize offset = 0;
-    // TODO: Set default value per attribute
-    float4 default_value;
 };
 
 using AttributeDict = std::map<AttributeType, AttributeParams>;

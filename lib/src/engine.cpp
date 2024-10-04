@@ -274,11 +274,10 @@ void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, 
     vkUnmapMemory(dev, mem);
 }
 
-AttributeParams MimirEngine::makeStructuredDomain(StructuredDomainParams params)
+AttributeParams MimirEngine::makeStructuredDomain(uint3 size)
 {
-    auto sz = params.size;
-    assert(sz.x > 0 || sz.y > 0 || sz.z > 0);
-    auto memsize = sizeof(float3) * sz.x * sz.y * sz.z;
+    assert(size.x > 0 || size.y > 0 || size.z > 0);
+    auto memsize = sizeof(float3) * size.x * size.y * size.z;
 
     // Create test buffer for querying the desired memory properties
     auto domain_buffer = createBuffer(device, memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -289,7 +288,7 @@ AttributeParams MimirEngine::makeStructuredDomain(StructuredDomainParams params)
     auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto vk_memory = allocateMemory(device, available, memreq, flags);
     vkBindBufferMemory(device, domain_buffer, vk_memory, 0);
-    initImplicitCoords(device, vk_memory, memreq.size, params.size);
+    initImplicitCoords(device, vk_memory, memreq.size, size);
 
     // Add deletors to queue for later cleanup
     deletors.views.add([=,this]{
