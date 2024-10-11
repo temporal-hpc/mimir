@@ -90,16 +90,14 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
     VkDebugUtilsMessengerEXT *p_debug_messenger)
 {
     // Lookup address of debug messenger extension function
-    auto func = (PFN_vkCreateDebugUtilsMessengerEXT)
+    auto vkCreateDebugUtilsMessenger = (PFN_vkCreateDebugUtilsMessengerEXT)
         vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-    if (func != nullptr)
-    {
-        return func(instance, p_create_info, p_allocator, p_debug_messenger);
-    }
-    else // Function could not be loaded
+    if (vkCreateDebugUtilsMessenger == nullptr)
     {
         return VK_ERROR_EXTENSION_NOT_PRESENT;
+
     }
+    return vkCreateDebugUtilsMessenger(instance, p_create_info, p_allocator, p_debug_messenger);
 }
 
 void DestroyDebugUtilsMessengerEXT(VkInstance instance,
@@ -143,7 +141,7 @@ bool checkValidationLayerSupport()
     std::vector<VkLayerProperties> available_layers(layer_count);
     vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
 
-    // Check if all of the validation layers are available
+    // Check if all of the enumerated validation layers are available
     for (const auto layerName : layers)
     {
         bool layer_found = false;
@@ -155,10 +153,7 @@ bool checkValidationLayerSupport()
                 break;
             }
         }
-        if (!layer_found)
-        {
-            return false;
-        }
+        if (!layer_found) { return false; }
     }
     return true;
 }

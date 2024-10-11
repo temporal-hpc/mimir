@@ -15,37 +15,83 @@ struct SwapchainSupportDetails
     std::vector<VkPresentModeKHR> present_modes;
 };
 
+PhysicalDevice PhysicalDevice::make(VkPhysicalDevice gpu)
+{
+    PhysicalDevice dev{
+        .handle = gpu,
+        .id_props{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES,
+            .pNext = nullptr,
+            .deviceUUID = {},
+            .driverUUID = {},
+            .deviceLUID = {},
+            .deviceNodeMask  = {},
+            .deviceLUIDValid = {},
+        },
+        .general{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &dev.id_props,
+            .properties = {},
+        },
+        .budget{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT,
+            .pNext = nullptr,
+            .heapBudget = {},
+            .heapUsage  = {},
+        },
+        .memory{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2,
+            .pNext = &dev.budget,
+            .memoryProperties = {},
+        },
+        .features{},
+    };
+
+    vkGetPhysicalDeviceProperties2(gpu, &dev.general);
+    vkGetPhysicalDeviceMemoryProperties2(gpu, &dev.memory);
+    vkGetPhysicalDeviceFeatures(gpu, &dev.features);
+    return dev;
+}
+
+DeviceMemoryStats PhysicalDevice::getMemoryStats()
+{
+    DeviceMemoryStats stats{ .heap_count = 0, .usage  = 0, .budget = 0 };
+    if (handle == nullptr) { return stats; }
+
+    vkGetPhysicalDeviceMemoryProperties2(handle, &memory);
+    auto props = memory.memoryProperties;
+    stats.heap_count = props.memoryHeapCount;
+
+    for (uint32_t i = 0; i < stats.heap_count; ++i)
+    {
+        auto heap_flags = props.memoryHeaps[i].flags;
+        if (heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+        {
+            stats.usage  += budget.heapUsage[i];
+            stats.budget += budget.heapBudget[i];
+        }
+    }
+    return stats;
+}
+
 std::vector<PhysicalDevice> getDevices(VkInstance instance)
 {
     // Get how many devices are available
     uint32_t device_count = 0;
     validation::checkVulkan(vkEnumeratePhysicalDevices(instance, &device_count, nullptr));
 
-    // Get the handle for the vkGetPhysicalDeviceProperties2 function
-    // This is needed for finding an interop-capable device
-    auto fpGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)
-        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"
-    );
-
     // Return early if no devices were found
     std::vector<PhysicalDevice> devices;
-    if (device_count < 1 || fpGetPhysicalDeviceProperties2 == nullptr) { return devices; }
+    if (device_count < 1) { return devices; }
     devices.reserve(device_count);
 
+    // Create physical device structures
     std::vector<VkPhysicalDevice> vk_devices(device_count);
     validation::checkVulkan(vkEnumeratePhysicalDevices(instance, &device_count, vk_devices.data()));
-
     for (auto vk_dev : vk_devices)
     {
-        PhysicalDevice device;
-        device.handle = vk_dev;
-        fpGetPhysicalDeviceProperties2(vk_dev, &device.general);
-        vkGetPhysicalDeviceMemoryProperties2(vk_dev, &device.memory);
-        vkGetPhysicalDeviceFeatures(vk_dev, &device.features);
-
-        devices.push_back(device);
+        devices.push_back(PhysicalDevice::make(vk_dev));
     }
-
     return devices;
 }
 
@@ -181,7 +227,7 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
         printf("* ID: %u\n  Name: %s\n", props.deviceID, props.deviceName);
     }
 
-    PhysicalDevice chosen_device;
+    PhysicalDevice chosen_device{};
     int curr_device = 0, prohibited_count = 0;
     while (curr_device < cuda_dev_count)
     {
@@ -214,7 +260,7 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
     return chosen_device;
 }
 
-VkDevice createLogicalDevice(VkPhysicalDevice ph_dev, std::span<uint32_t> queue_families)
+VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_families)
 {
     std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
     auto queue_priority = 1.f;
@@ -270,29 +316,22 @@ VkDevice createLogicalDevice(VkPhysicalDevice ph_dev, std::span<uint32_t> queue_
     }
 
     VkDevice device = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateDevice(ph_dev, &create_info, nullptr, &device));
+    validation::checkVulkan(vkCreateDevice(gpu, &create_info, nullptr, &device));
     return device;
 }
 
-DeviceMemoryStats PhysicalDevice::getMemoryStats()
+void listExtensions()
 {
-    DeviceMemoryStats stats{};
-    if (handle == nullptr) { return stats; }
+    uint32_t ext_count = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
+    std::vector<VkExtensionProperties> available(ext_count);
+    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, available.data());
 
-    vkGetPhysicalDeviceMemoryProperties2(handle, &memory);
-    auto props = memory.memoryProperties;
-    stats.heap_count = props.memoryHeapCount;
-
-    for (uint32_t i = 0; i < stats.heap_count; ++i)
+    printf("Available extensions:\n");
+    for (const auto& extension : available)
     {
-        auto heap_flags = props.memoryHeaps[i].flags;
-        if (heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
-        {
-            stats.usage  += budget.heapUsage[i];
-            stats.budget += budget.heapBudget[i];
-        }
+        printf("  %s\n", extension.extensionName);
     }
-    return stats;
 }
 
 } // namespace mimir

@@ -46,6 +46,20 @@ Camera defaultCamera(int width, int height)
     return camera;
 }
 
+VkFormat findDepthFormat(VkPhysicalDevice gpu)
+{
+    std::vector<VkFormat> candidate_formats{
+        VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D24_UNORM_S8_UINT
+    };
+    return findSupportedImageFormat(gpu,
+        candidate_formats,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+    );
+}
+
 MimirEngine MimirEngine::make(ViewerOptions opts)
 {
     MimirEngine engine{
@@ -118,13 +132,12 @@ void MimirEngine::exit()
     {
         rendering_thread.join();
     }
-    vkDeviceWaitIdle(device);
-
     if (interop.cuda_stream != nullptr)
     {
         validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
     }
 
+    vkDeviceWaitIdle(device);
     cleanupGraphics();
     gui::shutdown();
     window_context.exit();
@@ -464,20 +477,6 @@ VkDescriptorSetLayoutBinding descriptorLayoutBinding(
     };
 }
 
-void MimirEngine::listExtensions()
-{
-    uint32_t ext_count = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
-    std::vector<VkExtensionProperties> available(ext_count);
-    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, available.data());
-
-    printf("Available extensions:\n");
-    for (const auto& extension : available)
-    {
-        printf("  %s\n", extension.extensionName);
-    }
-}
-
 void MimirEngine::initVulkan()
 {
     createInstance();
@@ -723,7 +722,7 @@ void MimirEngine::initGraphics()
 
     ImageParams params{
         .type   = VK_IMAGE_TYPE_2D,
-        .format = findDepthFormat(),
+        .format = findDepthFormat(physical_device.handle),
         .extent = { swapchain.extent.width, swapchain.extent.height, 1 },
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage  = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
@@ -808,46 +807,7 @@ void MimirEngine::updateDescriptorSets()
         write_buf.dstBinding  = 2;
         write_buf.pBufferInfo = &view_info;
         updates.push_back(write_buf);
-/*
-        for (const auto& view : views)
-        {
-            for (const auto &[attr, memory] : view->params.attributes)
-            {
-                // TODO: Use increasing binding indices for additional texture memory
-                if (memory.params.resource_type == ResourceType::Texture ||
-                    memory.params.resource_type == ResourceType::LinearTexture)
-                {
-                    VkDescriptorImageInfo img_info{
-                        .sampler     = memory.vk_sampler,
-                        .imageView   = memory.vk_view,
-                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    };
-                    VkWriteDescriptorSet write_img{
-                        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        .pNext            = nullptr,
-                        .dstSet           = descriptor_sets[i],
-                        .dstBinding       = 3,
-                        .dstArrayElement  = 0,
-                        .descriptorCount  = 1,
-                        .descriptorType   = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                        .pImageInfo       = &img_info,
-                        .pBufferInfo      = nullptr,
-                        .pTexelBufferView = nullptr,
-                    };
-                    updates.push_back(write_img);
 
-                    VkDescriptorImageInfo samp_info{
-                        .sampler     = memory.vk_sampler,
-                        .imageView   = memory.vk_view,
-                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    };
-                    write_img.dstBinding     = 4;
-                    write_img.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
-                    write_img.pImageInfo     = &samp_info;
-                    updates.push_back(write_img);
-                }
-            }
-        }*/
         vkUpdateDescriptorSets(device, updates.size(), updates.data(), 0, nullptr);
     }
 }
@@ -1075,20 +1035,6 @@ void MimirEngine::drawElements(uint32_t image_idx)
     }
 }
 
-VkFormat MimirEngine::findDepthFormat()
-{
-    std::vector<VkFormat> candidate_formats{
-        VK_FORMAT_D32_SFLOAT,
-        VK_FORMAT_D32_SFLOAT_S8_UINT,
-        VK_FORMAT_D24_UNORM_S8_UINT
-    };
-    return findSupportedImageFormat(physical_device.handle,
-        candidate_formats,
-        VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
-    );
-}
-
 VkRenderPass MimirEngine::createRenderPass()
 {
     VkAttachmentDescription color{
@@ -1104,7 +1050,7 @@ VkRenderPass MimirEngine::createRenderPass()
     };
     VkAttachmentDescription depth{
         .flags          = 0, // Can be VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT
-        .format         = findDepthFormat(),
+        .format         = findDepthFormat(physical_device.handle),
         .samples        = VK_SAMPLE_COUNT_1_BIT,
         .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,

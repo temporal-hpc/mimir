@@ -79,7 +79,7 @@ struct MimirEngine
     ViewerOptions options;
 
     VkInstance instance;
-    PhysicalDevice physical_device{};
+    PhysicalDevice physical_device;
     VulkanQueue graphics, present;
     VkDevice device;
     VkCommandPool command_pool;
@@ -159,12 +159,12 @@ struct MimirEngine
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 
-    void listExtensions();
     void initVulkan();
     void prepare();
     void renderFrame();
     void drawElements(uint32_t image_idx);
     void waitKernelStart();
+    void signalKernelFinish();
     void waitTimelineHost();
 
     // Vulkan core-related functions
@@ -181,16 +181,10 @@ struct MimirEngine
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);
 
-    // Depth buffering
-    VkFormat findDepthFormat();
-
-    void signalKernelFinish();
-
     Allocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
     VkBuffer createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage);
 
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
-
     void generateMipmaps(VkImage image, VkFormat img_format,
         int img_width, int img_height, int mip_levels
     );

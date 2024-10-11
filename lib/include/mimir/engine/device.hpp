@@ -10,9 +10,9 @@ namespace mimir
 
 struct DeviceMemoryStats
 {
-    uint32_t heap_count = 0;
-    VkDeviceSize usage  = 0;
-    VkDeviceSize budget = 0;
+    uint32_t heap_count;
+    VkDeviceSize usage;
+    VkDeviceSize budget;
 };
 
 // Aggregate structure containing a Vulkan physical device handle and its associated properties
@@ -20,34 +20,14 @@ struct DeviceMemoryStats
 // retrieval functions, filling the empty values below with device information
 struct PhysicalDevice
 {
-    VkPhysicalDevice handle = VK_NULL_HANDLE;
-    VkPhysicalDeviceIDProperties id_props{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES,
-        .pNext = nullptr,
-        .deviceUUID = {},
-        .driverUUID = {},
-        .deviceLUID = {},
-        .deviceNodeMask  = {},
-        .deviceLUIDValid = {},
-    };
-    VkPhysicalDeviceProperties2 general{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
-        .pNext = &id_props,
-        .properties = {},
-    };
-    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT,
-        .pNext = nullptr,
-        .heapBudget = {},
-        .heapUsage  = {},
-    };
-    VkPhysicalDeviceMemoryProperties2 memory{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2,
-        .pNext = &budget,
-        .memoryProperties = {},
-    };
-    VkPhysicalDeviceFeatures features{};
+    VkPhysicalDevice handle;
+    VkPhysicalDeviceIDProperties id_props;
+    VkPhysicalDeviceProperties2 general;
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget;
+    VkPhysicalDeviceMemoryProperties2 memory;
+    VkPhysicalDeviceFeatures features;
 
+    static PhysicalDevice make(VkPhysicalDevice device);
     DeviceMemoryStats getMemoryStats();
     VkDeviceSize getUboOffsetAlignment()
     {
@@ -56,7 +36,7 @@ struct PhysicalDevice
 };
 
 PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface);
-VkDevice createLogicalDevice(VkPhysicalDevice ph_dev, std::span<uint32_t> queue_families);
+VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_families);
 
 bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
     uint32_t& graphics_family, uint32_t& present_family
@@ -67,6 +47,6 @@ std::vector<const char*> getRequiredDeviceExtensions();
 
 static_assert(std::is_default_constructible_v<PhysicalDevice>);
 static_assert(std::is_nothrow_default_constructible_v<PhysicalDevice>);
-//static_assert(std::is_trivially_default_constructible_v<PhysicalDevice>);
+static_assert(std::is_trivially_default_constructible_v<PhysicalDevice>);
 
 } // namespace mimir
