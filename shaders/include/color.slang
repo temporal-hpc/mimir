@@ -77,7 +77,6 @@ typedef ColorTemplateLarge<double,4> ColorDouble4;
 struct ColorFloat1 : IColor
 {
     float input : COLOR;
-    float4 default_color;
     float4 getColor()
     {
         float c = input;

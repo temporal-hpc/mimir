@@ -251,23 +251,15 @@ int main(int argc, char *argv[])
         params.options.default_color = {0,0,1,1};
         engine.createView(params);
 
-        /*
-        MemoryParams m2;
-        m2.layout         = DataLayout::Layout2D;
-        m2.element_count  = {(uint)program.extent.x, (uint)program.extent.y, 1};
-        m2.component_type = ComponentType::Float;
-        m2.channel_count  = 1;
-        m2.resource_type  = ResourceType::LinearTexture;
-        auto image = engine.createBuffer((void**)&program.d_distances, m2);
-
-        ViewParamsOld p2;
-        p2.element_count = program.extent.x * program.extent.y;
-        p2.data_domain   = DomainType::Domain2D;
-        p2.domain_type   = DomainType::Structured;
-        p2.view_type     = ViewType::Image;
-        p2.attributes[AttributeType::Color] = *image;
-        auto v2 = engine.createView(p2);
-        */
+        params.element_count = program.extent.x * program.extent.y;
+        params.view_type     = ViewType::Voxels;
+        params.attributes[AttributeType::Position] = engine.makeStructuredGrid(params.extent, {0.f,0.f,0.4999f});
+        params.attributes[AttributeType::Color] = {
+            .allocation = field,
+            .format     = { .type = DataType::float32, .components = 1 },
+        };
+        params.options.default_size = 1.f;
+        engine.createView(params);
 
         program.setInitialState();
 

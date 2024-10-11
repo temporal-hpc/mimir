@@ -137,7 +137,6 @@ void MimirEngine::prepare()
     initUniformBuffers();
     createViewPipelines();
     updateDescriptorSets();
-    updateLinearTextures();
 }
 
 void MimirEngine::displayAsync()
@@ -179,7 +178,6 @@ void MimirEngine::waitKernelStart()
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
         &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
-    updateLinearTextures();
 }
 
 void MimirEngine::updateViews()
@@ -232,49 +230,26 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     vkDeviceWaitIdle(device);
 }
 
-void MimirEngine::updateLinearTextures()
+void initGridCoords(float3 *data, uint3 size, float3 start)
 {
-    /*for (auto& view : views)
-    {
-        // TODO: Reimplement this ugly loop
-        if (view->params.view_type == ViewType::Image)
-        {
-            for (auto &[attr, memory] : view->params.attributes)
-            {
-                if (memory.params.resource_type == ResourceType::LinearTexture)
-                {
-                    dev.updateLinearTexture(memory);
-                }
-            }
-        }
-    }*/
-}
-
-void initImplicitCoords(VkDevice dev, VkDeviceMemory mem, VkDeviceSize memsize, uint3 size)
-{
-    float3 *data = nullptr;
-    vkMapMemory(dev, mem, 0, memsize, 0, (void**)&data);
     auto slice_size = size.x * size.y;
     for (uint32_t z = 0; z < size.z; ++z)
     {
-        auto rz = static_cast<float>(z) / size.z;
-        rz = 2 * rz - 1;
+        auto rz = start.z + static_cast<float>(z);
         for (uint32_t y = 0; y < size.y; ++y)
         {
-            auto ry = static_cast<float>(y) / size.y;
-            ry = 2 * ry - 1;
+            auto ry = start.y + static_cast<float>(y);
             for (uint32_t x = 0; x < size.x; ++x)
             {
-                auto rx = static_cast<float>(x) / size.x;
-                rx = 2 * rx - 1;
+                auto rx = start.x + static_cast<float>(x);
                 data[slice_size * z + size.x * y + x] = float3{rx, ry, rz};
             }
         }
     }
-    vkUnmapMemory(dev, mem);
+
 }
 
-AttributeParams MimirEngine::makeStructuredDomain(uint3 size)
+AttributeParams MimirEngine::makeStructuredGrid(uint3 size, float3 start)
 {
     assert(size.x > 0 || size.y > 0 || size.z > 0);
     auto memsize = sizeof(float3) * size.x * size.y * size.z;
@@ -288,7 +263,10 @@ AttributeParams MimirEngine::makeStructuredDomain(uint3 size)
     auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto vk_memory = allocateMemory(device, available, memreq, flags);
     vkBindBufferMemory(device, domain_buffer, vk_memory, 0);
-    initImplicitCoords(device, vk_memory, memreq.size, size);
+    float3 *data = nullptr;
+    vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
+    initGridCoords(data, size, start);
+    vkUnmapMemory(device, vk_memory);
 
     // Add deletors to queue for later cleanup
     deletors.views.add([=,this]{

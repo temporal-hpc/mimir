@@ -145,7 +145,7 @@ struct MimirEngine
     );
 
     // Allocates device memory initialized for representing a structured domain
-    AttributeParams makeStructuredDomain(uint3 size);
+    AttributeParams makeStructuredGrid(uint3 size, float3 start={0.f,0.f,0.f});
 
     // View creation
     std::shared_ptr<InteropView> createView(ViewParams params);
@@ -159,7 +159,6 @@ struct MimirEngine
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 
-    void updateLinearTextures();
     void listExtensions();
     void initVulkan();
     void prepare();

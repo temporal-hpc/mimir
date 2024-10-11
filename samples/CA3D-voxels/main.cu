@@ -67,7 +67,7 @@ int main(int argc, char **argv){
     params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain   = DomainType::Domain3D;
     params.view_type     = ViewType::Voxels;
-    params.attributes[AttributeType::Position] = engine.makeStructuredDomain({params.extent});
+    params.attributes[AttributeType::Position] = engine.makeStructuredGrid({params.extent});
     params.attributes[AttributeType::Color] = {
         .allocation = ping,
         .format     = { .type = DataType::int32, .components = 1 },
@@ -77,16 +77,6 @@ int main(int argc, char **argv){
     params.attributes[AttributeType::Color].allocation = pong;
     params.options.visible = false;
     auto v2 = engine.createView(params);
-
-    /*params.options.external_shaders = {
-        {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-        {"shaders/voxel_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
-        {"shaders/voxel_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };*/
-    /*params.options.external_shaders = {
-        {"shaders/texture_vertex3dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-        {"shaders/texture_frag3d_Float1.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };*/
 
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
@@ -157,4 +147,5 @@ int main(int argc, char **argv){
         }
     }
     printf("Finished running all steps\n");
+    engine.exit();
 }
