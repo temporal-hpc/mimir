@@ -86,11 +86,10 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .depth_view          = VK_NULL_HANDLE,
         .sync_data           = {},
         .interop             = {},
+        .render_timeline     = 0,
         .running             = false,
         .kernel_working      = false,
         .rendering_thread    = {},
-        .render_timeline     = 0,
-        .target_frame_time   = 0,
         .uniform_buffers     = {},
         .views               = {},
         .window_context      = {},
@@ -104,7 +103,7 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
     spdlog::set_pattern("[%H:%M:%S] [%l] %v");
 
     engine.options.present.max_fps = engine.options.present.mode == PresentMode::VSync? 60 : 300;
-    engine.target_frame_time = getTargetFrameTime(
+    engine.options.present.target_frame_time = getTargetFrameTime(
         engine.options.present.enable_fps_limit, engine.options.present.target_fps
     );
 
@@ -963,7 +962,10 @@ void MimirEngine::renderFrame()
     }
 
     // Limit frame if it was configured
-    if (options.present.enable_fps_limit) frameStall(target_frame_time);
+    if (options.present.enable_fps_limit)
+    {
+        frameStall(options.present.target_frame_time);
+    }
 
     /*if (options.report_period > 0 && frame_time > options.report_period)
     {

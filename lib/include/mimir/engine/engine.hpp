@@ -51,11 +51,12 @@ struct WindowOptions
 
 struct PresentOptions
 {
-    PresentMode mode      = PresentMode::Immediate;
-    bool enable_sync      = true;
-    bool enable_fps_limit = false;
-    int target_fps        = 60;
-    int max_fps           = 0;
+    PresentMode mode        = PresentMode::Immediate;
+    bool enable_sync        = true;
+    bool enable_fps_limit   = false;
+    int target_fps          = 60;
+    int max_fps             = 0;
+    float target_frame_time = 0.f;
 };
 
 struct ViewerOptions
@@ -109,14 +110,10 @@ struct MimirEngine
     std::array<SyncData, MAX_FRAMES_IN_FLIGHT> sync_data;
     interop::Barrier interop;
 
-    // CPU thread synchronization variables
+    uint64_t render_timeline;
     bool running;
     bool kernel_working;
     std::thread rendering_thread;
-
-    // Cuda interop data
-    uint64_t render_timeline;
-    long target_frame_time;
 
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<std::shared_ptr<InteropView>> views;

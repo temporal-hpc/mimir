@@ -1,4 +1,5 @@
 #include "internal/gui.hpp"
+#include "internal/framelimit.hpp"
 #include <mimir/engine/camera.hpp>
 
 #include <imgui.h>
@@ -122,7 +123,8 @@ void addViewObjectGui(std::shared_ptr<InteropView> view_ptr, int uid)
     ImGui::PopID();
 }
 
-void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropView>> views, const std::function<void(void)>& callback)
+void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropView>> views,
+    const std::function<void(void)>& callback)
 {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -146,17 +148,16 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropVie
     // Use a separate flag for choosing whether to enable the FPS limit target value
     // This avoids the unpleasant feeling of going from 0 (no FPS limit)
     // to 1 (the lowest value) in a single step
-    if (ImGui::Checkbox("Enable FPS limit", &opts.present.enable_fps_limit))
+    auto& op = opts.present;
+    ImGui::Checkbox("Enable FPS limit", &op.enable_fps_limit);
+    ImGui::BeginDisabled(!opts.present.enable_fps_limit);
+    if (ImGui::SliderInt("FPS target", &op.target_fps, 1, op.max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
     {
-        //target_frame_time = getTargetFrameTime(opts.enable_fps_limit, opts.target_fps);
+        op.target_frame_time = getTargetFrameTime(op.enable_fps_limit, op.target_fps);
     }
-    if (!opts.present.enable_fps_limit) ImGui::BeginDisabled(true);
-    if (ImGui::SliderInt("FPS target", &opts.present.target_fps, 1, opts.present.max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
-    {
-        //target_frame_time = getTargetFrameTime(opts.enable_fps_limit, opts.target_fps);
-    }
-    if (!opts.present.enable_fps_limit) ImGui::EndDisabled();
+    ImGui::EndDisabled();
 
+    // Add tabs for showing view parameters
     for (size_t i = 0; i < views.size(); ++i)
     {
         addViewObjectGui(views[i], i);
