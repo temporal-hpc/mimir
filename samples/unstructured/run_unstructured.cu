@@ -59,68 +59,56 @@ int main(int argc, char *argv[])
 
     if (argc >= 2) point_count = std::stoul(argv[1]);
     if (argc >= 3) iter_count = std::stoul(argv[2]);
-    try
+
+    // Initialize engine
+    ViewerOptions options;
+    options.window.size  = {1920,1080}; // Starting window size
+    options.present.mode = PresentMode::VSync;
+    auto engine = MimirEngine::make(options);
+
+    auto points = engine.allocLinear((void**)&d_coords, sizeof(double2) * point_count);
+    auto sizes  = engine.allocLinear((void**)&d_sizes, sizeof(double) * point_count);
+
+    ViewParams params;
+    params.element_count = point_count;
+    params.extent        = {200, 200, 1};
+    params.data_domain   = DomainType::Domain2D;
+    params.view_type     = ViewType::Markers;
+    params.options.default_size = 20.f;
+    params.attributes[AttributeType::Position] = {
+        .allocation = points,
+        .format     = { .type = DataType::float64, .components = 2 },
+    };
+    params.attributes[AttributeType::Size] = {
+        .allocation = sizes,
+        .format     = { .type = DataType::float64, .components = 1 },
+    };
+    engine.createView(params);
+
+    // Cannot make CUDA calls that use the target device memory before
+    // registering it on the engine
+    //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
+    checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
+    initSystem<<<grid_size, block_size>>>(
+        d_coords, d_sizes, point_count, d_states, extent, seed
+    );
+    checkCuda(cudaDeviceSynchronize());
+
+    // Set up the cuda code that updates the view buffer as a lambda function
+    auto cuda_call = [&]
     {
-        // Initialize engine
-        ViewerOptions options;
-        options.window.size  = {1920,1080}; // Starting window size
-        options.present.mode = PresentMode::VSync;
-        auto engine = MimirEngine::make(options);
-
-        auto points = engine.allocLinear((void**)&d_coords, sizeof(double2) * point_count);
-        auto sizes  = engine.allocLinear((void**)&d_sizes, sizeof(double) * point_count);
-
-        ViewParams params;
-        params.element_count = point_count;
-        params.extent        = {200, 200, 1};
-        params.data_domain   = DomainType::Domain2D;
-        params.view_type     = ViewType::Markers;
-        params.options.default_size = 20.f;
-        params.attributes[AttributeType::Position] = {
-            .allocation = points,
-            .format     = { .type = DataType::float64, .components = 2 },
-        };
-        params.attributes[AttributeType::Size] = {
-            .allocation = sizes,
-            .format     = { .type = DataType::float64, .components = 1 },
-        };
-        engine.createView(params);
-
-        // params.options.external_shaders = {
-        //     {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-        //     {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
-        //     {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-        // };
-
-        // Cannot make CUDA calls that use the target device memory before
-        // registering it on the engine
-        //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
-        checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
-        initSystem<<<grid_size, block_size>>>(
-            d_coords, d_sizes, point_count, d_states, extent, seed
+        integrate2d<<< grid_size, block_size >>>(
+            d_coords, point_count, d_states, extent
         );
         checkCuda(cudaDeviceSynchronize());
-
-        // Set up the cuda code that updates the view buffer as a lambda function
-        auto cuda_call = [&]
-        {
-            integrate2d<<< grid_size, block_size >>>(
-                d_coords, point_count, d_states, extent
-            );
-            checkCuda(cudaDeviceSynchronize());
-        };
-        // Start rendering loop with the above function
-        engine.display(cuda_call, iter_count);
-        engine.exit();
-    }
-    catch (const std::exception& e)
-    {
-        std::cerr << e.what() << std::endl;
-    }
+    };
+    // Start rendering loop with the above function
+    engine.display(cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_sizes));
+    engine.exit();
 
     return EXIT_SUCCESS;
 }

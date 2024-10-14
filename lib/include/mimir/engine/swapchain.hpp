@@ -9,10 +9,15 @@ namespace mimir
 
 struct Swapchain
 {
+    // Swapchain handle currently in use
     VkSwapchainKHR current;
+    // Handle to previously used swapchain object, made obsolete after a rebuild
     VkSwapchainKHR old;
+    // Swapchain image format
     VkFormat format;
+    // Swapchain image extent
     VkExtent2D extent;
+    // Minimum amount of requested swapchain images
     uint32_t image_count;
 
     static Swapchain make(VkDevice device, VkPhysicalDevice ph_dev, VkSurfaceKHR surf,
