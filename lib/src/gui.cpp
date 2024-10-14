@@ -35,14 +35,8 @@ std::string getExtent(uint3 extent, DomainType domain)
 {
     switch (domain)
     {
-        case DomainType::Domain2D:
-        {
-            return fmt::format("({},{})", extent.x, extent.y);
-        }
-        case DomainType::Domain3D:
-        {
-            return fmt::format("({},{},{})", extent.x, extent.y, extent.z);
-        }
+        case DomainType::Domain2D: { return fmt::format("({},{})", extent.x, extent.y); }
+        case DomainType::Domain3D: { return fmt::format("({},{},{})", extent.x, extent.y, extent.z); }
         default: return "unknown";
     }
 }
@@ -140,8 +134,14 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropVie
     ImGui::Begin("Scene parameters");
     //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
     ImGui::ColorEdit3("Clear color", (float*)&opts.bg_color);
-    ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f");
-    ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f");
+    if (ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f"))
+    {
+        cam.setPosition(cam.position);
+    }
+    if (ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f"))
+    {
+        cam.setRotation(cam.rotation);
+    }
 
     // Use a separate flag for choosing whether to enable the FPS limit target value
     // This avoids the unpleasant feeling of going from 0 (no FPS limit)
