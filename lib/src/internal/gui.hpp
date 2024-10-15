@@ -15,6 +15,7 @@ void render(VkCommandBuffer cmd);
 void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropView>> views,
     const std::function<void(void)>& callback
 );
+void handleResize(uint32_t image_count);
 void addViewObjectGui(std::shared_ptr<InteropView> view, int uid);
 
 } // namespace mimir::gui

@@ -202,6 +202,11 @@ void render(VkCommandBuffer cmd)
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 }
 
+void handleResize(uint32_t image_count)
+{
+    ImGui_ImplVulkan_SetMinImageCount(image_count);
+}
+
 void shutdown()
 {
     ImGui_ImplVulkan_Shutdown();

@@ -137,7 +137,7 @@ GlfwContext GlfwContext::make(int width, int height, const char* title, void *en
     // Initialize GLFW context and window
     validation::checkGlfw(glfwInit());
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
     //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
