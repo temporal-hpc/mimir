@@ -53,6 +53,11 @@ void updateViews(Engine engine)
     engine->updateViews();
 }
 
+void setGuiCallback(Engine engine, std::function<void(void)> callback)
+{
+    engine->setGuiCallback(callback);
+}
+
 AttributeParams makeStructuredGrid(Engine engine, uint3 size, float3 start)
 {
     return engine->makeStructuredGrid(size, start);

@@ -42,18 +42,20 @@ Application::Application(){
     viewer_opts.present.mode  = PresentMode::VSync;
     viewer_opts.report_period = 180;
     viewer_opts.bg_color      = {0.f,0.f,0.f,1.f};
-    engine = make(viewer_opts);
+    createEngine(viewer_opts, &engine);
 
     // TODO: Fix dptr in kernels
-	this->myMesh = new Mesh("/home/francisco/Downloads/mushroom.off");
+	this->myMesh = new Mesh("/home/francisco/Downloads/meshes/chica0.off");
     auto m = this->myMesh->my_cleap_mesh;
 
     // NOTE: Cudaview code
     // TODO: Delete views
     // TODO: Add stride to attribute params
-    auto vertices  = engine->allocLinear((void**)&m->dm->d_vbo_v, sizeof(float4) * cleap_get_vertex_count(m));
-    auto triangles = engine->allocLinear((void**)&m->dm->d_eab, sizeof(int3) * cleap_get_face_count(m));
+    Allocation vertices = nullptr, triangles = nullptr;
+    allocLinear(engine, (void**)&m->dm->d_vbo_v, sizeof(float4) * cleap_get_vertex_count(m), &vertices);
+    allocLinear(engine, (void**)&m->dm->d_eab, sizeof(int3) * cleap_get_face_count(m), &triangles);
 
+    View v1 = nullptr, v2 = nullptr;
     ViewParams params;
     params.element_count = cleap_get_vertex_count(m);
     params.data_domain   = DomainType::Domain3D;
@@ -62,7 +64,7 @@ Application::Application(){
         .allocation = vertices,
         .format     = { .type = DataType::float32, .components = 4 }
     };
-    engine->createView(params);
+    createView(engine, params, &v1);
 
     // Recycle the above parameters, changing only what is needed
     params.element_count = cleap_get_face_count(m);
@@ -71,7 +73,7 @@ Application::Application(){
         .allocation = triangles,
         .format     = { .type = DataType::int32, .components = 3 }
     };
-    engine->createView(params);
+    createView(engine, params, &v2);
 
     checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
         cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)
@@ -175,7 +177,7 @@ void Application::init()
         ImGuiFileDialog::Instance()->Close();
     }*/
 
-    engine->setGuiCallback([=,this]
+    setGuiCallback(engine, [=,this]
     {
         if (ImGui::BeginMainMenuBar())
         {
@@ -241,7 +243,7 @@ void Application::init()
             ImGuiFileDialog::Instance()->Close();
         }
     });
-    engine->displayAsync();
+    displayAsync(engine);
 
     //! linking widgets to logic
     // gl window -- important to be first

@@ -1,9 +1,12 @@
 find_package(OpenMP)
 
-add_library(common INTERFACE)
-target_compile_features(common INTERFACE cxx_std_20)
-target_include_directories(common SYSTEM INTERFACE include)
-target_link_libraries(common INTERFACE mimir)
+add_library(samples_common INTERFACE)
+target_compile_features(samples_common INTERFACE cxx_std_20)
+target_include_directories(samples_common SYSTEM INTERFACE include)
+target_link_libraries(samples_common INTERFACE mimir)
+set_target_properties(samples_common PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
+)
 
 # Essential samples
 add_subdirectory(unstructured)
@@ -14,7 +17,7 @@ add_subdirectory(CA3D-voxels)
 # add_subdirectory(GPU-visual-tool-example)
 # add_subdirectory(points3d)
 # add_subdirectory(points3dcpu)
-# add_subdirectory(edgeflip)
+add_subdirectory(edgeflip)
 # add_subdirectory(image)
 # add_subdirectory(voronoi-simple)
 # add_subdirectory(texture_cudaarray)

@@ -31,6 +31,7 @@ void updateViews(Engine engine);
 
 void allocLinear(Engine engine, void **dev_ptr, size_t size, Allocation *alloc);
 void createView(Engine engine, ViewParams params, View *view);
+void setGuiCallback(Engine engine, std::function<void(void)> callback);
 AttributeParams makeStructuredGrid(Engine engine, uint3 size, float3 start={0.f,0.f,0.f});
 
 // C++ API

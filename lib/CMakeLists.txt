@@ -49,13 +49,13 @@ find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
 target_link_libraries(mimir
     PUBLIC
-        Vulkan::Vulkan CUDA::cudart ImGuiFileDialog
+        Vulkan::Vulkan CUDA::cudart imgui-app
     PRIVATE
-        slang glm::glm glfw imgui-app spdlog::spdlog fmt::fmt # GPUOpen::VulkanMemoryAllocator
+        slang glm::glm glfw spdlog::spdlog fmt::fmt # GPUOpen::VulkanMemoryAllocator
 )
 
 install(
-    TARGETS mimir glm glm-header-only glfw VulkanMemoryAllocator fmt spdlog imgui-app ImGuiFileDialog
+    TARGETS mimir glm glm-header-only glfw VulkanMemoryAllocator fmt spdlog imgui-app
     EXPORT  MimirTargets
     LIBRARY DESTINATION       lib
     ARCHIVE DESTINATION       lib

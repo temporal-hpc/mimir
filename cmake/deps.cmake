@@ -110,26 +110,3 @@ if(NOT imgui_POPULATED)
         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
     )
 endif()
-
-FetchContent_Declare(imgui_file_dialog
-    GIT_REPOSITORY https://github.com/aiekick/ImGuiFileDialog.git
-    GIT_TAG        f73e29fca08163fdcbd1e58fb7b67c7e56f5fa2e # v0.6.7
-    GIT_SHALLOW    ON
-    FIND_PACKAGE_ARGS
-)
-# Check if population has already been performed
-FetchContent_GetProperties(imgui_file_dialog)
-if(NOT imgui_file_dialog_POPULATED)
-    # Fetch the content using previously declared details
-    FetchContent_Populate(imgui_file_dialog)
-
-    add_library(ImGuiFileDialog STATIC
-        ${imgui_file_dialog_SOURCE_DIR}/ImGuiFileDialog.cpp
-        ${imgui_file_dialog_SOURCE_DIR}/ImGuiFileDialog.h
-    )
-    target_include_directories(ImGuiFileDialog SYSTEM PUBLIC
-        $<BUILD_INTERFACE:${imgui_file_dialog_SOURCE_DIR}>
-        $<INSTALL_INTERFACE:include>
-    )
-    target_link_libraries(ImGuiFileDialog imgui-app)
-endif()

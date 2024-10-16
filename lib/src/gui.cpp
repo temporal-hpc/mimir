@@ -5,7 +5,6 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
-#include <ImGuiFileDialog.h>
 
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
