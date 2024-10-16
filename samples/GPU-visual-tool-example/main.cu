@@ -78,13 +78,13 @@ int main(int argc, char *argv[]) {
     // [OTRA OPCION] FLIB_crearVentanaSync(WIDTH, HEIGHT, ...)
     // En este momento, la ventana podria aparecer (en negro, sin datos aun)
     int width = 900, height = 900;
-    auto engine = MimirEngine::make(width, height);
+    auto engine = make(width, height);
 
     // [VULKAN] II) "PASAR LOS DATOS AL VISUALIZADOR"
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    auto points = engine.allocLinear((void**)&dPoints, sizeof(float2) * n);
+    auto points = engine->allocLinear((void**)&dPoints, sizeof(float2) * n);
     ViewParams params;
     params.element_count = n;
     params.data_domain   = DomainType::Domain2D;
@@ -94,24 +94,24 @@ int main(int argc, char *argv[]) {
         .format     = { .type = DataType::float32, .components = 2 }
     };
     params.options.default_size = .02f;
-    engine.createView(params);
+    engine->createView(params);
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);
     cudaDeviceSynchronize();
 
-    engine.displayAsync();
+    engine->displayAsync();
 
     for(int i = 0; i < steps; i++) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en
         // 'dPoints' se ve refleada inmediatamente en la ventana async)
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        engine.prepareViews();
+        engine->prepareViews();
 
         kernel_random_movement<<<g, b>>>(n, dPoints, dStates);
         cudaDeviceSynchronize();
         // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
-        engine.updateViews();
+        engine->updateViews();
 
         #ifdef DEBUG
             printf("[DEBUG] simulation step %i:\n", i);
@@ -132,6 +132,7 @@ int main(int argc, char *argv[]) {
     /* Cleanup */
     CUDA_CALL(cudaFree(dStates));
     CUDA_CALL(cudaFree(dPoints));
+    engine->exit();
     free(hPoints);
 
     return EXIT_SUCCESS;

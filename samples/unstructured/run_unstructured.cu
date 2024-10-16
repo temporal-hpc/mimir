@@ -108,6 +108,7 @@ int main(int argc, char *argv[])
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_sizes));
+    engine->exit();
 
     return EXIT_SUCCESS;
 }

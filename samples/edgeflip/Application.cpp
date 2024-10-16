@@ -42,7 +42,7 @@ Application::Application(){
     viewer_opts.present.mode  = PresentMode::VSync;
     viewer_opts.report_period = 180;
     viewer_opts.bg_color      = {0.f,0.f,0.f,1.f};
-    engine = MimirEngine::make(viewer_opts);
+    engine = make(viewer_opts);
 
     // TODO: Fix dptr in kernels
 	this->myMesh = new Mesh("/home/francisco/Downloads/mushroom.off");
@@ -51,8 +51,8 @@ Application::Application(){
     // NOTE: Cudaview code
     // TODO: Delete views
     // TODO: Add stride to attribute params
-    auto vertices  = engine.allocLinear((void**)&m->dm->d_vbo_v, sizeof(float4) * cleap_get_vertex_count(m));
-    auto triangles = engine.allocLinear((void**)&m->dm->d_eab, sizeof(int3) * cleap_get_face_count(m));
+    auto vertices  = engine->allocLinear((void**)&m->dm->d_vbo_v, sizeof(float4) * cleap_get_vertex_count(m));
+    auto triangles = engine->allocLinear((void**)&m->dm->d_eab, sizeof(int3) * cleap_get_face_count(m));
 
     ViewParams params;
     params.element_count = cleap_get_vertex_count(m);
@@ -62,7 +62,7 @@ Application::Application(){
         .allocation = vertices,
         .format     = { .type = DataType::float32, .components = 4 }
     };
-    engine.createView(params);
+    engine->createView(params);
 
     // Recycle the above parameters, changing only what is needed
     params.element_count = cleap_get_face_count(m);
@@ -71,7 +71,7 @@ Application::Application(){
         .allocation = triangles,
         .format     = { .type = DataType::int32, .components = 3 }
     };
-    engine.createView(params);
+    engine->createView(params);
 
     checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
         cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)
@@ -82,6 +82,7 @@ Application::Application(){
 }
 
 Application::~Application(){
+    engine->exit();
 }
 
 void Application::on_button_exit_clicked(){
@@ -95,13 +96,13 @@ void Application::on_menu_help_about(){
 
 void Application::on_button_delaunay_2d_clicked(){
     if(myMesh){
-        //engine.prepareViews();
+        //engine->prepareViews();
         if (educational_mode) //if(check_button_educational_mode->get_active())
         	myMesh->delaunay_transformation_interactive(CLEAP_MODE_2D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_2D);
 
-        //engine.updateViews(); ////my_gl_window->redraw();
+        //engine->updateViews(); ////my_gl_window->redraw();
     }
 }
 
@@ -114,13 +115,13 @@ void Application::on_button_clear_clicked(){
 
 void Application::on_button_delaunay_3d_clicked(){
     if(myMesh){
-        //engine.prepareViews();
+        //engine->prepareViews();
         if (educational_mode) //if(check_button_educational_mode->get_active())
             myMesh->delaunay_transformation_interactive(CLEAP_MODE_3D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_3D);
 
-        //engine.updateViews(); //my_gl_window->redraw();
+        //engine->updateViews(); //my_gl_window->redraw();
     }
 }
 
@@ -174,7 +175,7 @@ void Application::init()
         ImGuiFileDialog::Instance()->Close();
     }*/
 
-    engine.setGuiCallback([=,this]
+    engine->setGuiCallback([=,this]
     {
         if (ImGui::BeginMainMenuBar())
         {
@@ -195,7 +196,7 @@ void Application::init()
                 ImGui::Separator();
                 if (ImGui::MenuItem("Quit", "Alt+F4"))
                 {
-                    engine.exit();
+                    engine->exit();
                 }
                 ImGui::EndMenu();
             }
@@ -240,7 +241,7 @@ void Application::init()
             ImGuiFileDialog::Instance()->Close();
         }
     });
-    engine.displayAsync();
+    engine->displayAsync();
 
     //! linking widgets to logic
     // gl window -- important to be first

@@ -9,7 +9,7 @@ namespace mimir
 
 struct MimirEngine;
 
-typedef std::unique_ptr<MimirEngine, void(*)(MimirEngine*)> EngineHandle;
+typedef std::unique_ptr<MimirEngine> EngineHandle;
 
 EngineHandle make(int width, int height);
 EngineHandle make(ViewerOptions opts);

@@ -96,11 +96,11 @@ int main(int argc, char *argv[])
         .enable_sync = enable_sync,
         .target_fps  = target_fps,
     };
-    auto engine = MimirEngine::make(options);
+    auto engine = make(options);
 
     if (use_interop)
     {
-        auto points = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
+        auto points = engine->allocLinear((void**)&d_coords, sizeof(float3) * point_count);
         ViewParams params;
         params.element_count = point_count;
         params.data_domain   = DomainType::Domain3D;
@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
             .allocation = points,
             .format     = { .type = DataType::float32, .components = 3 }
         };
-        engine.createView(params);
+        engine->createView(params);
     }
     else // Run the simulation without display
     {
@@ -123,15 +123,15 @@ int main(int argc, char *argv[])
     checkCuda(cudaDeviceSynchronize());
 
     GPUPowerBegin("gpu", 100);
-    if (display) engine.displayAsync();
+    if (display) engine->displayAsync();
     for (size_t i = 0; i < iter_count; ++i)
     {
-        if (display) engine.prepareViews();
+        if (display) engine->prepareViews();
         integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
-        if (display) engine.updateViews();
+        if (display) engine->updateViews();
     }
-    engine.showMetrics();
+    engine->showMetrics();
 
     // Nvml memory report
     {
@@ -152,9 +152,9 @@ int main(int argc, char *argv[])
 
     GPUPowerEnd();
 
-    engine.exit();
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
+    engine->exit();
 
     return EXIT_SUCCESS;
 }

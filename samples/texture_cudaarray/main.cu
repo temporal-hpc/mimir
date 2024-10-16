@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
     printf("Loaded '%s', '%d'x'%d pixels \n", filepath.c_str(), img_width, img_height);
 
     int width = 1920, height = 1080;
-    auto engine = MimirEngine::make(width, height);
+    auto engine = make(width, height);
 
     cudaMipmappedArray_t mipmap_array = nullptr;
     cudaChannelFormatDesc format{
@@ -200,7 +200,7 @@ int main(int argc, char *argv[])
         .f = cudaChannelFormatKindUnsigned,
     };
     auto extent = make_cudaExtent(img_width, img_height, 0);
-    auto mipmap = engine.allocMipmap(&mipmap_array, &format, extent, mip_levels);
+    auto mipmap = engine->allocMipmap(&mipmap_array, &format, extent, mip_levels);
 
     /*MemoryParams m;
     m.layout           = DataLayout::Layout2D;
@@ -208,8 +208,8 @@ int main(int argc, char *argv[])
     m.component_type   = ComponentType::Char;
     m.channel_count    = 4;
     m.resource_type    = ResourceType::Texture;
-    auto image = engine.createBuffer((void**)&d_image, m);
-    engine.loadTexture(image, img_data);
+    auto image = engine->createBuffer((void**)&d_image, m);
+    engine->loadTexture(image, img_data);
 
     ViewParamsOld params;
     params.element_count = img_width * img_height;
@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
     params.domain_type   = DomainType::Structured;
     params.view_type     = ViewType::Image;
     params.attributes[AttributeType::Color] = *image;
-    auto view = engine.createView(params);
+    auto view = engine->createView(params);
 
     cudaChannelFormatDesc format_desc;
     format_desc.x = 8;
@@ -303,12 +303,12 @@ int main(int argc, char *argv[])
         sizeof(cudaSurfaceObject_t) * mip_levels, cudaMemcpyHostToDevice
     ));
 
-    engine.displayAsync();
+    engine->displayAsync();
 
     int nthreads = 128;
     for (int i = 0; i < 999999; i++)
     {
-        engine.prepareViews();
+        engine->prepareViews();
 
         // Perform 2D box filter on image using CUDA
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
         );
         varySigma();
 
-        engine.updateViews();
+        engine->updateViews();
     }
 
     checkCuda(cudaDestroyTextureObject(tex_obj));

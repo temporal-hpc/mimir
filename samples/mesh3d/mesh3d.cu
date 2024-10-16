@@ -69,10 +69,10 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size = {1920,1080}; // Starting window size
     options.bg_color    = {.5f, .5f, .5f, 1.f};
-    auto engine = MimirEngine::make(options);
+    auto engine = make(options);
 
-    auto vertices = engine.allocLinear((void**)&d_coords, sizeof(float3) * point_count);
-    auto edges    = engine.allocLinear((void**)&d_triangles, sizeof(int3) * h_triangles.size());
+    auto vertices = engine->allocLinear((void**)&d_coords, sizeof(float3) * point_count);
+    auto edges    = engine->allocLinear((void**)&d_triangles, sizeof(int3) * h_triangles.size());
 
     ViewParams params;
     params.element_count = point_count;
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
         .allocation = vertices,
         .format     = { .type = DataType::float32, .components = 3 }
     };
-    engine.createView(params);
+    engine->createView(params);
 
     // Recycle the above parameters, changing only what is needed
     params.element_count = 3 * h_triangles.size();
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
         .allocation = edges,
         .format     = { .type = DataType::int32, .components = 1 }
     };
-    engine.createView(params);
+    engine->createView(params);
 
     checkCuda(cudaMemcpy(d_coords, h_points.data(),
         sizeof(float3) * point_count, cudaMemcpyHostToDevice)
@@ -101,10 +101,11 @@ int main(int argc, char *argv[])
         sizeof(uint3) * h_triangles.size(), cudaMemcpyHostToDevice)
     );
 
-    engine.displayAsync();
+    engine->displayAsync();
 
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_triangles));
+    engine->exit();
 
     return EXIT_SUCCESS;
 }

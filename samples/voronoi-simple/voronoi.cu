@@ -188,10 +188,10 @@ int main(int argc, char *argv[])
     int2 extent           = {grid_size, grid_size};
     curandState *d_states = nullptr;
 
-    auto engine = MimirEngine::make(1920, 1080);
+    auto engine = make(1920, 1080);
 
-    auto seeds = engine.allocLinear((void**)&d_coords, sizeof(float2) * point_count);
-    auto colors = engine.allocLinear((void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y);
+    auto seeds = engine->allocLinear((void**)&d_coords, sizeof(float2) * point_count);
+    auto colors = engine->allocLinear((void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y);
 
     ViewParams params;
     params.element_count = point_count;
@@ -202,7 +202,7 @@ int main(int argc, char *argv[])
         .allocation = seeds,
         .format     = { .type = DataType::float32, .components = 2 }
     };
-    engine.createView(params);
+    engine->createView(params);
 
     /*MemoryParams m1;
     m1.layout          = DataLayout::Layout1D;
@@ -210,7 +210,7 @@ int main(int argc, char *argv[])
     m1.component_type  = ComponentType::Float;
     m1.channel_count   = 2;
     m1.resource_type   = ResourceType::Buffer;
-    auto points = engine.createBuffer((void**)&d_coords, m1);
+    auto points = engine->createBuffer((void**)&d_coords, m1);
 
     ViewParamsOld p1;
     p1.element_count = point_count;
@@ -220,7 +220,7 @@ int main(int argc, char *argv[])
     p1.view_type     = ViewType::Markers;
     p1.attributes[AttributeType::Position] = *points;
     p1.options.default_color = {0,0,1,1};
-    auto v1 = engine.createView(p1);
+    auto v1 = engine->createView(p1);
 
     MemoryParams m2;
     m2.layout         = DataLayout::Layout2D;
@@ -228,7 +228,7 @@ int main(int argc, char *argv[])
     m2.component_type = ComponentType::Float;
     m2.channel_count  = 4;
     m2.resource_type  = ResourceType::LinearTexture;
-    auto image = engine.createBuffer((void**)&d_vd_colors, m2);
+    auto image = engine->createBuffer((void**)&d_vd_colors, m2);
 
     ViewParamsOld p2;
     p2.element_count = extent.x * extent.y;
@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
     p2.domain_type   = DomainType::Structured;
     p2.view_type     = ViewType::Image;
     p2.attributes[AttributeType::Color] = *image;
-    auto v2 = engine.createView(p2);*/
+    auto v2 = engine->createView(p2);*/
 
     //cudaMalloc((void**)&d_coords, sizeof(float2) * point_count);
     //cudaMalloc((void**)&d_vd_colors, sizeof(float) * extent.x * extent.y);*/
@@ -247,7 +247,7 @@ int main(int argc, char *argv[])
     params.resource_type = ResourceType::Buffer;
     params.domain_type   = DomainType::Structured;
     params.element_type  = ElementType::Image;
-    engine.createView((void**)&d_vd_dists, params);*/
+    engine->createView((void**)&d_vd_dists, params);*/
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     checkCuda(cudaMalloc(&d_colors, sizeof(float3) * point_count));
@@ -275,7 +275,7 @@ int main(int argc, char *argv[])
         initJumpFlood(d_grid[1], d_coords, point_count, extent);
         jumpFlood(d_vd_dists, d_vd_colors, d_grid, d_colors, extent);
     };
-    engine.display(timestep_function, iter_count);
+    engine->display(timestep_function, iter_count);
 
     checkCuda(cudaDeviceSynchronize());
     checkCuda(cudaFree(d_grid[0]));

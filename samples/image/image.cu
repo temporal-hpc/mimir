@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    auto engine = MimirEngine::make(1920, 1080);
+    auto engine = make(1920, 1080);
 
     /*MemoryParams m;
     m.layout         = DataLayout::Layout2D;
@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
     m.component_type = ComponentType::Char;
     m.channel_count  = 4;
     m.resource_type  = ResourceType::LinearTexture;
-    auto pixels = engine.createBuffer((void**)&d_pixels, m);
+    auto pixels = engine->createBuffer((void**)&d_pixels, m);
 
     ViewParamsOld params;
     params.element_count = width * height;
@@ -47,13 +47,13 @@ int main(int argc, char *argv[])
         {"shaders/texture_vertex2dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
         {"shaders/texture_frag2d_Float4.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
     };
-    engine.createView(params);*/
+    engine->createView(params);*/
 
     auto tex_size = sizeof(uchar4) * width * height;
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));
     stbi_image_free(h_pixels);
 
-    engine.displayAsync();
+    engine->displayAsync();
     checkCuda(cudaFree(d_pixels));
 
     return EXIT_SUCCESS;
