@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
 
     GPUPowerEnd();
 
-    engine->exit();
+    destroyEngine(engine);
     checkCuda(cudaFree(d_coords));
 
     return EXIT_SUCCESS;

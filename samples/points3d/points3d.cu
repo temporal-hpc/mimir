@@ -154,7 +154,7 @@ int main(int argc, char *argv[])
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
-    engine->exit();
+    destroyEngine(engine);
 
     return EXIT_SUCCESS;
 }

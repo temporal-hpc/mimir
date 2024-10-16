@@ -12,8 +12,6 @@
 namespace mimir
 {
 
-enum class PresentMode { Immediate, TripleBuffering, VSync };
-
 struct ShaderInfo
 {
     std::string filepath;
@@ -41,9 +39,9 @@ struct ViewOptions
     int custom_val = 0;
 };
 
-struct Allocation
+struct DeviceAllocation
 {
-    // Allocation memory size in bytes
+    // DeviceAllocation memory size in bytes
     size_t size                      = 0;
     // Vulkan external device memory handle
     VkDeviceMemory vk_mem            = VK_NULL_HANDLE;
@@ -57,7 +55,7 @@ struct Allocation
 struct AttributeParams
 {
     // Interop memory handle
-    std::shared_ptr<Allocation> allocation = nullptr;
+    DeviceAllocation *allocation = nullptr;
     // Type of variables stored per element
     DataFormat format = {};
     // Offset to start of memory handle

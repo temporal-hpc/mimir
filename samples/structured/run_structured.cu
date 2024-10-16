@@ -232,11 +232,14 @@ int main(int argc, char *argv[])
     if (argc >= 3) iter_count = std::stoul(argv[2]);
 
     JumpFloodProgram program(point_count, 512, 512);
-    auto engine = make(1920, 1080);
+    Engine engine = nullptr;
+    createEngine(1920, 1080, &engine);
 
-    auto seeds = engine->allocLinear((void**)&program.d_coords, sizeof(float2) * program.element_count);
-    auto field = engine->allocLinear((void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y);
+    Allocation seeds = nullptr, field = nullptr;
+    allocLinear(engine, (void**)&program.d_coords, sizeof(float2) * program.element_count, &seeds);
+    allocLinear(engine, (void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y, &field);
 
+    View v1 = nullptr, v2 = nullptr;
     ViewParams params;
     params.element_count = program.element_count;
     params.data_domain   = DomainType::Domain2D;
@@ -247,25 +250,25 @@ int main(int argc, char *argv[])
         .format     = { .type = DataType::float32, .components = 2 }
     };
     params.options.default_color = {0,0,1,1};
-    engine->createView(params);
+    createView(engine, params, &v1);
 
     params.element_count = program.extent.x * program.extent.y;
     params.view_type     = ViewType::Voxels;
-    params.attributes[AttributeType::Position] = engine->makeStructuredGrid(params.extent, {0.f,0.f,0.4999f});
+    params.attributes[AttributeType::Position] = makeStructuredGrid(engine, params.extent, {0.f,0.f,0.4999f});
     params.attributes[AttributeType::Color] = {
         .allocation = field,
         .format     = { .type = DataType::float32, .components = 1 },
     };
     params.options.default_size = 1.f;
-    engine->createView(params);
+    createView(engine, params, &v2);
 
     program.setInitialState();
 
     // Start rendering loop
     auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);
-    engine->display(timestep_function, iter_count);
+    display(engine, timestep_function, iter_count);
 
-    engine->exit();
+    destroyEngine(engine);
     program.cleanup();
 
     return EXIT_SUCCESS;

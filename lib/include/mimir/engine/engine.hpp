@@ -7,6 +7,7 @@
 #include <thread> // std::thread
 #include <vector> // std::vector
 
+#include <mimir/engine/options.hpp>
 #include <mimir/engine/camera.hpp>
 #include <mimir/engine/deletion_queue.hpp>
 #include <mimir/engine/device.hpp>
@@ -40,33 +41,6 @@ struct SyncData
     VkFence frame_fence = VK_NULL_HANDLE;
     VkSemaphore image_acquired = VK_NULL_HANDLE;
     VkSemaphore render_complete = VK_NULL_HANDLE;
-};
-
-struct WindowOptions
-{
-    std::string title = "Mimir";
-    int2 size         = { 800, 600 };
-    bool fullscreen   = false; // TODO: Implement
-};
-
-struct PresentOptions
-{
-    PresentMode mode        = PresentMode::Immediate;
-    bool enable_sync        = true;
-    bool enable_fps_limit   = false;
-    int target_fps          = 60;
-    int max_fps             = 0;
-    float target_frame_time = 0.f;
-};
-
-struct ViewerOptions
-{
-    WindowOptions window   = {};
-    PresentOptions present = {};
-    bool show_metrics      = false;
-    bool show_demo_window  = false;
-    uint report_period     = 0;
-    float4 bg_color        = {.5f, .5f, .5f, 1.f};
 };
 
 struct VulkanQueue
@@ -116,7 +90,8 @@ struct MimirEngine
     std::thread rendering_thread;
 
     std::vector<AllocatedBuffer> uniform_buffers;
-    std::vector<std::shared_ptr<InteropView>> views;
+    std::vector<InteropView*> views;
+    std::vector<std::shared_ptr<InteropView>> views2;
     GlfwContext window_context;
     Camera camera;
 
@@ -135,9 +110,10 @@ struct MimirEngine
     static MimirEngine make(int width, int height);
 
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
-    std::shared_ptr<Allocation> allocLinear(void **dev_ptr, size_t size);
+    DeviceAllocation *allocLinear(void **dev_ptr, size_t size);
+    std::shared_ptr<DeviceAllocation> allocLinear2(void **dev_ptr, size_t size);
     // Allocates opaque device memory, equivalent to cudaMallocMipmappedArray()
-    std::shared_ptr<Allocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
+    std::shared_ptr<DeviceAllocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
         const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
     );
 
@@ -145,7 +121,8 @@ struct MimirEngine
     AttributeParams makeStructuredGrid(uint3 size, float3 start={0.f,0.f,0.f});
 
     // View creation
-    std::shared_ptr<InteropView> createView(ViewParams params);
+    InteropView *createView(ViewParams params);
+    std::shared_ptr<InteropView> createView2(ViewParams params);
 
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
@@ -178,7 +155,7 @@ struct MimirEngine
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);
 
-    Allocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
+    DeviceAllocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
     VkBuffer createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage);
 
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);

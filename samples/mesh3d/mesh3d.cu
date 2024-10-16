@@ -69,11 +69,16 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size = {1920,1080}; // Starting window size
     options.bg_color    = {.5f, .5f, .5f, 1.f};
-    auto engine = make(options);
+    Engine engine = nullptr;
+    createEngine(options, &engine);
 
-    auto vertices = engine->allocLinear((void**)&d_coords, sizeof(float3) * point_count);
-    auto edges    = engine->allocLinear((void**)&d_triangles, sizeof(int3) * h_triangles.size());
+    Allocation vertices = nullptr, edges = nullptr;
+    auto vert_size = sizeof(float3) * point_count;
+    auto edge_size = sizeof(int3) * h_triangles.size();
+    allocLinear(engine, (void**)&d_coords, vert_size, &vertices);
+    allocLinear(engine, (void**)&d_triangles, edge_size, &edges);
 
+    View v1 = nullptr, v2 = nullptr;
     ViewParams params;
     params.element_count = point_count;
     params.data_domain   = DomainType::Domain3D;
@@ -83,29 +88,27 @@ int main(int argc, char *argv[])
         .allocation = vertices,
         .format     = { .type = DataType::float32, .components = 3 }
     };
-    engine->createView(params);
+    printf("Creating v1, elements %lu, array size %lu\n", params.element_count, vert_size);
+    createView(engine, params, &v1);
 
     // Recycle the above parameters, changing only what is needed
-    params.element_count = 3 * h_triangles.size();
+    params.element_count = 3 * h_triangles.size(); // FIXME: Does not match point_count
     params.view_type     = ViewType::Edges;
     params.indexing = {
         .allocation = edges,
         .format     = { .type = DataType::int32, .components = 1 }
     };
-    engine->createView(params);
+    printf("Creating v2, elements %lu, array size %lu\n", params.element_count, edge_size);
+    createView(engine, params, &v2);
 
-    checkCuda(cudaMemcpy(d_coords, h_points.data(),
-        sizeof(float3) * point_count, cudaMemcpyHostToDevice)
-    );
-    checkCuda(cudaMemcpy(d_triangles, h_triangles.data(),
-        sizeof(uint3) * h_triangles.size(), cudaMemcpyHostToDevice)
-    );
+    checkCuda(cudaMemcpy(d_coords, h_points.data(), vert_size, cudaMemcpyHostToDevice));
+    checkCuda(cudaMemcpy(d_triangles, h_triangles.data(), edge_size, cudaMemcpyHostToDevice));
 
-    engine->displayAsync();
+    displayAsync(engine);
 
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_triangles));
-    engine->exit();
+    destroyEngine(engine);
 
     return EXIT_SUCCESS;
 }

@@ -64,9 +64,9 @@ bool addTableRowCombo(const std::string& key, int* current_item,
     return ImGui::Combo(key.c_str(), current_item, items_getter, data, items_count);
 }
 
-void addViewObjectGui(std::shared_ptr<InteropView> view_ptr, int uid)
+void addViewObjectGui(InteropView *view_ptr, int uid)
 {
-    ImGui::PushID(view_ptr.get());
+    ImGui::PushID(view_ptr);
     auto& params = view_ptr->params;
     //bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
     bool node_open = ImGui::CollapsingHeader("", ImGuiTreeNodeFlags_AllowItemOverlap);
@@ -123,7 +123,7 @@ void addViewObjectGui(std::shared_ptr<InteropView> view_ptr, int uid)
     ImGui::PopID();
 }
 
-void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropView>> views,
+void draw(Camera& cam, ViewerOptions& opts, std::span<InteropView*> views,
     const std::function<void(void)>& callback)
 {
     ImGui_ImplVulkan_NewFrame();

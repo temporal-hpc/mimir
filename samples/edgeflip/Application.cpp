@@ -82,7 +82,7 @@ Application::Application(){
 }
 
 Application::~Application(){
-    engine->exit();
+    destroyEngine(engine);
 }
 
 void Application::on_button_exit_clicked(){
@@ -196,7 +196,7 @@ void Application::init()
                 ImGui::Separator();
                 if (ImGui::MenuItem("Quit", "Alt+F4"))
                 {
-                    engine->exit();
+                    destroyEngine(engine);
                 }
                 ImGui::EndMenu();
             }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mimir/mimir.hpp>
+#include <mimir/engine/engine.hpp>
 
 #include <span> // std::span
 
@@ -12,7 +12,7 @@ void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescr
 );
 void shutdown();
 void render(VkCommandBuffer cmd);
-void draw(Camera& cam, ViewerOptions& opts, std::span<std::shared_ptr<InteropView>> views,
+void draw(Camera& cam, ViewerOptions& opts, std::span<InteropView*> views,
     const std::function<void(void)>& callback
 );
 void handleResize(uint32_t image_count);

@@ -57,32 +57,35 @@ int main(int argc, char **argv){
     init_prob(n, original, seed, prob);
 
     int width = 1920, height = 1080;
-    auto engine = make(width, height);
+    Engine engine = nullptr;
+    createEngine(width, height, &engine);
 
-    auto ping = engine->allocLinear((void**)&d1, sizeof(int) * n*n*n);
-    auto pong = engine->allocLinear((void**)&d2, sizeof(int) * n*n*n);
+    Allocation ping = nullptr, pong = nullptr;
+    allocLinear(engine, (void**)&d1, sizeof(int) * n*n*n, &ping);
+    allocLinear(engine, (void**)&d2, sizeof(int) * n*n*n, &pong);
 
+    View v1 = nullptr, v2 = nullptr;
     ViewParams params;
     params.element_count = n*n*n;
     params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
     params.data_domain   = DomainType::Domain3D;
     params.view_type     = ViewType::Voxels;
-    params.attributes[AttributeType::Position] = engine->makeStructuredGrid({params.extent});
+    params.attributes[AttributeType::Position] = makeStructuredGrid(engine, {params.extent});
     params.attributes[AttributeType::Color] = {
         .allocation = ping,
         .format     = { .type = DataType::int32, .components = 1 },
     };
-    auto v1 = engine->createView(params);
+    createView(engine, params, &v1);
 
     params.attributes[AttributeType::Color].allocation = pong;
     params.options.visible = false;
-    auto v2 = engine->createView(params);
+    createView(engine, params, &v2);
 
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);
 
-    engine->displayAsync();
+    displayAsync(engine);
 
     // ejecucion
     print_cube(n, original, "INPUT");
@@ -103,7 +106,7 @@ int main(int argc, char **argv){
             cudaEventRecord(start);
 
             // llamada al kernel
-            engine->prepareViews();
+            prepareViews(engine);
 
             kernel_CA3D<<<grid, block>>>(n, d1, d2);
             gpuErrchk( cudaPeekAtLastError() );
@@ -112,7 +115,7 @@ int main(int argc, char **argv){
             v1->toggleVisibility();
             v2->toggleVisibility();
 
-            engine->updateViews();
+            updateViews(engine);
 
             // tiempo y print
             cudaEventRecord(stop);
@@ -147,5 +150,5 @@ int main(int argc, char **argv){
         }
     }
     printf("Finished running all steps\n");
-    engine->exit();
+    destroyEngine(engine);
 }

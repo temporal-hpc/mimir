@@ -2,7 +2,7 @@
 
 #include <imgui.h>
 
-#include <mimir/mimir.hpp>
+#include <mimir/engine/engine.hpp>
 #include <mimir/engine/camera.hpp>
 #include "internal/validation.hpp"
 

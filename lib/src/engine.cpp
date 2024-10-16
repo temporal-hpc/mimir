@@ -1,4 +1,4 @@
-#include <mimir/mimir.hpp>
+#include <mimir/engine/engine.hpp>
 
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"
@@ -63,40 +63,41 @@ VkFormat findDepthFormat(VkPhysicalDevice gpu)
 MimirEngine MimirEngine::make(ViewerOptions opts)
 {
     MimirEngine engine{
-        .options             = opts,
-        .instance            = VK_NULL_HANDLE,
-        .physical_device     = {},
-        .graphics            = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
-        .present             = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
-        .device              = VK_NULL_HANDLE,
-        .command_pool        = VK_NULL_HANDLE,
-        .render_pass         = VK_NULL_HANDLE,
-        .descriptor_layout   = VK_NULL_HANDLE,
-        .pipeline_layout     = VK_NULL_HANDLE,
-        .descriptor_pool     = VK_NULL_HANDLE,
-        .surface             = VK_NULL_HANDLE,
-        .swapchain           = {},
-        .pipeline_builder    = {},
-        .fbs                 = {},
-        .command_buffers     = {},
-        .descriptor_sets     = {},
-        .gui_callback        = []() { return; },
-        .depth_image         = VK_NULL_HANDLE,
-        .depth_memory        = VK_NULL_HANDLE,
-        .depth_view          = VK_NULL_HANDLE,
-        .sync_data           = {},
-        .interop             = {},
-        .render_timeline     = 0,
-        .running             = false,
-        .kernel_working      = false,
-        .rendering_thread    = {},
-        .uniform_buffers     = {},
-        .views               = {},
-        .window_context      = {},
-        .camera              = {},
-        .deletors            = {},
-        .graphics_monitor    = {},
-        .compute_monitor     = {},
+        .options           = opts,
+        .instance          = VK_NULL_HANDLE,
+        .physical_device   = {},
+        .graphics          = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
+        .present           = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
+        .device            = VK_NULL_HANDLE,
+        .command_pool      = VK_NULL_HANDLE,
+        .render_pass       = VK_NULL_HANDLE,
+        .descriptor_layout = VK_NULL_HANDLE,
+        .pipeline_layout   = VK_NULL_HANDLE,
+        .descriptor_pool   = VK_NULL_HANDLE,
+        .surface           = VK_NULL_HANDLE,
+        .swapchain         = {},
+        .pipeline_builder  = {},
+        .fbs               = {},
+        .command_buffers   = {},
+        .descriptor_sets   = {},
+        .gui_callback      = []() { return; },
+        .depth_image       = VK_NULL_HANDLE,
+        .depth_memory      = VK_NULL_HANDLE,
+        .depth_view        = VK_NULL_HANDLE,
+        .sync_data         = {},
+        .interop           = {},
+        .render_timeline   = 0,
+        .running           = false,
+        .kernel_working    = false,
+        .rendering_thread  = {},
+        .uniform_buffers   = {},
+        .views             = {},
+        .views2            = {},
+        .window_context    = {},
+        .camera            = {},
+        .deletors          = {},
+        .graphics_monitor  = {},
+        .compute_monitor   = {},
     };
 
     spdlog::set_level(spdlog::level::trace);
@@ -279,6 +280,8 @@ AttributeParams MimirEngine::makeStructuredGrid(uint3 size, float3 start)
     vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
     initGridCoords(data, size, start);
     vkUnmapMemory(device, vk_memory);
+    auto allocation = new DeviceAllocation({memreq.size, vk_memory, nullptr});
+    deletors.context.add([=,this]{ delete allocation; });
 
     // Add deletors to queue for later cleanup
     deletors.views.add([=,this]{
@@ -288,13 +291,28 @@ AttributeParams MimirEngine::makeStructuredGrid(uint3 size, float3 start)
     });
 
     return AttributeParams{
-        .allocation = std::make_shared<Allocation>(memreq.size, vk_memory, nullptr),
+        .allocation = allocation,
         .format     = { .type = DataType::float32, .components = 3 },
         .offset     = 0,
     };
 }
 
-std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size)
+DeviceAllocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
+{
+    assert(size > 0);
+
+    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    auto alloc = allocExtmemBuffer(size, usage);
+    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
+    validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+        dev_ptr, alloc.cuda_extmem, &buffer_desc)
+    );
+    auto alloc_ptr = new DeviceAllocation(alloc);
+    deletors.context.add([=,this]{ delete alloc_ptr; });
+    return alloc_ptr;
+}
+
+std::shared_ptr<DeviceAllocation> MimirEngine::allocLinear2(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 
@@ -306,10 +324,10 @@ std::shared_ptr<Allocation> MimirEngine::allocLinear(void **dev_ptr, size_t size
     );
 
     // Assemble the external memory handle
-    return std::make_shared<Allocation>(alloc);
+    return std::make_shared<DeviceAllocation>(alloc);
 }
 
-std::shared_ptr<Allocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
+std::shared_ptr<DeviceAllocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
     const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
 {
     assert(extent.width > 0 && extent.height > 0 && extent.depth > 0 && num_levels > 0);
@@ -358,7 +376,7 @@ std::shared_ptr<Allocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_a
     );
 
     vkDestroyImage(device, test_image, nullptr);
-    Allocation alloc{memreq.size, vk_memory, cuda_extmem};
+    DeviceAllocation alloc{memreq.size, vk_memory, cuda_extmem};
 
     cudaExternalMemoryMipmappedArrayDesc array_desc{
         .offset     = 0,
@@ -371,10 +389,10 @@ std::shared_ptr<Allocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_a
         dev_arr, alloc.cuda_extmem, &array_desc)
     );
 
-    return std::make_shared<Allocation>(alloc);
+    return std::make_shared<DeviceAllocation>(alloc);
 }
 
-Allocation MimirEngine::allocExtmemBuffer(size_t size, VkBufferUsageFlags usage)
+DeviceAllocation MimirEngine::allocExtmemBuffer(size_t size, VkBufferUsageFlags usage)
 {
     // Create test buffer for querying the desired memory properties
     VkExternalMemoryBufferCreateInfo extmem_info{
@@ -395,6 +413,7 @@ Allocation MimirEngine::allocExtmemBuffer(size_t size, VkBufferUsageFlags usage)
     auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
+    spdlog::debug("Allocating with size {}", memreq.size);
 
     // Export and map the external memory to CUDA
     auto cuda_extmem = interop::importCudaExternalMemory(
@@ -409,13 +428,14 @@ Allocation MimirEngine::allocExtmemBuffer(size_t size, VkBufferUsageFlags usage)
     });
 
     vkDestroyBuffer(device, test_buffer, nullptr);
-    return Allocation{memreq.size, vk_memory, cuda_extmem};
+    return DeviceAllocation{memreq.size, vk_memory, cuda_extmem};
 }
 
 VkBuffer MimirEngine::createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage)
 {
     // Get and validate buffer size against allocation size
     VkDeviceSize memsize = getBytesize(attr.format) * element_count;
+    spdlog::debug("memsize {}, bytesize {}, elem_count {}, allocsize {}", memsize, getBytesize(attr.format), element_count, attr.allocation->size);
     assert(memsize + attr.offset <= attr.allocation->size);
 
     // Create and bind buffer
@@ -430,7 +450,42 @@ VkBuffer MimirEngine::createAttributeBuffer(const AttributeParams attr, size_t e
     return attr_buffer;
 }
 
-std::shared_ptr<InteropView> MimirEngine::createView(ViewParams params)
+InteropView *MimirEngine::createView(ViewParams params)
+{
+    ViewResources res;
+    res.vbo.handles.reserve(params.attributes.size());
+    res.vbo.offsets.reserve(params.attributes.size());
+
+    // Create attribute buffers
+    for (const auto &[type, attr] : params.attributes)
+    {
+        auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        auto attr_buffer = createAttributeBuffer(attr, params.element_count, usage);
+        // Register buffer info in attribute array
+        res.vbo.handles.push_back(attr_buffer);
+        res.vbo.offsets.push_back(attr.offset);
+        res.vbo.count++;
+    }
+
+    // Create index buffer if its attribute was set
+    if (params.indexing.allocation != nullptr)
+    {
+        auto usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        auto index_buffer = createAttributeBuffer(params.indexing, params.element_count, usage);
+        // Register index buffer info
+        res.ibo.handle = index_buffer;
+        res.ibo.type   = getIndexType(params.indexing.format.type);
+    }
+
+    // TODO: Add uniform buffer support
+
+    auto handle = new InteropView({params, res, VK_NULL_HANDLE});
+    deletors.views.add([=,this]{ delete handle; });
+    views.push_back(handle);
+    return handle;
+}
+
+std::shared_ptr<InteropView> MimirEngine::createView2(ViewParams params)
 {
     ViewResources res;
     res.vbo.handles.reserve(params.attributes.size());
@@ -460,7 +515,7 @@ std::shared_ptr<InteropView> MimirEngine::createView(ViewParams params)
     // TODO: Add uniform buffer support
 
     auto mem_handle = std::make_shared<InteropView>(params, res, VK_NULL_HANDLE);
-    views.push_back(mem_handle);
+    views2.push_back(mem_handle);
     return mem_handle;
 }
 

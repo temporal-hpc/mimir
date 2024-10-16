@@ -64,11 +64,15 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size  = {1920,1080}; // Starting window size
     options.present.mode = PresentMode::VSync;
-    auto engine = make(options);
 
-    auto points = engine->allocLinear((void**)&d_coords, sizeof(double2) * point_count);
-    auto sizes  = engine->allocLinear((void**)&d_sizes, sizeof(double) * point_count);
+    Engine engine = nullptr;
+    createEngine(options, &engine);
 
+    Allocation points = nullptr, sizes = nullptr;
+    allocLinear(engine, (void**)&d_coords, sizeof(double2) * point_count, &points);
+    allocLinear(engine, (void**)&d_sizes, sizeof(double) * point_count, &sizes);
+
+    View view = nullptr;
     ViewParams params;
     params.element_count = point_count;
     params.extent        = {200, 200, 1};
@@ -83,7 +87,7 @@ int main(int argc, char *argv[])
         .allocation = sizes,
         .format     = { .type = DataType::float64, .components = 1 },
     };
-    engine->createView(params);
+    createView(engine, params, &view);
 
     // Cannot make CUDA calls that use the target device memory before
     // registering it on the engine
@@ -103,12 +107,12 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    engine->display(cuda_call, iter_count);
+    display(engine, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_sizes));
-    engine->exit();
+    destroyEngine(engine);
 
     return EXIT_SUCCESS;
 }

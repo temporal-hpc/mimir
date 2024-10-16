@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
     /* Cleanup */
     CUDA_CALL(cudaFree(dStates));
     CUDA_CALL(cudaFree(dPoints));
-    engine->exit();
+    destroyEngine(engine);
     free(hPoints);
 
     return EXIT_SUCCESS;
