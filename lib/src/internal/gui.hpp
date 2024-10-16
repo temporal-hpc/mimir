@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mimir/engine/engine.hpp>
+#include "engine.hpp"
 
 #include <span> // std::span
 

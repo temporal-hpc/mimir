@@ -1,4 +1,4 @@
-#include <mimir/engine/engine.hpp>
+#include "internal/engine.hpp"
 
 #include "internal/framelimit.hpp"
 #include "internal/gui.hpp"

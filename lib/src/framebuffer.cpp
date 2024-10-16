@@ -1,4 +1,4 @@
-#include <mimir/engine/framebuffer.hpp>
+#include "internal/framebuffer.hpp"
 
 #include "internal/validation.hpp"
 

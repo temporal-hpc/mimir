@@ -1,4 +1,4 @@
-#include "mimir/engine/swapchain.hpp"
+#include "internal/swapchain.hpp"
 
 #include "internal/validation.hpp"
 

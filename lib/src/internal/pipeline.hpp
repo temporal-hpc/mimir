@@ -4,7 +4,7 @@
 
 #include <vector> // std::vector
 
-#include <mimir/engine/interop_view.hpp>
+#include <mimir/interop_view.hpp>
 
 namespace mimir
 {

@@ -7,17 +7,18 @@
 #include <thread> // std::thread
 #include <vector> // std::vector
 
-#include <mimir/engine/options.hpp>
-#include <mimir/engine/camera.hpp>
-#include <mimir/engine/deletion_queue.hpp>
-#include <mimir/engine/device.hpp>
-#include <mimir/engine/framebuffer.hpp>
-#include <mimir/engine/interop.hpp>
-#include <mimir/engine/interop_view.hpp>
-#include <mimir/engine/metrics.hpp>
-#include <mimir/engine/pipeline.hpp>
-#include <mimir/engine/swapchain.hpp>
-#include <mimir/engine/window.hpp>
+#include <mimir/options.hpp>
+#include <mimir/interop_view.hpp>
+
+#include "camera.hpp"
+#include "deletion_queue.hpp"
+#include "device.hpp"
+#include "framebuffer.hpp"
+#include "interop.hpp"
+#include "metrics.hpp"
+#include "pipeline.hpp"
+#include "swapchain.hpp"
+#include "window.hpp"
 
 namespace mimir
 {

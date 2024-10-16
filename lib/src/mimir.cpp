@@ -1,6 +1,6 @@
 #include <mimir/mimir.hpp>
 
-#include <mimir/engine/engine.hpp>
+#include "internal/engine.hpp"
 
 namespace mimir
 {

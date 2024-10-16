@@ -1,4 +1,4 @@
-#include <mimir/engine/pipeline.hpp>
+#include "internal/pipeline.hpp"
 
 #include <spdlog/spdlog.h>
 #include <dlfcn.h> // dladdr
@@ -6,7 +6,7 @@
 #include <filesystem> // std::filesystem
 #include <map> // std::map
 
-#include <mimir/engine/shader_types.hpp>
+#include "internal/shader_types.hpp"
 #include "internal/shader.hpp"
 #include "internal/validation.hpp"
 

@@ -25,19 +25,9 @@ target_sources(mimir PUBLIC
     BASE_DIRS include
     FILES
         include/mimir/mimir.hpp
-        include/mimir/engine/engine.hpp
-        include/mimir/engine/camera.hpp
-        include/mimir/engine/deletion_queue.hpp
-        include/mimir/engine/device.hpp
-        include/mimir/engine/framebuffer.hpp
-        include/mimir/engine/interop.hpp
-        include/mimir/engine/interop_view.hpp
-        include/mimir/engine/metrics.hpp
-        include/mimir/engine/pipeline.hpp
-        include/mimir/engine/shader_types.hpp
-        include/mimir/engine/swapchain.hpp
-        include/mimir/engine/view_types.hpp
-        include/mimir/engine/window.hpp
+        include/mimir/interop_view.hpp
+        include/mimir/options.hpp
+        include/mimir/view_types.hpp
 )
 target_include_directories(mimir PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -59,9 +49,9 @@ find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
 target_link_libraries(mimir
     PUBLIC
-        Vulkan::Vulkan CUDA::cudart glm::glm fmt::fmt glfw imgui-app ImGuiFileDialog
+        Vulkan::Vulkan CUDA::cudart ImGuiFileDialog
     PRIVATE
-        slang GPUOpen::VulkanMemoryAllocator spdlog::spdlog
+        slang glm::glm glfw imgui-app spdlog::spdlog fmt::fmt # GPUOpen::VulkanMemoryAllocator
 )
 
 install(
@@ -71,7 +61,7 @@ install(
     ARCHIVE DESTINATION       lib
     RUNTIME DESTINATION       bin
     INCLUDES DESTINATION      include
-#    PUBLIC_HEADER DESTINATION include
+    PUBLIC_HEADER DESTINATION include
     FILE_SET                  library_headers
 )
 

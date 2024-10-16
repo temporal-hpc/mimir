@@ -1,4 +1,4 @@
-#include <mimir/engine/interop.hpp>
+#include "internal/interop.hpp"
 
 #include <cuda_runtime.h> // make_cudaExtent
 

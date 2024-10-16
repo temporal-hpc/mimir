@@ -8,7 +8,7 @@
 #include <span> // std::span
 #include <vector> // std::vector
 
-#include <mimir/engine/interop_view.hpp> // ShaderInfo
+#include <mimir/interop_view.hpp> // ShaderInfo
 
 namespace mimir
 {

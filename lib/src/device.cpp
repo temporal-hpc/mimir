@@ -1,4 +1,4 @@
-#include <mimir/engine/device.hpp>
+#include "internal/device.hpp"
 
 #include <spdlog/spdlog.h>
 #include <set> // std::set

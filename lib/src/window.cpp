@@ -1,9 +1,9 @@
-#include <mimir/engine/window.hpp>
+#include "internal/window.hpp"
 
 #include <imgui.h>
 
-#include <mimir/engine/engine.hpp>
-#include <mimir/engine/camera.hpp>
+#include "internal/engine.hpp"
+#include "internal/camera.hpp"
 #include "internal/validation.hpp"
 
 namespace mimir::validation

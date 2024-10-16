@@ -1,6 +1,6 @@
 #include "internal/gui.hpp"
 #include "internal/framelimit.hpp"
-#include <mimir/engine/camera.hpp>
+#include "internal/camera.hpp"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>

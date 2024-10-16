@@ -2,7 +2,7 @@
 
 #include <vulkan/vulkan.h>
 
-#include <mimir/engine/swapchain.hpp>
+#include "swapchain.hpp"
 #include <vector> // std::vector
 #include <span> // std::span
 

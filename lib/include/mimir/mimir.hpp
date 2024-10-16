@@ -1,7 +1,7 @@
 #pragma once
 
-#include <mimir/engine/options.hpp>
-#include <mimir/engine/interop_view.hpp>
+#include <mimir/options.hpp>
+#include <mimir/interop_view.hpp>
 
 #include <functional> // std::function
 #include <memory> // std::unique_ptr
