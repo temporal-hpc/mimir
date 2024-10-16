@@ -1,8 +1,9 @@
 add_library(mimir STATIC)
 
 target_sources(mimir PRIVATE
-    src/device.cpp
+    src/mimir.cpp
     src/engine.cpp
+    src/device.cpp
     src/camera.cpp
     src/framebuffer.cpp
     src/framelimit.cpp

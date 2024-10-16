@@ -64,10 +64,10 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size  = {1920,1080}; // Starting window size
     options.present.mode = PresentMode::VSync;
-    auto engine = MimirEngine::make(options);
+    auto engine = make(options);
 
-    auto points = engine.allocLinear((void**)&d_coords, sizeof(double2) * point_count);
-    auto sizes  = engine.allocLinear((void**)&d_sizes, sizeof(double) * point_count);
+    auto points = engine->allocLinear((void**)&d_coords, sizeof(double2) * point_count);
+    auto sizes  = engine->allocLinear((void**)&d_sizes, sizeof(double) * point_count);
 
     ViewParams params;
     params.element_count = point_count;
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
         .allocation = sizes,
         .format     = { .type = DataType::float64, .components = 1 },
     };
-    engine.createView(params);
+    engine->createView(params);
 
     // Cannot make CUDA calls that use the target device memory before
     // registering it on the engine
@@ -103,12 +103,11 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    engine.display(cuda_call, iter_count);
+    engine->display(cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_sizes));
-    engine.exit();
 
     return EXIT_SUCCESS;
 }
