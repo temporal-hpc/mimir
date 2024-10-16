@@ -92,7 +92,6 @@ struct MimirEngine
 
     std::vector<AllocatedBuffer> uniform_buffers;
     std::vector<InteropView*> views;
-    std::vector<std::shared_ptr<InteropView>> views2;
     GlfwContext window_context;
     Camera camera;
 
@@ -112,7 +111,6 @@ struct MimirEngine
 
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
     DeviceAllocation *allocLinear(void **dev_ptr, size_t size);
-    std::shared_ptr<DeviceAllocation> allocLinear2(void **dev_ptr, size_t size);
     // Allocates opaque device memory, equivalent to cudaMallocMipmappedArray()
     std::shared_ptr<DeviceAllocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
         const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
@@ -123,7 +121,6 @@ struct MimirEngine
 
     // View creation
     InteropView *createView(ViewParams params);
-    std::shared_ptr<InteropView> createView2(ViewParams params);
 
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();

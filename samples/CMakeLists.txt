@@ -4,9 +4,6 @@ add_library(samples_common INTERFACE)
 target_compile_features(samples_common INTERFACE cxx_std_20)
 target_include_directories(samples_common SYSTEM INTERFACE include)
 target_link_libraries(samples_common INTERFACE mimir)
-set_target_properties(samples_common PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
-)
 
 # Essential samples
 add_subdirectory(unstructured)

@@ -92,7 +92,6 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .rendering_thread  = {},
         .uniform_buffers   = {},
         .views             = {},
-        .views2            = {},
         .window_context    = {},
         .camera            = {},
         .deletors          = {},
@@ -259,7 +258,16 @@ void initGridCoords(float3 *data, uint3 size, float3 start)
             }
         }
     }
+}
 
+uint32_t getVertexRate(ViewType type)
+{
+    switch (type)
+    {
+        case ViewType::Edges: { return 3; } // AKA TriangleMesh
+        case ViewType::Boxes: { return 2; }
+        default: return 1;
+    }
 }
 
 AttributeParams MimirEngine::makeStructuredGrid(uint3 size, float3 start)
@@ -310,21 +318,6 @@ DeviceAllocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     auto alloc_ptr = new DeviceAllocation(alloc);
     deletors.context.add([=,this]{ delete alloc_ptr; });
     return alloc_ptr;
-}
-
-std::shared_ptr<DeviceAllocation> MimirEngine::allocLinear2(void **dev_ptr, size_t size)
-{
-    assert(size > 0);
-
-    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    auto alloc = allocExtmemBuffer(size, usage);
-    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
-    validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-        dev_ptr, alloc.cuda_extmem, &buffer_desc)
-    );
-
-    // Assemble the external memory handle
-    return std::make_shared<DeviceAllocation>(alloc);
 }
 
 std::shared_ptr<DeviceAllocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
@@ -483,40 +476,6 @@ InteropView *MimirEngine::createView(ViewParams params)
     deletors.views.add([=,this]{ delete handle; });
     views.push_back(handle);
     return handle;
-}
-
-std::shared_ptr<InteropView> MimirEngine::createView2(ViewParams params)
-{
-    ViewResources res;
-    res.vbo.handles.reserve(params.attributes.size());
-    res.vbo.offsets.reserve(params.attributes.size());
-
-    // Create attribute buffers
-    for (const auto &[type, attr] : params.attributes)
-    {
-        auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        auto attr_buffer = createAttributeBuffer(attr, params.element_count, usage);
-        // Register buffer info in attribute array
-        res.vbo.handles.push_back(attr_buffer);
-        res.vbo.offsets.push_back(attr.offset);
-        res.vbo.count++;
-    }
-
-    // Create index buffer if its attribute was set
-    if (params.indexing.allocation != nullptr)
-    {
-        auto usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-        auto index_buffer = createAttributeBuffer(params.indexing, params.element_count, usage);
-        // Register index buffer info
-        res.ibo.handle = index_buffer;
-        res.ibo.type   = getIndexType(params.indexing.format.type);
-    }
-
-    // TODO: Add uniform buffer support
-
-    auto mem_handle = std::make_shared<InteropView>(params, res, VK_NULL_HANDLE);
-    views2.push_back(mem_handle);
-    return mem_handle;
 }
 
 VkDescriptorSetLayoutBinding descriptorLayoutBinding(

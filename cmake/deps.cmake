@@ -14,17 +14,13 @@ FetchContent_Declare(
     slang
     URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
 )
-FetchContent_GetProperties(slang)
-if(NOT slang_POPULATED)
-    FetchContent_Populate(slang)
-
-    # Add imported target containing the precompiled shared library
-    add_library(slang UNKNOWN IMPORTED)
-    set_target_properties(slang PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES ${slang_SOURCE_DIR}/include
-        IMPORTED_LOCATION ${slang_SOURCE_DIR}/lib/libslang.so
-    )
-endif()
+FetchContent_MakeAvailable(slang)
+# Add imported target containing the precompiled shared library
+add_library(slang UNKNOWN IMPORTED)
+set_target_properties(slang PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES ${slang_SOURCE_DIR}/include
+    IMPORTED_LOCATION ${slang_SOURCE_DIR}/lib/libslang.so
+)
 
 # set(SLANG_ENABLE_GFX        OFF)
 # set(SLANG_ENABLE_SLANGD     OFF)
@@ -88,25 +84,19 @@ FetchContent_Declare(imgui
     GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )
-FetchContent_GetProperties(imgui)
-if(NOT imgui_POPULATED)
-    # Fetch the content using previously declared details
-    FetchContent_Populate(imgui)
-
-    # An 'imgui' target is already imported by slang as a submodule, so
-    add_library(imgui-app STATIC)
-    target_include_directories(imgui-app SYSTEM PUBLIC
-        $<BUILD_INTERFACE:${imgui_SOURCE_DIR}>
-        $<INSTALL_INTERFACE:include>
-    )
-    target_link_libraries(imgui-app glfw)
-    target_sources(imgui-app PRIVATE
-        ${imgui_SOURCE_DIR}/imgui.cpp
-        ${imgui_SOURCE_DIR}/imgui_draw.cpp
-        ${imgui_SOURCE_DIR}/imgui_tables.cpp
-        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-        ${imgui_SOURCE_DIR}/imgui_demo.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-    )
-endif()
+FetchContent_MakeAvailable(imgui)
+add_library(imgui-app STATIC)
+target_include_directories(imgui-app SYSTEM PUBLIC
+    $<BUILD_INTERFACE:${imgui_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(imgui-app glfw)
+target_sources(imgui-app PRIVATE
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+)
