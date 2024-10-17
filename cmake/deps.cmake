@@ -9,7 +9,7 @@ FetchContent_Declare(vma
 )
 
 # Slang shader lib
-set(SLANG_VERSION 2024.1.34)
+set(SLANG_VERSION 2024.10)
 FetchContent_Declare(
     slang
     URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
