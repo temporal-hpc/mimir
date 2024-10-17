@@ -16,12 +16,13 @@ add_subdirectory(CA3D-voxels)
 # add_subdirectory(points3dcpu)
 add_subdirectory(edgeflip)
 # add_subdirectory(image)
-# add_subdirectory(voronoi-simpl
+# add_subdirectory(voronoi-simple)
 # add_subdirectory(texture_cudaarray)
 # Utilities
 # add_subdirectory(powermon)
 # Advanced samples
 add_subdirectory(potts)
+add_subdirectory(nbody)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL
