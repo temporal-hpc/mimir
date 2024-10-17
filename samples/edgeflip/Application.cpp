@@ -45,7 +45,7 @@ Application::Application(){
     createEngine(viewer_opts, &engine);
 
     // TODO: Fix dptr in kernels
-	this->myMesh = new Mesh("/home/francisco/Downloads/meshes/chica0.off");
+	this->myMesh = new Mesh("/home/francisco/Downloads/meshes/chica4.off");
     auto m = this->myMesh->my_cleap_mesh;
 
     // NOTE: Cudaview code
@@ -64,15 +64,19 @@ Application::Application(){
         .allocation = vertices,
         .format     = { .type = DataType::float32, .components = 4 }
     };
+    params.options.visible = false;
     createView(engine, params, &v1);
 
     // Recycle the above parameters, changing only what is needed
-    params.element_count = cleap_get_face_count(m);
+    params.element_count = cleap_get_vertex_count(m);
     params.view_type     = ViewType::Edges;
     params.indexing = {
-        .allocation = triangles,
-        .format     = { .type = DataType::int32, .components = 3 }
+        .allocation    = triangles,
+        .element_count = static_cast<unsigned int>(cleap_get_face_count(m) * 3),
+        .type          = DataType::int32,
     };
+    params.options.visible       = true;
+    params.options.default_color = {0.f, 1.f, 0.f, 1.f};
     createView(engine, params, &v2);
 
     checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,

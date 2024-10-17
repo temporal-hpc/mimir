@@ -463,11 +463,25 @@ InteropView *MimirEngine::createView(ViewParams params)
     // Create index buffer if its attribute was set
     if (params.indexing.allocation != nullptr)
     {
+        // Get index buffer params
+        auto& ip = params.indexing;
         auto usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-        auto index_buffer = createAttributeBuffer(params.indexing, params.element_count, usage);
+        // Get and validate buffer size against allocation size
+        VkDeviceSize memsize = getComponentSize(ip.type) * ip.element_count;
+        assert(memsize + ip.offset <= ip.allocation->size);
+
+        // Create and bind buffer
+        VkExternalMemoryBufferCreateInfo extmem_info{
+            .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+            .pNext       = nullptr,
+            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+        };
+        auto index_buffer = createBuffer(device, memsize, usage, &extmem_info);
+        deletors.views.add([=,this]{ vkDestroyBuffer(device, index_buffer, nullptr); });
+        vkBindBufferMemory(device, index_buffer, ip.allocation->vk_mem, 0);
         // Register index buffer info
         res.ibo.handle = index_buffer;
-        res.ibo.type   = getIndexType(params.indexing.format.type);
+        res.ibo.type   = getIndexType(ip.type);
     }
 
     // TODO: Add uniform buffer support
@@ -1023,6 +1037,7 @@ void MimirEngine::drawElements(uint32_t image_idx)
         auto& ibo = view->resources.ibo;
         if (ibo.handle != VK_NULL_HANDLE) // If index buffer exists, bind it and perform indexed draw
         {
+            vertex_count = view->params.indexing.element_count;
             vkCmdBindIndexBuffer(cmd, ibo.handle, 0, ibo.type);
             vkCmdDrawIndexed(cmd, vertex_count, 1, 0, 0, 0);
         }

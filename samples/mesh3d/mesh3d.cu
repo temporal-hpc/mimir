@@ -92,11 +92,11 @@ int main(int argc, char *argv[])
     createView(engine, params, &v1);
 
     // Recycle the above parameters, changing only what is needed
-    params.element_count = 3 * h_triangles.size(); // FIXME: Does not match point_count
-    params.view_type     = ViewType::Edges;
-    params.indexing = {
-        .allocation = edges,
-        .format     = { .type = DataType::int32, .components = 1 }
+    params.view_type = ViewType::Edges;
+    params.indexing  = {
+        .allocation    = edges,
+        .element_count = static_cast<unsigned int>(3 * h_triangles.size()),
+        .type          = DataType::int32,
     };
     printf("Creating v2, elements %lu, array size %lu\n", params.element_count, edge_size);
     createView(engine, params, &v2);

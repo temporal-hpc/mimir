@@ -62,6 +62,18 @@ struct AttributeParams
     VkDeviceSize offset = 0;
 };
 
+struct IndexingParams
+{
+    // Interop memory handle
+    DeviceAllocation *allocation = nullptr;
+    // Number of indices
+    uint32_t element_count = 0;
+    // Index data type
+    DataType type  = DataType::float32;
+    // Offset to start of memory handle
+    VkDeviceSize offset = 0;
+};
+
 using AttributeDict = std::map<AttributeType, AttributeParams>;
 
 struct ViewParams
@@ -72,7 +84,7 @@ struct ViewParams
     ViewType view_type;
     ViewOptions options;
     AttributeDict attributes;
-    AttributeParams indexing;
+    IndexingParams indexing;
     std::vector<uint32_t> offsets;
     std::vector<uint32_t> sizes;
 };
