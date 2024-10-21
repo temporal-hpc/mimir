@@ -23,14 +23,14 @@ void destroyEngine(Engine engine)
     delete engine;
 }
 
-void allocLinear(Engine engine, void **dev_ptr, size_t size, Allocation *alloc)
+void allocLinear(Engine engine, void **dev_ptr, size_t size, AllocHandle *handle)
 {
-    *alloc = engine->allocLinear(dev_ptr, size);
+    *handle = engine->allocLinear(dev_ptr, size);
 }
 
-void createView(Engine engine, ViewParams params, View *view)
+void createView(Engine engine, ViewDescription desc, ViewHandle *handle)
 {
-    *view = engine->createView(params);
+    *handle = engine->createView(desc);
 }
 
 void display(Engine engine, std::function<void(void)> func, size_t iter_count)
@@ -58,10 +58,10 @@ void setGuiCallback(Engine engine, std::function<void(void)> callback)
     engine->setGuiCallback(callback);
 }
 
-AttributeParams makeStructuredGrid(Engine engine, uint3 size, float3 start)
-{
-    return engine->makeStructuredGrid(size, start);
-}
+// AttributeParams makeStructuredGrid(Engine engine, uint3 size, float3 start)
+// {
+//     return engine->makeStructuredGrid(size, start);
+// }
 
 EngineHandle make(int width, int height)
 {

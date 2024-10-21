@@ -325,18 +325,18 @@ std::vector<char> readFile(const std::string& filename)
     return buffer;
 }
 
-std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::loadExternalShaders(
-    VkDevice device, std::span<ShaderInfo> shaders)
-{
-    std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
-    for (const auto& info : shaders)
-    {
-        auto shader_code = readFile(info.filepath).data();
-        auto shader_module = createShaderModule(shader_code, device);
-        auto shader_info = shaderStageInfo(info.stage, shader_module);
-        compiled_stages.push_back(shader_info);
-    }
-    return compiled_stages;
-}
+// std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::loadExternalShaders(
+//     VkDevice device, std::span<ShaderInfo> shaders)
+// {
+//     std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
+//     for (const auto& info : shaders)
+//     {
+//         auto shader_code = readFile(info.filepath).data();
+//         auto shader_module = createShaderModule(shader_code, device);
+//         auto shader_info = shaderStageInfo(info.stage, shader_module);
+//         compiled_stages.push_back(shader_info);
+//     }
+//     return compiled_stages;
+// }
 
 } // namespace mimir

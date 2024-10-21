@@ -25,9 +25,8 @@ target_sources(mimir PUBLIC
     BASE_DIRS include
     FILES
         include/mimir/mimir.hpp
-        include/mimir/interop_view.hpp
+        include/mimir/view.hpp
         include/mimir/options.hpp
-        include/mimir/view_types.hpp
 )
 target_include_directories(mimir PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

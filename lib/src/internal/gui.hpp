@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mimir/view.hpp>
 #include "engine.hpp"
 
 #include <span> // std::span
@@ -12,10 +13,10 @@ void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescr
 );
 void shutdown();
 void render(VkCommandBuffer cmd);
-void draw(Camera& cam, ViewerOptions& opts, std::span<InteropView*> views,
+void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
     const std::function<void(void)>& callback
 );
 void handleResize(uint32_t image_count);
-void addViewObjectGui(std::shared_ptr<InteropView> view, int uid);
+void addViewObjectGui(View *view_ptr, int uid);
 
 } // namespace mimir::gui

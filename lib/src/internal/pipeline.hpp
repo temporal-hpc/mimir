@@ -4,7 +4,7 @@
 
 #include <vector> // std::vector
 
-#include <mimir/interop_view.hpp>
+#include <mimir/view.hpp>
 
 namespace mimir
 {
@@ -34,7 +34,7 @@ struct PipelineBuilder
     VkViewport viewport;
     VkRect2D scissor;
 
-    uint32_t addPipeline(const ViewParams params, VkDevice device);
+    uint32_t addPipeline(const ViewDescription desc, VkDevice device);
     std::vector<VkPipeline> createPipelines(VkDevice device, VkRenderPass pass);
 
     static PipelineBuilder make(VkPipelineLayout layout, VkExtent2D extent);

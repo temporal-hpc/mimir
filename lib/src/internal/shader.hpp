@@ -8,8 +8,6 @@
 #include <span> // std::span
 #include <vector> // std::vector
 
-#include <mimir/interop_view.hpp> // ShaderInfo
-
 namespace mimir
 {
 
@@ -28,9 +26,9 @@ struct ShaderBuilder
     std::vector<VkPipelineShaderStageCreateInfo> compileModule(
         VkDevice device, const ShaderCompileParams& params
     );
-    std::vector<VkPipelineShaderStageCreateInfo> loadExternalShaders(
-        VkDevice device, std::span<ShaderInfo> shaders
-    );
+    // std::vector<VkPipelineShaderStageCreateInfo> loadExternalShaders(
+    //     VkDevice device, std::span<ShaderInfo> shaders
+    // );
 
     static ShaderBuilder make();
 };

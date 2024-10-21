@@ -2,8 +2,6 @@
 
 #include <cuda_runtime_api.h>
 
-#include <mimir/interop_view.hpp>
-
 namespace mimir
 {
 

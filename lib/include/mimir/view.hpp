@@ -1,0 +1,98 @@
+#pragma once
+
+namespace mimir
+{
+
+// Forward declaration
+struct Allocation;
+struct ViewDetails;
+
+// Specifies the type of view that will be visualized
+enum class ViewType      { Markers, Edges, Image, Boxes };
+// Specifies the number of spatial dimensions in the view
+enum class DomainType    { Domain2D, Domain3D };
+
+enum class FormatKind    { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized };
+
+// Descriptor structure for interpreting elements contained in an engine allocation.
+// Similar to the ChannelFormatDesc structure in the CUDA SDK, but here it is used to describe
+// vector types in both textures and linear arrays.
+struct FormatDescription
+{
+    // Kind of numeric data stored in each channel.
+    FormatKind kind;
+    // Size in bytes of each channel component.
+    int size;
+    // Number of data channels; between 1 and 4.
+    int components;
+
+    // Returns the size in bytes of a single data element described in this format.
+    unsigned int getSizeBytes() const { return size * components; }
+};
+
+enum class AttributeType { Position, Color, Size, Rotation };
+
+// The interpretation of the sources within the engine depends on attribute type and whether
+// the indices array is set to a non-null value or not.
+struct AttributeDescription
+{
+    // The same attribute value cannot appear in more than one description for a same view.
+    AttributeType type;
+    // Handle for the allocation containing the source data.
+    Allocation *source;
+    // When set to zero, it is interpreted to be equal to the number of elements required
+    // by the view type to correctly display it.
+    unsigned int element_count;
+    // Format description for the elements in the source array; ignored when sources is null.
+    FormatDescription format;
+    // Handle for the allocation containing indices referencing the source array.
+    Allocation *indices;
+    // Size in bits of the index type stored in the indices allocation.
+    // This value is ignored when indices is null.
+    int index_size_bytes;
+};
+
+// TODO: More texture definitions (e.g. mipmap levels)
+struct TextureDescription
+{
+    // Handle for the allocation holding the texture memory.
+    Allocation *source;
+    // Format description for texels.
+    FormatDescription format;
+    // Number of mipmap levels stored in the texture.
+    int level_count;
+};
+
+struct ViewDescription
+{
+    // Number of elements contained in the view.
+    // The amount of vertices consumed per element depends on view type.
+    unsigned int element_count;
+    // Determines the element to display in the current view.
+    ViewType view_type;
+    // Determines whether to draw 2D or 3D elements for the given view type.
+    DomainType domain_type;
+    // Number of attached attributes in the view.
+    unsigned int attribute_count;
+    // Ignored when attribute_count is 0.
+    AttributeDescription *attributes;
+    // Number of attached textures in the view.
+    unsigned int texture_count;
+    // Ignored when texture_count is 0.
+    TextureDescription *textures;
+};
+
+struct View
+{
+    ViewDetails *detail;
+    bool visible;
+
+    // Switches view state between visible and invisible; does not modify underlying data.
+    bool toggleVisibility()
+    {
+        visible = !visible;
+        return visible;
+    }
+};
+
+} // namespace mimir

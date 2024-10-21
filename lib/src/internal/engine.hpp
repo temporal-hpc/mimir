@@ -8,8 +8,9 @@
 #include <vector> // std::vector
 
 #include <mimir/options.hpp>
-#include <mimir/interop_view.hpp>
+#include <mimir/view.hpp>
 
+#include "api.hpp"
 #include "camera.hpp"
 #include "deletion_queue.hpp"
 #include "device.hpp"
@@ -91,7 +92,7 @@ struct MimirEngine
     std::thread rendering_thread;
 
     std::vector<AllocatedBuffer> uniform_buffers;
-    std::vector<InteropView*> views;
+    std::vector<View*> views;
     GlfwContext window_context;
     Camera camera;
 
@@ -110,17 +111,20 @@ struct MimirEngine
     static MimirEngine make(int width, int height);
 
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
-    DeviceAllocation *allocLinear(void **dev_ptr, size_t size);
+    Allocation *allocLinear(void **dev_ptr, size_t size);
     // Allocates opaque device memory, equivalent to cudaMallocMipmappedArray()
-    std::shared_ptr<DeviceAllocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
-        const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
-    );
+    // std::shared_ptr<DeviceAllocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
+    //     const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
+    // );
 
     // Allocates device memory initialized for representing a structured domain
-    AttributeParams makeStructuredGrid(uint3 size, float3 start={0.f,0.f,0.f});
+    //AttributeParams makeStructuredGrid(uint3 size, float3 start={0.f,0.f,0.f});
 
     // View creation
-    InteropView *createView(ViewParams params);
+    View *createView(ViewDescription desc);
+    VkBuffer createAttributeBuffer(const AttributeDescription desc,
+        size_t element_count, VkBufferUsageFlags usage
+    );
 
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
@@ -153,8 +157,7 @@ struct MimirEngine
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);
 
-    DeviceAllocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
-    VkBuffer createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage);
+    //DeviceAllocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
 
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
     void generateMipmaps(VkImage image, VkFormat img_format,
