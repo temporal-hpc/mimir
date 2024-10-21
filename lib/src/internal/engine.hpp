@@ -121,9 +121,9 @@ struct MimirEngine
     //AttributeParams makeStructuredGrid(uint3 size, float3 start={0.f,0.f,0.f});
 
     // View creation
-    View *createView(ViewDescription desc);
-    VkBuffer createAttributeBuffer(const AttributeDescription desc,
-        size_t element_count, VkBufferUsageFlags usage
+    View *createView(ViewDescription *desc);
+    VkBuffer createAttributeBuffer(size_t element_count,
+        VkBufferUsageFlags usage, VkDeviceMemory memory
     );
 
     void display(std::function<void(void)> func, size_t iter_count);

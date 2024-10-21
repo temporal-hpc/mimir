@@ -32,8 +32,8 @@ struct ViewDetails
     VkBuffer vbo[max_attr_count];
     // Start region for each buffer object in the view.
     VkDeviceSize offsets[max_attr_count];
-    // Set to true at view creation when using indirect (index) position mapping; false otherwise.
-    bool is_indexed;
+    // Set to true at view creation when using an index buffer for drawing; false otherwise.
+    bool use_ibo;
     // Index buffer used when is_indexed is true. Uninitialized if view uses direct source mapping.
     VkBuffer ibo;
     // Index type used when is_indexed is true; undefined otherwise.

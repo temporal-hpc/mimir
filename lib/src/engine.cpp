@@ -311,15 +311,15 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     assert(size > 0);
 
     auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    // Create test buffer for querying the desired memory properties
+    // Create temporary buffer for querying the desired memory properties
     VkExternalMemoryBufferCreateInfo extmem_info{
         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
-    auto test_buffer = createBuffer(device, size, usage, &extmem_info);
+    auto querybuf = createBuffer(device, size, usage, &extmem_info);
     VkMemoryRequirements memreq{};
-    vkGetBufferMemoryRequirements(device, test_buffer, &memreq);
+    vkGetBufferMemoryRequirements(device, querybuf, &memreq);
 
     // Allocate external device memory
     VkExportMemoryAllocateInfoKHR export_info{
@@ -330,12 +330,10 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
-    spdlog::debug("Allocating with size {}", memreq.size);
+    spdlog::debug("Allocation size {}, requested {}", size, memreq.size);
 
     // Export and map the external memory to CUDA
-    auto cuda_extmem = interop::importCudaExternalMemory(
-        vk_memory, memreq.size, device
-    );
+    auto cuda_extmem = interop::importCudaExternalMemory(vk_memory, memreq.size, device);
 
     // Add deletors to queue for later cleanup
     deletors.views.add([=,this]{
@@ -343,7 +341,7 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
         validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
         vkFreeMemory(device, vk_memory, nullptr);
     });
-    vkDestroyBuffer(device, test_buffer, nullptr);
+    vkDestroyBuffer(device, querybuf, nullptr);
 
     auto alloc = Allocation{memreq.size, vk_memory, cuda_extmem};
     cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
@@ -374,13 +372,20 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
 //     return attr_buffer;
 // }
 
-VkBuffer MimirEngine::createAttributeBuffer(const AttributeDescription desc,
-    size_t element_count, VkBufferUsageFlags usage)
+constexpr VkIndexType getIndexBufferType(int bytesize)
 {
-    // Get and validate buffer size against allocation size
-    VkDeviceSize memsize = desc.format.getSizeBytes() * element_count;
-    assert(memsize <= desc.source->size);
+    switch (bytesize)
+    {
+        case 2: return VK_INDEX_TYPE_UINT16;
+        case 4: return VK_INDEX_TYPE_UINT32;
+        // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char and VK_INDEX_TYPE_NONE_KHR for default
+        default: return VK_INDEX_TYPE_NONE_KHR;
+    }
+}
 
+VkBuffer MimirEngine::createAttributeBuffer(VkDeviceSize memsize,
+    VkBufferUsageFlags usage, VkDeviceMemory memory)
+{
     // Create and bind buffer
     VkExternalMemoryBufferCreateInfo extmem_info{
         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
@@ -389,121 +394,95 @@ VkBuffer MimirEngine::createAttributeBuffer(const AttributeDescription desc,
     };
     auto attr_buffer = createBuffer(device, memsize, usage, &extmem_info);
     deletors.views.add([=,this]{ vkDestroyBuffer(device, attr_buffer, nullptr); });
-    vkBindBufferMemory(device, attr_buffer, desc.source->vk_mem, 0);
+    vkBindBufferMemory(device, attr_buffer, memory, 0);
     return attr_buffer;
 }
 
-View *MimirEngine::createView(ViewDescription desc)
+// TODO: Implement as use descriptive enum instead of bool
+// TODO: Add more validations
+bool validateViewDescription(ViewDescription *desc)
 {
-    // TODO: Validate description
+    bool has_position_attr = false;
+    for (uint32_t i = 0; i < desc->attribute_count; ++i)
+    {
+        auto attr = desc->attributes[i];
+        has_position_attr = attr.type == AttributeType::Position;
+    }
+    return has_position_attr;
+}
 
-    ViewDetails inner{
+View *MimirEngine::createView(ViewDescription *desc)
+{
+    if (!validateViewDescription(desc))
+    {
+        spdlog::error("Invalid view");
+        return nullptr;
+    }
+
+    ViewDetails detail{
         .pipeline   = VK_NULL_HANDLE,
         .draw_count = 0,
         .vb_count   = 0,
         .vbo        = {VK_NULL_HANDLE},
         .offsets    = {0},
-        .is_indexed = false,
+        .use_ibo    = false,
         .ibo        = VK_NULL_HANDLE,
         .index_type = VK_INDEX_TYPE_NONE_KHR,
-        .desc       = desc,
+        .desc       = *desc,
     };
 
     // Create attribute buffers
-    for (uint32_t i = 0; i < desc.attribute_count; ++i)
+    for (uint32_t i = 0; i < desc->attribute_count; ++i)
     {
-        auto attr = desc.attributes[i];
-        // TODO: create attribute buffer and add to vbo array (vbo[vb_count++] = buf)
-        // except when attr_type is position and index array is set
+        auto attr = desc->attributes[i];
+
+        // Create source buffers as vertex buffers, except when an indices allocation
+        // is set for a non-position attribute
+        if (attr.type == AttributeType::Position || attr.indices != nullptr)
+        {
+            VkDeviceSize vb_size = attr.format.getSizeBytes() * desc->element_count;
+            VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            VkDeviceMemory vb_mem = attr.source->vk_mem;
+            // TODO: Get if there is still space remaining (or maybe do it in validation)
+            detail.vbo[detail.vb_count++] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+        }
+        else
+        {
+            VkDeviceSize sb_size = attr.format.getSizeBytes() * desc->element_count;
+            VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            VkDeviceMemory sb_mem = attr.source->vk_mem;
+            // TODO: Add SSBO to some field in memory
+            createAttributeBuffer(sb_size, sb_usage, sb_mem);
+        }
+
+        // If there is no indirect source mapping, then all buffers were created
+        if (attr.indices == nullptr) { continue; }
+
+        // Create indirect buffers as index buffer for position attributes,
+        // and as vertex buffers for all other attributes
+        VkDeviceMemory memory = attr.indices->vk_mem;
+        VkDeviceSize memsize = attr.index_size * desc->element_count;
+        if (attr.type == AttributeType::Position)
+        {
+            VkBufferUsageFlags ib_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            detail.ibo = createAttributeBuffer(memsize, ib_usage, memory);
+            detail.index_type = getIndexBufferType(attr.index_size);
+            detail.use_ibo = true;
+        }
+        else
+        {
+            VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            detail.vbo[detail.vb_count++] = createAttributeBuffer(memsize, vb_usage, memory);
+        }
     }
-    // for (const auto &[type, attr] : params.attributes)
-    // {
-    //     auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    //     auto attr_buffer = createAttributeBuffer(attr, params.element_count, usage);
-    //     // Register buffer info in attribute array
-    //     res.vbo.handles.push_back(attr_buffer);
-    //     res.vbo.offsets.push_back(attr.offset);
-    //     res.vbo.count++;
-    // }
 
-    // // Create index buffer if its attribute was set
-    // if (params.indexing.allocation != nullptr)
-    // {
-    //     // Get index buffer params
-    //     auto& ip = params.indexing;
-    //     auto usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-    //     // Get and validate buffer size against allocation size
-    //     VkDeviceSize memsize = getComponentSize(ip.type) * ip.element_count;
-    //     assert(memsize + ip.offset <= ip.allocation->size);
-
-    //     // Create and bind buffer
-    //     VkExternalMemoryBufferCreateInfo extmem_info{
-    //         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
-    //         .pNext       = nullptr,
-    //         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-    //     };
-    //     auto index_buffer = createBuffer(device, memsize, usage, &extmem_info);
-    //     deletors.views.add([=,this]{ vkDestroyBuffer(device, index_buffer, nullptr); });
-    //     vkBindBufferMemory(device, index_buffer, ip.allocation->vk_mem, 0);
-    //     // Register index buffer info
-    //     res.ibo.handle = index_buffer;
-    //     res.ibo.type   = getIndexType(ip.type);
-    // }
-
-    auto handle = new ViewDetails(inner);
-    // deletors.views.add([=,this]{ delete handle; });
-    // views.push_back(handle);
-    return nullptr;
+    auto inner = new ViewDetails(detail);
+    View view{ .detail = inner, .visible = true };
+    auto handle = new View(view);
+    deletors.views.add([=,this]{ delete inner; delete handle; });
+    views.push_back(handle);
+    return handle;
 }
-
-// InteropView *MimirEngine::createView(ViewParams params)
-// {
-//     ViewResources res;
-//     res.vbo.handles.reserve(params.attributes.size());
-//     res.vbo.offsets.reserve(params.attributes.size());
-
-//     // Create attribute buffers
-//     for (const auto &[type, attr] : params.attributes)
-//     {
-//         auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-//         auto attr_buffer = createAttributeBuffer(attr, params.element_count, usage);
-//         // Register buffer info in attribute array
-//         res.vbo.handles.push_back(attr_buffer);
-//         res.vbo.offsets.push_back(attr.offset);
-//         res.vbo.count++;
-//     }
-
-//     // Create index buffer if its attribute was set
-//     if (params.indexing.allocation != nullptr)
-//     {
-//         // Get index buffer params
-//         auto& ip = params.indexing;
-//         auto usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-//         // Get and validate buffer size against allocation size
-//         VkDeviceSize memsize = getComponentSize(ip.type) * ip.element_count;
-//         assert(memsize + ip.offset <= ip.allocation->size);
-
-//         // Create and bind buffer
-//         VkExternalMemoryBufferCreateInfo extmem_info{
-//             .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
-//             .pNext       = nullptr,
-//             .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-//         };
-//         auto index_buffer = createBuffer(device, memsize, usage, &extmem_info);
-//         deletors.views.add([=,this]{ vkDestroyBuffer(device, index_buffer, nullptr); });
-//         vkBindBufferMemory(device, index_buffer, ip.allocation->vk_mem, 0);
-//         // Register index buffer info
-//         res.ibo.handle = index_buffer;
-//         res.ibo.type   = getIndexType(ip.type);
-//     }
-
-//     // TODO: Add uniform buffer support
-
-//     auto handle = new InteropView({params, res, VK_NULL_HANDLE});
-//     deletors.views.add([=,this]{ delete handle; });
-//     views.push_back(handle);
-//     return handle;
-// }
 
 // std::shared_ptr<DeviceAllocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
 //     const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
@@ -1094,7 +1073,7 @@ void MimirEngine::drawElements(uint32_t image_idx)
     {
         if (!views[i]->visible) continue;
         auto& view = views[i]->detail;
-        // Do not draw anything if view visibility is turned off
+        // Do not draw anything if visibility is turned off
 
         // Bind descriptor set and pipeline
         std::vector<uint32_t> offsets = {
@@ -1107,17 +1086,16 @@ void MimirEngine::drawElements(uint32_t image_idx)
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
-
         vkCmdBindVertexBuffers(cmd, 0, view->vb_count, view->vbo, view->offsets);
 
-        if (view->is_indexed) // Index buffer exists, bind it and perform indexed draw
+        if (view->use_ibo) // Index buffer exists, bind it and perform indexed draw
         {
             vkCmdBindIndexBuffer(cmd, view->ibo, 0, view->index_type);
             vkCmdDrawIndexed(cmd, view->draw_count, 1, 0, 0, 0);
         }
         else // Perform regular draw with bound vertex buffers
         {
-            // Instanced rendering is not supported currently
+            // Instanced rendering is not currently supported
             uint32_t instance_count = 1;
             uint32_t first_vertex = 0;
             // uint32_t scenario_count = view->params.offsets.size();

@@ -40,16 +40,15 @@ struct AttributeDescription
     AttributeType type;
     // Handle for the allocation containing the source data.
     Allocation *source;
-    // When set to zero, it is interpreted to be equal to the number of elements required
-    // by the view type to correctly display it.
-    unsigned int element_count;
+    // Number of elements contained in the source allocation.
+    unsigned int size;
     // Format description for the elements in the source array; ignored when sources is null.
     FormatDescription format;
     // Handle for the allocation containing indices referencing the source array.
     Allocation *indices;
     // Size in bits of the index type stored in the indices allocation.
     // This value is ignored when indices is null.
-    int index_size_bytes;
+    int index_size;
 };
 
 // TODO: More texture definitions (e.g. mipmap levels)

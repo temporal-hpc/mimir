@@ -3,6 +3,7 @@
 #include <string> // std::stoul
 
 #include <mimir/mimir.hpp>
+#include <mimir/formats.hpp>
 #include "validation.hpp" // checkCuda
 using namespace mimir;
 
@@ -47,8 +48,8 @@ void integrate2d(double2 *coords, size_t point_count, curandState *states, int2 
 
 int main(int argc, char *argv[])
 {
-    size_t point_count    = 100;
-    size_t iter_count     = 10000;
+    unsigned point_count  = 100;
+    unsigned iter_count   = 10000;
     double2 *d_coords     = nullptr;
     double *d_sizes       = nullptr;
     curandState *d_states = nullptr;
@@ -58,7 +59,7 @@ int main(int argc, char *argv[])
     unsigned seed         = 123456;
 
     if (argc >= 2) point_count = std::stoul(argv[1]);
-    if (argc >= 3) iter_count = std::stoul(argv[2]);
+    if (argc >= 3) iter_count  = std::stoul(argv[2]);
 
     // Initialize engine
     ViewerOptions options;
@@ -68,26 +69,40 @@ int main(int argc, char *argv[])
     Engine engine = nullptr;
     createEngine(options, &engine);
 
-    Allocation points = nullptr, sizes = nullptr;
+    AllocHandle points = nullptr, sizes = nullptr;
     allocLinear(engine, (void**)&d_coords, sizeof(double2) * point_count, &points);
     allocLinear(engine, (void**)&d_sizes, sizeof(double) * point_count, &sizes);
 
-    View view = nullptr;
-    ViewParams params;
-    params.element_count = point_count;
-    params.extent        = {200, 200, 1};
-    params.data_domain   = DomainType::Domain2D;
-    params.view_type     = ViewType::Markers;
-    params.options.default_size = 20.f;
-    params.attributes[AttributeType::Position] = {
-        .allocation = points,
-        .format     = { .type = DataType::float64, .components = 2 },
+    ViewHandle view = nullptr;
+    AttributeDescription attributes[2] = {
+        {
+            .type       = AttributeType::Position,
+            .source     = points,
+            .size       = point_count,
+            .format     = getFormat<double2>(),
+            .indices    = nullptr,
+            .index_size = 0,
+        },{
+            .type       = AttributeType::Size,
+            .source     = sizes,
+            .size       = point_count,
+            .format     = getFormat<double>(),
+            .indices    = nullptr,
+            .index_size = 0,
+        }
     };
-    params.attributes[AttributeType::Size] = {
-        .allocation = sizes,
-        .format     = { .type = DataType::float64, .components = 1 },
+    ViewDescription desc{
+        .element_count   = point_count,
+        .view_type       = ViewType::Markers,
+        .domain_type     = DomainType::Domain2D,
+        .attribute_count = 2,
+        .attributes      = attributes,
+        .texture_count   = 0,
+        .textures        = nullptr,
     };
-    createView(engine, params, &view);
+    // desc.extent        = {200, 200, 1};
+    // desc.options.default_size = 20.f;
+    // createView(engine, &desc, &view);
 
     // Cannot make CUDA calls that use the target device memory before
     // registering it on the engine
@@ -107,7 +122,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    display(engine, cuda_call, iter_count);
+    //display(engine, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));

@@ -28,7 +28,7 @@ void allocLinear(Engine engine, void **dev_ptr, size_t size, AllocHandle *handle
     *handle = engine->allocLinear(dev_ptr, size);
 }
 
-void createView(Engine engine, ViewDescription desc, ViewHandle *handle)
+void createView(Engine engine, ViewDescription *desc, ViewHandle *handle)
 {
     *handle = engine->createView(desc);
 }

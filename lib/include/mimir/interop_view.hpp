@@ -7,8 +7,6 @@
 #include <string> // std::string
 #include <vector> // std::vector
 
-#include <mimir/view_types.hpp>
-
 namespace mimir
 {
 
@@ -39,41 +37,6 @@ struct ViewOptions
     int custom_val = 0;
 };
 
-struct DeviceAllocation
-{
-    // DeviceAllocation memory size in bytes
-    size_t size                      = 0;
-    // Vulkan external device memory handle
-    VkDeviceMemory vk_mem            = VK_NULL_HANDLE;
-    // Cuda external memory handle, provided by the Cuda interop API
-    cudaExternalMemory_t cuda_extmem = nullptr;
-
-    // VMA object representing the underlying memory
-    // VmaAllocation allocation      = nullptr;
-};
-
-struct AttributeParams
-{
-    // Interop memory handle
-    DeviceAllocation *allocation = nullptr;
-    // Type of variables stored per element
-    DataFormat format = {};
-    // Offset to start of memory handle
-    VkDeviceSize offset = 0;
-};
-
-struct IndexingParams
-{
-    // Interop memory handle
-    DeviceAllocation *allocation = nullptr;
-    // Number of indices
-    uint32_t element_count = 0;
-    // Index data type
-    DataType type  = DataType::float32;
-    // Offset to start of memory handle
-    VkDeviceSize offset = 0;
-};
-
 using AttributeDict = std::map<AttributeType, AttributeParams>;
 
 struct ViewParams
@@ -87,63 +50,6 @@ struct ViewParams
     IndexingParams indexing;
     std::vector<uint32_t> offsets;
     std::vector<uint32_t> sizes;
-};
-
-// Container for all vertex buffer objects associated to a Mimir view object.
-struct BufferArray
-{
-    // Number of vertex buffers in the view.
-    // The sizes of the handles and offsets arrays equals this value.
-    uint32_t count = 0;
-    // Set of vertex buffer objects associated to the view.
-    std::vector<VkBuffer> handles;
-    // Start region or each buffer object in the set.
-    std::vector<VkDeviceSize> offsets;
-};
-
-// If the contained buffer handle is not null, the associated
-// view will bind said handle as an index buffer when drawing.
-struct IndexBuffer
-{
-    // Handle to index buffer object.
-    VkBuffer handle  = VK_NULL_HANDLE;
-    // Specify size of each index datum.
-    VkIndexType type = VK_INDEX_TYPE_UINT32;
-};
-
-struct ImageData
-{
-    VkImage handle       = VK_NULL_HANDLE;
-    VkImageView img_view = VK_NULL_HANDLE;
-    VkSampler sampler    = VK_NULL_HANDLE;
-    VkFormat format      = VK_FORMAT_UNDEFINED;
-    VkExtent3D extent    = {0, 0, 0};
-};
-
-struct ViewResources
-{
-    BufferArray vbo;
-    IndexBuffer ibo;
-    BufferArray ubo;
-    ImageData image;
-};
-
-struct InteropView
-{
-    // View parameters
-    ViewParams params;
-
-    // Container for Vulkan graphics resources.
-    ViewResources resources;
-    // Rendering pipeline associated to this view.
-    VkPipeline pipeline = VK_NULL_HANDLE;
-
-    // Switches view state between visible and invisible; does not modify underlying data.
-    bool toggleVisibility()
-    {
-        params.options.visible = !params.options.visible;
-        return params.options.visible;
-    }
 };
 
 } // namespace mimir
