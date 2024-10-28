@@ -1,5 +1,8 @@
 #pragma once
 
+#include <map> // std::map
+#include <vector> // std::vector
+
 namespace mimir
 {
 
@@ -36,8 +39,6 @@ enum class AttributeType { Position, Color, Size, Rotation };
 // the indices array is set to a non-null value or not.
 struct AttributeDescription
 {
-    // The same attribute value cannot appear in more than one description for a same view.
-    AttributeType type;
     // Handle for the allocation containing the source data.
     Allocation *source;
     // Number of elements contained in the source allocation.
@@ -62,6 +63,16 @@ struct TextureDescription
     int level_count;
 };
 
+struct ViewExtent
+{
+    unsigned int x, y, z;
+
+    static ViewExtent make(unsigned int x, unsigned int y, unsigned int z)
+    {
+        return { .x = x, .y = y, .z = z };
+    }
+};
+
 struct ViewDescription
 {
     // Number of elements contained in the view.
@@ -71,20 +82,19 @@ struct ViewDescription
     ViewType view_type;
     // Determines whether to draw 2D or 3D elements for the given view type.
     DomainType domain_type;
-    // Number of attached attributes in the view.
-    unsigned int attribute_count;
-    // Ignored when attribute_count is 0.
-    AttributeDescription *attributes;
-    // Number of attached textures in the view.
-    unsigned int texture_count;
-    // Ignored when texture_count is 0.
-    TextureDescription *textures;
+    ViewExtent extent;
+    // Dictionary of attached attributes.
+    std::map<AttributeType, AttributeDescription> attributes;
+    // Attached textures in the view.
+    std::vector<TextureDescription> textures;
 };
 
 struct View
 {
     ViewDetails *detail;
     bool visible;
+    float default_color[4];
+    float default_size;
 
     // Switches view state between visible and invisible; does not modify underlying data.
     bool toggleVisibility()

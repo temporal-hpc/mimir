@@ -94,29 +94,29 @@ void addViewObjectGui(View *view_ptr, int uid)
         //     addTableRow("Data extent", getExtent(desc.extent, desc.data_domain));
         //     ImGui::EndTable();
         // }
-        // for (const auto &[type, attr] : desc.attributes)
-        // {
-        //     if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
-        //     {
-        //         //addTableRow("Element count", std::to_string(info.element_count));
-        //         addTableRow("Attribute type", getAttributeType(type));
-        //         //addTableRow("Resource type", getResourceType(info.resource_type));
-        //         addTableRow("Data type", getDataType(attr.format.type));
-        //         addTableRow("Channel count", std::to_string(attr.format.components));
-        //         //addTableRow("Data layout", getDataLayout(attr.layout));
+        for (const auto &[type, attr] : desc.attributes)
+        {
+            if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+            {
+                //addTableRow("Element count", std::to_string(info.element_count));
+                addTableRow("Attribute type", getAttributeType(type));
+                //addTableRow("Resource type", getResourceType(info.resource_type));
+                //addTableRow("Data type", getDataType(attr.format.type));
+                addTableRow("Channel count", std::to_string(attr.format.components));
+                //addTableRow("Data layout", getDataLayout(attr.layout));
 
-        //         /*bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
-        //             &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
-        //         );
-        //         if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
-        //         bool data_check = addTableRowCombo("Data type", (int*)&info.component_type,
-        //             &AllComponentTypes::ItemGetter, kAllComponentTypes.data(), kAllComponentTypes.size()
-        //         );
-        //         if (data_check) printf("View %d: switched data type to %s\n", uid, getComponentType(info.component_type));*/
+                /*bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
+                    &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
+                );
+                if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
+                bool data_check = addTableRowCombo("Data type", (int*)&info.component_type,
+                    &AllComponentTypes::ItemGetter, kAllComponentTypes.data(), kAllComponentTypes.size()
+                );
+                if (data_check) printf("View %d: switched data type to %s\n", uid, getComponentType(info.component_type));*/
 
-        //         ImGui::EndTable();
-        //     }
-        // }
+                ImGui::EndTable();
+            }
+        }
         //ImGui::TreePop();
     }
     ImGui::PopID();

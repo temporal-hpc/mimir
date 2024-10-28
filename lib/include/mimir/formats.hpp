@@ -22,7 +22,7 @@ template <typename T> FormatKind getFormatKind()
 template <typename T, int N> FormatDescription buildFormat()
 {
     FormatKind kind = getFormatKind<T>();
-    return { .kind = kind, .size = sizeof(T) * N, .components = N };
+    return { .kind = kind, .size = sizeof(T), .components = N };
 }
 
 #ifndef uint

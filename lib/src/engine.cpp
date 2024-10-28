@@ -403,10 +403,9 @@ VkBuffer MimirEngine::createAttributeBuffer(VkDeviceSize memsize,
 bool validateViewDescription(ViewDescription *desc)
 {
     bool has_position_attr = false;
-    for (uint32_t i = 0; i < desc->attribute_count; ++i)
+    for (auto &[type, attr] : desc->attributes)
     {
-        auto attr = desc->attributes[i];
-        has_position_attr = attr.type == AttributeType::Position;
+        has_position_attr |= type == AttributeType::Position;
     }
     return has_position_attr;
 }
@@ -421,7 +420,7 @@ View *MimirEngine::createView(ViewDescription *desc)
 
     ViewDetails detail{
         .pipeline   = VK_NULL_HANDLE,
-        .draw_count = 0,
+        .draw_count = desc->element_count,
         .vb_count   = 0,
         .vbo        = {VK_NULL_HANDLE},
         .offsets    = {0},
@@ -432,15 +431,15 @@ View *MimirEngine::createView(ViewDescription *desc)
     };
 
     // Create attribute buffers
-    for (uint32_t i = 0; i < desc->attribute_count; ++i)
+    for (auto &[type, attr] : desc->attributes)
     {
-        auto attr = desc->attributes[i];
-
+        spdlog::trace("Processing attr {}", getAttributeType(type));
         // Create source buffers as vertex buffers, except when an indices allocation
         // is set for a non-position attribute
-        if (attr.type == AttributeType::Position || attr.indices != nullptr)
+        if (type == AttributeType::Position || attr.indices == nullptr)
         {
             VkDeviceSize vb_size = attr.format.getSizeBytes() * desc->element_count;
+            spdlog::trace("Position VB size {}, available {}", vb_size, attr.source->size);
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = attr.source->vk_mem;
             // TODO: Get if there is still space remaining (or maybe do it in validation)
@@ -449,6 +448,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         else
         {
             VkDeviceSize sb_size = attr.format.getSizeBytes() * desc->element_count;
+            spdlog::trace("Position SB size {}, available {}", sb_size, attr.source->size);
             VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             VkDeviceMemory sb_mem = attr.source->vk_mem;
             // TODO: Add SSBO to some field in memory
@@ -462,7 +462,8 @@ View *MimirEngine::createView(ViewDescription *desc)
         // and as vertex buffers for all other attributes
         VkDeviceMemory memory = attr.indices->vk_mem;
         VkDeviceSize memsize = attr.index_size * desc->element_count;
-        if (attr.type == AttributeType::Position)
+        spdlog::trace("Attr buf size {}", memsize);
+        if (type == AttributeType::Position)
         {
             VkBufferUsageFlags ib_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
             detail.ibo = createAttributeBuffer(memsize, ib_usage, memory);
@@ -477,8 +478,12 @@ View *MimirEngine::createView(ViewDescription *desc)
     }
 
     auto inner = new ViewDetails(detail);
-    View view{ .detail = inner, .visible = true };
-    auto handle = new View(view);
+    auto handle = new View({
+        .detail        = inner,
+        .visible       = true,
+        .default_color = { 0.f, 0.f, 0.f, 1.f },
+        .default_size  = 10.f,
+    });
     deletors.views.add([=,this]{ delete inner; delete handle; });
     views.push_back(handle);
     return handle;
@@ -1265,31 +1270,31 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
             .proj  = camera.matrices.perspective,
         };
 
-        // auto dc = view->params.options.default_color;
-        // ViewUniforms vu{
-        //     .color         = glm::vec4(dc.x, dc.y, dc.z, dc.w),
-        //     .size          = view->params.options.default_size,
-        //     .depth         = view->params.options.depth,
-        //     .element_count = view->params.options.custom_val,
-        // };
+        auto dc = view->default_color;
+        ViewUniforms vu{
+            .color         = glm::vec4(dc[0], dc[1], dc[2], dc[3]),
+            .size          = view->default_size,
+            .depth         = 0.f,
+            .element_count = 0,
+        };
 
-        // auto bg = options.bg_color;
-        // auto extent = view->params.extent;
-        // SceneUniforms su{
-        //     .bg_color    = glm::vec4(bg.x, bg.y, bg.z, bg.w),
-        //     .extent      = glm::ivec3{extent.x, extent.y, extent.z},
-        //     .resolution  = glm::ivec2{options.window.size.x, options.window.size.y},
-        //     .camera_pos  = camera.position,
-        //     .light_pos   = glm::vec3(0,0,0),
-        //     .light_color = glm::vec4(0,0,0,0),
-        // };
+        auto bg = options.bg_color;
+        auto extent = view->detail->desc.extent;
+        SceneUniforms su{
+            .bg_color    = glm::vec4(bg.x, bg.y, bg.z, bg.w),
+            .extent      = glm::ivec3{extent.x, extent.y, extent.z},
+            .resolution  = glm::ivec2{options.window.size.x, options.window.size.y},
+            .camera_pos  = camera.position,
+            .light_pos   = glm::vec3(0,0,0),
+            .light_color = glm::vec4(0,0,0,0),
+        };
 
         char *data = nullptr;
         auto offset = size_ubo * view_idx;
         vkMapMemory(device, memory, offset, size_ubo, 0, (void**)&data);
         std::memcpy(data, &mvp, sizeof(mvp));
-        //std::memcpy(data + size_mvp, &vu, sizeof(vu));
-        //std::memcpy(data + size_mvp + size_view, &su, sizeof(su));
+        std::memcpy(data + size_mvp, &vu, sizeof(vu));
+        std::memcpy(data + size_mvp + size_view, &su, sizeof(su));
         vkUnmapMemory(device, memory);
     }
 }

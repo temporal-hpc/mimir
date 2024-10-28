@@ -123,13 +123,12 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         {AttributeType::Size, "SizeDefault"}
     };
 
-    for (unsigned int i = 0; i < desc.attribute_count; ++i)
+    for (auto &[type, attr] : desc.attributes)
     {
-        auto& attr = desc.attributes[i];
-        std::string spec = getAttributeType(attr.type);
+        std::string spec = getAttributeType(type);
         spec += getDataType(attr.format);
         spec += std::to_string(attr.format.components);
-        specs[attr.type] = spec;
+        specs[type] = spec;
     }
     // Get the list of specialization names
     for (const auto& spec : specs)
@@ -148,7 +147,7 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
 
             // Add dimensionality specialization
             std::string marker_spec = "Marker";
-            // marker_spec += getDomainType(desc.domain_type);
+            marker_spec += getDomainType(desc.domain_type);
             compile.specializations.push_back(marker_spec);
 
             // Add shape specialization (TODO: Do it properly)
@@ -310,21 +309,21 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
 
 VertexDescription getVertexDescription(const ViewDescription desc)
 {
+    auto attr_count = desc.attributes.size();
     VertexDescription vert;
-    vert.binding.reserve(desc.attribute_count);
-    vert.attribute.reserve(desc.attribute_count);
+    vert.binding.reserve(attr_count);
+    vert.attribute.reserve(attr_count);
 
     uint32_t binding = 0;
-    for (uint32_t i = 0; i < desc.attribute_count; ++i)
+    for (auto &[type, attr] : desc.attributes)
     {
-        auto& attr = desc.attributes[i];
         vert.binding.push_back(VkVertexInputBindingDescription{
             .binding   = binding,
             .stride    = attr.format.getSizeBytes(),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
         });
         vert.attribute.push_back(VkVertexInputAttributeDescription{
-            .location = static_cast<uint32_t>(attr.type),
+            .location = static_cast<uint32_t>(type),
             .binding  = binding,
             .format   = getVulkanFormat(attr.format),
             .offset   = 0,

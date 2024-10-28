@@ -74,35 +74,31 @@ int main(int argc, char *argv[])
     allocLinear(engine, (void**)&d_sizes, sizeof(double) * point_count, &sizes);
 
     ViewHandle view = nullptr;
-    AttributeDescription attributes[2] = {
-        {
-            .type       = AttributeType::Position,
-            .source     = points,
-            .size       = point_count,
-            .format     = getFormat<double2>(),
-            .indices    = nullptr,
-            .index_size = 0,
-        },{
-            .type       = AttributeType::Size,
-            .source     = sizes,
-            .size       = point_count,
-            .format     = getFormat<double>(),
-            .indices    = nullptr,
-            .index_size = 0,
-        }
-    };
     ViewDescription desc{
-        .element_count   = point_count,
-        .view_type       = ViewType::Markers,
-        .domain_type     = DomainType::Domain2D,
-        .attribute_count = 2,
-        .attributes      = attributes,
-        .texture_count   = 0,
-        .textures        = nullptr,
+        .element_count = point_count,
+        .view_type     = ViewType::Markers,
+        .domain_type   = DomainType::Domain2D,
+        .extent        = ViewExtent::make(200, 200, 1),
+        .attributes    = {},
+        .textures      = {},
     };
-    // desc.extent        = {200, 200, 1};
+    desc.attributes[AttributeType::Position] = {
+        .source     = points,
+        .size       = point_count,
+        .format     = getFormat<double2>(),
+        .indices    = nullptr,
+        .index_size = 0,
+    };
+    desc.attributes[AttributeType::Size] = {
+        .source     = sizes,
+        .size       = point_count,
+        .format     = getFormat<double>(),
+        .indices    = nullptr,
+        .index_size = 0,
+    };
+
     // desc.options.default_size = 20.f;
-    // createView(engine, &desc, &view);
+    createView(engine, &desc, &view);
 
     // Cannot make CUDA calls that use the target device memory before
     // registering it on the engine
@@ -122,7 +118,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    //display(engine, cuda_call, iter_count);
+    display(engine, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
