@@ -105,11 +105,8 @@ constexpr char* getDataType(FormatDescription desc)
     }
 }
 
-constexpr uint32_t getFormatSize(std::span<const FormatDescription> formats)
-{
-    uint32_t sz = 0;
-    for (const auto& format : formats) { sz += format.getSize(); }
-    return sz;
-}
+uint32_t getFormatSize(std::span<const FormatDescription> formats);
+
+VkFormat getVulkanFormat(FormatDescription desc);
 
 } // namespace mimir

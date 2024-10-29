@@ -23,9 +23,15 @@ void destroyEngine(Engine engine)
     delete engine;
 }
 
-void allocLinear(Engine engine, void **dev_ptr, size_t size, AllocHandle *handle)
+void allocLinear(Engine engine, void **dev_ptr, size_t size, AllocHandle *alloc)
 {
-    *handle = engine->allocLinear(dev_ptr, size);
+    *alloc = engine->allocLinear(dev_ptr, size);
+}
+
+void allocMipmap(Engine engine, cudaMipmappedArray_t *dev_arr, const cudaChannelFormatDesc *desc,
+    cudaExtent extent, unsigned int num_levels, AllocHandle *alloc)
+{
+    *alloc = engine->allocMipmap(dev_arr, desc, extent, num_levels);
 }
 
 void createView(Engine engine, ViewDescription *desc, ViewHandle *handle)

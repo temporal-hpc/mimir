@@ -3,6 +3,8 @@
 #include <mimir/options.hpp>
 #include <mimir/view.hpp>
 
+#include <cuda_runtime_api.h>
+
 #include <functional> // std::function
 #include <memory> // std::unique_ptr
 
@@ -30,6 +32,9 @@ void prepareViews(Engine engine);
 void updateViews(Engine engine);
 
 void allocLinear(Engine engine, void **dev_ptr, size_t size, AllocHandle *alloc);
+void allocMipmap(Engine engine, cudaMipmappedArray_t *dev_arr, const cudaChannelFormatDesc *desc,
+    cudaExtent extent, unsigned int num_levels, AllocHandle *alloc
+);
 void createView(Engine engine, ViewDescription *desc, ViewHandle *view);
 void setGuiCallback(Engine engine, std::function<void(void)> callback);
 AttributeDescription makeStructuredGrid(Engine engine, ViewExtent extent, float3 start={0.f,0.f,0.f});

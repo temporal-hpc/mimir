@@ -113,9 +113,9 @@ struct MimirEngine
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
     Allocation *allocLinear(void **dev_ptr, size_t size);
     // Allocates opaque device memory, equivalent to cudaMallocMipmappedArray()
-    // std::shared_ptr<DeviceAllocation> allocMipmap(cudaMipmappedArray_t *dev_arr,
-    //     const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
-    // );
+    Allocation *allocMipmap(cudaMipmappedArray_t *dev_arr,
+         const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
+    );
 
     // Allocates device memory initialized for representing a structured domain
     AttributeDescription makeStructuredGrid(ViewExtent size, float3 start={0.f,0.f,0.f});
@@ -123,7 +123,7 @@ struct MimirEngine
 
     // View creation
     View *createView(ViewDescription *desc);
-    VkBuffer createAttributeBuffer(size_t element_count,
+    VkBuffer createAttributeBuffer(VkDeviceSize size,
         VkBufferUsageFlags usage, VkDeviceMemory memory
     );
 
@@ -157,8 +157,6 @@ struct MimirEngine
     void createViewPipelines();
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);
-
-    //DeviceAllocation allocExtmemBuffer(size_t size, VkBufferUsageFlags usage);
 
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
     void generateMipmaps(VkImage image, VkFormat img_format,

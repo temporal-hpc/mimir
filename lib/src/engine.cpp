@@ -264,6 +264,16 @@ constexpr VkIndexType getIndexBufferType(int bytesize)
     }
 }
 
+VkImageType getImageType(FormatDescription desc)
+{
+    switch (desc.components)
+    {
+        case 2:          return VK_IMAGE_TYPE_2D;
+        case 3:          return VK_IMAGE_TYPE_3D;
+        case 1: default: return VK_IMAGE_TYPE_1D;
+    }
+}
+
 void initGridCoords(float3 *data, ViewExtent size, float3 start)
 {
     auto slice_size = size.x * size.y;
@@ -321,6 +331,11 @@ AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 sta
 
 AttributeDescription MimirEngine::makeImageDomain()
 {
+    struct Vertex {
+        alignas(16) glm::vec3 pos;
+        alignas(8)  glm::vec2 uv;
+        //glm::vec3 normal;
+    };
     const std::vector<Vertex> vertices{
         { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
         { { -1.f,  1.f, 0.f }, { 0.f, 1.f } },
@@ -361,6 +376,13 @@ AttributeDescription MimirEngine::makeImageDomain()
     std::memcpy(data, indices.data(), ids_size);
     vkUnmapMemory(device, ibo_mem);
 
+    deletors.views.add([=,this]{
+        vkFreeMemory(device, vbo_mem, nullptr);
+        vkDestroyBuffer(device, vbo, nullptr);
+        vkFreeMemory(device, ibo_mem, nullptr);
+        vkDestroyBuffer(device, ibo, nullptr);
+    });
+
     // There is currently no function to easily create composite format descriptions,
     // so the desired format is created from two individual formats
     auto format_pos = FormatDescription::make<float3>();
@@ -386,9 +408,9 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
-    auto querybuf = createBuffer(device, size, usage, &extmem_info);
+    auto query_buf = createBuffer(device, size, usage, &extmem_info);
     VkMemoryRequirements memreq{};
-    vkGetBufferMemoryRequirements(device, querybuf, &memreq);
+    vkGetBufferMemoryRequirements(device, query_buf, &memreq);
 
     // Allocate external device memory
     VkExportMemoryAllocateInfoKHR export_info{
@@ -410,13 +432,91 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
         validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
         vkFreeMemory(device, vk_memory, nullptr);
     });
-    vkDestroyBuffer(device, querybuf, nullptr);
+    vkDestroyBuffer(device, query_buf, nullptr);
 
     auto alloc = Allocation{memreq.size, vk_memory, cuda_extmem};
     cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
     validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
         dev_ptr, alloc.cuda_extmem, &buffer_desc)
     );
+    auto alloc_ptr = new Allocation(alloc);
+    deletors.context.add([=,this]{ delete alloc_ptr; });
+    return alloc_ptr;
+}
+
+FormatDescription getFormatFromCuda(const cudaChannelFormatDesc *desc)
+{
+    // Convert format kind from CUDA enum to library enum class
+    FormatKind kind;
+    switch (desc->f)
+    {
+        case cudaChannelFormatKindSigned:   { kind = FormatKind::Signed; break; }
+        case cudaChannelFormatKindUnsigned: { kind = FormatKind::Unsigned; break; }
+        case cudaChannelFormatKindFloat: default: { kind = FormatKind::Float; break; }
+    }
+    // For now, assume that all channels have same size
+    // TODO: Handle case when channels are different
+    int size = desc->x / 8;
+    // Assume that a component exists if its size is greater than zero
+    int components = (desc->x > 0) + (desc->y > 0) + (desc->z > 0) + (desc->w > 0);
+    return { .kind = kind, .size = size, .components = components };
+}
+
+Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
+    const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
+{
+    auto format = getFormatFromCuda(desc);
+    ImageParams img_params{
+        .type   = getImageType(format),
+        .format = getVulkanFormat(format),
+        .extent = { (uint32_t)extent.width, (uint32_t)extent.height, (uint32_t)extent.depth },
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
+        .levels = num_levels,
+    };
+    // Create temporary image for querying the desired memory properties
+    VkExternalMemoryImageCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+    auto query_img = createImage(device, physical_device.handle, img_params, &extmem_info);
+    VkMemoryRequirements memreq{};
+    vkGetImageMemoryRequirements(device, query_img, &memreq);
+
+    // Allocate external device memory
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    auto available = physical_device.memory.memoryProperties;
+    auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
+
+    // Export and map the external memory to CUDA
+    auto cuda_extmem = interop::importCudaExternalMemory(vk_memory, memreq.size, device);
+
+    // Add deletors to queue for later cleanup
+    deletors.views.add([=,this]{
+        spdlog::trace("Free interop mipmapped image");
+        validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
+        vkFreeMemory(device, vk_memory, nullptr);
+    });
+    vkDestroyImage(device, query_img, nullptr);
+
+    auto alloc = Allocation{memreq.size, vk_memory, cuda_extmem};
+    cudaExternalMemoryMipmappedArrayDesc array_desc{
+        .offset     = 0,
+        .formatDesc = *desc,
+        .extent     = extent,
+        .flags      = 0,
+        .numLevels  = num_levels,
+    };
+    validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
+        dev_arr, cuda_extmem, &array_desc)
+    );
+
     auto alloc_ptr = new Allocation(alloc);
     deletors.context.add([=,this]{ delete alloc_ptr; });
     return alloc_ptr;
@@ -473,8 +573,8 @@ View *MimirEngine::createView(ViewDescription *desc)
     for (auto &[type, attr] : desc->attributes)
     {
         spdlog::trace("Processing attr {}", getAttributeType(type));
-        // Create source buffers as vertex buffers, except when an indices allocation
-        // is set for a non-position attribute
+        // Map source to a vertex buffer when accessing its elements directly
+        // Source is always mapped this way for position attributes
         if (type == AttributeType::Position || attr.indices == nullptr)
         {
             VkDeviceSize vb_size = getFormatSize(attr.format) * desc->element_count;
@@ -484,6 +584,7 @@ View *MimirEngine::createView(ViewDescription *desc)
             // TODO: Get if there is still space remaining (or maybe do it in validation)
             detail.vbo[detail.vb_count++] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
         }
+        // If a non-position attribute uses indirect mapping, its source is mapped to a storage buffer
         else
         {
             VkDeviceSize sb_size = getFormatSize(attr.format) * desc->element_count;
@@ -494,7 +595,7 @@ View *MimirEngine::createView(ViewDescription *desc)
             createAttributeBuffer(sb_size, sb_usage, sb_mem);
         }
 
-        // If there is no indirect source mapping, then all buffers were created
+        // If there is no indirect source access, the attribute is now fully processed
         if (attr.indices == nullptr) { continue; }
 
         // Create indirect buffers as index buffer for position attributes,
@@ -527,71 +628,6 @@ View *MimirEngine::createView(ViewDescription *desc)
     views.push_back(handle);
     return handle;
 }
-
-// std::shared_ptr<DeviceAllocation> MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
-//     const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
-// {
-//     assert(extent.width > 0 && extent.height > 0 && extent.depth > 0 && num_levels > 0);
-//     // TODO: Validate parameters against driver limits
-
-//     VkImageType type = extent.depth > 1? VK_IMAGE_TYPE_3D : extent.height > 1? VK_IMAGE_TYPE_2D : VK_IMAGE_TYPE_1D;
-//     VkFormat format  = VK_FORMAT_UNDEFINED; // TODO: Determine
-
-//     VkExternalMemoryImageCreateInfo extmem_info{
-//         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-//         .pNext       = nullptr,
-//         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-//     };
-//     VkImageCreateInfo info{
-//         .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-//         .pNext       = &extmem_info,
-//         .flags       = 0,
-//         .imageType   = type,
-//         .format      = format,
-//         .extent      = VkExtent3D{ (uint32_t)extent.width, (uint32_t)extent.height, (uint32_t)extent.depth },
-//         .mipLevels   = num_levels,
-//         .arrayLayers = 1,
-//         .samples     = VK_SAMPLE_COUNT_1_BIT,
-//         .tiling      = VK_IMAGE_TILING_OPTIMAL,
-//         .usage       = VK_IMAGE_USAGE_SAMPLED_BIT,
-//         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-//         .queueFamilyIndexCount = 0,
-//         .pQueueFamilyIndices   = nullptr,
-//         .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
-//     };
-//     VkImage test_image = VK_NULL_HANDLE;
-//     validation::checkVulkan(vkCreateImage(device, &info, nullptr, &test_image));
-//     VkMemoryRequirements memreq{};
-//     vkGetImageMemoryRequirements(device, test_image, &memreq);
-
-//     auto available = physical_device.memory.memoryProperties;
-//     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-//     VkExportMemoryAllocateInfoKHR export_info{
-//         .sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
-//         .pNext = nullptr,
-//         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-//     };
-//     auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
-//     auto cuda_extmem = interop::importCudaExternalMemory(
-//         vk_memory, memreq.size, device
-//     );
-
-//     vkDestroyImage(device, test_image, nullptr);
-//     DeviceAllocation alloc{memreq.size, vk_memory, cuda_extmem};
-
-//     cudaExternalMemoryMipmappedArrayDesc array_desc{
-//         .offset     = 0,
-//         .formatDesc = *desc,
-//         .extent     = extent,
-//         .flags      = 0,
-//         .numLevels  = num_levels,
-//     };
-//     validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
-//         dev_arr, alloc.cuda_extmem, &array_desc)
-//     );
-
-//     return std::make_shared<DeviceAllocation>(alloc);
-// }
 
 VkDescriptorSetLayoutBinding descriptorLayoutBinding(
     uint32_t binding, VkDescriptorType type, VkShaderStageFlags flags)
@@ -854,6 +890,7 @@ void MimirEngine::initGraphics()
         .extent = { swapchain.extent.width, swapchain.extent.height, 1 },
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage  = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .levels = 1,
     };
     depth_image = createImage(device, physical_device.handle, params);
 

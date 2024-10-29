@@ -15,6 +15,7 @@ struct ImageParams
     VkExtent3D extent;
     VkImageTiling tiling;
     VkImageUsageFlags usage;
+    unsigned int levels;
 };
 
 VkFormatProperties getImageFormatProperties(VkPhysicalDevice ph_dev, VkFormat format);
@@ -27,7 +28,9 @@ VkBuffer createBuffer(VkDevice device, VkDeviceSize size,
     VkBufferUsageFlags usage, const void *extensions=nullptr
 );
 
-VkImage createImage(VkDevice device, VkPhysicalDevice ph_dev, ImageParams params);
+VkImage createImage(VkDevice device, VkPhysicalDevice ph_dev,
+    ImageParams params, const void *extensions=nullptr
+);
 
 VkImageView createImageView(VkDevice device, VkImage image, ImageParams params, VkImageAspectFlags flags);
 
