@@ -50,7 +50,7 @@ FetchContent_Declare(glfw
 )
 
 # GLM shader math lib
-set(GLM_ENABLE_CXX_20 ON)
+option(GLM_ENABLE_CXX_20 ON)
 FetchContent_Declare(glm
     GIT_REPOSITORY https://github.com/g-truc/glm.git
     GIT_TAG        0af55ccecd98d4e5a8d1fad7de25ba429d60e863 # 1.0.1

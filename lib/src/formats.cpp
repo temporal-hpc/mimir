@@ -1,16 +1,11 @@
-#pragma once
+#include <mimir/view.hpp>
 
 #include <cuda_runtime_api.h>
 
 #include <type_traits>
 
-#include <mimir/view.hpp>
-
 namespace mimir
 {
-
-// Helper for creating format descriptions for commonly used types, including CUDA vector types.
-template <typename T> FormatDescription getFormat();
 
 template <typename T> FormatKind getFormatKind()
 {
@@ -33,7 +28,7 @@ template <typename T, int N> FormatDescription buildFormat()
 #define uchar unsigned char
 #endif
 
-#define SPECIALIZE(T) template <> FormatDescription getFormat<T>() { return buildFormat<T,1>(); }
+#define SPECIALIZE(T) template <> FormatDescription FormatDescription::make<T>() { return buildFormat<T,1>(); }
     SPECIALIZE(int);
     SPECIALIZE(float);
     SPECIALIZE(double);
@@ -41,7 +36,7 @@ template <typename T, int N> FormatDescription buildFormat()
     SPECIALIZE(uchar);
 #undef SPECIALIZE
 
-#define SPECIALIZE_VEC(T,N) template <> FormatDescription getFormat<T##N>() { return buildFormat<T,N>(); }
+#define SPECIALIZE_VEC(T,N) template <> FormatDescription FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
     SPECIALIZE_VEC(int, 2);
     SPECIALIZE_VEC(int, 3);
     SPECIALIZE_VEC(int, 4);
@@ -59,12 +54,12 @@ template <typename T, int N> FormatDescription buildFormat()
     SPECIALIZE_VEC(uchar, 4);
 #undef SPECIALIZE_VEC
 
-#ifndef uint
+#ifdef uint
 #undef uint
 #endif
 
-#ifndef uchar
+#ifdef uchar
 #undef uchar
 #endif
 
-}
+} // namespace mimir

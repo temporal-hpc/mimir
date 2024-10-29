@@ -235,32 +235,32 @@ int main(int argc, char *argv[])
     Engine engine = nullptr;
     createEngine(1920, 1080, &engine);
 
-    Allocation seeds = nullptr, field = nullptr;
+    AllocHandle seeds = nullptr, field = nullptr;
     allocLinear(engine, (void**)&program.d_coords, sizeof(float2) * program.element_count, &seeds);
     allocLinear(engine, (void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y, &field);
 
-    View v1 = nullptr, v2 = nullptr;
-    ViewParams params;
-    params.element_count = program.element_count;
-    params.data_domain   = DomainType::Domain2D;
-    params.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
-    params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = {
-        .allocation = seeds,
-        .format     = { .type = DataType::float32, .components = 2 }
+    ViewHandle v1 = nullptr, v2 = nullptr;
+    ViewDescription desc;
+    desc.element_count = program.element_count;
+    desc.view_type     = ViewType::Markers;
+    desc.domain_type   = DomainType::Domain2D;
+    desc.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
+    desc.attributes[AttributeType::Position] = {
+        .source = seeds,
+        .format = FormatDescription::make<float2>(),
     };
-    params.options.default_color = {0,0,1,1};
-    createView(engine, params, &v1);
+    createView(engine, &desc, &v1);
+    //v1->default_color = {0,0,1,1};
 
-    params.element_count = program.extent.x * program.extent.y;
-    params.view_type     = ViewType::Voxels;
-    params.attributes[AttributeType::Position] = makeStructuredGrid(engine, params.extent, {0.f,0.f,0.4999f});
-    params.attributes[AttributeType::Color] = {
-        .allocation = field,
-        .format     = { .type = DataType::float32, .components = 1 },
+    desc.element_count = program.extent.x * program.extent.y;
+    desc.view_type     = ViewType::Voxels;
+    desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.extent, {0.f,0.f,0.4999f});
+    desc.attributes[AttributeType::Color] = {
+        .source = field,
+        .format = FormatDescription::make<float>(),
     };
-    params.options.default_size = 1.f;
-    createView(engine, params, &v2);
+    createView(engine, &desc, &v2);
+    v2->default_size = 1.f;
 
     program.setInitialState();
 

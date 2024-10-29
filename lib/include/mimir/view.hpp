@@ -11,7 +11,7 @@ struct Allocation;
 struct ViewDetails;
 
 // Specifies the type of view that will be visualized
-enum class ViewType      { Markers, Edges, Image, Boxes };
+enum class ViewType      { Markers, Edges, Image, Boxes, Voxels };
 // Specifies the number of spatial dimensions in the view
 enum class DomainType    { Domain2D, Domain3D };
 
@@ -31,6 +31,8 @@ struct FormatDescription
 
     // Returns the size in bytes of a single data element described in this format.
     unsigned int getSizeBytes() const { return size * components; }
+    // Helper for creating format descriptions for commonly used types, including CUDA vector types.
+    template <typename T> static FormatDescription make();
 };
 
 enum class AttributeType { Position, Color, Size, Rotation };
@@ -85,7 +87,7 @@ struct ViewDescription
     ViewExtent extent;
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;
-    // Attached textures in the view.
+    // List of textures attached to the view.
     std::vector<TextureDescription> textures;
 };
 

@@ -77,8 +77,8 @@ void addViewObjectGui(View *view_ptr, int uid)
             &AllViewTypes::ItemGetter, kAllViewTypes.data(), kAllViewTypes.size()
         );
         if (type_check) spdlog::info("View {}: switched view type to {}", uid, getViewType(desc.view_type));
-        // ImGui::SliderFloat("Element size (px)", &desc.options.default_size, 1.f, 100.f);
-        // ImGui::ColorEdit4("Element color", (float*)&desc.options.default_color);
+        ImGui::SliderFloat("Element size (px)", &view_ptr->default_size, 1.f, 100.f);
+        ImGui::ColorEdit4("Element color", view_ptr->default_color);
         // ImGui::SliderFloat("depth", &desc.options.depth, 0.f, 1.f);
 
         // if (desc.offsets.size() > 0)

@@ -3,7 +3,6 @@
 #include <string> // std::stoul
 
 #include <mimir/mimir.hpp>
-#include <mimir/formats.hpp>
 #include "validation.hpp" // checkCuda
 using namespace mimir;
 
@@ -85,14 +84,14 @@ int main(int argc, char *argv[])
     desc.attributes[AttributeType::Position] = {
         .source     = points,
         .size       = point_count,
-        .format     = getFormat<double2>(),
+        .format     = FormatDescription::make<double2>(),
         .indices    = nullptr,
         .index_size = 0,
     };
     desc.attributes[AttributeType::Size] = {
         .source     = sizes,
         .size       = point_count,
-        .format     = getFormat<double>(),
+        .format     = FormatDescription::make<double>(),
         .indices    = nullptr,
         .index_size = 0,
     };

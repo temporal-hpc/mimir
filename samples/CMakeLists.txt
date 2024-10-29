@@ -7,7 +7,7 @@ target_link_libraries(samples_common INTERFACE mimir)
 
 # Essential samples
 add_subdirectory(unstructured)
-# add_subdirectory(structured)
+add_subdirectory(structured)
 # add_subdirectory(mesh3d)
 # add_subdirectory(CA3D-voxels)
 # Basic samples

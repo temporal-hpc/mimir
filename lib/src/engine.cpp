@@ -243,7 +243,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     vkDeviceWaitIdle(device);
 }
 
-void initGridCoords(float3 *data, uint3 size, float3 start)
+void initGridCoords(float3 *data, ViewExtent size, float3 start)
 {
     auto slice_size = size.x * size.y;
     for (uint32_t z = 0; z < size.z; ++z)
@@ -271,40 +271,42 @@ uint32_t getVertexRate(ViewType type)
     }
 }
 
-// AttributeParams MimirEngine::makeStructuredGrid(uint3 size, float3 start)
-// {
-//     assert(size.x > 0 || size.y > 0 || size.z > 0);
-//     auto memsize = sizeof(float3) * size.x * size.y * size.z;
+AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 start)
+{
+    assert(size.x > 0 || size.y > 0 || size.z > 0);
+    auto memsize = sizeof(float3) * size.x * size.y * size.z;
 
-//     // Create test buffer for querying the desired memory properties
-//     auto domain_buffer = createBuffer(device, memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-//     VkMemoryRequirements memreq{};
-//     vkGetBufferMemoryRequirements(device, domain_buffer, &memreq);
+    // Create test buffer for querying the desired memory properties
+    auto domain_buffer = createBuffer(device, memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    VkMemoryRequirements memreq{};
+    vkGetBufferMemoryRequirements(device, domain_buffer, &memreq);
 
-//     auto available = physical_device.memory.memoryProperties;
-//     auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-//     auto vk_memory = allocateMemory(device, available, memreq, flags);
-//     vkBindBufferMemory(device, domain_buffer, vk_memory, 0);
-//     float3 *data = nullptr;
-//     vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
-//     initGridCoords(data, size, start);
-//     vkUnmapMemory(device, vk_memory);
-//     auto allocation = new DeviceAllocation({memreq.size, vk_memory, nullptr});
-//     deletors.context.add([=,this]{ delete allocation; });
+    auto available = physical_device.memory.memoryProperties;
+    auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto vk_memory = allocateMemory(device, available, memreq, flags);
+    vkBindBufferMemory(device, domain_buffer, vk_memory, 0);
+    float3 *data = nullptr;
+    vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
+    initGridCoords(data, size, start);
+    vkUnmapMemory(device, vk_memory);
+    auto grid_alloc = new Allocation({memreq.size, vk_memory, nullptr});
+    deletors.context.add([=,this]{ delete grid_alloc; });
 
-//     // Add deletors to queue for later cleanup
-//     deletors.views.add([=,this]{
-//         spdlog::trace("Free structured domain memory");
-//         vkFreeMemory(device, vk_memory, nullptr);
-//         vkDestroyBuffer(device, domain_buffer, nullptr);
-//     });
+    // Add deletors to queue for later cleanup
+    deletors.views.add([=,this]{
+        spdlog::trace("Free structured domain memory");
+        vkFreeMemory(device, vk_memory, nullptr);
+        vkDestroyBuffer(device, domain_buffer, nullptr);
+    });
 
-//     return AttributeParams{
-//         .allocation = allocation,
-//         .format     = { .type = DataType::float32, .components = 3 },
-//         .offset     = 0,
-//     };
-// }
+    return AttributeDescription{
+        .source     = grid_alloc,
+        .size       = size.x * size.y * size.z,
+        .format     = FormatDescription::make<float3>(),
+        .indices    = nullptr,
+        .index_size = 0,
+    };
+}
 
 Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
 {

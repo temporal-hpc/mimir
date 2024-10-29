@@ -170,14 +170,14 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
-        // case ViewType::Voxels:
-        // {
-        //     compile.module_path = "shaders/voxel.slang";
-        //     std::string geom_entry = "geometryMain";
-        //     geom_entry += getDomainType(desc.data_domain);
-        //     compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
-        //     break;
-        // }
+        case ViewType::Voxels:
+        {
+            compile.module_path = "shaders/voxel.slang";
+            std::string geom_entry = "geometryMain";
+            geom_entry += getDomainType(desc.domain_type);
+            compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
+            break;
+        }
         // case ViewType::Image:
         // {
         //     compile.module_path = "shaders/texture.slang";
