@@ -28,7 +28,8 @@ template <typename T, int N> FormatDescription buildFormat()
 #define uchar unsigned char
 #endif
 
-#define SPECIALIZE(T) template <> FormatDescription FormatDescription::make<T>() { return buildFormat<T,1>(); }
+#define SPECIALIZE(T) template <> std::vector<FormatDescription> \
+FormatDescription::make<T>() { return { buildFormat<T,1>() }; }
     SPECIALIZE(int);
     SPECIALIZE(float);
     SPECIALIZE(double);
@@ -36,7 +37,8 @@ template <typename T, int N> FormatDescription buildFormat()
     SPECIALIZE(uchar);
 #undef SPECIALIZE
 
-#define SPECIALIZE_VEC(T,N) template <> FormatDescription FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
+#define SPECIALIZE_VEC(T,N) template <> std::vector<FormatDescription> \
+FormatDescription::make<T##N>() { return { buildFormat<T,N>() }; }
     SPECIALIZE_VEC(int, 2);
     SPECIALIZE_VEC(int, 3);
     SPECIALIZE_VEC(int, 4);

@@ -63,6 +63,11 @@ AttributeDescription makeStructuredGrid(Engine engine, ViewExtent extent, float3
     return engine->makeStructuredGrid(extent, start);
 }
 
+AttributeDescription makeImageFrame(Engine engine)
+{
+    return engine->makeImageDomain();
+}
+
 EngineHandle make(int width, int height)
 {
     auto engine_ptr = new MimirEngine(MimirEngine::make(width, height));

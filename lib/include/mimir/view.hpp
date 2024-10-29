@@ -30,9 +30,9 @@ struct FormatDescription
     int components;
 
     // Returns the size in bytes of a single data element described in this format.
-    unsigned int getSizeBytes() const { return size * components; }
+    unsigned int getSize() const { return size * components; }
     // Helper for creating format descriptions for commonly used types, including CUDA vector types.
-    template <typename T> static FormatDescription make();
+    template <typename T> static std::vector<FormatDescription> make();
 };
 
 enum class AttributeType { Position, Color, Size, Rotation };
@@ -46,7 +46,7 @@ struct AttributeDescription
     // Number of elements contained in the source allocation.
     unsigned int size;
     // Format description for the elements in the source array; ignored when sources is null.
-    FormatDescription format;
+    std::vector<FormatDescription> format;
     // Handle for the allocation containing indices referencing the source array.
     Allocation *indices;
     // Size in bits of the index type stored in the indices allocation.

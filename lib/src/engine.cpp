@@ -243,6 +243,27 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     vkDeviceWaitIdle(device);
 }
 
+uint32_t getVertexRate(ViewType type)
+{
+    switch (type)
+    {
+        case ViewType::Edges: { return 3; } // AKA TriangleMesh
+        case ViewType::Boxes: { return 2; }
+        default: return 1;
+    }
+}
+
+constexpr VkIndexType getIndexBufferType(int bytesize)
+{
+    switch (bytesize)
+    {
+        case 2: return VK_INDEX_TYPE_UINT16;
+        case 4: return VK_INDEX_TYPE_UINT32;
+        // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char and VK_INDEX_TYPE_NONE_KHR for default
+        default: return VK_INDEX_TYPE_NONE_KHR;
+    }
+}
+
 void initGridCoords(float3 *data, ViewExtent size, float3 start)
 {
     auto slice_size = size.x * size.y;
@@ -258,16 +279,6 @@ void initGridCoords(float3 *data, ViewExtent size, float3 start)
                 data[slice_size * z + size.x * y + x] = float3{rx, ry, rz};
             }
         }
-    }
-}
-
-uint32_t getVertexRate(ViewType type)
-{
-    switch (type)
-    {
-        case ViewType::Edges: { return 3; } // AKA TriangleMesh
-        case ViewType::Boxes: { return 2; }
-        default: return 1;
     }
 }
 
@@ -305,6 +316,62 @@ AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 sta
         .format     = FormatDescription::make<float3>(),
         .indices    = nullptr,
         .index_size = 0,
+    };
+}
+
+AttributeDescription MimirEngine::makeImageDomain()
+{
+    const std::vector<Vertex> vertices{
+        { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
+        { { -1.f,  1.f, 0.f }, { 0.f, 1.f } },
+        { { -1.f, -1.f, 0.f }, { 0.f, 0.f } },
+        { {  1.f, -1.f, 0.f }, { 1.f, 0.f } }
+    };
+    // Indices for a single uv-view quad made from two triangles
+    const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0 };//, 4, 5, 6, 6, 7, 4 };
+
+    uint32_t vert_size = sizeof(Vertex) * vertices.size();
+    uint32_t ids_size = sizeof(uint16_t) * indices.size();
+
+    auto vbo = createBuffer(device, vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    VkMemoryRequirements memreq{};
+    vkGetBufferMemoryRequirements(device, vbo, &memreq);
+    // Allocate memory and bind it to buffers
+    auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto available = physical_device.memory.memoryProperties;
+    auto vbo_mem = allocateMemory(device, available, memreq, flags);
+    vkBindBufferMemory(device, vbo, vbo_mem, 0);
+    auto vbo_alloc = new Allocation({memreq.size, vbo_mem, nullptr});
+
+    auto ibo = createBuffer(device, ids_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    vkGetBufferMemoryRequirements(device, ibo, &memreq);
+    // Allocate memory and bind it to buffers
+    flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto ibo_mem = allocateMemory(device, available, memreq, flags);
+    vkBindBufferMemory(device, ibo, ibo_mem, 0);
+    auto ibo_alloc = new Allocation({memreq.size, ibo_mem, nullptr});
+
+    // Init image quad coords and indices
+    char *data = nullptr;
+    vkMapMemory(device, vbo_mem, 0, vert_size, 0, (void**)&data);
+    std::memcpy(data, vertices.data(), vert_size);
+    vkUnmapMemory(device, vbo_mem);
+
+    vkMapMemory(device, ibo_mem, 0, ids_size, 0, (void**)&data);
+    std::memcpy(data, indices.data(), ids_size);
+    vkUnmapMemory(device, ibo_mem);
+
+    // There is currently no function to easily create composite format descriptions,
+    // so the desired format is created from two individual formats
+    auto format_pos = FormatDescription::make<float3>();
+    auto format_uv  = FormatDescription::make<float2>();
+
+    return AttributeDescription{
+        .source     = vbo_alloc,
+        .size       = static_cast<uint32_t>(vertices.size()),
+        .format     = { format_pos[0], format_uv[0] },
+        .indices    = ibo_alloc,
+        .index_size = sizeof(uint16_t),
     };
 }
 
@@ -353,36 +420,6 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     auto alloc_ptr = new Allocation(alloc);
     deletors.context.add([=,this]{ delete alloc_ptr; });
     return alloc_ptr;
-}
-
-// VkBuffer MimirEngine::createAttributeBuffer(const AttributeParams attr, size_t element_count, VkBufferUsageFlags usage)
-// {
-//     // Get and validate buffer size against allocation size
-//     VkDeviceSize memsize = getBytesize(attr.format) * element_count;
-//     spdlog::debug("memsize {}, bytesize {}, elem_count {}, allocsize {}", memsize, getBytesize(attr.format), element_count, attr.allocation->size);
-//     assert(memsize + attr.offset <= attr.allocation->size);
-
-//     // Create and bind buffer
-//     VkExternalMemoryBufferCreateInfo extmem_info{
-//         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
-//         .pNext       = nullptr,
-//         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-//     };
-//     auto attr_buffer = createBuffer(device, memsize, usage, &extmem_info);
-//     deletors.views.add([=,this]{ vkDestroyBuffer(device, attr_buffer, nullptr); });
-//     vkBindBufferMemory(device, attr_buffer, attr.allocation->vk_mem, 0);
-//     return attr_buffer;
-// }
-
-constexpr VkIndexType getIndexBufferType(int bytesize)
-{
-    switch (bytesize)
-    {
-        case 2: return VK_INDEX_TYPE_UINT16;
-        case 4: return VK_INDEX_TYPE_UINT32;
-        // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char and VK_INDEX_TYPE_NONE_KHR for default
-        default: return VK_INDEX_TYPE_NONE_KHR;
-    }
 }
 
 VkBuffer MimirEngine::createAttributeBuffer(VkDeviceSize memsize,
@@ -440,7 +477,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         // is set for a non-position attribute
         if (type == AttributeType::Position || attr.indices == nullptr)
         {
-            VkDeviceSize vb_size = attr.format.getSizeBytes() * desc->element_count;
+            VkDeviceSize vb_size = getFormatSize(attr.format) * desc->element_count;
             spdlog::trace("Position VB size {}, available {}", vb_size, attr.source->size);
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = attr.source->vk_mem;
@@ -449,7 +486,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         }
         else
         {
-            VkDeviceSize sb_size = attr.format.getSizeBytes() * desc->element_count;
+            VkDeviceSize sb_size = getFormatSize(attr.format) * desc->element_count;
             spdlog::trace("Position SB size {}, available {}", sb_size, attr.source->size);
             VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             VkDeviceMemory sb_mem = attr.source->vk_mem;

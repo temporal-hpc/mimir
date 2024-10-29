@@ -102,7 +102,7 @@ void addViewObjectGui(View *view_ptr, int uid)
                 addTableRow("Attribute type", getAttributeType(type));
                 //addTableRow("Resource type", getResourceType(info.resource_type));
                 //addTableRow("Data type", getDataType(attr.format.type));
-                addTableRow("Channel count", std::to_string(attr.format.components));
+                //addTableRow("Channel count", std::to_string(attr.format.components));
                 //addTableRow("Data layout", getDataLayout(attr.layout));
 
                 /*bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,

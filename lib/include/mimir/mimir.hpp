@@ -33,6 +33,7 @@ void allocLinear(Engine engine, void **dev_ptr, size_t size, AllocHandle *alloc)
 void createView(Engine engine, ViewDescription *desc, ViewHandle *view);
 void setGuiCallback(Engine engine, std::function<void(void)> callback);
 AttributeDescription makeStructuredGrid(Engine engine, ViewExtent extent, float3 start={0.f,0.f,0.f});
+AttributeDescription makeImageFrame(Engine engine);
 
 // C++ API
 

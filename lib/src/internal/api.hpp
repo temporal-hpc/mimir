@@ -5,6 +5,8 @@
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
 
+#include <span> // std::span
+
 namespace mimir
 {
 
@@ -101,6 +103,13 @@ constexpr char* getDataType(FormatDescription desc)
         }
         default: return (char*)"unknown";
     }
+}
+
+constexpr uint32_t getFormatSize(std::span<const FormatDescription> formats)
+{
+    uint32_t sz = 0;
+    for (const auto& format : formats) { sz += format.getSize(); }
+    return sz;
 }
 
 } // namespace mimir

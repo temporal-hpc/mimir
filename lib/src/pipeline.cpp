@@ -126,8 +126,9 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
     for (auto &[type, attr] : desc.attributes)
     {
         std::string spec = getAttributeType(type);
-        spec += getDataType(attr.format);
-        spec += std::to_string(attr.format.components);
+        // TODO: Implement for descriptions with multiple formats (e.g. image)
+        spec += getDataType(attr.format[0]);
+        spec += std::to_string(attr.format[0].components);
         specs[type] = spec;
     }
     // Get the list of specialization names
@@ -314,20 +315,30 @@ VertexDescription getVertexDescription(const ViewDescription desc)
     vert.binding.reserve(attr_count);
     vert.attribute.reserve(attr_count);
 
+    spdlog::trace("Adding vertex description");
     uint32_t binding = 0;
     for (auto &[type, attr] : desc.attributes)
     {
+        spdlog::trace("Adding input binding");
         vert.binding.push_back(VkVertexInputBindingDescription{
             .binding   = binding,
-            .stride    = attr.format.getSizeBytes(),
+            .stride    = getFormatSize(attr.format),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
         });
-        vert.attribute.push_back(VkVertexInputAttributeDescription{
-            .location = static_cast<uint32_t>(type),
-            .binding  = binding,
-            .format   = getVulkanFormat(attr.format),
-            .offset   = 0,
-        });
+
+        uint32_t location = 0;
+        uint32_t offset = 0;
+        for (auto format : attr.format)
+        {
+            spdlog::trace("Adding input attribute");
+            vert.attribute.push_back(VkVertexInputAttributeDescription{
+                .location = static_cast<uint32_t>(type),
+                .binding  = binding,
+                .format   = getVulkanFormat(format),
+                .offset   = offset,
+            });
+            offset += format.getSize();
+        }
         binding++;
     }
     return vert;
