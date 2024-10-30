@@ -17,150 +17,54 @@ uint32_t getFormatSize(std::span<const FormatDescription> formats)
 
 VkFormat getVulkanFormat(FormatDescription desc)
 {
+    #define FORMAT(n,suffix) switch (desc.components) \
+    { \
+        case 1: return VK_FORMAT_R ## n ## _ ## suffix; \
+        case 2: return VK_FORMAT_R ## n ## G ## n ## _ ## suffix; \
+        case 3: return VK_FORMAT_R ## n ## G ## n ## B ## n ## _ ## suffix; \
+        case 4: return VK_FORMAT_R ## n ## G ## n ## B ## n ## A ## n ## _ ## suffix; \
+        default: return VK_FORMAT_UNDEFINED; \
+    }
     switch (desc.kind)
     {
         case FormatKind::Float: switch (desc.size)
         {
-            case 4: switch (desc.components) // 32 bits
-            {
-                case 1: return VK_FORMAT_R32_SFLOAT;
-                case 2: return VK_FORMAT_R32G32_SFLOAT;
-                case 3: return VK_FORMAT_R32G32B32_SFLOAT;
-                case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 8: switch (desc.components) // 64 bits
-            {
-                case 1: return VK_FORMAT_R64_SFLOAT;
-                case 2: return VK_FORMAT_R64G64_SFLOAT;
-                case 3: return VK_FORMAT_R64G64B64_SFLOAT;
-                case 4: return VK_FORMAT_R64G64B64A64_SFLOAT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 2: switch (desc.components) // 16 bits
-            {
-                case 1: return VK_FORMAT_R16_SFLOAT;
-                case 2: return VK_FORMAT_R16G16_SFLOAT;
-                case 3: return VK_FORMAT_R16G16B16_SFLOAT;
-                case 4: return VK_FORMAT_R16G16B16A16_SFLOAT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
+            case 4: FORMAT(32, SFLOAT) // 32 bits
+            case 8: FORMAT(64, SFLOAT) // 64 bits
+            case 2: FORMAT(16, SFLOAT) // 16 bits
             default: return VK_FORMAT_UNDEFINED;
         }
         case FormatKind::Signed: switch (desc.size)
         {
-            case 4: switch (desc.components) // 32 bits
-            {
-                case 1: return VK_FORMAT_R32_SINT;
-                case 2: return VK_FORMAT_R32G32_SINT;
-                case 3: return VK_FORMAT_R32G32B32_SINT;
-                case 4: return VK_FORMAT_R32G32B32A32_SINT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 8: switch (desc.components) // 64 bits
-            {
-                case 1: return VK_FORMAT_R64_SINT;
-                case 2: return VK_FORMAT_R64G64_SINT;
-                case 3: return VK_FORMAT_R64G64B64_SINT;
-                case 4: return VK_FORMAT_R64G64B64A64_SINT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 2: switch (desc.components) // 16 bits
-            {
-                case 1: return VK_FORMAT_R16_SINT;
-                case 2: return VK_FORMAT_R16G16_SINT;
-                case 3: return VK_FORMAT_R16G16B16_SINT;
-                case 4: return VK_FORMAT_R16G16B16A16_SINT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 1: switch (desc.components) // 8 bits
-            {
-                case 1: return VK_FORMAT_R8_SINT;
-                case 2: return VK_FORMAT_R8G8_SINT;
-                case 3: return VK_FORMAT_R8G8B8_SINT;
-                case 4: return VK_FORMAT_R8G8B8A8_SINT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
+            case 4: FORMAT(32, SINT)
+            case 8: FORMAT(64, SINT)
+            case 2: FORMAT(16, SINT)
+            case 1: FORMAT(8, SINT)
             default: return VK_FORMAT_UNDEFINED;
         }
         case FormatKind::Unsigned: switch (desc.size)
         {
-            case 4: switch (desc.components) // 32 bits
-            {
-                case 1: return VK_FORMAT_R32_UINT;
-                case 2: return VK_FORMAT_R32G32_UINT;
-                case 3: return VK_FORMAT_R32G32B32_UINT;
-                case 4: return VK_FORMAT_R32G32B32A32_UINT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 8: switch (desc.components) // 64 bits
-            {
-                case 1: return VK_FORMAT_R64_UINT;
-                case 2: return VK_FORMAT_R64G64_UINT;
-                case 3: return VK_FORMAT_R64G64B64_UINT;
-                case 4: return VK_FORMAT_R64G64B64A64_UINT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 2: switch (desc.components) // 16 bits
-            {
-                case 1: return VK_FORMAT_R16_UINT;
-                case 2: return VK_FORMAT_R16G16_UINT;
-                case 3: return VK_FORMAT_R16G16B16_UINT;
-                case 4: return VK_FORMAT_R16G16B16A16_UINT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 1: switch (desc.components) // 8 bits
-            {
-                case 1: return VK_FORMAT_R8_UINT;
-                case 2: return VK_FORMAT_R8G8_UINT;
-                case 3: return VK_FORMAT_R8G8B8_UINT;
-                case 4: return VK_FORMAT_R8G8B8A8_UINT;
-                default: return VK_FORMAT_UNDEFINED;
-            }
+            case 4: FORMAT(32, UINT)
+            case 8: FORMAT(64, UINT)
+            case 2: FORMAT(16, UINT)
+            case 1: FORMAT(8, UINT)
             default: return VK_FORMAT_UNDEFINED;
         }
         case FormatKind::SignedNormalized: switch (desc.size)
         {
-            case 2: switch (desc.components) // 16 bits
-            {
-                case 1: return VK_FORMAT_R16_SNORM;
-                case 2: return VK_FORMAT_R16G16_SNORM;
-                case 3: return VK_FORMAT_R16G16B16_SNORM;
-                case 4: return VK_FORMAT_R16G16B16A16_SNORM;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 1: switch (desc.components) // 8 bits
-            {
-                case 1: return VK_FORMAT_R8_SNORM;
-                case 2: return VK_FORMAT_R8G8_SNORM;
-                case 3: return VK_FORMAT_R8G8B8_SNORM;
-                case 4: return VK_FORMAT_R8G8B8A8_SNORM;
-                default: return VK_FORMAT_UNDEFINED;
-            }
+            case 2: FORMAT(16, SNORM)
+            case 1: FORMAT(8, SNORM)
             default: return VK_FORMAT_UNDEFINED;
         }
         case FormatKind::UnsignedNormalized: switch (desc.size)
         {
-            case 2: switch (desc.components) // 16 bits
-            {
-                case 1: return VK_FORMAT_R16_UNORM;
-                case 2: return VK_FORMAT_R16G16_UNORM;
-                case 3: return VK_FORMAT_R16G16B16_UNORM;
-                case 4: return VK_FORMAT_R16G16B16A16_UNORM;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-            case 1: switch (desc.components) // 8 bits
-            {
-                case 1: return VK_FORMAT_R8_UNORM;
-                case 2: return VK_FORMAT_R8G8_UNORM;
-                case 3: return VK_FORMAT_R8G8B8_UNORM;
-                case 4: return VK_FORMAT_R8G8B8A8_UNORM;
-                default: return VK_FORMAT_UNDEFINED;
-            }
+            case 2: FORMAT(16, UNORM)
+            case 1: FORMAT(8, UNORM)
             default: return VK_FORMAT_UNDEFINED;
         }
         default: return VK_FORMAT_UNDEFINED;
     }
+    #undef FORMAT
 }
 
 template <typename T> FormatKind getFormatKind()
