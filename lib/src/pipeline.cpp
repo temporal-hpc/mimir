@@ -179,36 +179,12 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
-        // case ViewType::Image:
-        // {
-        //     compile.module_path = "shaders/texture.slang";
-        //     // The texture shader needs a specialization for the way to interpret its content
-        //     // as a fragment. If no specialization is set, use the RawColor spec.
-        //     compile.specializations.clear(); // TODO: DIR
-        //     if (compile.specializations.empty())
-        //     {
-        //         compile.specializations.push_back("RawColor");
-        //     }
-
-        //     std::string vert_entry = "vertex";
-        //     std::string frag_entry = "frag";
-        //     if (desc.domain_type == DomainType::Domain2D)
-        //     {
-        //         vert_entry += "2dMain";
-        //         frag_entry += "2d_";
-        //     }
-        //     else if (desc.domain_type == DomainType::Domain3D)
-        //     {
-        //         vert_entry += "3dMain";
-        //         frag_entry += "3d_";
-        //     }
-        //     auto color_attr = desc.attributes[AttributeType::Color];
-        //     frag_entry += getDataType(color_attr.format.type);
-        //     frag_entry += std::to_string(color_attr.format.components);
-
-        //     compile.entrypoints = { vert_entry, frag_entry };
-        //     break;
-        // }
+        case ViewType::Image:
+        {
+            compile.module_path = "shaders/texture.slang";
+            compile.entrypoints = {"vertexMain", "fragmentMain"};
+            break;
+        }
         default:
         {
             spdlog::error("Unimplemented shader generation for view type {}", getViewType(desc.view_type));
@@ -308,6 +284,12 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     return pipelines;
 }
 
+uint32_t getLocationIndex(AttributeType type, int attr_idx)
+{
+    constexpr uint32_t max_attr_idx = 4;
+    return attr_idx == 0? static_cast<uint32_t>(type) : max_attr_idx + attr_idx;
+}
+
 VertexDescription getVertexDescription(const ViewDescription view)
 {
     auto attr_count = view.attributes.size();
@@ -319,24 +301,25 @@ VertexDescription getVertexDescription(const ViewDescription view)
     uint32_t binding = 0;
     for (auto &[type, attr] : view.attributes)
     {
-        spdlog::trace("Adding input binding");
+        spdlog::trace("Adding input binding with binding {} and stride {}", binding, getFormatSize(attr.format));
         desc.binding.push_back(VkVertexInputBindingDescription{
             .binding   = binding,
             .stride    = getFormatSize(attr.format),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
         });
 
-        uint32_t location = 0;
         uint32_t offset = 0;
+        uint32_t location = 0;
         for (auto format : attr.format)
         {
-            spdlog::trace("Adding input attribute");
+            spdlog::trace("Adding input attribute with location {} and offset {}", location, offset);
             desc.attribute.push_back(VkVertexInputAttributeDescription{
-                .location = static_cast<uint32_t>(type), // location++
+                .location = getLocationIndex(type, location),
                 .binding  = binding,
                 .format   = getVulkanFormat(format),
                 .offset   = offset,
             });
+            location++;
             offset += format.getSize();
         }
         binding++;

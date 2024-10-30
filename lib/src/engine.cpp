@@ -331,9 +331,10 @@ AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 sta
 
 AttributeDescription MimirEngine::makeImageDomain()
 {
+    // TODO: Check alignment
     struct Vertex {
-        alignas(16) glm::vec3 pos;
-        alignas(8)  glm::vec2 uv;
+        glm::vec3 pos;
+        glm::vec2 uv;
         //glm::vec3 normal;
     };
     const std::vector<Vertex> vertices{
@@ -367,13 +368,14 @@ AttributeDescription MimirEngine::makeImageDomain()
     auto ibo_alloc = new Allocation({memreq.size, ibo_mem, nullptr});
 
     // Init image quad coords and indices
-    char *data = nullptr;
-    vkMapMemory(device, vbo_mem, 0, vert_size, 0, (void**)&data);
-    std::memcpy(data, vertices.data(), vert_size);
+    char *vert_data = nullptr;
+    vkMapMemory(device, vbo_mem, 0, vert_size, 0, (void**)&vert_data);
+    std::memcpy(vert_data, vertices.data(), vert_size);
     vkUnmapMemory(device, vbo_mem);
 
-    vkMapMemory(device, ibo_mem, 0, ids_size, 0, (void**)&data);
-    std::memcpy(data, indices.data(), ids_size);
+    char *ids_data = nullptr;
+    vkMapMemory(device, ibo_mem, 0, ids_size, 0, (void**)&ids_data);
+    std::memcpy(ids_data, indices.data(), ids_size);
     vkUnmapMemory(device, ibo_mem);
 
     deletors.views.add([=,this]{
