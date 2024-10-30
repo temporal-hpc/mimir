@@ -40,7 +40,7 @@ Camera defaultCamera(int width, int height)
     auto camera = Camera::make();
     camera.type           = Camera::CameraType::LookAt;
     camera.rotation_speed = 0.5f;
-    //camera.flipY = true;
+    camera.flip_y         = true;
     camera.setPosition(glm::vec3(0.f, 0.f, -2.85f));
     camera.setRotation(glm::vec3(0.f, 0.f, 0.f));
     camera.setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
@@ -310,7 +310,7 @@ AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 sta
     vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
     initGridCoords(data, size, start);
     vkUnmapMemory(device, vk_memory);
-    auto grid_alloc = new Allocation({memreq.size, vk_memory, nullptr});
+    auto grid_alloc = new Allocation({AllocationType::Linear, memreq.size, vk_memory, nullptr});
     deletors.context.add([=,this]{ delete grid_alloc; });
 
     // Add deletors to queue for later cleanup
@@ -357,7 +357,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     auto available = physical_device.memory.memoryProperties;
     auto vbo_mem = allocateMemory(device, available, memreq, flags);
     vkBindBufferMemory(device, vbo, vbo_mem, 0);
-    auto vbo_alloc = new Allocation({memreq.size, vbo_mem, nullptr});
+    auto vbo_alloc = new Allocation({AllocationType::Linear, memreq.size, vbo_mem, nullptr});
 
     auto ibo = createBuffer(device, ids_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
     vkGetBufferMemoryRequirements(device, ibo, &memreq);
@@ -365,7 +365,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto ibo_mem = allocateMemory(device, available, memreq, flags);
     vkBindBufferMemory(device, ibo, ibo_mem, 0);
-    auto ibo_alloc = new Allocation({memreq.size, ibo_mem, nullptr});
+    auto ibo_alloc = new Allocation({AllocationType::Linear, memreq.size, ibo_mem, nullptr});
 
     // Init image quad coords and indices
     char *vert_data = nullptr;
@@ -397,6 +397,50 @@ AttributeDescription MimirEngine::makeImageDomain()
         .indices    = ibo_alloc,
         .index_size = sizeof(uint16_t),
     };
+}
+
+Texture *MimirEngine::makeTexture(TextureDescription desc)
+{
+    ImageParams params{
+        .type   = getImageType(desc.extent),
+        .format = getVulkanFormat(desc.format[0]),
+        .extent = { desc.extent.x, desc.extent.y, desc.extent.z },
+        .tiling = getImageTiling(desc.source->type),
+        .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
+        .levels = desc.levels,
+    };
+    VkExternalMemoryImageCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+    auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
+
+    VkMemoryRequirements memreq{};
+    vkGetImageMemoryRequirements(device, teximg, &memreq);
+    auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    auto available = physical_device.memory.memoryProperties;
+    auto imgmem = allocateMemory(device, available, memreq, memflags, nullptr);
+    vkBindImageMemory(device, teximg, imgmem, 0);
+
+    Texture texture{
+        .image    = teximg,
+        .img_view = createImageView(device, texture.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
+        .sampler  = createSampler(device, VK_FILTER_LINEAR, false),
+        .format   = params.format,
+        .extent   = params.extent,
+    };
+
+    deletors.context.add([=,this]{
+        spdlog::trace("Destroying texture");
+        vkDestroyImageView(device, texture.img_view, nullptr);
+        vkDestroyImage(device, texture.image, nullptr);
+        vkDestroySampler(device, texture.sampler, nullptr);
+    });
+
+    auto tex_ptr = new Texture(texture);
+    deletors.context.add([=,this]{ delete tex_ptr; });
+    return tex_ptr;
 }
 
 Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
@@ -436,7 +480,12 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     });
     vkDestroyBuffer(device, query_buf, nullptr);
 
-    auto alloc = Allocation{memreq.size, vk_memory, cuda_extmem};
+    Allocation alloc{
+        .type        = AllocationType::Linear,
+        .size        = memreq.size,
+        .vk_mem      = vk_memory,
+        .cuda_extmem = cuda_extmem
+    };
     cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
     validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
         dev_ptr, alloc.cuda_extmem, &buffer_desc)
@@ -507,7 +556,7 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
     });
     vkDestroyImage(device, query_img, nullptr);
 
-    auto alloc = Allocation{memreq.size, vk_memory, cuda_extmem};
+    auto alloc = Allocation{AllocationType::Opaque, memreq.size, vk_memory, cuda_extmem};
     cudaExternalMemoryMipmappedArrayDesc array_desc{
         .offset     = 0,
         .formatDesc = *desc,
@@ -568,6 +617,8 @@ View *MimirEngine::createView(ViewDescription *desc)
         .use_ibo    = false,
         .ibo        = VK_NULL_HANDLE,
         .index_type = VK_INDEX_TYPE_NONE_KHR,
+        .tex_count  = 0,
+        .textures   = {},
         .desc       = *desc,
     };
 
@@ -758,8 +809,9 @@ void MimirEngine::initVulkan()
     initGraphics();
     createSyncObjects();
     // After command pool and render pass are created
-    gui::init(instance, physical_device.handle, device, descriptor_pool, render_pass, graphics, window_context);
-
+    gui::init(instance, physical_device.handle, device,
+        descriptor_pool, render_pass, graphics, window_context
+    );
     descriptor_sets = createDescriptorSets(device,
         descriptor_pool, descriptor_layout, swapchain.image_count
     );
@@ -975,6 +1027,43 @@ void MimirEngine::updateDescriptorSets()
         write_buf.pBufferInfo = &view_info;
         updates.push_back(write_buf);
 
+        for (const auto& view : views)
+        {
+            for (uint32_t i = 0; i < view->detail->tex_count; ++i)
+            {
+                auto tex = view->detail->textures[i];
+
+                VkDescriptorImageInfo img_info{
+                    .sampler     = tex.sampler,
+                    .imageView   = tex.img_view,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                };
+                VkWriteDescriptorSet write_img{
+                    .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .pNext            = nullptr,
+                    .dstSet           = descriptor_sets[i],
+                    .dstBinding       = 3,
+                    .dstArrayElement  = 0,
+                    .descriptorCount  = 1,
+                    .descriptorType   = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                    .pImageInfo       = &img_info,
+                    .pBufferInfo      = nullptr,
+                    .pTexelBufferView = nullptr,
+                };
+                updates.push_back(write_img);
+
+                VkDescriptorImageInfo samp_info{
+                    .sampler     = tex.sampler,
+                    .imageView   = tex.img_view,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                };
+                write_img.dstBinding     = 4;
+                write_img.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+                write_img.pImageInfo     = &samp_info;
+                updates.push_back(write_img);
+            }
+        }
+
         vkUpdateDescriptorSets(device, updates.size(), updates.data(), 0, nullptr);
     }
 }
@@ -1154,9 +1243,9 @@ void MimirEngine::drawElements(uint32_t image_idx)
     auto cmd = command_buffers[image_idx];
     for (uint32_t i = 0; i < views.size(); ++i)
     {
-        if (!views[i]->visible) continue;
-        auto& view = views[i]->detail;
         // Do not draw anything if visibility is turned off
+        if (!views[i]->visible) { continue; }
+        auto& view = views[i]->detail;
 
         // Bind descriptor set and pipeline
         std::vector<uint32_t> offsets = {
@@ -1190,12 +1279,6 @@ void MimirEngine::drawElements(uint32_t image_idx)
             // }
             vkCmdDraw(cmd, view->draw_count, instance_count, first_vertex, 0);
         }
-        // case ViewType::Image:
-        // {
-        //     vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
-        //     vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-        //     break;
-        // }
     }
 }
 

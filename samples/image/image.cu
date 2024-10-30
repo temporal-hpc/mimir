@@ -33,6 +33,16 @@ int main(int argc, char *argv[])
     AllocHandle pixels = nullptr;
     allocLinear(engine, (void**)&d_pixels, sizeof(char4) * width * height, &pixels);
 
+    TextureHandle teximg = nullptr;
+    TextureDescription tex_desc
+    {
+        .source = pixels,
+        .format = FormatDescription::make<char4>(),
+        .extent = ViewExtent::make(width, height, 1),
+        .levels = 1,
+    };
+    makeTexture(engine, tex_desc, &teximg);
+
     ViewHandle view = nullptr;
     ViewDescription desc{
         .element_count = 6, //static_cast<unsigned int>(width * height),

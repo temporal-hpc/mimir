@@ -33,31 +33,6 @@ Barrier Barrier::make(VkDevice device)
     return barrier;
 }
 
-cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem,
-    int4 component_size, int3 extent, unsigned level_count)
-{
-    cudaChannelFormatDesc format_desc{
-        .x = component_size.x,
-        .y = component_size.z,
-        .z = component_size.y,
-        .w = component_size.w,
-        .f = cudaChannelFormatKindUnsigned
-    };
-    cudaExternalMemoryMipmappedArrayDesc array_desc{
-        .offset     = 0,
-        .formatDesc = format_desc,
-        .extent     = make_cudaExtent(extent.x, extent.y, extent.z),
-        .flags      = 0,
-        .numLevels  = level_count,
-    };
-
-    cudaMipmappedArray_t mipmap_array;
-    validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
-        &mipmap_array, cuda_extmem, &array_desc)
-    );
-    return mipmap_array;
-}
-
 cudaExternalMemory_t importCudaExternalMemory(
     VkDeviceMemory vk_mem, VkDeviceSize size, VkDevice device)
 {

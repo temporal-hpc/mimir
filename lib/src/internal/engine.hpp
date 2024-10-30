@@ -120,6 +120,7 @@ struct MimirEngine
     // Allocates device memory initialized for representing a structured domain
     AttributeDescription makeStructuredGrid(ViewExtent size, float3 start={0.f,0.f,0.f});
     AttributeDescription makeImageDomain();
+    Texture *makeTexture(TextureDescription desc);
 
     // View creation
     View *createView(ViewDescription *desc);

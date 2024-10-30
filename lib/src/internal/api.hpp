@@ -12,14 +12,33 @@ namespace mimir
 
 constexpr uint32_t max_attr_count = 10;
 
+enum class AllocationType { Linear, Opaque };
+
 struct Allocation
 {
-    // Allocation memory size in bytes
+    // Shows the kind of CUDA memory mapping passed to this allocation.
+    AllocationType type;
+    // Allocation memory size in bytes.
     VkDeviceSize size;
-    // Vulkan external device memory handle
+    // Vulkan external device memory handle.
     VkDeviceMemory vk_mem;
-    // Cuda external memory handle, provided by the Cuda interop API
+    // Cuda external memory handle, provided by the Cuda interop API.
     cudaExternalMemory_t cuda_extmem;
+};
+
+struct Texture
+{
+    // Texture image handle.
+    VkImage image;
+    // Image view handle.
+    VkImageView img_view;
+    // Texture image sampler.
+    // TODO: Move sampler creation to engine and reference the created sampler here
+    VkSampler sampler;
+    // Texture image format.
+    VkFormat format;
+    // Texture image dimensions.
+    VkExtent3D extent;
 };
 
 struct ViewDetails
@@ -40,6 +59,8 @@ struct ViewDetails
     VkBuffer ibo;
     // Index type used when is_indexed is true; undefined otherwise.
     VkIndexType index_type;
+    uint32_t tex_count;
+    Texture textures[max_attr_count];
     // Copy of description used to create this view.
     ViewDescription desc;
 };
@@ -108,5 +129,9 @@ constexpr char* getDataType(FormatDescription desc)
 uint32_t getFormatSize(std::span<const FormatDescription> formats);
 
 VkFormat getVulkanFormat(FormatDescription desc);
+
+VkImageType getImageType(ViewExtent extent);
+
+VkImageTiling getImageTiling(AllocationType type);
 
 } // namespace mimir

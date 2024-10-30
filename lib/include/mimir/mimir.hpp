@@ -15,12 +15,14 @@ namespace mimir
 
 struct MimirEngine;
 struct View;
+struct Texture;
 
 // C-style API
 
 typedef struct MimirEngine* Engine;
 typedef struct Allocation* AllocHandle;
 typedef struct View* ViewHandle;
+typedef struct Texture* TextureHandle;
 
 void createEngine(ViewerOptions opts, Engine *engine);
 void createEngine(int width, int height, Engine *engine);
@@ -39,6 +41,7 @@ void createView(Engine engine, ViewDescription *desc, ViewHandle *view);
 void setGuiCallback(Engine engine, std::function<void(void)> callback);
 AttributeDescription makeStructuredGrid(Engine engine, ViewExtent extent, float3 start={0.f,0.f,0.f});
 AttributeDescription makeImageFrame(Engine engine);
+void makeTexture(Engine engine, TextureDescription desc, TextureHandle *texture);
 
 // C++ API
 

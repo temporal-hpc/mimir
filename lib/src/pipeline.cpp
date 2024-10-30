@@ -34,9 +34,6 @@ std::string getDefaultShaderPath()
 namespace mimir
 {
 
-// Converts an interop memory data type to its Vulkan format equivalent.
-VkFormat getVulkanFormat(FormatDescription desc); // Implemented at bottom of file
-
 VkPipelineDepthStencilStateCreateInfo getDepthInfo()
 {
     // TODO: Decide when to apply depth testing

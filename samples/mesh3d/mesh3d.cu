@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
     };
     printf("Creating v1, elements %u, array size %lu\n", desc.element_count, vert_size);
     createView(engine, &desc, &v1);
-    v1->default_size = 20.f,
+    v1->default_size = 20.f;
 
     // Recycle the above parameters, changing only what is needed
     desc.element_count = static_cast<unsigned int>(3 * h_triangles.size());

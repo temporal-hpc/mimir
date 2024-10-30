@@ -74,6 +74,11 @@ AttributeDescription makeImageFrame(Engine engine)
     return engine->makeImageDomain();
 }
 
+void makeTexture(Engine engine, TextureDescription desc, TextureHandle *texture)
+{
+    *texture = engine->makeTexture(desc);
+}
+
 EngineHandle make(int width, int height)
 {
     auto engine_ptr = new MimirEngine(MimirEngine::make(width, height));

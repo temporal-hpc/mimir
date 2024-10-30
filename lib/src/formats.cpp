@@ -15,6 +15,28 @@ uint32_t getFormatSize(std::span<const FormatDescription> formats)
     return sz;
 }
 
+VkImageTiling getImageTiling(AllocationType type)
+{
+    switch (type)
+    {
+        case AllocationType::Linear: { return VK_IMAGE_TILING_LINEAR; }
+        case AllocationType::Opaque:
+        default:                     { return VK_IMAGE_TILING_OPTIMAL; }
+    }
+}
+
+VkImageType getImageType(ViewExtent extent)
+{
+    int dim_count = (extent.x > 1) + (extent.y > 1) + (extent.z > 1);
+    switch (dim_count)
+    {
+        case 1: { return VK_IMAGE_TYPE_1D; }
+        case 2: { return VK_IMAGE_TYPE_2D; }
+        case 3: default: { return VK_IMAGE_TYPE_3D; }
+    }
+}
+
+// Converts a memory format description to its Vulkan equivalent.
 VkFormat getVulkanFormat(FormatDescription desc)
 {
     #define FORMAT(n,suffix) switch (desc.components) \
@@ -88,32 +110,60 @@ template <typename T, int N> FormatDescription buildFormat()
 #define uchar unsigned char
 #endif
 
+#ifndef ushort
+#define ushort unsigned short
+#endif
+
+#ifndef ulong
+#define ulong unsigned long
+#endif
+
 #define SPECIALIZE(T) template <> std::vector<FormatDescription> \
 FormatDescription::make<T>() { return { buildFormat<T,1>() }; }
-    SPECIALIZE(int);
     SPECIALIZE(float);
     SPECIALIZE(double);
-    SPECIALIZE(uint);
+    SPECIALIZE(char);
+    SPECIALIZE(short);
+    SPECIALIZE(int);
+    SPECIALIZE(long);
     SPECIALIZE(uchar);
+    SPECIALIZE(ushort);
+    SPECIALIZE(uint);
+    SPECIALIZE(ulong);
 #undef SPECIALIZE
 
 #define SPECIALIZE_VEC(T,N) template <> std::vector<FormatDescription> \
 FormatDescription::make<T##N>() { return { buildFormat<T,N>() }; }
-    SPECIALIZE_VEC(int, 2);
-    SPECIALIZE_VEC(int, 3);
-    SPECIALIZE_VEC(int, 4);
     SPECIALIZE_VEC(float, 2);
     SPECIALIZE_VEC(float, 3);
     SPECIALIZE_VEC(float, 4);
     SPECIALIZE_VEC(double, 2);
     SPECIALIZE_VEC(double, 3);
     SPECIALIZE_VEC(double, 4);
-    SPECIALIZE_VEC(uint, 2);
-    SPECIALIZE_VEC(uint, 3);
-    SPECIALIZE_VEC(uint, 4);
+    SPECIALIZE_VEC(char, 2);
+    SPECIALIZE_VEC(char, 3);
+    SPECIALIZE_VEC(char, 4);
+    SPECIALIZE_VEC(short, 2);
+    SPECIALIZE_VEC(short, 3);
+    SPECIALIZE_VEC(short, 4);
+    SPECIALIZE_VEC(int, 2);
+    SPECIALIZE_VEC(int, 3);
+    SPECIALIZE_VEC(int, 4);
+    SPECIALIZE_VEC(long, 2);
+    SPECIALIZE_VEC(long, 3);
+    SPECIALIZE_VEC(long, 4);
     SPECIALIZE_VEC(uchar, 2);
     SPECIALIZE_VEC(uchar, 3);
     SPECIALIZE_VEC(uchar, 4);
+    SPECIALIZE_VEC(ushort, 2);
+    SPECIALIZE_VEC(ushort, 3);
+    SPECIALIZE_VEC(ushort, 4);
+    SPECIALIZE_VEC(uint, 2);
+    SPECIALIZE_VEC(uint, 3);
+    SPECIALIZE_VEC(uint, 4);
+    SPECIALIZE_VEC(ulong, 2);
+    SPECIALIZE_VEC(ulong, 3);
+    SPECIALIZE_VEC(ulong, 4);
 #undef SPECIALIZE_VEC
 
 #ifdef uint
@@ -123,5 +173,14 @@ FormatDescription::make<T##N>() { return { buildFormat<T,N>() }; }
 #ifdef uchar
 #undef uchar
 #endif
+
+#ifdef ushort
+#undef ushort
+#endif
+
+#ifdef ulong
+#undef ulong
+#endif
+
 
 } // namespace mimir

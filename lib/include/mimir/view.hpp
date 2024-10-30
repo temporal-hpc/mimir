@@ -9,6 +9,7 @@ namespace mimir
 // Forward declaration
 struct Allocation;
 struct ViewDetails;
+struct Texture;
 
 // Specifies the type of view that will be visualized
 enum class ViewType      { Markers, Edges, Image, Boxes, Voxels };
@@ -16,6 +17,16 @@ enum class ViewType      { Markers, Edges, Image, Boxes, Voxels };
 enum class DomainType    { Domain2D, Domain3D };
 
 enum class FormatKind    { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized };
+
+struct ViewExtent
+{
+    unsigned int x, y, z;
+
+    static ViewExtent make(unsigned int x, unsigned int y, unsigned int z)
+    {
+        return { .x = x, .y = y, .z = z };
+    }
+};
 
 // Descriptor structure for interpreting elements contained in an engine allocation.
 // Similar to the ChannelFormatDesc structure in the CUDA SDK, but here it is used to describe
@@ -60,19 +71,10 @@ struct TextureDescription
     // Handle for the allocation holding the texture memory.
     Allocation *source;
     // Format description for texels.
-    FormatDescription format;
+    std::vector<FormatDescription> format;
+    ViewExtent extent;
     // Number of mipmap levels stored in the texture.
-    int level_count;
-};
-
-struct ViewExtent
-{
-    unsigned int x, y, z;
-
-    static ViewExtent make(unsigned int x, unsigned int y, unsigned int z)
-    {
-        return { .x = x, .y = y, .z = z };
-    }
+    unsigned int levels;
 };
 
 struct ViewDescription
@@ -84,11 +86,12 @@ struct ViewDescription
     ViewType view_type;
     // Determines whether to draw 2D or 3D elements for the given view type.
     DomainType domain_type;
+    // Spatial extent of the positions represented in the view.
     ViewExtent extent;
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;
-    // List of textures attached to the view.
-    std::vector<TextureDescription> textures;
+    // Textures attached to the view.
+    std::vector<Texture*> textures;
 };
 
 struct View

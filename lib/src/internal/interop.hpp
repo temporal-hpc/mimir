@@ -16,9 +16,6 @@ struct Barrier
     static Barrier make(VkDevice device);
 };
 
-cudaMipmappedArray_t createMipmapArray(cudaExternalMemory_t cuda_extmem,
-    int4 component_size, int3 extent, unsigned level_count
-);
 cudaExternalMemory_t importCudaExternalMemory(
     VkDeviceMemory vk_mem, VkDeviceSize size, VkDevice device
 );
