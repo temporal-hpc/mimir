@@ -6,7 +6,7 @@
 #include "validation.hpp" // checkCuda
 using namespace mimir;
 
-// Reads an .off file and only loads the points and triangles
+// Load an .off mesh file, only reading vertex and triangle data
 void loadTriangleMesh(const std::string& filename,
     std::vector<float3>& points, std::vector<uint3>& triangles)
 {
@@ -57,14 +57,14 @@ int main(int argc, char *argv[])
     }
     else
     {
-        printf("Usage: ./mesh3d mesh.off (triangular meshes only)\n");
+        printf("Usage: ./mesh3d mesh.off (triangle meshes only)\n");
         return EXIT_FAILURE;
     }
 
     std::vector<float3> h_points;
     std::vector<uint3> h_triangles;
     loadTriangleMesh(filepath, h_points, h_triangles);
-    auto point_count = h_points.size();
+    unsigned int point_count = h_points.size();
 
     ViewerOptions options;
     options.window.size = {1920,1080}; // Starting window size
@@ -72,34 +72,40 @@ int main(int argc, char *argv[])
     Engine engine = nullptr;
     createEngine(options, &engine);
 
-    Allocation vertices = nullptr, edges = nullptr;
+    AllocHandle vertices = nullptr, edges = nullptr;
     auto vert_size = sizeof(float3) * point_count;
     auto edge_size = sizeof(int3) * h_triangles.size();
     allocLinear(engine, (void**)&d_coords, vert_size, &vertices);
     allocLinear(engine, (void**)&d_triangles, edge_size, &edges);
 
-    View v1 = nullptr, v2 = nullptr;
-    ViewParams params;
-    params.element_count = point_count;
-    params.data_domain   = DomainType::Domain3D;
-    params.view_type     = ViewType::Markers;
-    params.options.default_size = 20.f;
-    params.attributes[AttributeType::Position] = {
-        .allocation = vertices,
-        .format     = { .type = DataType::float32, .components = 3 }
+    ViewHandle v1 = nullptr, v2 = nullptr;
+    ViewDescription desc{
+        .element_count = point_count,
+        .view_type     = ViewType::Markers,
+        .domain_type   = DomainType::Domain3D,
+        .extent        = ViewExtent::make(1,1,1),
     };
-    printf("Creating v1, elements %lu, array size %lu\n", params.element_count, vert_size);
-    createView(engine, params, &v1);
+    desc.attributes[AttributeType::Position] = {
+        .source = vertices,
+        .size   = point_count,
+        .format = FormatDescription::make<float3>(),
+    };
+    printf("Creating v1, elements %u, array size %lu\n", desc.element_count, vert_size);
+    createView(engine, &desc, &v1);
+    v1->default_size = 20.f,
 
     // Recycle the above parameters, changing only what is needed
-    params.view_type = ViewType::Edges;
-    params.indexing  = {
-        .allocation    = edges,
-        .element_count = static_cast<unsigned int>(3 * h_triangles.size()),
-        .type          = DataType::int32,
+    desc.element_count = static_cast<unsigned int>(3 * h_triangles.size());
+    desc.view_type = ViewType::Edges;
+    desc.attributes[AttributeType::Position] = {
+        .source     = vertices, // TODO: Consider this instead of element_count when creating view resources
+        .size       = point_count,
+        .format     = FormatDescription::make<float3>(),
+        .indices    = edges,
+        .index_size = sizeof(int),
     };
-    printf("Creating v2, elements %lu, array size %lu\n", params.element_count, edge_size);
-    createView(engine, params, &v2);
+    printf("Creating v2, elements %u, array size %lu\n", desc.element_count, edge_size);
+    createView(engine, &desc, &v2);
 
     checkCuda(cudaMemcpy(d_coords, h_points.data(), vert_size, cudaMemcpyHostToDevice));
     checkCuda(cudaMemcpy(d_triangles, h_triangles.data(), edge_size, cudaMemcpyHostToDevice));

@@ -308,19 +308,19 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     return pipelines;
 }
 
-VertexDescription getVertexDescription(const ViewDescription desc)
+VertexDescription getVertexDescription(const ViewDescription view)
 {
-    auto attr_count = desc.attributes.size();
-    VertexDescription vert;
-    vert.binding.reserve(attr_count);
-    vert.attribute.reserve(attr_count);
+    auto attr_count = view.attributes.size();
+    VertexDescription desc;
+    desc.binding.reserve(attr_count);
+    desc.attribute.reserve(attr_count);
 
     spdlog::trace("Adding vertex description");
     uint32_t binding = 0;
-    for (auto &[type, attr] : desc.attributes)
+    for (auto &[type, attr] : view.attributes)
     {
         spdlog::trace("Adding input binding");
-        vert.binding.push_back(VkVertexInputBindingDescription{
+        desc.binding.push_back(VkVertexInputBindingDescription{
             .binding   = binding,
             .stride    = getFormatSize(attr.format),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
@@ -331,8 +331,8 @@ VertexDescription getVertexDescription(const ViewDescription desc)
         for (auto format : attr.format)
         {
             spdlog::trace("Adding input attribute");
-            vert.attribute.push_back(VkVertexInputAttributeDescription{
-                .location = static_cast<uint32_t>(type),
+            desc.attribute.push_back(VkVertexInputAttributeDescription{
+                .location = static_cast<uint32_t>(type), // location++
                 .binding  = binding,
                 .format   = getVulkanFormat(format),
                 .offset   = offset,
@@ -341,7 +341,7 @@ VertexDescription getVertexDescription(const ViewDescription desc)
         }
         binding++;
     }
-    return vert;
+    return desc;
 }
 
 uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice device)

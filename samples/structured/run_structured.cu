@@ -247,6 +247,7 @@ int main(int argc, char *argv[])
     desc.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
     desc.attributes[AttributeType::Position] = {
         .source = seeds,
+        .size   = program.element_count,
         .format = FormatDescription::make<float2>(),
     };
     createView(engine, &desc, &v1);
@@ -257,6 +258,7 @@ int main(int argc, char *argv[])
     desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.extent, {0.f,0.f,0.4999f});
     desc.attributes[AttributeType::Color] = {
         .source = field,
+        .size   = desc.element_count,
         .format = FormatDescription::make<float>(),
     };
     createView(engine, &desc, &v2);

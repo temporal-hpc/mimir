@@ -577,7 +577,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         // Source is always mapped this way for position attributes
         if (type == AttributeType::Position || attr.indices == nullptr)
         {
-            VkDeviceSize vb_size = getFormatSize(attr.format) * desc->element_count;
+            VkDeviceSize vb_size = getFormatSize(attr.format) * attr.size;
             spdlog::trace("Position VB size {}, available {}", vb_size, attr.source->size);
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = attr.source->vk_mem;
@@ -587,7 +587,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         // If a non-position attribute uses indirect mapping, its source is mapped to a storage buffer
         else
         {
-            VkDeviceSize sb_size = getFormatSize(attr.format) * desc->element_count;
+            VkDeviceSize sb_size = getFormatSize(attr.format) * attr.size;
             spdlog::trace("Position SB size {}, available {}", sb_size, attr.source->size);
             VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             VkDeviceMemory sb_mem = attr.source->vk_mem;

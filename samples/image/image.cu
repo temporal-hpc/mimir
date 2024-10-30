@@ -27,7 +27,24 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    auto engine = make(1920, 1080);
+    Engine engine = nullptr;
+    createEngine(1920, 1080, &engine);
+
+    AllocHandle pixels = nullptr;
+    allocLinear(engine, (void**)&d_pixels, sizeof(char4) * width * height, &pixels);
+
+    ViewHandle view = nullptr;
+    ViewDescription desc{
+        .element_count = 6, //static_cast<unsigned int>(width * height),
+        .view_type     = ViewType::Markers,
+        .domain_type   = DomainType::Domain2D,
+        .extent        = ViewExtent::make(1, 1, 1),
+        .attributes    = {},
+        .textures      = {},
+    };
+    desc.attributes[AttributeType::Position] = makeImageFrame(engine);
+    createView(engine, &desc, &view);
+    view->default_size = 1.f;
 
     /*MemoryParams m;
     m.layout         = DataLayout::Layout2D;
@@ -53,8 +70,9 @@ int main(int argc, char *argv[])
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));
     stbi_image_free(h_pixels);
 
-    engine->displayAsync();
+    displayAsync(engine);
     checkCuda(cudaFree(d_pixels));
+    destroyEngine(engine);
 
     return EXIT_SUCCESS;
 }
