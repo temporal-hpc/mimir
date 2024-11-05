@@ -203,7 +203,11 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     {
         Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
         module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
-        if (entrypoint != nullptr) components.push_back(entrypoint);
+        if (entrypoint != nullptr)
+        {
+            spdlog::trace("Adding entrypoint {}", name);
+            components.push_back(entrypoint);
+        }
     }
     Slang::ComPtr<slang::IComponentType> program = nullptr;
     result = session->createCompositeComponentType(
@@ -216,21 +220,23 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     {
         for (const auto& spec : params.specializations)
         {
+            spdlog::trace("Specializing shader with name {}", spec);
             slang::SpecializationArg arg{
                 .kind = slang::SpecializationArg::Kind::Type,
                 .type = module->getLayout()->findTypeByName(spec.c_str()),
             };
             args.push_back(arg);
         }
+        Slang::ComPtr<slang::IComponentType> spec_program;
+        result = program->specialize(args.data(), args.size(),
+            spec_program.writeRef(), diag.writeRef()
+        );
+        validation::checkSlang(result, diag);
+        program = spec_program;
     }
-    Slang::ComPtr<slang::IComponentType> spec_program;
-    result = program->specialize(args.data(), args.size(),
-        spec_program.writeRef(), diag.writeRef()
-    );
-    validation::checkSlang(result, diag);
 
     Slang::ComPtr<slang::IComponentType> linked_program;
-    result = spec_program->link(linked_program.writeRef(), diag.writeRef());
+    result = program->link(linked_program.writeRef(), diag.writeRef());
     validation::checkSlang(result, diag);
 
     auto layout = linked_program->getLayout();
@@ -260,8 +266,10 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     }*/
 
     std::vector<VkPipelineShaderStageCreateInfo> compiled_stages;
-    compiled_stages.reserve(layout->getEntryPointCount());
-    for (unsigned idx = 0; idx < layout->getEntryPointCount(); ++idx)
+    auto entrypoint_count = layout->getEntryPointCount();
+    spdlog::trace("Compiled shader: found {} entrypoints", entrypoint_count);
+    compiled_stages.reserve(entrypoint_count);
+    for (unsigned idx = 0; idx < entrypoint_count; ++idx)
     {
         auto entrypoint = layout->getEntryPointByIndex(idx);
         auto stage = getVulkanShaderFlag(entrypoint->getStage());

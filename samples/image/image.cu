@@ -33,48 +33,23 @@ int main(int argc, char *argv[])
     AllocHandle pixels = nullptr;
     allocLinear(engine, (void**)&d_pixels, sizeof(char4) * width * height, &pixels);
 
-    TextureHandle teximg = nullptr;
-    TextureDescription tex_desc
-    {
-        .source = pixels,
-        .format = FormatDescription::make<char4>(),
-        .extent = ViewExtent::make(width, height, 1),
-        .levels = 1,
-    };
-    makeTexture(engine, tex_desc, &teximg);
-
     ViewHandle view = nullptr;
     ViewDescription desc{
         .element_count = 6, //static_cast<unsigned int>(width * height),
-        .view_type     = ViewType::Markers,
+        .view_type     = ViewType::Image,
         .domain_type   = DomainType::Domain2D,
-        .extent        = ViewExtent::make(1, 1, 1),
-        .attributes    = {},
-        .textures      = {},
+        .extent        = ViewExtent::make(width, height, 1),
+        .attributes    = {
+            {AttributeType::Position, makeImageFrame(engine)},
+            {AttributeType::Color, AttributeDescription{
+                .source = pixels,
+                .size   = static_cast<unsigned int>(width * height),
+                .format = FormatDescription::make<char4>(),
+            }}
+        }
     };
-    desc.attributes[AttributeType::Position] = makeImageFrame(engine);
     createView(engine, &desc, &view);
     view->default_size = 1.f;
-
-    /*MemoryParams m;
-    m.layout         = DataLayout::Layout2D;
-    m.element_count  = {(uint)width, (uint)height, 1};
-    m.component_type = ComponentType::Char;
-    m.channel_count  = 4;
-    m.resource_type  = ResourceType::LinearTexture;
-    auto pixels = engine->createBuffer((void**)&d_pixels, m);
-
-    ViewParamsOld params;
-    params.element_count = width * height;
-    params.data_domain   = DomainType::Domain2D;
-    params.domain_type   = DomainType::Structured;
-    params.view_type     = ViewType::Image;
-    params.attributes[AttributeType::Color] = *pixels;
-    /*params.options.external_shaders = {
-        {"shaders/texture_vertex2dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-        {"shaders/texture_frag2d_Float4.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };
-    engine->createView(params);*/
 
     auto tex_size = sizeof(uchar4) * width * height;
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));

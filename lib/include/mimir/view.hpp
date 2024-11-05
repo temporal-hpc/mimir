@@ -16,7 +16,7 @@ enum class ViewType      { Markers, Edges, Image, Boxes, Voxels };
 // Specifies the number of spatial dimensions in the view
 enum class DomainType    { Domain2D, Domain3D };
 
-enum class FormatKind    { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized };
+enum class FormatKind    { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized, SRGB };
 
 struct ViewExtent
 {
@@ -43,10 +43,10 @@ struct FormatDescription
     // Returns the size in bytes of a single data element described in this format.
     unsigned int getSize() const { return size * components; }
     // Helper for creating format descriptions for commonly used types, including CUDA vector types.
-    template <typename T> static std::vector<FormatDescription> make();
+    template <typename T> static FormatDescription make();
 };
 
-enum class AttributeType { Position, Color, Size, Rotation };
+enum class AttributeType { Position, Color, Size, Rotation, Texcoord };
 
 // The interpretation of the sources within the engine depends on attribute type and whether
 // the indices array is set to a non-null value or not.
@@ -57,7 +57,7 @@ struct AttributeDescription
     // Number of elements contained in the source allocation.
     unsigned int size;
     // Format description for the elements in the source array; ignored when sources is null.
-    std::vector<FormatDescription> format;
+    FormatDescription format;
     // Handle for the allocation containing indices referencing the source array.
     Allocation *indices;
     // Size in bits of the index type stored in the indices allocation.
@@ -71,7 +71,7 @@ struct TextureDescription
     // Handle for the allocation holding the texture memory.
     Allocation *source;
     // Format description for texels.
-    std::vector<FormatDescription> format;
+    FormatDescription format;
     ViewExtent extent;
     // Number of mipmap levels stored in the texture.
     unsigned int levels;
@@ -90,8 +90,6 @@ struct ViewDescription
     ViewExtent extent;
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;
-    // Textures attached to the view.
-    std::vector<Texture*> textures;
 };
 
 struct View

@@ -8,13 +8,6 @@
 namespace mimir
 {
 
-uint32_t getFormatSize(std::span<const FormatDescription> formats)
-{
-    uint32_t sz = 0;
-    for (const auto& format : formats) { sz += format.getSize(); }
-    return sz;
-}
-
 VkImageTiling getImageTiling(AllocationType type)
 {
     switch (type)
@@ -61,7 +54,7 @@ VkFormat getVulkanFormat(FormatDescription desc)
             case 4: FORMAT(32, SINT)
             case 8: FORMAT(64, SINT)
             case 2: FORMAT(16, SINT)
-            case 1: FORMAT(8, SINT)
+            case 1: FORMAT(8, SRGB) // TODO: Handle
             default: return VK_FORMAT_UNDEFINED;
         }
         case FormatKind::Unsigned: switch (desc.size)
@@ -69,7 +62,7 @@ VkFormat getVulkanFormat(FormatDescription desc)
             case 4: FORMAT(32, UINT)
             case 8: FORMAT(64, UINT)
             case 2: FORMAT(16, UINT)
-            case 1: FORMAT(8, UINT)
+            case 1: FORMAT(8, SRGB) // TODO: Handle
             default: return VK_FORMAT_UNDEFINED;
         }
         case FormatKind::SignedNormalized: switch (desc.size)
@@ -82,6 +75,11 @@ VkFormat getVulkanFormat(FormatDescription desc)
         {
             case 2: FORMAT(16, UNORM)
             case 1: FORMAT(8, UNORM)
+            default: return VK_FORMAT_UNDEFINED;
+        }
+        case FormatKind::SRGB: switch (desc.size)
+        {
+            case 1: FORMAT(8, SRGB)
             default: return VK_FORMAT_UNDEFINED;
         }
         default: return VK_FORMAT_UNDEFINED;
@@ -118,8 +116,8 @@ template <typename T, int N> FormatDescription buildFormat()
 #define ulong unsigned long
 #endif
 
-#define SPECIALIZE(T) template <> std::vector<FormatDescription> \
-FormatDescription::make<T>() { return { buildFormat<T,1>() }; }
+#define SPECIALIZE(T) template <> FormatDescription \
+FormatDescription::make<T>() { return buildFormat<T,1>(); }
     SPECIALIZE(float);
     SPECIALIZE(double);
     SPECIALIZE(char);
@@ -132,8 +130,8 @@ FormatDescription::make<T>() { return { buildFormat<T,1>() }; }
     SPECIALIZE(ulong);
 #undef SPECIALIZE
 
-#define SPECIALIZE_VEC(T,N) template <> std::vector<FormatDescription> \
-FormatDescription::make<T##N>() { return { buildFormat<T,N>() }; }
+#define SPECIALIZE_VEC(T,N) template <> FormatDescription \
+FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
     SPECIALIZE_VEC(float, 2);
     SPECIALIZE_VEC(float, 3);
     SPECIALIZE_VEC(float, 4);

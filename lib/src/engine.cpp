@@ -5,6 +5,7 @@
 #include "internal/gui.hpp"
 #include "internal/resources.hpp"
 #include "internal/validation.hpp"
+#include "internal/shader_types.hpp"
 
 #include <chrono> // std::chrono
 #include <set> // std::set
@@ -331,12 +332,6 @@ AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 sta
 
 AttributeDescription MimirEngine::makeImageDomain()
 {
-    // TODO: Check alignment
-    struct Vertex {
-        glm::vec3 pos;
-        glm::vec2 uv;
-        //glm::vec3 normal;
-    };
     const std::vector<Vertex> vertices{
         { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
         { { -1.f,  1.f, 0.f }, { 0.f, 1.f } },
@@ -385,15 +380,12 @@ AttributeDescription MimirEngine::makeImageDomain()
         vkDestroyBuffer(device, ibo, nullptr);
     });
 
-    // There is currently no function to easily create composite format descriptions,
-    // so the desired format is created from two individual formats
-    auto format_pos = FormatDescription::make<float3>();
-    auto format_uv  = FormatDescription::make<float2>();
+    spdlog::trace("copy size {}", vert_size);
 
     return AttributeDescription{
         .source     = vbo_alloc,
         .size       = static_cast<uint32_t>(vertices.size()),
-        .format     = { format_pos[0], format_uv[0] },
+        .format     = FormatDescription::make<float3>(),
         .indices    = ibo_alloc,
         .index_size = sizeof(uint16_t),
     };
@@ -403,7 +395,7 @@ Texture *MimirEngine::makeTexture(TextureDescription desc)
 {
     ImageParams params{
         .type   = getImageType(desc.extent),
-        .format = getVulkanFormat(desc.format[0]),
+        .format = getVulkanFormat(desc.format),
         .extent = { desc.extent.x, desc.extent.y, desc.extent.z },
         .tiling = getImageTiling(desc.source->type),
         .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -415,13 +407,7 @@ Texture *MimirEngine::makeTexture(TextureDescription desc)
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
     auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
-
-    VkMemoryRequirements memreq{};
-    vkGetImageMemoryRequirements(device, teximg, &memreq);
-    auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    auto available = physical_device.memory.memoryProperties;
-    auto imgmem = allocateMemory(device, available, memreq, memflags, nullptr);
-    vkBindImageMemory(device, teximg, imgmem, 0);
+    vkBindImageMemory(device, teximg, desc.source->vk_mem, 0);
 
     Texture texture{
         .image    = teximg,
@@ -430,6 +416,10 @@ Texture *MimirEngine::makeTexture(TextureDescription desc)
         .format   = params.format,
         .extent   = params.extent,
     };
+
+    transitionImageLayout(texture.image,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    );
 
     deletors.context.add([=,this]{
         spdlog::trace("Destroying texture");
@@ -619,33 +609,84 @@ View *MimirEngine::createView(ViewDescription *desc)
         .index_type = VK_INDEX_TYPE_NONE_KHR,
         .tex_count  = 0,
         .textures   = {},
+        .ssbo_count = 0,
+        .storage    = {VK_NULL_HANDLE},
         .desc       = *desc,
     };
 
     // Create attribute buffers
     for (auto &[type, attr] : desc->attributes)
     {
-        spdlog::trace("Processing attr {}", getAttributeType(type));
+        spdlog::trace("Processing {} attribute", getAttributeType(type));
+        if (type == AttributeType::Color && desc->view_type == ViewType::Image)
+        {
+            ImageParams params{
+                .type   = getImageType(desc->extent),
+                .format = getVulkanFormat(attr.format),
+                .extent = { desc->extent.x, desc->extent.y, desc->extent.z },
+                .tiling = getImageTiling(attr.source->type),
+                .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
+                .levels = 1,
+            };
+            VkExternalMemoryImageCreateInfo extmem_info{
+                .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+                .pNext       = nullptr,
+                .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+            };
+            auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
+            vkBindImageMemory(device, teximg, attr.source->vk_mem, 0);
+
+            Texture texture{
+                .image    = teximg,
+                .img_view = createImageView(device, texture.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
+                .sampler  = createSampler(device, VK_FILTER_LINEAR, false),
+                .format   = params.format,
+                .extent   = params.extent,
+            };
+
+            transitionImageLayout(texture.image,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            );
+
+            deletors.context.add([=,this]{
+                spdlog::trace("Destroying texture");
+                vkDestroyImageView(device, texture.img_view, nullptr);
+                vkDestroyImage(device, texture.image, nullptr);
+                vkDestroySampler(device, texture.sampler, nullptr);
+            });
+
+            detail.textures[detail.tex_count++] = texture;
+        }
+        // Handle image quad vertex buffer size
+        else if (type == AttributeType::Position && desc->view_type == ViewType::Image)
+        {
+            VkDeviceSize vb_size = sizeof(Vertex) * attr.size;
+            VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            VkDeviceMemory vb_mem = attr.source->vk_mem;
+            // TODO: Get if there is still space remaining (or maybe do it in validation)
+            detail.vbo[detail.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+            detail.vb_count++;
+        }
         // Map source to a vertex buffer when accessing its elements directly
         // Source is always mapped this way for position attributes
-        if (type == AttributeType::Position || attr.indices == nullptr)
+        else if (type == AttributeType::Position || attr.indices == nullptr)
         {
-            VkDeviceSize vb_size = getFormatSize(attr.format) * attr.size;
+            VkDeviceSize vb_size = attr.format.getSize() * attr.size; // sizeof(Vertex) * attr.size;
             spdlog::trace("Position VB size {}, available {}", vb_size, attr.source->size);
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = attr.source->vk_mem;
             // TODO: Get if there is still space remaining (or maybe do it in validation)
-            detail.vbo[detail.vb_count++] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+            detail.vbo[detail.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+            detail.vb_count++;
         }
         // If a non-position attribute uses indirect mapping, its source is mapped to a storage buffer
         else
         {
-            VkDeviceSize sb_size = getFormatSize(attr.format) * attr.size;
+            VkDeviceSize sb_size = attr.format.getSize() * attr.size;
             spdlog::trace("Position SB size {}, available {}", sb_size, attr.source->size);
             VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             VkDeviceMemory sb_mem = attr.source->vk_mem;
-            // TODO: Add SSBO to some field in memory
-            createAttributeBuffer(sb_size, sb_usage, sb_mem);
+            detail.storage[detail.ssbo_count++] = createAttributeBuffer(sb_size, sb_usage, sb_mem);
         }
 
         // If there is no indirect source access, the attribute is now fully processed
@@ -1029,9 +1070,9 @@ void MimirEngine::updateDescriptorSets()
 
         for (const auto& view : views)
         {
-            for (uint32_t i = 0; i < view->detail->tex_count; ++i)
+            for (uint32_t k = 0; k < view->detail->tex_count; ++k)
             {
-                auto tex = view->detail->textures[i];
+                auto tex = view->detail->textures[k];
 
                 VkDescriptorImageInfo img_info{
                     .sampler     = tex.sampler,
@@ -1063,7 +1104,6 @@ void MimirEngine::updateDescriptorSets()
                 updates.push_back(write_img);
             }
         }
-
         vkUpdateDescriptorSets(device, updates.size(), updates.data(), 0, nullptr);
     }
 }

@@ -2,8 +2,8 @@ import uniforms;
 
 struct VertexInput
 {
-    float3 pos : POSITION;
-    [[vk::location(5)]] float2 uv  : TEXCOORD;
+    [[vk::location(0)]] float3 pos : POSITION;
+    [[vk::location(1)]] float2 uv  : TEXCOORD;
 };
 
 struct VertexData
@@ -13,7 +13,7 @@ struct VertexData
 };
 
 [shader("vertex")]
-VertexData vertexMain(VertexInput input)
+VertexData vertex2dMain(VertexInput input)
 {
     float4x4 view_proj = mul(mvp.view, mvp.proj);
     float4 pos = float4(input.pos, 1);
@@ -21,6 +21,26 @@ VertexData vertexMain(VertexInput input)
     VertexData output;
     output.pos = mul(pos, view_proj);
     output.uv = input.uv;
+
+    return output;
+}
+
+struct VertexData3d
+{
+    float4 pos : SV_Position;
+    float3 uv  : TEXCOORD;
+};
+
+[shader("vertex")]
+VertexData3d vertex3dMain(VertexInput input)
+{
+    float4x4 view_proj = mul(mvp.view, mvp.proj);
+    float4 pos = float4(input.pos, 1);
+    pos.z = pos.z - view.depth;
+
+    VertexData3d output;
+    output.pos = mul(pos, view_proj);
+    output.uv  = float3(input.uv, view.depth);
 
     return output;
 }
@@ -47,24 +67,16 @@ struct Grayscale : IPicker
     }
 }
 
-[[vk::binding(3)]] Texture2D<float1> Tex2d_Float1;
-[[vk::binding(3)]] Texture2D<float2> Tex2d_Float2;
-[[vk::binding(3)]] Texture2D<float3> Tex2d_Float3;
 [[vk::binding(3)]] Texture2D<float4> Tex2d_Float4;
-
-[[vk::binding(3)]] Texture3D<float1> Tex3d_Float1;
-[[vk::binding(3)]] Texture3D<float2> Tex3d_Float2;
-[[vk::binding(3)]] Texture3D<float3> Tex3d_Float3;
-[[vk::binding(3)]] Texture3D<float4> Tex3d_Float4;
-
-[[vk::binding(3)]] Texture3D<int> Tex3d_Int1;
 
 [[vk::binding(4)]] SamplerState Sampler;
 
+
 [shader("fragment")]
-float4 fragmentMain(VertexData input) : SV_Target
+float4 frag2d_Char4(VertexData input) : SV_Target
 {
-    IPicker picker = RawColor();
     var samp = Tex2d_Float4.Sample(Sampler, input.uv);
+    IPicker picker = RawColor();
     return picker.getColor(samp);
 }
+

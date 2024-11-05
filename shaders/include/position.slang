@@ -1,5 +1,3 @@
-; // The slang VSCode extension complains is this is not here
-
 interface IPosition
 {
     float4 getPosition(int3 extent);

@@ -117,15 +117,14 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
     std::map<AttributeType, std::string> specs{
         {AttributeType::Position, "PositionDefault"},
         {AttributeType::Color, "ColorDefault"},
-        {AttributeType::Size, "SizeDefault"}
+        {AttributeType::Size, "SizeDefault"},
     };
 
     for (auto &[type, attr] : desc.attributes)
     {
         std::string spec = getAttributeType(type);
-        // TODO: Implement for descriptions with multiple formats (e.g. image)
-        spec += getDataType(attr.format[0]);
-        spec += std::to_string(attr.format[0].components);
+        spec += getDataType(attr.format);
+        spec += std::to_string(attr.format.components);
         specs[type] = spec;
     }
     // Get the list of specialization names
@@ -144,11 +143,10 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
 
             // Add dimensionality specialization
-            std::string marker_spec = "Marker";
-            marker_spec += getDomainType(desc.domain_type);
+            auto marker_spec = std::string("Marker") + getDomainType(desc.domain_type);
             compile.specializations.push_back(marker_spec);
 
-            // Add shape specialization (TODO: Do it properly)
+            // Add shape specialization
             compile.specializations.push_back("DiscShape");
             break;
         }
@@ -178,13 +176,15 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         }
         case ViewType::Image:
         {
+            // Do not use specializations in texture shaders for now
+            compile.specializations.clear();
             compile.module_path = "shaders/texture.slang";
-            compile.entrypoints = {"vertexMain", "fragmentMain"};
+            compile.entrypoints = {"vertex2dMain", "frag2d_Char4"};
             break;
         }
         default:
         {
-            spdlog::error("Unimplemented shader generation for view type {}", getViewType(desc.view_type));
+            spdlog::error("Unimplemented shader for view type {}", getViewType(desc.view_type));
         }
     }
     return compile;
@@ -298,27 +298,44 @@ VertexDescription getVertexDescription(const ViewDescription view)
     uint32_t binding = 0;
     for (auto &[type, attr] : view.attributes)
     {
-        spdlog::trace("Adding input binding with binding {} and stride {}", binding, getFormatSize(attr.format));
+        if (type == AttributeType::Position && view.view_type == ViewType::Image)
+        {
+            spdlog::trace("Using image vertex description");
+            desc.binding.push_back(VkVertexInputBindingDescription{
+                .binding   = 0,
+                .stride    = sizeof(Vertex),
+                .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+            });
+            desc.attribute.push_back(VkVertexInputAttributeDescription{
+                .location = 0,
+                .binding  = 0,
+                .format   = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset   = offsetof(Vertex, pos)
+            });
+            desc.attribute.push_back(VkVertexInputAttributeDescription{
+                .location = 1,
+                .binding  = 0,
+                .format   = VK_FORMAT_R32G32_SFLOAT,
+                .offset   = offsetof(Vertex, uv)
+            });
+            return desc;
+        }
+
+        spdlog::trace("Adding input binding for attribute {}, with binding {} and stride {}",
+            getAttributeType(type), binding, attr.format.getSize()
+        );
         desc.binding.push_back(VkVertexInputBindingDescription{
             .binding   = binding,
-            .stride    = getFormatSize(attr.format),
+            .stride    = attr.format.getSize(), // sizeof(Vertex)
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
         });
 
-        uint32_t offset = 0;
-        uint32_t location = 0;
-        for (auto format : attr.format)
-        {
-            spdlog::trace("Adding input attribute with location {} and offset {}", location, offset);
-            desc.attribute.push_back(VkVertexInputAttributeDescription{
-                .location = getLocationIndex(type, location),
-                .binding  = binding,
-                .format   = getVulkanFormat(format),
-                .offset   = offset,
-            });
-            location++;
-            offset += format.getSize();
-        }
+        desc.attribute.push_back(VkVertexInputAttributeDescription{
+            .location = static_cast<uint32_t>(type),
+            .binding  = binding,
+            .format   = getVulkanFormat(attr.format),
+            .offset   = 0,
+        });
         binding++;
     }
     return desc;

@@ -5,8 +5,6 @@
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
 
-#include <span> // std::span
-
 namespace mimir
 {
 
@@ -59,8 +57,17 @@ struct ViewDetails
     VkBuffer ibo;
     // Index type used when is_indexed is true; undefined otherwise.
     VkIndexType index_type;
+    // Number of attached textures in the view.
     uint32_t tex_count;
+    // Array of stored textures.
     Texture textures[max_attr_count];
+    // Number of storage buffers in the view.
+    uint32_t ssbo_count;
+    // Storage buffer array.
+    VkBuffer storage[max_attr_count];
+    VkVertexInputBindingDescription bindings[max_attr_count];
+    VkVertexInputAttributeDescription attributes[max_attr_count];
+
     // Copy of description used to create this view.
     ViewDescription desc;
 };
@@ -97,6 +104,8 @@ constexpr char* getAttributeType(AttributeType type)
         STR(Position);
         STR(Color);
         STR(Size);
+        STR(Rotation);
+        STR(Texcoord);
 #undef STR
         default: return (char*)"unknown";
     }
@@ -125,8 +134,6 @@ constexpr char* getDataType(FormatDescription desc)
         default: return (char*)"unknown";
     }
 }
-
-uint32_t getFormatSize(std::span<const FormatDescription> formats);
 
 VkFormat getVulkanFormat(FormatDescription desc);
 

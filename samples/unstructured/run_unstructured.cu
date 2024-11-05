@@ -78,25 +78,23 @@ int main(int argc, char *argv[])
         .view_type     = ViewType::Markers,
         .domain_type   = DomainType::Domain2D,
         .extent        = ViewExtent::make(200, 200, 1),
-        .attributes    = {},
-        .textures      = {},
+        .attributes    = {
+            { AttributeType::Position, {
+                .source     = points,
+                .size       = point_count,
+                .format     = FormatDescription::make<double2>(),
+                .indices    = nullptr,
+                .index_size = 0,
+            }},
+            { AttributeType::Size, {
+                .source     = sizes,
+                .size       = point_count,
+                .format     = FormatDescription::make<double>(),
+                .indices    = nullptr,
+                .index_size = 0,
+            }},
+        }
     };
-    desc.attributes[AttributeType::Position] = {
-        .source     = points,
-        .size       = point_count,
-        .format     = FormatDescription::make<double2>(),
-        .indices    = nullptr,
-        .index_size = 0,
-    };
-    desc.attributes[AttributeType::Size] = {
-        .source     = sizes,
-        .size       = point_count,
-        .format     = FormatDescription::make<double>(),
-        .indices    = nullptr,
-        .index_size = 0,
-    };
-
-    // desc.options.default_size = 20.f;
     createView(engine, &desc, &view);
 
     // Cannot make CUDA calls that use the target device memory before

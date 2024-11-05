@@ -31,3 +31,8 @@ struct SceneUniforms
     alignas(16) glm::vec4 light_color;
 };
 
+struct Vertex {
+    glm::vec3 pos;
+    glm::vec2 uv;
+    //glm::vec3 normal;
+};
