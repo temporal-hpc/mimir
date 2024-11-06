@@ -5,21 +5,6 @@
 namespace mimir::validation
 {
 
-// Converts Vulkan message severity flags into a string for logging
-const char* getVulkanSeverityString(VkDebugUtilsMessageSeverityFlagBitsEXT flag)
-{
-    switch (flag)
-    {
-#define STR(r) case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ ## r ## _BIT_EXT: return #r
-        STR(VERBOSE);
-        STR(INFO);
-        STR(WARNING);
-        STR(ERROR);
-#undef STR
-        default: return "UNKNOWN";
-    }
-}
-
 // Converts Vulkan message type flags into a string for logging
 const char* getVulkanMessageType(VkDebugUtilsMessageTypeFlagsEXT type)
 {
@@ -44,9 +29,16 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data,
     [[maybe_unused]] void *p_user_data)
 {
-    auto severity = getVulkanSeverityString(msg_severity);
-    auto type = getVulkanMessageType(msg_type);
-    fprintf(stderr, "[%s] %s: %s\n", severity, type, p_callback_data->pMessage);
+    auto t = getVulkanMessageType(msg_type);
+    auto msg = p_callback_data->pMessage;
+    switch (msg_severity)
+    {
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: { spdlog::trace("{}: {}", t, msg); break; }
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:    { spdlog::info("{}: {}", t, msg); break; }
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: { spdlog::warn("{}: {}", t, msg); break; }
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:   { spdlog::error("{}: {}", t, msg); break; }
+        default: { spdlog::critical("{}: {}", t, msg); break; }
+    }
     return VK_FALSE;
 }
 
