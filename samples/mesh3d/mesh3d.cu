@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
     desc.element_count = static_cast<unsigned int>(3 * h_triangles.size());
     desc.view_type = ViewType::Edges;
     desc.attributes[AttributeType::Position] = {
-        .source     = vertices, // TODO: Consider this instead of element_count when creating view resources
+        .source     = vertices,
         .size       = point_count,
         .format     = FormatDescription::make<float3>(),
         .indices    = edges,

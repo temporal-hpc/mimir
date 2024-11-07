@@ -20,21 +20,10 @@ struct ColorTemplate<T, let N:int> : IColor
     {
         float4 rgba = {0,0,0,1};
         [unroll]
-        for (int i = 0; i < N; ++i) { rgba[i] = reinterpret<float>(data[i]); }
-        return rgba;
-    }
-};
-
-struct ColorTemplateLarge<T, let N:int> : IColor
-{
-    vector<T,N> data : COLOR;
-
-    float4 default_color;
-    float4 getColor()
-    {
-        float4 rgba = {0,0,0,1};
-        [unroll]
-        for (int i = 0; i < N; ++i) { rgba[i] = float(reinterpret<double>(data[i])); }
+        for (int i = 0; i < N; ++i) {
+            if (sizeof(T) <= sizeof(float)) { rgba[i] = reinterpret<float>(data[i]); }
+            else { rgba[i] = float(reinterpret<double>(data[i])); }
+        }
         return rgba;
     }
 };
@@ -51,9 +40,24 @@ typedef ColorTemplate<int,2> ColorInt2;
 typedef ColorTemplate<int,3> ColorInt3;
 typedef ColorTemplate<int,4> ColorInt4;
 
-typedef ColorTemplateLarge<double,2> ColorDouble2;
-typedef ColorTemplateLarge<double,3> ColorDouble3;
-typedef ColorTemplateLarge<double,4> ColorDouble4;
+typedef ColorTemplate<double,2> ColorDouble2;
+typedef ColorTemplate<double,3> ColorDouble3;
+typedef ColorTemplate<double,4> ColorDouble4;
+
+
+struct ColormapTemplate<T, let N : int> : IColor
+{
+    [[vk::binding(5)]] Buffer<float4> buffer;
+    int input;
+
+    float4 default_color;
+    float4 getColor()
+    {
+        return buffer[input];
+    }
+};
+
+typedef ColormapTemplate<float, 4> ColorFloat4FromInt;
 
 /*struct ColorInt1 : IColor
 {

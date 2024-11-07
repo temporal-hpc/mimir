@@ -8,6 +8,8 @@
 namespace mimir
 {
 
+// Derive Vulkan image tiling from the allocation type,
+// which is set when initializing said allocation.
 VkImageTiling getImageTiling(AllocationType type)
 {
     switch (type)
@@ -18,6 +20,8 @@ VkImageTiling getImageTiling(AllocationType type)
     }
 }
 
+// Derive Vulkan image type from the view extent dimensions,
+// assuming that a dimension exists if its size is greater than 1.
 VkImageType getImageType(ViewExtent extent)
 {
     int dim_count = (extent.x > 1) + (extent.y > 1) + (extent.z > 1);
@@ -30,6 +34,7 @@ VkImageType getImageType(ViewExtent extent)
 }
 
 // Converts a memory format description to its Vulkan equivalent.
+// Only formats whose channels have the same size are currently supported.
 VkFormat getVulkanFormat(FormatDescription desc)
 {
     #define FORMAT(n,suffix) switch (desc.components) \
@@ -87,6 +92,7 @@ VkFormat getVulkanFormat(FormatDescription desc)
     #undef FORMAT
 }
 
+// Helper function to derive format kind using C++ type traits.
 template <typename T> FormatKind getFormatKind()
 {
     if constexpr (std::is_floating_point_v<T>) return FormatKind::Float;
@@ -100,6 +106,7 @@ template <typename T, int N> FormatDescription buildFormat()
     return { .kind = kind, .size = sizeof(T), .components = N };
 }
 
+// Define shortnames for unsigned types, for use in macro substitutions.
 #ifndef uint
 #define uint unsigned int
 #endif
@@ -115,6 +122,7 @@ template <typename T, int N> FormatDescription buildFormat()
 #ifndef ulong
 #define ulong unsigned long
 #endif
+
 
 #define SPECIALIZE(T) template <> FormatDescription \
 FormatDescription::make<T>() { return buildFormat<T,1>(); }
@@ -164,6 +172,7 @@ FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
     SPECIALIZE_VEC(ulong, 4);
 #undef SPECIALIZE_VEC
 
+// Cleanup definitions
 #ifdef uint
 #undef uint
 #endif
@@ -179,6 +188,5 @@ FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
 #ifdef ulong
 #undef ulong
 #endif
-
 
 } // namespace mimir

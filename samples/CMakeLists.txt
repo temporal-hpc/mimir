@@ -10,7 +10,7 @@ add_subdirectory(unstructured)
 add_subdirectory(structured)
 add_subdirectory(mesh3d)
 add_subdirectory(image)
-# add_subdirectory(CA3D-voxels)
+add_subdirectory(CA3D-voxels)
 # Basic samples
 # add_subdirectory(GPU-visual-tool-example)
 # add_subdirectory(points3d)

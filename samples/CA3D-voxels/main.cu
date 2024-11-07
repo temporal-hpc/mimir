@@ -60,26 +60,45 @@ int main(int argc, char **argv){
     Engine engine = nullptr;
     createEngine(width, height, &engine);
 
-    Allocation ping = nullptr, pong = nullptr;
+    AllocHandle ping = nullptr, pong = nullptr, colormap = nullptr;
     allocLinear(engine, (void**)&d1, sizeof(int) * n*n*n, &ping);
     allocLinear(engine, (void**)&d2, sizeof(int) * n*n*n, &pong);
 
-    View v1 = nullptr, v2 = nullptr;
-    ViewParams params;
-    params.element_count = n*n*n;
-    params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
-    params.data_domain   = DomainType::Domain3D;
-    params.view_type     = ViewType::Voxels;
-    params.attributes[AttributeType::Position] = makeStructuredGrid(engine, {params.extent});
-    params.attributes[AttributeType::Color] = {
-        .allocation = ping,
-        .format     = { .type = DataType::int32, .components = 1 },
-    };
-    createView(engine, params, &v1);
+    float4 *d_colors = nullptr;
+    float4 h_colors[2] = { {0,1,0,1}, {0,0,1,1} };
+    unsigned int num_colors = std::size(h_colors);
+    auto color_bytes = sizeof(float4) * num_colors;
+    allocLinear(engine, (void**)&d_colors, color_bytes, &colormap);
+    gpuErrchk(cudaMemcpy(d_colors, h_colors, color_bytes, cudaMemcpyHostToDevice));
 
-    params.attributes[AttributeType::Color].allocation = pong;
-    params.options.visible = false;
-    createView(engine, params, &v2);
+    auto grid_size = ViewExtent::make(n, n, n);
+    ViewHandle v1 = nullptr, v2 = nullptr;
+    ViewDescription desc{
+        .element_count = static_cast<unsigned int>(n*n*n),
+        .view_type     = ViewType::Voxels,
+        .domain_type   = DomainType::Domain3D,
+        .extent        = grid_size,
+        .attributes    = {
+            { AttributeType::Position, makeStructuredGrid(engine, grid_size) },
+            { AttributeType::Color, {
+                // .source = ping,
+                // .size   = static_cast<unsigned int>(n*n*n),
+                // .format = FormatDescription::make<int>(),
+                // .indices = nullptr,
+                // .index_size = 0,
+                .source     = colormap,
+                .size       = num_colors,
+                .format     = FormatDescription::make<float4>(),
+                .indices    = ping,
+                .index_size = sizeof(int),
+            }}
+        },
+    };
+    createView(engine, &desc, &v1);
+
+    desc.attributes[AttributeType::Color].indices = pong;
+    createView(engine, &desc, &v2);
+    v2->visible = false;
 
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));

@@ -821,22 +821,15 @@ void MimirEngine::initVulkan()
     descriptor_pool = createDescriptorPool(device, pool_sizes);
 
     // Create descriptor set and pipeline layouts
+    VkShaderStageFlags all_stages =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     std::vector<VkDescriptorSetLayoutBinding> layout_bindings{
-        descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
-        ),
-        descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
-        ),
-        descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
-        ),
-        descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            VK_SHADER_STAGE_FRAGMENT_BIT
-        ),
-        descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER,
-            VK_SHADER_STAGE_FRAGMENT_BIT
-        )
+        descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, all_stages),
+        descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, all_stages),
+        descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, all_stages),
+        descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT),
+        descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+        descriptorLayoutBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, all_stages)
     };
     descriptor_layout = createDescriptorSetLayout(device, layout_bindings);
     pipeline_layout = createPipelineLayout(device, descriptor_layout);
@@ -1102,6 +1095,20 @@ void MimirEngine::updateDescriptorSets()
                 write_img.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
                 write_img.pImageInfo     = &samp_info;
                 updates.push_back(write_img);
+            }
+            for (uint32_t k = 0; k < view->detail->ssbo_count; ++k)
+            {
+                auto ssbo = view->detail->storage[k];
+
+                VkDescriptorBufferInfo ssbo_info{
+                    .buffer = ssbo,
+                    .offset = 0,
+                    .range  = 2 * sizeof(float4),
+                };
+                write_buf.dstBinding     = 5;
+                write_buf.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write_buf.pBufferInfo    = &ssbo_info;
+                updates.push_back(write_buf);
             }
         }
         vkUpdateDescriptorSets(device, updates.size(), updates.data(), 0, nullptr);

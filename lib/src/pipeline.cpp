@@ -107,6 +107,17 @@ VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
     };
 }
 
+std::string getSpecializationName(AttributeType type, AttributeDescription attr)
+{
+    std::string spec = getAttributeType(type);
+    spec += getDataType(attr.format) + std::to_string(attr.format.components);
+    if (type != AttributeType::Position && attr.indices != nullptr)
+    {
+        spec += std::string("FromInt");
+    }
+    return spec;
+}
+
 ShaderCompileParams getShaderCompileParams(ViewDescription desc)
 {
     ShaderCompileParams compile;
@@ -122,15 +133,12 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
 
     for (auto &[type, attr] : desc.attributes)
     {
-        std::string spec = getAttributeType(type);
-        spec += getDataType(attr.format);
-        spec += std::to_string(attr.format.components);
-        specs[type] = spec;
+        specs[type] = getSpecializationName(type, attr);
     }
     // Get the list of specialization names
     for (const auto& spec : specs)
     {
-        spdlog::trace("{}", spec.second);
+        spdlog::trace("Pipeline: added shader specialization {}", spec.second);
         compile.specializations.push_back(spec.second);
     }
 
@@ -320,23 +328,44 @@ VertexDescription getVertexDescription(const ViewDescription view)
             });
             return desc;
         }
+        else if (type == AttributeType::Position || attr.indices == nullptr)
+        {
+            spdlog::trace("Adding input binding for {} attribute, with binding {} and stride {}",
+                getAttributeType(type), binding, attr.format.getSize()
+            );
+            desc.binding.push_back(VkVertexInputBindingDescription{
+                .binding   = binding,
+                .stride    = attr.format.getSize(), // sizeof(Vertex)
+                .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+            });
 
-        spdlog::trace("Adding input binding for attribute {}, with binding {} and stride {}",
-            getAttributeType(type), binding, attr.format.getSize()
-        );
-        desc.binding.push_back(VkVertexInputBindingDescription{
-            .binding   = binding,
-            .stride    = attr.format.getSize(), // sizeof(Vertex)
-            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-        });
+            desc.attribute.push_back(VkVertexInputAttributeDescription{
+                .location = static_cast<uint32_t>(type),
+                .binding  = binding,
+                .format   = getVulkanFormat(attr.format),
+                .offset   = 0,
+            });
+            binding++;
+        }
+        else
+        {
+            spdlog::trace("Adding index binding for {} attribute, with binding {} and stride {}",
+                getAttributeType(type), binding, static_cast<uint32_t>(attr.index_size)
+            );
+            desc.binding.push_back(VkVertexInputBindingDescription{
+                .binding   = binding,
+                .stride    = static_cast<uint32_t>(attr.index_size),
+                .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+            });
 
-        desc.attribute.push_back(VkVertexInputAttributeDescription{
-            .location = static_cast<uint32_t>(type),
-            .binding  = binding,
-            .format   = getVulkanFormat(attr.format),
-            .offset   = 0,
-        });
-        binding++;
+            desc.attribute.push_back(VkVertexInputAttributeDescription{
+                .location = static_cast<uint32_t>(type),
+                .binding  = binding,
+                .format   = VK_FORMAT_R32_SINT,
+                .offset   = 0,
+            });
+            binding++;
+        }
     }
     return desc;
 }
@@ -365,9 +394,9 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
     // }
 
     VkPipelineColorBlendAttachmentState color_blend{
-        .blendEnable         = VK_FALSE,
-        .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
-        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .blendEnable         = VK_TRUE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .colorBlendOp        = VK_BLEND_OP_ADD,
         .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
         .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
