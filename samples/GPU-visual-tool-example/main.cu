@@ -77,41 +77,50 @@ int main(int argc, char *argv[]) {
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)
     // [OTRA OPCION] FLIB_crearVentanaSync(WIDTH, HEIGHT, ...)
     // En este momento, la ventana podria aparecer (en negro, sin datos aun)
-    int width = 900, height = 900;
-    auto engine = make(width, height);
+    Engine engine = nullptr;
+    createEngine(900, 900, &engine);
 
     // [VULKAN] II) "PASAR LOS DATOS AL VISUALIZADOR"
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    auto points = engine->allocLinear((void**)&dPoints, sizeof(float2) * n);
-    ViewParams params;
-    params.element_count = n;
-    params.data_domain   = DomainType::Domain2D;
-    params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = {
-        .allocation = points,
-        .format     = { .type = DataType::float32, .components = 2 }
+    AllocHandle points = nullptr;
+    allocLinear(engine, (void**)&dPoints, sizeof(float2) * n, &points);
+
+    ViewHandle view = nullptr;
+    ViewDescription desc
+    {
+        .element_count = static_cast<unsigned int>(n),
+        .view_type     = ViewType::Markers,
+        .domain_type   = DomainType::Domain2D,
+        .extent        = ViewExtent::make(1, 1, 1),
+        .attributes = {
+            { AttributeType::Position, {
+                .source = points,
+                .size   = static_cast<unsigned int>(n),
+                .format = FormatDescription::make<float2>(),
+            }}
+        }
     };
-    params.options.default_size = .02f;
-    engine->createView(params);
+    createView(engine, &desc, &view);
+    view->default_size = .02f;
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);
     cudaDeviceSynchronize();
 
-    engine->displayAsync();
+    displayAsync(engine);
 
     for(int i = 0; i < steps; i++) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en
         // 'dPoints' se ve refleada inmediatamente en la ventana async)
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        engine->prepareViews();
+        prepareViews(engine);
 
         kernel_random_movement<<<g, b>>>(n, dPoints, dStates);
         cudaDeviceSynchronize();
         // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
-        engine->updateViews();
+        updateViews(engine);
 
         #ifdef DEBUG
             printf("[DEBUG] simulation step %i:\n", i);

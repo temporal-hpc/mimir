@@ -12,14 +12,14 @@ add_subdirectory(mesh3d)
 add_subdirectory(image)
 add_subdirectory(CA3D-voxels)
 # Basic samples
-# add_subdirectory(GPU-visual-tool-example)
-# add_subdirectory(points3d)
+add_subdirectory(GPU-visual-tool-example)
+add_subdirectory(points3d)
 # add_subdirectory(points3dcpu)
 # add_subdirectory(edgeflip)
 # add_subdirectory(voronoi-simple)
 # add_subdirectory(texture_cudaarray)
 # Utilities
-# add_subdirectory(powermon)
+add_subdirectory(powermon)
 # Advanced samples
 # add_subdirectory(potts)
 # add_subdirectory(nbody)

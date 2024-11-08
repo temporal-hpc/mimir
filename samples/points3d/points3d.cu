@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
     // Default values for this program
     int width = 1920;
     int height = 1080;
-    size_t point_count = 100;
+    unsigned int point_count = 100;
     int iter_count = 10000;
     PresentMode present_mode = PresentMode::Immediate;
     int target_fps = 0;
@@ -78,7 +78,7 @@ int main(int argc, char *argv[])
     std::string mode;
     if (width == 0 && height == 0) mode = use_interop? "interop" : "cudaMalloc";
     else mode = enable_sync? "sync" : "desync";
-    printf("%s,%lu,", mode.c_str(), point_count);
+    printf("%s,%u,", mode.c_str(), point_count);
 
     bool display = true;
     if (width == 0 || height == 0)
@@ -96,21 +96,26 @@ int main(int argc, char *argv[])
         .enable_sync = enable_sync,
         .target_fps  = target_fps,
     };
-    auto engine = make(options);
+    Engine engine = nullptr;
+    createEngine(options, &engine);
 
     if (use_interop)
     {
-        auto points = engine->allocLinear((void**)&d_coords, sizeof(float3) * point_count);
-        ViewParams params;
-        params.element_count = point_count;
-        params.data_domain   = DomainType::Domain3D;
-        params.extent        = extent;
-        params.view_type     = ViewType::Markers;
-        params.attributes[AttributeType::Position] = {
-            .allocation = points,
-            .format     = { .type = DataType::float32, .components = 3 }
+        AllocHandle points = nullptr;
+        allocLinear(engine, (void**)&d_coords, sizeof(float3) * point_count, &points);
+
+        ViewHandle view = nullptr;
+        ViewDescription desc;
+        desc.element_count = point_count;
+        desc.domain_type   = DomainType::Domain3D;
+        desc.extent        = ViewExtent::make(200,200,200);
+        desc.view_type     = ViewType::Markers;
+        desc.attributes[AttributeType::Position] = {
+            .source = points,
+            .size   = point_count,
+            .format = FormatDescription::make<float3>(),
         };
-        engine->createView(params);
+        createView(engine, &desc, &view);
     }
     else // Run the simulation without display
     {
@@ -123,15 +128,15 @@ int main(int argc, char *argv[])
     checkCuda(cudaDeviceSynchronize());
 
     GPUPowerBegin("gpu", 100);
-    if (display) engine->displayAsync();
+    if (display) displayAsync(engine);
     for (size_t i = 0; i < iter_count; ++i)
     {
-        if (display) engine->prepareViews();
+        if (display) prepareViews(engine);
         integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
-        if (display) engine->updateViews();
+        if (display) updateViews(engine);
     }
-    engine->showMetrics();
+    //showMetrics();
 
     // Nvml memory report
     {
