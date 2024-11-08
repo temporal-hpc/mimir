@@ -128,7 +128,6 @@ void windowCloseCallback(GLFWwindow *window)
 {
     spdlog::trace("Triggering window close callback");
     auto engine = getHandler(window);
-    engine->running = false;
     engine->signalKernelFinish();
 }
 

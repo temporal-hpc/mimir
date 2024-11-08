@@ -34,15 +34,15 @@ namespace
 
 struct AllocatedBuffer
 {
-    VkBuffer buffer = VK_NULL_HANDLE;
-    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkBuffer buffer;
+    VkDeviceMemory memory;
 };
 
 struct SyncData
 {
-    VkFence frame_fence = VK_NULL_HANDLE;
-    VkSemaphore image_acquired = VK_NULL_HANDLE;
-    VkSemaphore render_complete = VK_NULL_HANDLE;
+    VkFence frame_fence;
+    VkSemaphore image_acquired;
+    VkSemaphore render_complete;
 };
 
 struct VulkanQueue
@@ -87,7 +87,6 @@ struct MimirEngine
     interop::Barrier interop;
 
     uint64_t render_timeline;
-    bool running;
     bool kernel_working;
     std::thread rendering_thread;
 

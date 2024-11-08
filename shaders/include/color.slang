@@ -44,10 +44,12 @@ typedef ColorTemplate<double,2> ColorDouble2;
 typedef ColorTemplate<double,3> ColorDouble3;
 typedef ColorTemplate<double,4> ColorDouble4;
 
-
 struct ColormapTemplate<T, let N : int> : IColor
 {
-    [[vk::binding(5)]] Buffer<float4> buffer;
+    static const float4 buffer[] = {
+        { 0, 1, 0, 0.1 },
+        { 0, 0, 1, 0.5 }
+    };
     int input;
 
     float4 default_color;

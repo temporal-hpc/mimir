@@ -1,6 +1,5 @@
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#include <iostream>
 #include <limits> // std::numeric_limits
 
 #include <mimir/mimir.hpp>
@@ -8,22 +7,6 @@
 using namespace mimir;
 
 constexpr float max_distance = std::numeric_limits<float>::max();
-
-struct JumpFloodProgram
-{
-    cudaStream_t stream    = nullptr;
-    float *d_distances     = nullptr;
-    float *d_coords        = nullptr;
-    float4 *d_grid[2]      = {nullptr, nullptr};
-    curandState *d_states  = nullptr;
-    unsigned element_count = 0;
-    int2 extent            = {0, 0};
-
-    JumpFloodProgram(unsigned particle_count, int width, int height);
-    void setInitialState();
-    void cleanup();
-    void runTimestep();
-};
 
 __device__
 float4 jumpFloodStep(float2 coord, float4 *seeds, int step_length, int2 extent)
@@ -79,7 +62,7 @@ void kernelDistanceTransform(float *distances, float4 *seeds, int2 extent)
     }
 }
 
-void jumpFlood(float *distances, float4 *seeds[], int2 extent, cudaStream_t stream)
+void jumpFlood(float *distances, float4 *seeds[], int2 extent)
 {
     dim3 threads(32, 32);
     dim3 blocks( (extent.x + threads.x - 1) / threads.x,
@@ -88,12 +71,11 @@ void jumpFlood(float *distances, float4 *seeds[], int2 extent, cudaStream_t stre
     int out_idx = 0, in_idx = 1;
     for (int k = extent.x / 2; k > 0; k = k >> 1)
     {
-        kernelJfa<<< blocks, threads, 0, stream >>>(seeds[out_idx], seeds[in_idx], extent, k);
+        kernelJfa<<< blocks, threads >>>(seeds[out_idx], seeds[in_idx], extent, k);
         checkCuda(cudaDeviceSynchronize());
         std::swap(out_idx, in_idx);
     }
-    kernelDistanceTransform<<< blocks, threads, 0, stream >>>(distances, seeds[in_idx], extent);
-    checkCuda(cudaDeviceSynchronize());
+    kernelDistanceTransform<<< blocks, threads >>>(distances, seeds[in_idx], extent);
 }
 
 __global__
@@ -123,16 +105,16 @@ void kernelSetSeeds(float4 *seeds, float *raw_coords, int coord_count, int2 exte
 }
 
 void initJumpFlood(float4 *d_seeds, float *d_coords, int coord_count,
-    int2 extent, cudaStream_t stream)
+    int2 extent)
 {
     dim3 threads{128};
     dim3 blocks1{ (extent.x * extent.y + threads.x - 1) / threads.x};
     dim3 blocks2{ (coord_count + threads.x - 1) / threads.x};
 
-    kernelSetNonSeeds<<< blocks1, threads, 0, stream >>>(d_seeds, extent.x * extent.y);
-    checkCuda(cudaStreamSynchronize(stream));
-    kernelSetSeeds<<< blocks2, threads, 0, stream >>>(d_seeds, d_coords, coord_count, extent);
-    checkCuda(cudaStreamSynchronize(stream));
+    kernelSetNonSeeds<<< blocks1, threads >>>(d_seeds, extent.x * extent.y);
+    checkCuda(cudaDeviceSynchronize());
+    kernelSetSeeds<<< blocks2, threads >>>(d_seeds, d_coords, coord_count, extent);
+    checkCuda(cudaDeviceSynchronize());
 }
 
 __global__ void initSystem(float *coords, size_t particle_count,
@@ -174,86 +156,41 @@ __global__ void integrate2d(float *coords, size_t particle_count,
     }
 }
 
-JumpFloodProgram::JumpFloodProgram(unsigned point_count, int width, int height):
-    element_count{point_count}, extent{width, height}
-{
-    checkCuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-}
-
-void JumpFloodProgram::setInitialState()
-{
-    checkCuda(cudaSetDevice(0));
-
-    //checkCuda(cudaMalloc(&_d_distances, dist_size));
-    //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * element_count));
-    checkCuda(cudaMallocAsync(&d_states, sizeof(curandState) * element_count, stream));
-
-    dim3 threads{128};
-    dim3 blocks { (element_count + threads.x - 1) / threads.x};
-    initSystem<<<blocks, threads>>>(d_coords, element_count, d_states, extent, 1234);
-    checkCuda(cudaDeviceSynchronize());
-
-    // Allocate device numeric canvas
-    size_t seed_sizes = sizeof(float4) * extent.x * extent.y;
-    checkCuda(cudaMalloc(&d_grid[0], seed_sizes));
-    checkCuda(cudaMalloc(&d_grid[1], seed_sizes));
-    checkCuda(cudaDeviceSynchronize());
-    initJumpFlood(d_grid[1], d_coords, element_count, extent, stream);
-}
-
-void JumpFloodProgram::cleanup()
-{
-    checkCuda(cudaDeviceSynchronize());
-    checkCuda(cudaStreamDestroy(stream));
-    checkCuda(cudaFree(d_grid[0]));
-    checkCuda(cudaFree(d_grid[1]));
-    checkCuda(cudaFree(d_states));
-    checkCuda(cudaFree(d_distances));
-    checkCuda(cudaFree(d_coords));
-    checkCuda(cudaDeviceReset());
-}
-
-void JumpFloodProgram::runTimestep()
-{
-    dim3 threads{128};
-    dim3 blocks { (element_count + threads.x - 1) / threads.x};
-
-    integrate2d<<< blocks, threads, 0, stream >>>(d_coords, element_count, d_states, extent);
-    checkCuda(cudaDeviceSynchronize());
-    initJumpFlood(d_grid[1], d_coords, element_count, extent, stream);
-    jumpFlood(d_distances, d_grid, extent, stream);
-}
-
 int main(int argc, char *argv[])
 {
-    unsigned point_count = 100;
-    size_t iter_count = 10000;
-    if (argc >= 2) point_count = std::stoul(argv[1]);
-    if (argc >= 3) iter_count = std::stoul(argv[2]);
+    float *d_distances    = nullptr;
+    float *d_coords       = nullptr;
+    float4 *d_grid[2]     = {nullptr, nullptr};
+    curandState *d_states = nullptr;
+    int2 extent           = {512, 512};
 
-    JumpFloodProgram program(point_count, 512, 512);
+    unsigned seed_count = 100;
+    size_t iter_count = 10000;
+    if (argc >= 2) seed_count = std::stoul(argv[1]);
+    if (argc >= 3) iter_count  = std::stoul(argv[2]);
+
     Engine engine = nullptr;
     createEngine(1920, 1080, &engine);
 
     AllocHandle seeds = nullptr, field = nullptr;
-    allocLinear(engine, (void**)&program.d_coords, sizeof(float2) * program.element_count, &seeds);
-    allocLinear(engine, (void**)&program.d_distances, sizeof(float) * program.extent.x * program.extent.y, &field);
+    allocLinear(engine, (void**)&d_coords, sizeof(float2) * seed_count, &seeds);
+    allocLinear(engine, (void**)&d_distances, sizeof(float) * extent.x * extent.y, &field);
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
-    desc.element_count = program.element_count;
+    desc.element_count = seed_count;
     desc.view_type     = ViewType::Markers;
     desc.domain_type   = DomainType::Domain2D;
-    desc.extent        = {(unsigned)program.extent.x, (unsigned)program.extent.y, 1};
+    desc.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
     desc.attributes[AttributeType::Position] = {
         .source = seeds,
-        .size   = program.element_count,
+        .size   = seed_count,
         .format = FormatDescription::make<float2>(),
     };
     createView(engine, &desc, &v1);
     //v1->default_color = {0,0,1,1};
 
-    desc.element_count = program.extent.x * program.extent.y;
+    desc.element_count = extent.x * extent.y;
     desc.view_type     = ViewType::Voxels;
     desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.extent, {0.f,0.f,0.4999f});
     desc.attributes[AttributeType::Color] = {
@@ -264,14 +201,41 @@ int main(int argc, char *argv[])
     createView(engine, &desc, &v2);
     v2->default_size = 1.f;
 
-    program.setInitialState();
+    //checkCuda(cudaMalloc(&_d_distances, dist_size));
+    //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * element_count));
+    checkCuda(cudaMalloc(&d_states, sizeof(curandState) * seed_count));
+
+    dim3 threads{128};
+    dim3 blocks { (seed_count + threads.x - 1) / threads.x};
+    initSystem<<<blocks, threads>>>(d_coords, seed_count, d_states, extent, 1234);
+    checkCuda(cudaDeviceSynchronize());
+
+    // Allocate device numeric canvas
+    size_t seed_sizes = sizeof(float4) * extent.x * extent.y;
+    checkCuda(cudaMalloc(&d_grid[0], seed_sizes));
+    checkCuda(cudaMalloc(&d_grid[1], seed_sizes));
+    checkCuda(cudaDeviceSynchronize());
+    initJumpFlood(d_grid[1], d_coords, seed_count, extent);
 
     // Start rendering loop
-    auto timestep_function = std::bind(&JumpFloodProgram::runTimestep, program);
+    auto timestep_function = [&]{
+        dim3 threads{128};
+        dim3 blocks { (seed_count + threads.x - 1) / threads.x};
+
+        integrate2d<<< blocks, threads >>>(d_coords, seed_count, d_states, extent);
+        checkCuda(cudaDeviceSynchronize());
+        initJumpFlood(d_grid[1], d_coords, seed_count, extent);
+        jumpFlood(d_distances, d_grid, extent);
+        checkCuda(cudaDeviceSynchronize());
+    };
     display(engine, timestep_function, iter_count);
 
+    checkCuda(cudaFree(d_grid[0]));
+    checkCuda(cudaFree(d_grid[1]));
+    checkCuda(cudaFree(d_states));
+    checkCuda(cudaFree(d_distances));
+    checkCuda(cudaFree(d_coords));
     destroyEngine(engine);
-    program.cleanup();
 
     return EXIT_SUCCESS;
 }

@@ -109,9 +109,7 @@ int main(int argc, char *argv[])
     // Set up the cuda code that updates the view buffer as a lambda function
     auto cuda_call = [&]
     {
-        integrate2d<<< grid_size, block_size >>>(
-            d_coords, point_count, d_states, extent
-        );
+        integrate2d<<< grid_size, block_size >>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function

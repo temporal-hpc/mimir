@@ -7,6 +7,7 @@
 #include "internal/validation.hpp"
 #include "internal/shader_types.hpp"
 
+#include <iostream>
 #include <chrono> // std::chrono
 #include <set> // std::set
 
@@ -80,16 +81,24 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .swapchain         = {},
         .pipeline_builder  = {},
         .fbs               = {},
-        .command_buffers   = {},
-        .descriptor_sets   = {},
+        .command_buffers   = { VK_NULL_HANDLE },
+        .descriptor_sets   = { VK_NULL_HANDLE },
         .gui_callback      = []() { return; },
         .depth_image       = VK_NULL_HANDLE,
         .depth_memory      = VK_NULL_HANDLE,
         .depth_view        = VK_NULL_HANDLE,
-        .sync_data         = {},
-        .interop           = {},
+        .sync_data         = { SyncData{
+            .frame_fence = VK_NULL_HANDLE,
+            .image_acquired = VK_NULL_HANDLE,
+            .render_complete = VK_NULL_HANDLE
+        } },
+        .interop           = {
+            .timeline_value = 0,
+            .vk_semaphore   = VK_NULL_HANDLE,
+            .cuda_semaphore = nullptr,
+            .cuda_stream    = 0,
+        },
         .render_timeline   = 0,
-        .running           = false,
         .kernel_working    = false,
         .rendering_thread  = {},
         .uniform_buffers   = {},
@@ -156,8 +165,6 @@ void MimirEngine::prepare()
 void MimirEngine::displayAsync()
 {
     prepare();
-
-    running = true;
     rendering_thread = std::thread([&,this]()
     {
         while(!window_context.shouldClose())
@@ -166,14 +173,13 @@ void MimirEngine::displayAsync()
             gui::draw(camera, options, views, gui_callback);
             renderFrame();
         }
-        running = false;
         vkDeviceWaitIdle(device);
     });
 }
 
 void MimirEngine::prepareViews()
 {
-    if (options.present.enable_sync && running)
+    if (options.present.enable_sync)
     {
         kernel_working = true;
         waitKernelStart();
@@ -196,7 +202,7 @@ void MimirEngine::waitKernelStart()
 
 void MimirEngine::updateViews()
 {
-    if (options.present.enable_sync && running)
+    if (options.present.enable_sync)
     {
         compute_monitor.stopWatch();
         signalKernelFinish();
@@ -222,7 +228,6 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();
 
-    running = true;
     kernel_working = true;
     size_t iter_idx = 0;
     while(!window_context.shouldClose())
@@ -231,16 +236,15 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
         gui::draw(camera, options, views, gui_callback);
         renderFrame();
 
-        if (running) waitKernelStart();
         if (iter_idx < iter_count)
         {
+            waitKernelStart();
             func(); // Advance the simulation
             iter_idx++;
+            signalKernelFinish();
         }
-        if (running) signalKernelFinish();
     }
     kernel_working = false;
-    running = false;
     vkDeviceWaitIdle(device);
 }
 
@@ -379,8 +383,6 @@ AttributeDescription MimirEngine::makeImageDomain()
         vkFreeMemory(device, ibo_mem, nullptr);
         vkDestroyBuffer(device, ibo, nullptr);
     });
-
-    spdlog::trace("copy size {}", vert_size);
 
     return AttributeDescription{
         .source     = vbo_alloc,
@@ -648,7 +650,7 @@ View *MimirEngine::createView(ViewDescription *desc)
                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
             );
 
-            deletors.context.add([=,this]{
+            deletors.views.add([=,this]{
                 spdlog::trace("Destroying texture");
                 vkDestroyImageView(device, texture.img_view, nullptr);
                 vkDestroyImage(device, texture.image, nullptr);
@@ -900,9 +902,7 @@ void MimirEngine::createInstance()
         instance_info.ppEnabledLayerNames = validation::layers.data();
     }
     validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
-    deletors.context.add([=,this]{
-        vkDestroyInstance(instance, nullptr);
-    });
+    deletors.context.add([=,this]{ vkDestroyInstance(instance, nullptr); });
 
     if (validation::enable_layers)
     {
@@ -1131,7 +1131,8 @@ void MimirEngine::waitTimelineHost()
 void MimirEngine::renderFrame()
 {
     auto frame_idx = render_timeline % MAX_FRAMES_IN_FLIGHT;
-    //printf("frame %lu waits for %lu and signals %lu\n", render_timeline, interop.timeline_value, render_timeline+1);
+    //spdlog::trace("frame {} waits for {} and signals {}", render_timeline, interop.timeline_value, render_timeline+1);
+    //std::cin.get();
 
     // Wait for frame fence and reset it after waiting
     auto frame_sync = sync_data[frame_idx];
@@ -1300,7 +1301,6 @@ void MimirEngine::drawElements(uint32_t image_idx)
             i * size_ubo + size_mvp + size_view,
             i * size_ubo + size_mvp
         };
-        // NOTE: Second parameter can be also used to bind a compute pipeline
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );
