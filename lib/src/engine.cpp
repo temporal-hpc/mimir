@@ -99,7 +99,7 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
             .cuda_stream    = 0,
         },
         .render_timeline   = 0,
-        .kernel_working    = false,
+        .running    = false,
         .rendering_thread  = {},
         .uniform_buffers   = {},
         .views             = {},
@@ -165,6 +165,7 @@ void MimirEngine::prepare()
 void MimirEngine::displayAsync()
 {
     prepare();
+    running = true;
     rendering_thread = std::thread([&,this]()
     {
         while(!window_context.shouldClose())
@@ -173,15 +174,15 @@ void MimirEngine::displayAsync()
             gui::draw(camera, options, views, gui_callback);
             renderFrame();
         }
+        running = false;
         vkDeviceWaitIdle(device);
     });
 }
 
 void MimirEngine::prepareViews()
 {
-    if (options.present.enable_sync)
+    if (options.present.enable_sync && running)
     {
-        kernel_working = true;
         waitKernelStart();
         compute_monitor.startWatch();
     }
@@ -202,11 +203,10 @@ void MimirEngine::waitKernelStart()
 
 void MimirEngine::updateViews()
 {
-    if (options.present.enable_sync)
+    if (options.present.enable_sync && running)
     {
         compute_monitor.stopWatch();
         signalKernelFinish();
-        kernel_working = false;
     }
 }
 
@@ -228,7 +228,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();
 
-    kernel_working = true;
+    running = true;
     size_t iter_idx = 0;
     while(!window_context.shouldClose())
     {
@@ -244,7 +244,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
             signalKernelFinish();
         }
     }
-    kernel_working = false;
+    running = false;
     vkDeviceWaitIdle(device);
 }
 
@@ -1213,7 +1213,7 @@ void MimirEngine::renderFrame()
     std::vector<uint64_t> signal_values      = {0};
     VkTimelineSemaphoreSubmitInfo *extra     = nullptr;
     VkTimelineSemaphoreSubmitInfo timeline_info{};
-    if (kernel_working && options.present.enable_sync)
+    if (running && options.present.enable_sync)
     {
         waits.push_back(interop.vk_semaphore);
         stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);

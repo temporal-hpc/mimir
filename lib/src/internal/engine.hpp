@@ -87,7 +87,7 @@ struct MimirEngine
     interop::Barrier interop;
 
     uint64_t render_timeline;
-    bool kernel_working;
+    bool running;
     std::thread rendering_thread;
 
     std::vector<AllocatedBuffer> uniform_buffers;
