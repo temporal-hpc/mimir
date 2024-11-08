@@ -47,8 +47,8 @@ struct SyncData
 
 struct VulkanQueue
 {
-    uint32_t family_index = ~0u;
-    VkQueue queue         = VK_NULL_HANDLE;
+    uint32_t family_index;
+    VkQueue queue;
 };
 
 struct MimirEngine
@@ -72,7 +72,7 @@ struct MimirEngine
     //VmaAllocator allocator = nullptr;
     //VmaPool interop_pool   = nullptr;
 
-    std::vector<VulkanFramebuffer> fbs;
+    Framebuffer framebuffers;
     std::vector<VkCommandBuffer> command_buffers;
     std::vector<VkDescriptorSet> descriptor_sets;
     std::function<void(void)> gui_callback;
@@ -148,7 +148,6 @@ struct MimirEngine
     void createInstance();
     void createSyncObjects();
     void updateDescriptorSets();
-    VkRenderPass createRenderPass();
 
     // Swapchain-related functions
     void initGraphics();

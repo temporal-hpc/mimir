@@ -321,4 +321,63 @@ VkSemaphore createSemaphore(VkDevice device, const void *extensions)
     return semaphore;
 }
 
+VkRenderPass createRenderPass(VkDevice device,
+    VkAttachmentDescription color, VkAttachmentDescription depth)
+{
+    VkAttachmentReference color_ref{
+        .attachment = 0,
+        .layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
+    VkAttachmentReference depth_ref{
+        .attachment = 1,
+        .layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+    VkSubpassDescription subpass{
+        .flags                   = 0, // Specify subpass usage
+        .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .inputAttachmentCount    = 0,
+        .pInputAttachments       = nullptr,
+        .colorAttachmentCount    = 1,
+        .pColorAttachments       = &color_ref,
+        .pResolveAttachments     = nullptr,
+        .pDepthStencilAttachment = &depth_ref,
+        .preserveAttachmentCount = 0,
+        .pPreserveAttachments    = nullptr,
+    };
+
+    // Specify memory and execution dependencies between subpasses
+    VkPipelineStageFlags stage_mask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    VkAccessFlags access_mask =
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    VkSubpassDependency dependency{
+        .srcSubpass      = VK_SUBPASS_EXTERNAL,
+        .dstSubpass      = 0,
+        .srcStageMask    = stage_mask,
+        .dstStageMask    = stage_mask,
+        .srcAccessMask   = 0, // TODO: Change to VK_ACCESS_NONE in 1.3
+        .dstAccessMask   = access_mask,
+        .dependencyFlags = 0,
+    };
+
+    VkAttachmentDescription attachments[2] = { color, depth };
+    VkRenderPassCreateInfo info{
+        .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .pNext           = nullptr,
+        .flags           = 0, // Can be VK_RENDER_PASS_CREATE_TRANSFORM_BIT_QCOM
+        .attachmentCount = (uint32_t)std::size(attachments),
+        .pAttachments    = attachments,
+        .subpassCount    = 1,
+        .pSubpasses      = &subpass,
+        .dependencyCount = 1,
+        .pDependencies   = &dependency,
+    };
+
+    VkRenderPass render_pass = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateRenderPass(device, &info, nullptr, &render_pass));
+    return render_pass;
+}
+
 } // namespace mimir

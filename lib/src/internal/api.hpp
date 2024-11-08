@@ -65,8 +65,6 @@ struct ViewDetails
     uint32_t ssbo_count;
     // Storage buffer array.
     VkBuffer storage[max_attr_count];
-    VkVertexInputBindingDescription bindings[max_attr_count];
-    VkVertexInputAttributeDescription attributes[max_attr_count];
 
     // Copy of description used to create this view.
     ViewDescription desc;

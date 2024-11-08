@@ -49,20 +49,6 @@ Camera defaultCamera(int width, int height)
     return camera;
 }
 
-VkFormat findDepthFormat(VkPhysicalDevice gpu)
-{
-    std::vector<VkFormat> candidate_formats{
-        VK_FORMAT_D32_SFLOAT,
-        VK_FORMAT_D32_SFLOAT_S8_UINT,
-        VK_FORMAT_D24_UNORM_S8_UINT
-    };
-    return findSupportedImageFormat(gpu,
-        candidate_formats,
-        VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
-    );
-}
-
 MimirEngine MimirEngine::make(ViewerOptions opts)
 {
     MimirEngine engine{
@@ -80,7 +66,7 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .surface           = VK_NULL_HANDLE,
         .swapchain         = {},
         .pipeline_builder  = {},
-        .fbs               = {},
+        .framebuffers      = {},
         .command_buffers   = { VK_NULL_HANDLE },
         .descriptor_sets   = { VK_NULL_HANDLE },
         .gui_callback      = []() { return; },
@@ -942,7 +928,6 @@ void MimirEngine::cleanupGraphics()
     vkDeviceWaitIdle(device);
     //vkFreeCommandBuffers(device, command_pool, command_buffers.size(), command_buffers.data());
     deletors.graphics.flush();
-    fbs.clear();
 }
 
 void MimirEngine::initGraphics()
@@ -956,7 +941,7 @@ void MimirEngine::initGraphics()
         surface, width, height, present_mode, queue_indices
     );
 
-    render_pass = createRenderPass();
+    // Create one command buffer per swapchain image
     command_buffers = createCommandBuffers(device, command_pool, swapchain.image_count);
 
     // Initialize metrics monitoring
@@ -965,16 +950,22 @@ void MimirEngine::initGraphics()
     compute_monitor = metrics::ComputeMonitor::make(0);
 
     deletors.graphics.add([=,this]{
-        vkDestroyRenderPass(device, render_pass, nullptr);
         vkDestroySwapchainKHR(device, swapchain.current, nullptr);
         vkDestroyQueryPool(device, graphics_monitor.query_pool, nullptr);
         cudaEventDestroy(compute_monitor.start);
         cudaEventDestroy(compute_monitor.stop);
     });
 
+    // Create depth image and image view from available formats
+    std::vector<VkFormat> candidate_formats{
+        VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT
+    };
+    auto depth_format = findSupportedImageFormat(physical_device.handle, candidate_formats,
+        VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+    );
     ImageParams params{
         .type   = VK_IMAGE_TYPE_2D,
-        .format = findDepthFormat(physical_device.handle),
+        .format = depth_format,
         .extent = { swapchain.extent.width, swapchain.extent.height, 1 },
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage  = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
@@ -987,25 +978,46 @@ void MimirEngine::initGraphics()
     vkGetImageMemoryRequirements(device, depth_image, &mem_req);
     depth_memory = allocateMemory(device, available, mem_req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     vkBindImageMemory(device, depth_image, depth_memory, 0);
-
     depth_view = createImageView(device, depth_image, params, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    // Create render pass with color and depth attachments
+    VkAttachmentDescription color{
+        .flags          = 0,
+        .format         = swapchain.format,
+        .samples        = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+    };
+    VkAttachmentDescription depth{
+        .flags          = 0, // Can be VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT
+        .format         = depth_format,
+        .samples        = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+    render_pass = createRenderPass(device, color, depth);
 
     deletors.graphics.add([=,this]{
         vkDestroyImageView(device, depth_view, nullptr);
         vkDestroyImage(device, depth_image, nullptr);
         vkFreeMemory(device, depth_memory, nullptr);
+        vkDestroyRenderPass(device, render_pass, nullptr);
     });
 
-    fbs.resize(swapchain.image_count);
-    auto sc_images = swapchain.getImages(device);
+    framebuffers = Framebuffer::make(device, render_pass, swapchain, depth_view);
     for (uint32_t i = 0; i < swapchain.image_count; ++i)
     {
-        // Create a basic image view to be used as color target
-        fbs[i].addAttachment(device, sc_images[i], swapchain.format);
-        fbs[i].create(device, render_pass, swapchain.extent, depth_view);
         deletors.graphics.add([=,this]{
-            vkDestroyImageView(device, fbs[i].attachments[0].view, nullptr);
-            vkDestroyFramebuffer(device, fbs[i].framebuffer, nullptr);
+            vkDestroyImageView(device, framebuffers.image_views[i], nullptr);
+            vkDestroyFramebuffer(device, framebuffers.handles[i], nullptr);
         });
     }
 }
@@ -1185,7 +1197,7 @@ void MimirEngine::renderFrame()
         .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .pNext           = nullptr,
         .renderPass      = render_pass,
-        .framebuffer     = fbs[image_idx].framebuffer,
+        .framebuffer     = framebuffers.handles[image_idx],
         .renderArea      = { {0, 0}, swapchain.extent },
         .clearValueCount = (uint32_t)clear_values.size(),
         .pClearValues    = clear_values.data(),
@@ -1327,88 +1339,6 @@ void MimirEngine::drawElements(uint32_t image_idx)
             vkCmdDraw(cmd, view->draw_count, instance_count, first_vertex, 0);
         }
     }
-}
-
-VkRenderPass MimirEngine::createRenderPass()
-{
-    VkAttachmentDescription color{
-        .flags          = 0,
-        .format         = swapchain.format,
-        .samples        = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-    };
-    VkAttachmentDescription depth{
-        .flags          = 0, // Can be VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT
-        .format         = findDepthFormat(physical_device.handle),
-        .samples        = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    };
-    std::array<VkAttachmentDescription, 2> attachments{ color, depth };
-
-    VkAttachmentReference color_ref{
-        .attachment = 0,
-        .layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    };
-    VkAttachmentReference depth_ref{
-        .attachment = 1,
-        .layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    };
-    VkSubpassDescription subpass{
-        .flags                   = 0, // Specify subpass usage
-        .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .inputAttachmentCount    = 0,
-        .pInputAttachments       = nullptr,
-        .colorAttachmentCount    = 1,
-        .pColorAttachments       = &color_ref,
-        .pResolveAttachments     = nullptr,
-        .pDepthStencilAttachment = &depth_ref,
-        .preserveAttachmentCount = 0,
-        .pPreserveAttachments    = nullptr,
-    };
-
-    // Specify memory and execution dependencies between subpasses
-    VkPipelineStageFlags stage_mask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    VkAccessFlags access_mask =
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    VkSubpassDependency dependency{
-        .srcSubpass      = VK_SUBPASS_EXTERNAL,
-        .dstSubpass      = 0,
-        .srcStageMask    = stage_mask,
-        .dstStageMask    = stage_mask,
-        .srcAccessMask   = 0, // TODO: Change to VK_ACCESS_NONE in 1.3
-        .dstAccessMask   = access_mask,
-        .dependencyFlags = 0,
-    };
-
-    VkRenderPassCreateInfo info{
-        .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .pNext           = nullptr,
-        .flags           = 0, // Can be VK_RENDER_PASS_CREATE_TRANSFORM_BIT_QCOM
-        .attachmentCount = (uint32_t)attachments.size(),
-        .pAttachments    = attachments.data(),
-        .subpassCount    = 1,
-        .pSubpasses      = &subpass,
-        .dependencyCount = 1,
-        .pDependencies   = &dependency,
-    };
-
-    VkRenderPass render_pass = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateRenderPass(device, &info, nullptr, &render_pass));
-    spdlog::debug("Render pass created with {} attachment(s)", attachments.size());
-    return render_pass;
 }
 
 void MimirEngine::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> views*/)

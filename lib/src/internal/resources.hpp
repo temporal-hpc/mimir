@@ -70,4 +70,8 @@ VkFence createFence(VkDevice device, VkFenceCreateFlags flags);
 
 VkSemaphore createSemaphore(VkDevice device, const void *extensions = nullptr);
 
+VkRenderPass createRenderPass(VkDevice device,
+    VkAttachmentDescription color, VkAttachmentDescription depth
+);
+
 } // namespace mimir
