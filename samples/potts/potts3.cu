@@ -610,7 +610,7 @@ int main(void)
     int width = 1920, height = 1080;
     createEngine(width, height, &engine);
 
-	Allocation m1 = nullptr;
+	AllocHandle m1 = nullptr;
 	allocLinear(engine, (void**)&grid, sizeof(int) * L * L, &m1);
 
     // MemoryParams mp;
@@ -621,19 +621,20 @@ int main(void)
     // mp.resource_type  = ResourceType::Buffer;
     // auto m1 = engine.createBuffer((void**)&grid, mp);
 
-	View v1 = nullptr;
-    ViewParams params;
-    params.element_count = L * L;
-    params.extent        = {(unsigned)L, (unsigned)L, 1};
-    params.data_domain   = DomainType::Domain2D;
-    params.view_type     = ViewType::Voxels;
-	params.attributes[AttributeType::Position] = makeStructuredGrid(engine, {L,L,1});
-    params.attributes[AttributeType::Color] = {
-		.allocation = m1,
-		.format     = { .type = DataType::int32, .components = 1 }
+	ViewHandle v1 = nullptr;
+    ViewDescription desc;
+    desc.element_count = L * L;
+    desc.extent        = {(unsigned)L, (unsigned)L, 1};
+    desc.domain_type   = DomainType::Domain2D;
+    desc.view_type     = ViewType::Voxels;
+	desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, {L,L,1});
+    desc.attributes[AttributeType::Color] = {
+		.source = m1,
+		.size   = L * L,
+		.format = FormatDescription::make<int>(),
 	};
-    params.options.default_size = 1.f;
-	createView(engine, params, &v1);
+	createView(engine, &desc, &v1);
+    v1->default_size = 1.f;
 
 	displayAsync(engine);
 

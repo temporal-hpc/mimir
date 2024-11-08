@@ -50,34 +50,38 @@ Application::Application(){
 
     // NOTE: Cudaview code
     // TODO: Delete views
-    // TODO: Add stride to attribute params
-    Allocation vertices = nullptr, triangles = nullptr;
+    // TODO: Add stride to attribute desc
+    AllocHandle vertices = nullptr, triangles = nullptr;
     allocLinear(engine, (void**)&m->dm->d_vbo_v, sizeof(float4) * cleap_get_vertex_count(m), &vertices);
     allocLinear(engine, (void**)&m->dm->d_eab, sizeof(int3) * cleap_get_face_count(m), &triangles);
 
-    View v1 = nullptr, v2 = nullptr;
-    ViewParams params;
-    params.element_count = cleap_get_vertex_count(m);
-    params.data_domain   = DomainType::Domain3D;
-    params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = {
-        .allocation = vertices,
-        .format     = { .type = DataType::float32, .components = 4 }
+    ViewHandle v1 = nullptr, v2 = nullptr;
+    ViewDescription desc;
+    desc.element_count = cleap_get_vertex_count(m);
+    desc.domain_type   = DomainType::Domain3D;
+    desc.extent        = ViewExtent::make(1,1,1);
+    desc.view_type     = ViewType::Markers;
+    desc.attributes[AttributeType::Position] = {
+        .source = vertices,
+        .size   = (unsigned int)cleap_get_vertex_count(m),
+        .format = FormatDescription::make<float4>(),
     };
-    params.options.visible = false;
-    createView(engine, params, &v1);
+    createView(engine, &desc, &v1);
+    v1->visible = false;
 
     // Recycle the above parameters, changing only what is needed
-    params.element_count = cleap_get_vertex_count(m);
-    params.view_type     = ViewType::Edges;
-    params.indexing = {
-        .allocation    = triangles,
-        .element_count = static_cast<unsigned int>(cleap_get_face_count(m) * 3),
-        .type          = DataType::int32,
+    desc.element_count = static_cast<unsigned int>(cleap_get_face_count(m) * 3);
+    desc.view_type     = ViewType::Edges;
+    desc.attributes[AttributeType::Position] = {
+        .source     = vertices,
+        .size       = (unsigned int)cleap_get_vertex_count(m),
+        .format     = FormatDescription::make<float4>(),
+        .indices    = triangles,
+        .index_size = sizeof(int),
     };
-    params.options.visible       = true;
-    params.options.default_color = {0.f, 1.f, 0.f, 1.f};
-    createView(engine, params, &v2);
+    createView(engine, &desc, &v2);
+    //desc.options.default_color = {0.f, 1.f, 0.f, 1.f};
+    v2->visible       = true;
 
     checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
         cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)

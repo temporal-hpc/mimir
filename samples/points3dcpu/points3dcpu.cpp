@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
     // Default values for this program
     int width = 1920;
     int height = 1080;
-    size_t point_count = 100;
+    unsigned int point_count = 100;
     int iter_count = 10000;
     PresentMode present_mode = PresentMode::Immediate;
     int target_fps = 0;
@@ -89,21 +89,25 @@ int main(int argc, char *argv[])
         .enable_sync = enable_sync,
         .target_fps  = target_fps,
     };
-    auto engine = make(options);
+    Engine engine = nullptr;
+    createEngine(options, &engine);
 
     if (display)
     {
-        auto points = engine->allocLinear((void**)&d_coords, sizeof(float3) * point_count);
-        ViewParams params;
-        params.element_count = point_count;
-        params.data_domain   = DomainType::Domain3D;
-        params.extent        = extent;
-        params.view_type     = ViewType::Markers;
-        params.attributes[AttributeType::Position] = {
-            .allocation = points,
-            .format     = { .type = DataType::float32, .components = 3 }
+        AllocHandle points = nullptr;
+        allocLinear(engine, (void**)&d_coords, sizeof(float3) * point_count, &points);
+        ViewDescription desc;
+        desc.element_count = point_count;
+        desc.domain_type   = DomainType::Domain3D;
+        desc.extent        = ViewExtent::make(200,200,200);
+        desc.view_type     = ViewType::Markers;
+        desc.attributes[AttributeType::Position] = {
+            .source = points,
+            .size   = point_count,
+            .format = FormatDescription::make<float3>(),
         };
-        engine->createView(params);
+        ViewHandle view = nullptr;
+        createView(engine, &desc, &view);
     }
     else // Run the simulation without display
     {
@@ -116,19 +120,19 @@ int main(int argc, char *argv[])
     auto memsize = sizeof(float3) * point_count;
     checkCuda(cudaMemcpy(d_coords, coords.data(), memsize, cudaMemcpyHostToDevice));
 
-    printf("%s,%lu,", "host", point_count);
+    printf("%s,%u,", "host", point_count);
     GPUPowerBegin("gpu", 100);
-    if (display) engine->displayAsync();
+    if (display) displayAsync(engine);
 
     for (size_t i = 0; i < iter_count; ++i)
     {
         integrate3d(coords, rng, extent);
-        if (display) engine->prepareViews();
+        if (display) prepareViews(engine);
         checkCuda(cudaMemcpy(d_coords, coords.data(), memsize, cudaMemcpyHostToDevice));
-        if (display) engine->updateViews();
+        if (display) updateViews(engine);
     }
 
-    engine->showMetrics();
+    //showMetrics();
 
     // Nvml memory report
     {

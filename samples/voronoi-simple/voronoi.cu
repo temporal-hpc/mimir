@@ -188,21 +188,38 @@ int main(int argc, char *argv[])
     int2 extent           = {grid_size, grid_size};
     curandState *d_states = nullptr;
 
-    auto engine = make(1920, 1080);
+    Engine engine = nullptr;
+    createEngine(1920, 1080, &engine);
 
-    auto seeds = engine->allocLinear((void**)&d_coords, sizeof(float2) * point_count);
-    auto colors = engine->allocLinear((void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y);
+    AllocHandle seeds = nullptr, colors = nullptr;
+    allocLinear(engine, (void**)&d_coords, sizeof(float2) * point_count, &seeds);
+    allocLinear(engine, (void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y, &colors);
 
-    ViewParams params;
-    params.element_count = point_count;
-    params.data_domain   = DomainType::Domain2D;
-    params.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
-    params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = {
-        .allocation = seeds,
-        .format     = { .type = DataType::float32, .components = 2 }
+    ViewHandle v1 = nullptr, v2 = nullptr;
+    ViewDescription desc;
+    desc.element_count = point_count;
+    desc.domain_type   = DomainType::Domain2D;
+    desc.extent        = ViewExtent::make(extent.x, extent.y, 1);
+    desc.view_type     = ViewType::Markers;
+    desc.attributes[AttributeType::Position] = {
+        .source = seeds,
+        .size   = point_count,
+        .format = FormatDescription::make<float2>(),
     };
-    engine->createView(params);
+    createView(engine, &desc, &v1);
+    v1->default_size = 1.f;
+
+    desc.element_count = extent.x * extent.y;
+    desc.view_type     = ViewType::Voxels;
+    desc.attributes[AttributeType::Position] =
+        makeStructuredGrid(engine, desc.extent, {0.f,0.f,0.4999f});
+    desc.attributes[AttributeType::Color] = {
+        .source = colors,
+        .size   = desc.element_count,
+        .format = FormatDescription::make<float4>(),
+    };
+    createView(engine, &desc, &v2);
+    v2->default_size = 1.f;
 
     /*MemoryParams m1;
     m1.layout          = DataLayout::Layout1D;
@@ -210,17 +227,17 @@ int main(int argc, char *argv[])
     m1.component_type  = ComponentType::Float;
     m1.channel_count   = 2;
     m1.resource_type   = ResourceType::Buffer;
-    auto points = engine->createBuffer((void**)&d_coords, m1);
+    auto points = createBuffer((void**)&d_coords, m1);
 
     ViewParamsOld p1;
     p1.element_count = point_count;
     p1.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
-    p1.data_domain   = DomainType::Domain2D;
+    p1.domain_type   = DomainType::Domain2D;
     p1.domain_type   = DomainType::Unstructured;
     p1.view_type     = ViewType::Markers;
     p1.attributes[AttributeType::Position] = *points;
     p1.options.default_color = {0,0,1,1};
-    auto v1 = engine->createView(p1);
+    auto v1 = createView(p1);
 
     MemoryParams m2;
     m2.layout         = DataLayout::Layout2D;
@@ -228,26 +245,26 @@ int main(int argc, char *argv[])
     m2.component_type = ComponentType::Float;
     m2.channel_count  = 4;
     m2.resource_type  = ResourceType::LinearTexture;
-    auto image = engine->createBuffer((void**)&d_vd_colors, m2);
+    auto image = createBuffer((void**)&d_vd_colors, m2);
 
     ViewParamsOld p2;
     p2.element_count = extent.x * extent.y;
-    p2.data_domain   = DomainType::Domain2D;
+    p2.domain_type   = DomainType::Domain2D;
     p2.domain_type   = DomainType::Structured;
     p2.view_type     = ViewType::Image;
     p2.attributes[AttributeType::Color] = *image;
-    auto v2 = engine->createView(p2);*/
+    auto v2 = createView(p2);*/
 
     //cudaMalloc((void**)&d_coords, sizeof(float2) * point_count);
     //cudaMalloc((void**)&d_vd_colors, sizeof(float) * extent.x * extent.y);*/
 
-    /*params.element_count = extent.x * extent.y;
-    params.component_type     = ComponentType::Float;
-    params.channel_count = 1;
-    params.resource_type = ResourceType::Buffer;
-    params.domain_type   = DomainType::Structured;
-    params.element_type  = ElementType::Image;
-    engine->createView((void**)&d_vd_dists, params);*/
+    /*desc.element_count = extent.x * extent.y;
+    desc.component_type     = ComponentType::Float;
+    desc.channel_count = 1;
+    desc.resource_type = ResourceType::Buffer;
+    desc.domain_type   = DomainType::Structured;
+    desc.element_type  = ElementType::Image;
+    createView((void**)&d_vd_dists, desc);*/
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     checkCuda(cudaMalloc(&d_colors, sizeof(float3) * point_count));
@@ -275,7 +292,7 @@ int main(int argc, char *argv[])
         initJumpFlood(d_grid[1], d_coords, point_count, extent);
         jumpFlood(d_vd_dists, d_vd_colors, d_grid, d_colors, extent);
     };
-    engine->display(timestep_function, iter_count);
+    display(engine, timestep_function, iter_count);
 
     checkCuda(cudaDeviceSynchronize());
     checkCuda(cudaFree(d_grid[0]));
