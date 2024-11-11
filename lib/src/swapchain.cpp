@@ -95,7 +95,7 @@ Swapchain Swapchain::make(VkDevice device, VkPhysicalDevice ph_dev, VkSurfaceKHR
 std::vector<VkImage> Swapchain::getImages(VkDevice device)
 {
     std::vector<VkImage> images(image_count);
-    vkGetSwapchainImagesKHR(device, current, &image_count, images.data());
+    validation::checkVulkan(vkGetSwapchainImagesKHR(device, current, &image_count, images.data()));
     return images;
 }
 

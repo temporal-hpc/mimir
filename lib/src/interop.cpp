@@ -36,6 +36,7 @@ Barrier Barrier::make(VkDevice device)
 cudaExternalMemory_t importCudaExternalMemory(
     VkDeviceMemory vk_mem, VkDeviceSize size, VkDevice device)
 {
+    cudaExternalMemory_t cuda_mem = nullptr;
     // Get external memory handle function
     VkMemoryGetFdInfoKHR fd_info{
         .sType      = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
@@ -43,22 +44,22 @@ cudaExternalMemory_t importCudaExternalMemory(
         .memory     = vk_mem,
         .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
-    auto fpGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(
-        device, "vkGetMemoryFdKHR"
-    );
-    if (!fpGetMemoryFdKHR)
+    auto vkGetMemoryFd = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device, "vkGetMemoryFdKHR");
+    if (!vkGetMemoryFd)
     {
-        spdlog::error("Failed to retrieve vkGetMemoryFdKHR function handle!");
+        spdlog::error("Failed to retrieve vkGetMemoryFdKHR function handle");
+        return cuda_mem;
     }
     // Get external memory handle
     int fd = -1;
-    validation::checkVulkan(fpGetMemoryFdKHR(device, &fd_info, &fd));
+    validation::checkVulkan(vkGetMemoryFd(device, &fd_info, &fd));
 
-    cudaExternalMemoryHandleDesc extmem_desc{};
-    extmem_desc.type      = cudaExternalMemoryHandleTypeOpaqueFd;
-    extmem_desc.size      = size;
-    extmem_desc.handle.fd = fd;
-    cudaExternalMemory_t cuda_mem;
+    cudaExternalMemoryHandleDesc extmem_desc{
+        .type   = cudaExternalMemoryHandleTypeOpaqueFd,
+        .handle = {.fd = fd},
+        .size   = size,
+        .flags  = 0
+    };
     validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
     return cuda_mem;
 }
@@ -66,13 +67,15 @@ cudaExternalMemory_t importCudaExternalMemory(
 cudaExternalSemaphore_t importCudaExternalSemaphore(
     VkSemaphore vk_semaphore, VkDevice device)
 {
+    cudaExternalSemaphore_t cuda_semaphore = nullptr;
     // Get external semaphore handle function
-    auto fpGetSemaphore = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
+    auto vkGetSemaphoreFd = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
         device, "vkGetSemaphoreFdKHR"
     );
-    if (!fpGetSemaphore)
+    if (!vkGetSemaphoreFd)
     {
-        spdlog::error("Failed to retrieve vkGetSemaphoreFdKHR function handle!");
+        spdlog::error("Failed to retrieve vkGetSemaphoreFdKHR function handle");
+        return cuda_semaphore;
     }
     VkSemaphoreGetFdInfoKHR fd_info{
         .sType      = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR,
@@ -82,14 +85,14 @@ cudaExternalSemaphore_t importCudaExternalSemaphore(
     };
     // Get external semaphore handle
     int fd = -1;
-    validation::checkVulkan(fpGetSemaphore(device, &fd_info, &fd));
+    validation::checkVulkan(vkGetSemaphoreFd(device, &fd_info, &fd));
 
-    cudaExternalSemaphoreHandleDesc desc{};
-    desc.type      = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
-    desc.handle.fd = fd;
-    desc.flags     = 0;
+    cudaExternalSemaphoreHandleDesc desc{
+        .type   = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd,
+        .handle = { .fd = fd },
+        .flags  = 0,
+    };
 
-    cudaExternalSemaphore_t cuda_semaphore;
     validation::checkCuda(cudaImportExternalSemaphore(&cuda_semaphore, &desc));
     return cuda_semaphore;
 }

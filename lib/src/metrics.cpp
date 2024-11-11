@@ -68,8 +68,9 @@ void GraphicsMonitor::startFrameWatch()
 
 float GraphicsMonitor::stopFrameWatch()
 {
-    frame_end = std::chrono::high_resolution_clock::now();
-    auto frame_time = std::chrono::duration<float, std::chrono::seconds::period>(frame_end - frame_start).count();
+    namespace time = std::chrono;
+    frame_end = time::high_resolution_clock::now();
+    auto frame_time = time::duration<float,time::seconds::period>(frame_end - frame_start).count();
 
     total_graphics_time += frame_time;
     frame_times[total_frame_count % frame_times.size()] = frame_time;

@@ -86,12 +86,9 @@ std::vector<PhysicalDevice> getDevices(VkInstance instance)
     devices.reserve(device_count);
 
     // Create physical device structures
-    std::vector<VkPhysicalDevice> vk_devices(device_count);
-    validation::checkVulkan(vkEnumeratePhysicalDevices(instance, &device_count, vk_devices.data()));
-    for (auto vk_dev : vk_devices)
-    {
-        devices.push_back(PhysicalDevice::make(vk_dev));
-    }
+    std::vector<VkPhysicalDevice> vk_devs(device_count);
+    validation::checkVulkan(vkEnumeratePhysicalDevices(instance, &device_count, vk_devs.data()));
+    for (auto vk_dev : vk_devs) { devices.push_back(PhysicalDevice::make(vk_dev)); }
     return devices;
 }
 
@@ -120,7 +117,9 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
                 graphics_family = i;
             }
             uint32_t present_support = 0;
-            vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface, &present_support);
+            validation::checkVulkan(vkGetPhysicalDeviceSurfaceSupportKHR(
+                dev, i, surface, &present_support)
+            );
             if (present_family == family_empty && present_support)
             {
                 present_family = i;
@@ -151,37 +150,48 @@ bool checkAllExtensionsSupported(VkPhysicalDevice dev, std::span<const char*> ex
 {
     // Enumerate extensions and check if all required extensions are included
     uint32_t ext_count;
-    vkEnumerateDeviceExtensionProperties(dev, nullptr, &ext_count, nullptr);
+    validation::checkVulkan(vkEnumerateDeviceExtensionProperties(
+        dev, nullptr, &ext_count, nullptr)
+    );
     std::vector<VkExtensionProperties> available(ext_count);
-    vkEnumerateDeviceExtensionProperties(dev, nullptr, &ext_count, available.data() );
+    validation::checkVulkan(vkEnumerateDeviceExtensionProperties(
+        dev, nullptr, &ext_count, available.data())
+    );
 
     std::set<std::string> required( expected.begin(), expected.end() );
-    for (const auto& extension : available)
-    {
-        required.erase(extension.extensionName);
-    }
+    for (const auto& extension : available) {required.erase(extension.extensionName); }
     return required.empty();
 }
 
 SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKHR surface)
 {
     SwapchainSupportDetails details;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev, surface, &details.capabilities);
+    validation::checkVulkan(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+        dev, surface, &details.capabilities
+    ));
 
     uint32_t format_count;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &format_count, nullptr);
-    if (format_count != 0)
+    validation::checkVulkan(vkGetPhysicalDeviceSurfaceFormatsKHR(
+        dev, surface, &format_count, nullptr
+    ));
+    if (format_count > 0)
     {
         details.formats.resize(format_count);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &format_count, details.formats.data());
+        validation::checkVulkan(vkGetPhysicalDeviceSurfaceFormatsKHR(
+            dev, surface, &format_count, details.formats.data()
+        ));
     }
 
     uint32_t mode_count;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &mode_count, nullptr);
+    validation::checkVulkan(vkGetPhysicalDeviceSurfacePresentModesKHR(
+        dev, surface, &mode_count, nullptr
+    ));
     if (mode_count != 0)
     {
         details.present_modes.resize(mode_count);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &mode_count, details.present_modes.data());
+        validation::checkVulkan(vkGetPhysicalDeviceSurfacePresentModesKHR(
+            dev, surface, &mode_count, details.present_modes.data()
+        ));
     }
     return details;
 }
@@ -241,11 +251,13 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
         }
         for (const auto& device : all_devices)
         {
-            auto matching = memcmp((void*)&dev_prop.uuid, device.id_props.deviceUUID, VK_UUID_SIZE) == 0;
+            auto uuid = device.id_props.deviceUUID;
+            auto matching = memcmp((void*)&dev_prop.uuid, uuid, VK_UUID_SIZE) == 0;
             if (matching && isDeviceSuitable(device.handle, surface))
             {
                 validation::checkCuda(cudaSetDevice(curr_device));
-                spdlog::info("Selected interop device {}: {}", curr_device, device.general.properties.deviceName);
+                auto device_name = device.general.properties.deviceName;
+                spdlog::info("Selected interop device {}: {}", curr_device, device_name);
                 chosen_device = device;
                 break;
             }
@@ -323,15 +335,16 @@ VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_fam
 void listExtensions()
 {
     uint32_t ext_count = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
+    validation::checkVulkan(vkEnumerateInstanceExtensionProperties(
+        nullptr, &ext_count, nullptr)
+    );
     std::vector<VkExtensionProperties> available(ext_count);
-    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, available.data());
+    validation::checkVulkan(vkEnumerateInstanceExtensionProperties(
+        nullptr, &ext_count, available.data())
+    );
 
     printf("Available extensions:\n");
-    for (const auto& extension : available)
-    {
-        printf("  %s\n", extension.extensionName);
-    }
+    for (const auto& extension : available) { printf("  %s\n", extension.extensionName); }
 }
 
 } // namespace mimir

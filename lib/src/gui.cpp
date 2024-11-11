@@ -15,28 +15,12 @@
 namespace mimir::gui
 {
 
-static std::array<ViewType, 4> kAllViewTypes = {
-    ViewType::Markers,
-    ViewType::Edges,
-    ViewType::Image,
-    ViewType::Boxes
-};
-
-struct AllViewTypes
-{
-    static bool ItemGetter(void* data, int n, const char** out_str)
-    {
-        *out_str = getViewType(((ViewType*)data)[n]);
-        return true;
-    }
-};
-
-std::string getExtent(uint3 extent, DomainType domain)
+std::string getExtent(ViewExtent ext, DomainType domain)
 {
     switch (domain)
     {
-        case DomainType::Domain2D: { return fmt::format("({},{})", extent.x, extent.y); }
-        case DomainType::Domain3D: { return fmt::format("({},{},{})", extent.x, extent.y, extent.z); }
+        case DomainType::Domain2D: { return fmt::format("({},{})", ext.x, ext.y); }
+        case DomainType::Domain3D: { return fmt::format("({},{},{})", ext.x, ext.y, ext.z); }
         default: return "unknown";
     }
 }
@@ -73,12 +57,8 @@ void addViewObjectGui(View *view_ptr, int uid)
     ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &view_ptr->visible);
     if (node_open)
     {
-        bool type_check = ImGui::Combo("View type", (int*)&desc.view_type,
-            &AllViewTypes::ItemGetter, kAllViewTypes.data(), kAllViewTypes.size()
-        );
-        if (type_check) spdlog::info("View {}: switched view type to {}", uid, getViewType(desc.view_type));
         ImGui::SliderFloat("Element size (px)", &view_ptr->default_size, 1.f, 100.f);
-        ImGui::ColorEdit4("Element color", view_ptr->default_color);
+        ImGui::ColorEdit4("Element color",      view_ptr->default_color);
         // ImGui::SliderFloat("depth", &desc.options.depth, 0.f, 1.f);
 
         // if (desc.offsets.size() > 0)
@@ -88,32 +68,23 @@ void addViewObjectGui(View *view_ptr, int uid)
         //     ImGui::SliderScalar("scenario", ImGuiDataType_S32, &desc.options.scenario_index, &min_scenario, &max_scenario);
         // }
 
-        // if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
-        // {
-        //     addTableRow("Data domain", getDomainType(desc.data_domain));
-        //     addTableRow("Data extent", getExtent(desc.extent, desc.data_domain));
-        //     ImGui::EndTable();
-        // }
+        ImGuiTableFlags table_flags = ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable;
+        if (ImGui::BeginTable("split", 2, table_flags))
+        {
+            addTableRow("View type",     getViewType(desc.view_type));
+            addTableRow("Element count", std::to_string(desc.element_count));
+            addTableRow("Domain type",   getDomainType(desc.domain_type));
+            addTableRow("Domain extent", getExtent(desc.extent, desc.domain_type));
+            ImGui::EndTable();
+        }
         for (const auto &[type, attr] : desc.attributes)
         {
-            if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+            if (ImGui::BeginTable("split", 2, table_flags))
             {
-                //addTableRow("Element count", std::to_string(info.element_count));
+                addTableRow("Element count",  std::to_string(attr.size));
                 addTableRow("Attribute type", getAttributeType(type));
-                //addTableRow("Resource type", getResourceType(info.resource_type));
-                //addTableRow("Data type", getDataType(attr.format.type));
-                //addTableRow("Channel count", std::to_string(attr.format.components));
-                //addTableRow("Data layout", getDataLayout(attr.layout));
-
-                /*bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
-                    &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
-                );
-                if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
-                bool data_check = addTableRowCombo("Data type", (int*)&info.component_type,
-                    &AllComponentTypes::ItemGetter, kAllComponentTypes.data(), kAllComponentTypes.size()
-                );
-                if (data_check) printf("View %d: switched data type to %s\n", uid, getComponentType(info.component_type));*/
-
+                addTableRow("Data type",      getDataType(attr.format));
+                addTableRow("Channel count",  std::to_string(attr.format.components));
                 ImGui::EndTable();
             }
         }
@@ -150,25 +121,23 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
     auto& op = opts.present;
     ImGui::Checkbox("Enable FPS limit", &op.enable_fps_limit);
     ImGui::BeginDisabled(!opts.present.enable_fps_limit);
-    if (ImGui::SliderInt("FPS target", &op.target_fps, 1, op.max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
+    ImGuiSliderFlags slider_flags = ImGuiSliderFlags_AlwaysClamp;
+    if (ImGui::SliderInt("FPS target", &op.target_fps, 1, op.max_fps, "%d%", slider_flags))
     {
         op.target_frame_time = getTargetFrameTime(op.enable_fps_limit, op.target_fps);
     }
     ImGui::EndDisabled();
 
     // Add tabs for showing view parameters
-    for (size_t i = 0; i < views.size(); ++i)
-    {
-        addViewObjectGui(views[i], i);
-    }
+    for (size_t i = 0; i < views.size(); ++i) { addViewObjectGui(views[i], i); }
     ImGui::End();
 
     callback(); // Display user-provided addons
     ImGui::Render();
 }
 
-void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescriptorPool pool, VkRenderPass pass,
-    VulkanQueue queue, const GlfwContext& win_ctx)
+void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescriptorPool pool,
+    VkRenderPass pass, VulkanQueue queue, const GlfwContext& win_ctx)
 {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();

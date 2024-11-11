@@ -296,7 +296,7 @@ AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 sta
     auto available = physical_device.memory.memoryProperties;
     auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto vk_memory = allocateMemory(device, available, memreq, flags);
-    vkBindBufferMemory(device, domain_buffer, vk_memory, 0);
+    validation::checkVulkan(vkBindBufferMemory(device, domain_buffer, vk_memory, 0));
     float3 *data = nullptr;
     vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
     initGridCoords(data, size, start);
@@ -341,7 +341,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto available = physical_device.memory.memoryProperties;
     auto vbo_mem = allocateMemory(device, available, memreq, flags);
-    vkBindBufferMemory(device, vbo, vbo_mem, 0);
+    validation::checkVulkan(vkBindBufferMemory(device, vbo, vbo_mem, 0));
     auto vbo_alloc = new Allocation({AllocationType::Linear, memreq.size, vbo_mem, nullptr});
 
     auto ibo = createBuffer(device, ids_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -349,7 +349,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     // Allocate memory and bind it to buffers
     flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto ibo_mem = allocateMemory(device, available, memreq, flags);
-    vkBindBufferMemory(device, ibo, ibo_mem, 0);
+    validation::checkVulkan(vkBindBufferMemory(device, ibo, ibo_mem, 0));
     auto ibo_alloc = new Allocation({AllocationType::Linear, memreq.size, ibo_mem, nullptr});
 
     // Init image quad coords and indices
@@ -395,7 +395,7 @@ Texture *MimirEngine::makeTexture(TextureDescription desc)
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
     auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
-    vkBindImageMemory(device, teximg, desc.source->vk_mem, 0);
+    validation::checkVulkan(vkBindImageMemory(device, teximg, desc.source->vk_mem, 0));
 
     Texture texture{
         .image    = teximg,
@@ -562,7 +562,7 @@ VkBuffer MimirEngine::createAttributeBuffer(VkDeviceSize memsize,
     };
     auto attr_buffer = createBuffer(device, memsize, usage, &extmem_info);
     deletors.views.add([=,this]{ vkDestroyBuffer(device, attr_buffer, nullptr); });
-    vkBindBufferMemory(device, attr_buffer, memory, 0);
+    validation::checkVulkan(vkBindBufferMemory(device, attr_buffer, memory, 0));
     return attr_buffer;
 }
 
@@ -624,26 +624,26 @@ View *MimirEngine::createView(ViewDescription *desc)
             auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
             vkBindImageMemory(device, teximg, attr.source->vk_mem, 0);
 
-            Texture texture{
+            Texture tex{
                 .image    = teximg,
-                .img_view = createImageView(device, texture.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
+                .img_view = createImageView(device, tex.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
                 .sampler  = createSampler(device, VK_FILTER_LINEAR, false),
                 .format   = params.format,
                 .extent   = params.extent,
             };
 
-            transitionImageLayout(texture.image,
+            transitionImageLayout(tex.image,
                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
             );
 
             deletors.views.add([=,this]{
-                spdlog::trace("Destroying texture");
-                vkDestroyImageView(device, texture.img_view, nullptr);
-                vkDestroyImage(device, texture.image, nullptr);
-                vkDestroySampler(device, texture.sampler, nullptr);
+                spdlog::trace("Destroying tex");
+                vkDestroyImageView(device, tex.img_view, nullptr);
+                vkDestroyImage(device, tex.image, nullptr);
+                vkDestroySampler(device, tex.sampler, nullptr);
             });
 
-            detail.textures[detail.tex_count++] = texture;
+            detail.textures[detail.tex_count++] = tex;
         }
         // Handle image quad vertex buffer size
         else if (type == AttributeType::Position && desc->view_type == ViewType::Image)
@@ -977,7 +977,7 @@ void MimirEngine::initGraphics()
     VkMemoryRequirements mem_req{};
     vkGetImageMemoryRequirements(device, depth_image, &mem_req);
     depth_memory = allocateMemory(device, available, mem_req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vkBindImageMemory(device, depth_image, depth_memory, 0);
+    validation::checkVulkan(vkBindImageMemory(device, depth_image, depth_memory, 0));
     depth_view = createImageView(device, depth_image, params, VK_IMAGE_ASPECT_DEPTH_BIT);
 
     // Create render pass with color and depth attachments
@@ -1294,7 +1294,7 @@ void MimirEngine::renderFrame()
 
 void MimirEngine::drawElements(uint32_t image_idx)
 {
-    auto min_alignment = physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1365,7 +1365,7 @@ void MimirEngine::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> 
 
 void MimirEngine::initUniformBuffers()
 {
-    auto min_alignment = physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1380,7 +1380,7 @@ void MimirEngine::initUniformBuffers()
         vkGetBufferMemoryRequirements(device, ubo.buffer, &memreq);
         auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         ubo.memory = allocateMemory(device, available, memreq, mem_usage);
-        vkBindBufferMemory(device, ubo.buffer, ubo.memory, 0);
+        validation::checkVulkan(vkBindBufferMemory(device, ubo.buffer, ubo.memory, 0));
         deletors.context.add([=,this]{
             vkDestroyBuffer(device, ubo.buffer, nullptr);
             vkFreeMemory(device, ubo.memory, nullptr);
@@ -1429,7 +1429,7 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 
         char *data = nullptr;
         auto offset = size_ubo * view_idx;
-        vkMapMemory(device, memory, offset, size_ubo, 0, (void**)&data);
+        validation::checkVulkan(vkMapMemory(device, memory, offset, size_ubo, 0, (void**)&data));
         std::memcpy(data, &mvp, sizeof(mvp));
         std::memcpy(data + size_mvp, &vu, sizeof(vu));
         std::memcpy(data + size_mvp + size_view, &su, sizeof(su));
@@ -1548,7 +1548,7 @@ void MimirEngine::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fun
     };
     auto queue = graphics.queue;
     validation::checkVulkan(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
-    vkQueueWaitIdle(queue);
+    validation::checkVulkan(vkQueueWaitIdle(queue));
     vkFreeCommandBuffers(device, command_pool, 1, &cmd);
 }
 
