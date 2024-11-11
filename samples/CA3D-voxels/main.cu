@@ -65,7 +65,7 @@ int main(int argc, char **argv){
     allocLinear(engine, (void**)&d2, sizeof(int) * n*n*n, &pong);
 
     float4 *d_colors = nullptr;
-    float4 h_colors[2] = { {0,1,0,1}, {0,0,1,1} };
+    float4 h_colors[2] = { {1,1,1,0.5}, {0,0,1,1} };
     unsigned int num_colors = std::size(h_colors);
     auto color_bytes = sizeof(float4) * num_colors;
     allocLinear(engine, (void**)&d_colors, color_bytes, &colormap);
@@ -81,11 +81,6 @@ int main(int argc, char **argv){
         .attributes    = {
             { AttributeType::Position, makeStructuredGrid(engine, grid_size) },
             { AttributeType::Color, {
-                // .source = ping,
-                // .size   = static_cast<unsigned int>(n*n*n),
-                // .format = FormatDescription::make<int>(),
-                // .indices = nullptr,
-                // .index_size = 0,
                 .source     = colormap,
                 .size       = num_colors,
                 .format     = FormatDescription::make<float4>(),

@@ -10,6 +10,18 @@ struct VertexData
     float4 color  : COLOR;
 };
 
+[[vk::binding(5)]] StructuredBuffer<float4> buffer;
+
+[shader("vertex")]
+VertexData vertexMainIndirect(PositionFloat3 in_pos, int index)
+{
+    VertexData output;
+    output.center = in_pos.getPosition(scene.extent);
+    output.color = buffer[index];
+
+    return output;
+}
+
 [shader("vertex")]
 VertexData vertexMain<P : IPosition, C : IColor, S : ISize>(
     P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)

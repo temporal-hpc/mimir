@@ -176,10 +176,19 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         }
         case ViewType::Voxels:
         {
+            // When using indirect color mapping, use custom entrypoint with no specializations
+            // Workaround for slang compilation failing when specializing these cases
+            std::string vert_entry = "vertexMain";
+            auto color_attr = desc.attributes[AttributeType::Color];
+            if (color_attr.indices != nullptr)
+            {
+                vert_entry = "vertexMainIndirect";
+                compile.specializations.clear();
+            }
+
             compile.module_path = "shaders/voxel.slang";
-            std::string geom_entry = "geometryMain";
-            geom_entry += getDomainType(desc.domain_type);
-            compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
+            auto geom_entry = std::string("geometryMain") + getDomainType(desc.domain_type);
+            compile.entrypoints = {vert_entry, geom_entry, "fragmentMain"};
             break;
         }
         case ViewType::Image:
@@ -272,7 +281,6 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
     }
 
     std::vector<VkPipeline> pipelines(create_infos.size(), VK_NULL_HANDLE);
-    // NOTE: 2nd parameter is pipeline cache
     validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE,
         create_infos.size(), create_infos.data(), nullptr, pipelines.data())
     );
