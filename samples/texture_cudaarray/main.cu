@@ -51,14 +51,7 @@ __global__ void d_boxfilter_rgba_x(cudaSurfaceObject_t* dstSurfMipMapArray,
                 float4 t = make_float4(0.0f);
                 for (int x = -filter_radius; x <= filter_radius; x++)
                 {
-                    t += tex2DLod<float4>(textureMipMapInput,
-                        x * px, y * py, (float)mipLevelIdx
-                    );
-                    // if (y == 0)
-                    // {
-                    //     float4 tex = tex2DLod<float4>(textureMipMapInput, x * px, y * py, (float)mipLevelIdx);
-                    //     printf("%f %f -> (%f %f %f %f)\n", x * px, y * py, tex.x, tex.y, tex.z, tex.w);
-                    // }
+                    t += tex2DLod<float4>(textureMipMapInput, x * px, y * py, (float)mipLevelIdx);
                 }
 
                 unsigned int dataB = rgbaFloatToInt(t * scale);
