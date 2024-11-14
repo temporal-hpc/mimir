@@ -179,7 +179,7 @@ void MimirEngine::waitKernelStart()
     cudaExternalSemaphoreWaitParams wait_params{};
     wait_params.flags = 0;
     wait_params.params.fence.value = render_timeline+1;
-    //printf("kernel waits for render %llu\n", wait_params.params.fence.value);
+    //spdlog::trace("kernel waits for render {}", wait_params.params.fence.value);
 
     // Wait for Vulkan to complete its work
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
@@ -202,7 +202,7 @@ void MimirEngine::signalKernelFinish()
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
     signal_params.params.fence.value = interop.timeline_value;
-    //printf("kernel signals iteration %llu\n", signal_params.params.fence.value);
+    //spdlog::trace("kernel signals iteration {}", signal_params.params.fence.value);
 
     // Signal Vulkan to continue with the updated buffers
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
@@ -252,16 +252,6 @@ constexpr VkIndexType getIndexBufferType(int bytesize)
         case 4: return VK_INDEX_TYPE_UINT32;
         // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char and VK_INDEX_TYPE_NONE_KHR for default
         default: return VK_INDEX_TYPE_NONE_KHR;
-    }
-}
-
-VkImageType getImageType(FormatDescription desc)
-{
-    switch (desc.components)
-    {
-        case 2:          return VK_IMAGE_TYPE_2D;
-        case 3:          return VK_IMAGE_TYPE_3D;
-        case 1: default: return VK_IMAGE_TYPE_1D;
     }
 }
 
@@ -496,7 +486,7 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
 {
     auto format = getFormatFromCuda(desc);
     ImageParams img_params{
-        .type   = getImageType(format),
+        .type   = getImageType(ViewExtent::make(extent.width, extent.height, extent.depth)),
         .format = getVulkanFormat(format),
         .extent = { (uint32_t)extent.width, (uint32_t)extent.height, (uint32_t)extent.depth },
         .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -613,7 +603,7 @@ View *MimirEngine::createView(ViewDescription *desc)
                 .format = getVulkanFormat(attr.format),
                 .extent = { desc->extent.x, desc->extent.y, desc->extent.z },
                 .tiling = getImageTiling(attr.source->type),
-                .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
+                .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 .levels = 1,
             };
             VkExternalMemoryImageCreateInfo extmem_info{
@@ -1283,6 +1273,7 @@ void MimirEngine::renderFrame()
     {
         frameStall(options.present.target_frame_time);
     }
+    //spdlog::trace("frame {} finished", render_timeline-1);
 
     /*if (options.report_period > 0 && frame_time > options.report_period)
     {
@@ -1514,7 +1505,7 @@ void MimirEngine::showMetrics()
 
 void MimirEngine::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
 {
-    VkCommandBuffer cmd;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
     auto alloc_info = VkCommandBufferAllocateInfo{
         .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .pNext              = nullptr,
@@ -1550,6 +1541,74 @@ void MimirEngine::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fun
     validation::checkVulkan(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
     validation::checkVulkan(vkQueueWaitIdle(queue));
     vkFreeCommandBuffers(device, command_pool, 1, &cmd);
+}
+
+void MimirEngine::loadTexture(TextureDescription desc, void *data, size_t memsize)
+{
+    ImageParams params{
+        .type   = getImageType(desc.extent),
+        .format = getVulkanFormat(desc.format),
+        .extent = { desc.extent.x, desc.extent.y, desc.extent.z },
+        .tiling = getImageTiling(desc.source->type),
+        .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .levels = desc.levels,
+    };
+    VkExternalMemoryImageCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+    auto image = createImage(device, physical_device.handle, params, &extmem_info);
+    validation::checkVulkan(vkBindImageMemory(device, image, desc.source->vk_mem, 0));
+
+    // Create staging buffer to copy image data
+    VkDeviceSize staging_size = desc.source->size;
+    auto staging_buffer = createBuffer(device, staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    auto available = physical_device.memory.memoryProperties;
+    VkMemoryRequirements staging_req{};
+    vkGetBufferMemoryRequirements(device, staging_buffer, &staging_req);
+    auto staging_memory = allocateMemory(device, available, staging_req,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    vkBindBufferMemory(device, staging_buffer, staging_memory, 0);
+
+    char *mapped = nullptr;
+    validation::checkVulkan(vkMapMemory(device, staging_memory, 0, memsize, 0, (void**)&mapped));
+    memcpy(mapped, data, static_cast<size_t>(memsize));
+    vkUnmapMemory(device, staging_memory);
+
+    transitionImageLayout(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copyBufferToTexture(staging_buffer, image, params.extent);
+
+    generateMipmaps(image, params.format, params.extent.width, params.extent.height, desc.levels);
+    validation::checkCuda(cudaDeviceSynchronize());
+
+    vkDestroyBuffer(device, staging_buffer, nullptr);
+    vkFreeMemory(device, staging_memory, nullptr);
+    vkDestroyImage(device, image, nullptr);
+}
+
+void MimirEngine::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent)
+{
+    VkImageSubresourceLayers subres{
+        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .mipLevel       = 0,
+        .baseArrayLayer = 0,
+        .layerCount     = 1
+    };
+    VkBufferImageCopy region{
+        .bufferOffset      = 0,
+        .bufferRowLength   = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource  = subres,
+        .imageOffset       = {0, 0, 0},
+        .imageExtent       = extent
+    };
+    immediateSubmit([=](VkCommandBuffer cmd)
+    {
+        auto layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        vkCmdCopyBufferToImage(cmd, buffer, image, layout, 1, &region);
+    });
 }
 
 void MimirEngine::generateMipmaps(VkImage image, VkFormat format,

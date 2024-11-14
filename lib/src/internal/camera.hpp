@@ -26,8 +26,6 @@ struct Camera
 
     static Camera make();
     void updateViewMatrix();
-    float getNearClip();
-    float getFarClip();
     void setPerspective(float fov, float aspect, float znear, float zfar);
     void updateAspectRatio(float aspect);
     void setPosition(glm::vec3 position);

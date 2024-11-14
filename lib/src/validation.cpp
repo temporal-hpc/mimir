@@ -84,11 +84,7 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
     // Lookup address of debug messenger extension function
     auto vkCreateDebugUtilsMessenger = (PFN_vkCreateDebugUtilsMessengerEXT)
         vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-    if (vkCreateDebugUtilsMessenger == nullptr)
-    {
-        return VK_ERROR_EXTENSION_NOT_PRESENT;
-
-    }
+    if (vkCreateDebugUtilsMessenger == nullptr) { return VK_ERROR_EXTENSION_NOT_PRESENT; }
     return vkCreateDebugUtilsMessenger(instance, p_create_info, p_allocator, p_debug_messenger);
 }
 

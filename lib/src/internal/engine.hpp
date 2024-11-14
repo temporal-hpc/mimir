@@ -158,6 +158,8 @@ struct MimirEngine
     void updateUniformBuffers(uint32_t image_idx);
 
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+    void loadTexture(TextureDescription desc, void *img_data, size_t memsize);
+    void copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent);
     void generateMipmaps(VkImage image, VkFormat img_format,
         int img_width, int img_height, int mip_levels
     );

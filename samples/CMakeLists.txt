@@ -17,12 +17,12 @@ add_subdirectory(points3d)
 add_subdirectory(points3dcpu)
 add_subdirectory(edgeflip)
 add_subdirectory(voronoi-simple)
-# add_subdirectory(texture_cudaarray)
-# Utilities
-add_subdirectory(powermon)
+add_subdirectory(texture_cudaarray)
 # Advanced samples
 add_subdirectory(potts)
 # add_subdirectory(nbody)
+# Utilities
+add_subdirectory(powermon)
 
 # Copy slang shaders to output directory
 add_custom_target(copy_shaders ALL

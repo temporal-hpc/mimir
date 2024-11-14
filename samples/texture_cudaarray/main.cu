@@ -54,6 +54,11 @@ __global__ void d_boxfilter_rgba_x(cudaSurfaceObject_t* dstSurfMipMapArray,
                     t += tex2DLod<float4>(textureMipMapInput,
                         x * px, y * py, (float)mipLevelIdx
                     );
+                    // if (y == 0)
+                    // {
+                    //     float4 tex = tex2DLod<float4>(textureMipMapInput, x * px, y * py, (float)mipLevelIdx);
+                    //     printf("%f %f -> (%f %f %f %f)\n", x * px, y * py, tex.x, tex.y, tex.z, tex.w);
+                    // }
                 }
 
                 unsigned int dataB = rgbaFloatToInt(t * scale);
@@ -191,66 +196,63 @@ int main(int argc, char *argv[])
     }
     printf("Loaded '%s', '%d'x'%d pixels \n", filepath.c_str(), img_width, img_height);
 
-    int width = 1920, height = 1080;
-    auto engine = make(width, height);
+    Engine engine = nullptr;
+    createEngine(1920, 1080, &engine);
 
     cudaMipmappedArray_t mipmap_array = nullptr;
-    cudaChannelFormatDesc format{
+    cudaChannelFormatDesc cuda_format{
         .x = 8, .y = 8, .z = 8, .w = 8,
         .f = cudaChannelFormatKindUnsigned,
     };
-    auto extent = make_cudaExtent(img_width, img_height, 0);
-    auto mipmap = engine->allocMipmap(&mipmap_array, &format, extent, mip_levels);
+    auto cuda_extent = make_cudaExtent(img_width, img_height, 1);
+    AllocHandle mipmap = nullptr;
+    allocMipmap(engine, &mipmap_array, &cuda_format, cuda_extent, mip_levels, &mipmap);
+    TextureDescription tex{
+        .source = mipmap,
+        .format = FormatDescription::make<uchar4>(),
+        .extent = ViewExtent::make(img_width, img_height, 1),
+        .levels = static_cast<unsigned int>(mip_levels),
+    };
+    copyTextureData(engine, tex, img_data, sizeof(char4) * img_width * img_height);
 
-    /*MemoryParams m;
-    m.layout           = DataLayout::Layout2D;
-    m.element_count    = {(uint)img_width, (uint)img_height, 1};
-    m.component_type   = ComponentType::Char;
-    m.channel_count    = 4;
-    m.resource_type    = ResourceType::Texture;
-    auto image = engine->createBuffer((void**)&d_image, m);
-    engine->loadTexture(image, img_data);
-
-    ViewParamsOld params;
-    params.element_count = img_width * img_height;
-    params.extent        = {(unsigned)img_width, (unsigned)img_height, 1};
-    params.data_domain   = DomainType::Domain2D;
-    params.domain_type   = DomainType::Structured;
-    params.view_type     = ViewType::Image;
-    params.attributes[AttributeType::Color] = *image;
-    auto view = engine->createView(params);
-
-    cudaChannelFormatDesc format_desc;
-    format_desc.x = 8;
-    format_desc.y = 8;
-    format_desc.z = 8;
-    format_desc.w = 8;
-    format_desc.f = cudaChannelFormatKindUnsigned;
-    size_t image_width  = img_width;
-    size_t image_height = img_height;
-    auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
+    ViewHandle view = nullptr;
+    ViewDescription desc{
+        .element_count = 6,
+        .view_type     = ViewType::Image,
+        .domain_type   = DomainType::Domain2D,
+        .extent        = tex.extent,
+        .attributes    = {
+            { AttributeType::Position, makeImageFrame(engine) },
+            { AttributeType::Color, {
+                .source = tex.source,
+                .size   = static_cast<unsigned int>(img_width * img_height),
+                .format = tex.format,
+            }}
+        }
+    };
+    createView(engine, &desc, &view);
 
     cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
     checkCuda(cudaMallocMipmappedArray(
-        &cudaMipmappedImageArrayTemp, &format_desc, cuda_extent, mip_levels
+        &cudaMipmappedImageArrayTemp, &cuda_format, cuda_extent, mip_levels
     ));
     cudaMipmappedArray_t cudaMipmappedImageArrayOrig = nullptr;
     checkCuda(cudaMallocMipmappedArray(
-        &cudaMipmappedImageArrayOrig, &format_desc, cuda_extent, mip_levels
+        &cudaMipmappedImageArrayOrig, &cuda_format, cuda_extent, mip_levels
     ));
 
     cudaResourceDesc res_desc{};
     res_desc.resType = cudaResourceTypeMipmappedArray;
     res_desc.res.mipmap.mipmap = cudaMipmappedImageArrayOrig;
 
-    cudaTextureDesc tex_desc{};
-    tex_desc.normalizedCoords    = true;
-    tex_desc.filterMode          = cudaFilterModeLinear;
-    tex_desc.mipmapFilterMode    = cudaFilterModeLinear;
-    tex_desc.addressMode[0]      = cudaAddressModeWrap;
-    tex_desc.addressMode[1]      = cudaAddressModeWrap;
-    tex_desc.maxMipmapLevelClamp = static_cast<float>(mip_levels - 1);
-    tex_desc.readMode            = cudaReadModeNormalizedFloat;
+    cudaTextureDesc tex_desc{
+        .addressMode         = { cudaAddressModeWrap },
+        .filterMode          = cudaFilterModeLinear,
+        .readMode            = cudaReadModeNormalizedFloat,
+        .normalizedCoords    = true,
+        .mipmapFilterMode    = cudaFilterModeLinear,
+        .maxMipmapLevelClamp = static_cast<float>(mip_levels - 1),
+    };
 
     cudaTextureObject_t tex_obj = 0;
     checkCuda(cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr));
@@ -261,7 +263,7 @@ int main(int argc, char *argv[])
         cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
 
         checkCuda(cudaGetMipmappedArrayLevel(
-            &mipLevelArray, image->mipmap_array, level_idx
+            &mipLevelArray, mipmap_array, level_idx
         ));
         checkCuda(cudaGetMipmappedArrayLevel(
             &mipLevelArrayTemp, cudaMipmappedImageArrayTemp, level_idx
@@ -270,24 +272,26 @@ int main(int argc, char *argv[])
             &mipLevelArrayOrig, cudaMipmappedImageArrayOrig, level_idx
         ));
 
-        uint32_t width = (image_width >> level_idx) ? (image_width >> level_idx) : 1;
-        uint32_t height = (image_height >> level_idx) ? (image_height >> level_idx) : 1;
+        uint32_t width = (img_width >> level_idx) ? (img_width >> level_idx) : 1;
+        uint32_t height = (img_height >> level_idx) ? (img_height >> level_idx) : 1;
         checkCuda(cudaMemcpy2DArrayToArray(
             mipLevelArrayOrig, 0, 0, mipLevelArray, 0, 0,
             width * sizeof(uchar4), height, cudaMemcpyDeviceToDevice
         ));
 
-        cudaResourceDesc res_desc{};
-        res_desc.resType = cudaResourceTypeArray;
-        res_desc.res.array.array = mipLevelArray;
-        cudaSurfaceObject_t surf_obj;
+        cudaResourceDesc res_desc{
+            .resType = cudaResourceTypeArray,
+            .res     = { .array { .array = mipLevelArray } },
+        };
+        cudaSurfaceObject_t surf_obj = 0;
         checkCuda(cudaCreateSurfaceObject(&surf_obj, &res_desc));
         surf_obj_list.push_back(surf_obj);
 
-        cudaResourceDesc res_desc_temp{};
-        res_desc_temp.resType = cudaResourceTypeArray;
-        res_desc_temp.res.array.array = mipLevelArrayTemp;
-        cudaSurfaceObject_t surf_temp;
+        cudaResourceDesc res_desc_temp{
+            .resType = cudaResourceTypeArray,
+            .res     = { .array { .array = mipLevelArrayTemp } },
+        };
+        cudaSurfaceObject_t surf_temp = 0;
         checkCuda(cudaCreateSurfaceObject(&surf_temp, &res_desc_temp));
         surf_obj_list_temp.push_back(surf_temp);
     }
@@ -303,12 +307,13 @@ int main(int argc, char *argv[])
         sizeof(cudaSurfaceObject_t) * mip_levels, cudaMemcpyHostToDevice
     ));
 
-    engine->displayAsync();
-
+    // Engine does not run before starting display
+    assert(!isRunning(engine));
+    displayAsync(engine);
     int nthreads = 128;
-    for (int i = 0; i < 999999; i++)
+    while (isRunning(engine))
     {
-        engine->prepareViews();
+        prepareViews(engine);
 
         // Perform 2D box filter on image using CUDA
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
@@ -319,12 +324,13 @@ int main(int argc, char *argv[])
         );
         varySigma();
 
-        engine->updateViews();
+        updateViews(engine);
     }
 
     checkCuda(cudaDestroyTextureObject(tex_obj));
     checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayTemp));
-    checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayOrig));*/
+    checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayOrig));
+    destroyEngine(engine);
 
     return EXIT_SUCCESS;
 }

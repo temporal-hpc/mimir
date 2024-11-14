@@ -23,6 +23,8 @@ void destroyEngine(Engine engine)
     delete engine;
 }
 
+bool isRunning(Engine engine) { return engine->running; }
+
 void allocLinear(Engine engine, void **dev_ptr, size_t size, AllocHandle *alloc)
 {
     *alloc = engine->allocLinear(dev_ptr, size);
@@ -72,6 +74,11 @@ AttributeDescription makeStructuredGrid(Engine engine, ViewExtent extent, float3
 AttributeDescription makeImageFrame(Engine engine)
 {
     return engine->makeImageDomain();
+}
+
+void copyTextureData(Engine engine, TextureDescription tex_desc, void *data, size_t memsize)
+{
+    engine->loadTexture(tex_desc, data, memsize);
 }
 
 void makeTexture(Engine engine, TextureDescription desc, TextureHandle *texture)

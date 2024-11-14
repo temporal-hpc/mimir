@@ -27,6 +27,7 @@ typedef struct Texture* TextureHandle;
 void createEngine(ViewerOptions opts, Engine *engine);
 void createEngine(int width, int height, Engine *engine);
 void destroyEngine(Engine engine);
+bool isRunning(Engine engine);
 
 void display(Engine engine, std::function<void(void)> func, size_t iter_count);
 void displayAsync(Engine engine);
@@ -41,7 +42,7 @@ void createView(Engine engine, ViewDescription *desc, ViewHandle *view);
 void setGuiCallback(Engine engine, std::function<void(void)> callback);
 AttributeDescription makeStructuredGrid(Engine engine, ViewExtent extent, float3 start={0.f,0.f,0.f});
 AttributeDescription makeImageFrame(Engine engine);
-void makeTexture(Engine engine, TextureDescription desc, TextureHandle *texture);
+void copyTextureData(Engine engine, TextureDescription tex_desc, void *data, size_t memsize);
 
 // C++ API
 

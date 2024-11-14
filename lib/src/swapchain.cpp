@@ -12,15 +12,13 @@ Swapchain Swapchain::make(VkDevice device, VkPhysicalDevice ph_dev, VkSurfaceKHR
         .current     = VK_NULL_HANDLE,
         .old         = VK_NULL_HANDLE,
         .format      = VK_FORMAT_UNDEFINED,
-        .extent      = { 0, 0 },
+        .extent      = { .width = 0, .height = 0 },
         .image_count = 0,
     };
 
     // Get a swapchain image count within surface supported limits
-    VkSurfaceCapabilitiesKHR surf_caps;
-    validation::checkVulkan(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-        ph_dev, surf, &surf_caps)
-    );
+    VkSurfaceCapabilitiesKHR surf_caps{};
+    validation::checkVulkan(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ph_dev, surf, &surf_caps));
     sc.image_count = surf_caps.minImageCount + 1;
     auto max_image_count = surf_caps.maxImageCount;
     if (max_image_count > 0 && sc.image_count > max_image_count)
