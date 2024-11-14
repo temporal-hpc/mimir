@@ -66,8 +66,8 @@ class BodySystemCUDA : public BodySystem<T> {
 
   virtual unsigned int getNumBodies() const { return m_numBodies; }
   mimir::Engine m_engine;
-  mimir::Allocation m_alloc[2];
-  mimir::View m_views[2];
+  mimir::AllocHandle m_alloc[2];
+  mimir::ViewHandle m_views[2];
 
  protected:  // methods
   BodySystemCUDA() {}

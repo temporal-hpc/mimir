@@ -20,7 +20,7 @@ add_subdirectory(voronoi-simple)
 add_subdirectory(texture_cudaarray)
 # Advanced samples
 add_subdirectory(potts)
-# add_subdirectory(nbody)
+add_subdirectory(nbody)
 # Utilities
 add_subdirectory(powermon)
 

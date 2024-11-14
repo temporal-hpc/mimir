@@ -221,51 +221,6 @@ int main(int argc, char *argv[])
     createView(engine, &desc, &v2);
     v2->default_size = 1.f;
 
-    /*MemoryParams m1;
-    m1.layout          = DataLayout::Layout1D;
-    m1.element_count.x = point_count;
-    m1.component_type  = ComponentType::Float;
-    m1.channel_count   = 2;
-    m1.resource_type   = ResourceType::Buffer;
-    auto points = createBuffer((void**)&d_coords, m1);
-
-    ViewParamsOld p1;
-    p1.element_count = point_count;
-    p1.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
-    p1.domain_type   = DomainType::Domain2D;
-    p1.domain_type   = DomainType::Unstructured;
-    p1.view_type     = ViewType::Markers;
-    p1.attributes[AttributeType::Position] = *points;
-    p1.options.default_color = {0,0,1,1};
-    auto v1 = createView(p1);
-
-    MemoryParams m2;
-    m2.layout         = DataLayout::Layout2D;
-    m2.element_count  = {(unsigned)extent.x, (unsigned)extent.y, 1};
-    m2.component_type = ComponentType::Float;
-    m2.channel_count  = 4;
-    m2.resource_type  = ResourceType::LinearTexture;
-    auto image = createBuffer((void**)&d_vd_colors, m2);
-
-    ViewParamsOld p2;
-    p2.element_count = extent.x * extent.y;
-    p2.domain_type   = DomainType::Domain2D;
-    p2.domain_type   = DomainType::Structured;
-    p2.view_type     = ViewType::Image;
-    p2.attributes[AttributeType::Color] = *image;
-    auto v2 = createView(p2);*/
-
-    //cudaMalloc((void**)&d_coords, sizeof(float2) * point_count);
-    //cudaMalloc((void**)&d_vd_colors, sizeof(float) * extent.x * extent.y);*/
-
-    /*desc.element_count = extent.x * extent.y;
-    desc.component_type     = ComponentType::Float;
-    desc.channel_count = 1;
-    desc.resource_type = ResourceType::Buffer;
-    desc.domain_type   = DomainType::Structured;
-    desc.element_type  = ElementType::Image;
-    createView((void**)&d_vd_dists, desc);*/
-
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     checkCuda(cudaMalloc(&d_colors, sizeof(float3) * point_count));
 

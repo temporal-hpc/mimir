@@ -1,10 +1,37 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h" // stbi_load
-#include "helper_math.h"
 
 #include <mimir/mimir.hpp>
 #include "validation.hpp" // checkCuda
 using namespace mimir;
+
+// Vector operations copied from 'helper_math.h' at cuda-samples
+
+inline __host__ __device__ float4 make_float4(float s)
+{
+    return make_float4(s, s, s, s);
+}
+
+inline __host__ __device__ float4 operator*(float4 a, float b)
+{
+    return make_float4(a.x * b, a.y * b, a.z * b,  a.w * b);
+}
+
+inline __host__ __device__ void operator+=(float4 &a, float4 b)
+{
+    a.x += b.x;
+    a.y += b.y;
+    a.z += b.z;
+    a.w += b.w;
+}
+
+inline __host__ __device__ void operator-=(float4 &a, float4 b)
+{
+    a.x -= b.x;
+    a.y -= b.y;
+    a.z -= b.z;
+    a.w -= b.w;
+}
 
 // convert floating point rgba color to 32-bit integer
 __device__ unsigned int rgbaFloatToInt(float4 rgba)

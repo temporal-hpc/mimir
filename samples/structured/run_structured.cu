@@ -192,7 +192,8 @@ int main(int argc, char *argv[])
 
     desc.element_count = extent.x * extent.y;
     desc.view_type     = ViewType::Voxels;
-    desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.extent, {0.f,0.f,0.4999f});
+    desc.attributes[AttributeType::Position] =
+        makeStructuredGrid(engine, desc.extent, {0.f,0.f,0.4999f});
     desc.attributes[AttributeType::Color] = {
         .source = field,
         .size   = desc.element_count,

@@ -177,7 +177,7 @@ void BodySystemCUDA<T>::_initialize(int numBodies) {
     allocLinear(m_engine, (void**)&m_deviceData[0].dPos[0], body_size, &m_alloc[0]);
     allocLinear(m_engine, (void**)&m_deviceData[0].dPos[1], body_size, &m_alloc[1]);
 
-    // MemoryParams m;
+    // Memorydesc m;
     // m.layout          = DataLayout::Layout1D;
     // m.element_count.x = m_numBodies;
     // m.component_type  = ComponentType::Float;
@@ -186,21 +186,25 @@ void BodySystemCUDA<T>::_initialize(int numBodies) {
     // auto points1 = m_engine->createBuffer((void**)&m_deviceData[0].dPos[0], m);
     // auto points2 = m_engine->createBuffer((void**)&m_deviceData[0].dPos[1], m);
 
-    ViewParams params;
-    params.element_count = m_numBodies;
-    params.data_domain   = DomainType::Domain3D;
-    params.extent        = {100, 100, 100};
-    params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = {
-      .allocation = m_alloc[0],
-      .format     = { .type = DataType::float32, .components = 4 },
+    ViewDescription desc{
+      .element_count = m_numBodies,
+      .view_type     = ViewType::Markers,
+      .domain_type   = DomainType::Domain3D,
+      .extent        = {100, 100, 100},
+      .attributes    = {
+        { AttributeType::Position, {
+          .source = m_alloc[0],
+          .size   = m_numBodies,
+          .format = FormatDescription::make<float4>(),
+        }}}
     };
-    params.options.default_size = 100.f;
-    createView(m_engine, params, &m_views[0]);
+    createView(m_engine, &desc, &m_views[0]);
+    m_views[0]->default_size = 100.f;
 
-    params.options.visible = false;
-    params.attributes[AttributeType::Position].allocation = m_alloc[1];
-    createView(m_engine, params, &m_views[1]);
+    desc.attributes[AttributeType::Position].source = m_alloc[1];
+    createView(m_engine, &desc, &m_views[1]);
+    m_views[1]->default_size = 100.f;
+    m_views[1]->visible = false;
 
     /*if (m_bUsePBO) {
       // create the position pixel buffer objects for rendering
