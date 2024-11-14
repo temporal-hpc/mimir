@@ -25,19 +25,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <helper_gl.h>
-#if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-#include <GL/wglew.h>
-#endif
-
-#if defined(__APPLE__) || defined(MACOSX)
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#include <GLUT/glut.h>
-#else
-#include <GL/freeglut.h>
-#endif
-
-#include <paramgl.h>
 #include <cstdlib>
 #include <cstdio>
 #include <algorithm>
@@ -147,7 +134,7 @@ StopWatchInterface *demoTimer = NULL, *timer = NULL;
 NBodyParams activeParams = demoParams[activeDemo];
 
 // The UI.
-ParamListGL *paramlist;  // parameter list
+//ParamListGL *paramlist;  // parameter list
 bool bShowSliders = true;
 
 // fps
@@ -196,7 +183,7 @@ class NBodyDemo {
     auto engine = m_singleton->m_nbodyCuda->m_engine;
     displayAsync(engine);
 
-    while (true)
+    while (isRunning(engine))
     {
       prepareViews(engine);
       updateSimulation();
@@ -506,7 +493,7 @@ inline void checkGLErrors(const char *s) {
   GLenum error;
 
   while ((error = glGetError()) != GL_NO_ERROR) {
-    fprintf(stderr, "%s: error - %s\n", s, (char *)gluErrorString(error));
+    //fprintf(stderr, "%s: error - %s\n", s, (char *)gluErrorString(error));
   }
 }
 
@@ -543,38 +530,38 @@ void initGL(int *argc, char **argv) {
 }
 
 void initParameters() {
-  // create a new parameter list
-  paramlist = new ParamListGL("sliders");
-  paramlist->SetBarColorInner(0.8f, 0.8f, 0.0f);
+  // // create a new parameter list
+  // paramlist = new ParamListGL("sliders");
+  // paramlist->SetBarColorInner(0.8f, 0.8f, 0.0f);
 
-  // add some parameters to the list
+  // // add some parameters to the list
 
-  // Point Size
-  paramlist->AddParam(new Param<float>("Point Size", activeParams.m_pointSize,
-                                       0.001f, 10.0f, 0.01f,
-                                       &activeParams.m_pointSize));
+  // // Point Size
+  // paramlist->AddParam(new Param<float>("Point Size", activeParams.m_pointSize,
+  //                                      0.001f, 10.0f, 0.01f,
+  //                                      &activeParams.m_pointSize));
 
-  // Velocity Damping
-  paramlist->AddParam(new Param<float>("Velocity Damping",
-                                       activeParams.m_damping, 0.5f, 1.0f,
-                                       .0001f, &(activeParams.m_damping)));
-  // Softening Factor
-  paramlist->AddParam(new Param<float>("Softening Factor",
-                                       activeParams.m_softening, 0.001f, 1.0f,
-                                       .0001f, &(activeParams.m_softening)));
-  // Time step size
-  paramlist->AddParam(new Param<float>("Time Step", activeParams.m_timestep,
-                                       0.0f, 1.0f, .0001f,
-                                       &(activeParams.m_timestep)));
-  // Cluster scale (only affects starting configuration
-  paramlist->AddParam(new Param<float>("Cluster Scale",
-                                       activeParams.m_clusterScale, 0.0f, 10.0f,
-                                       0.01f, &(activeParams.m_clusterScale)));
+  // // Velocity Damping
+  // paramlist->AddParam(new Param<float>("Velocity Damping",
+  //                                      activeParams.m_damping, 0.5f, 1.0f,
+  //                                      .0001f, &(activeParams.m_damping)));
+  // // Softening Factor
+  // paramlist->AddParam(new Param<float>("Softening Factor",
+  //                                      activeParams.m_softening, 0.001f, 1.0f,
+  //                                      .0001f, &(activeParams.m_softening)));
+  // // Time step size
+  // paramlist->AddParam(new Param<float>("Time Step", activeParams.m_timestep,
+  //                                      0.0f, 1.0f, .0001f,
+  //                                      &(activeParams.m_timestep)));
+  // // Cluster scale (only affects starting configuration
+  // paramlist->AddParam(new Param<float>("Cluster Scale",
+  //                                      activeParams.m_clusterScale, 0.0f, 10.0f,
+  //                                      0.01f, &(activeParams.m_clusterScale)));
 
-  // Velocity scale (only affects starting configuration)
-  paramlist->AddParam(
-      new Param<float>("Velocity Scale", activeParams.m_velocityScale, 0.0f,
-                       1000.0f, 0.1f, &activeParams.m_velocityScale));
+  // // Velocity scale (only affects starting configuration)
+  // paramlist->AddParam(
+  //     new Param<float>("Velocity Scale", activeParams.m_velocityScale, 0.0f,
+  //                      1000.0f, 0.1f, &activeParams.m_velocityScale));
 }
 
 void selectDemo(int activeDemo) {
@@ -602,143 +589,143 @@ void displayNBodySystem() {
 }
 
 void display() {
-  static double gflops = 0;
-  static double ifps = 0;
-  static double interactionsPerSecond = 0;
+  // static double gflops = 0;
+  // static double ifps = 0;
+  // static double interactionsPerSecond = 0;
 
-  // update the simulation
-  if (!bPause) {
-    if (cycleDemo && (sdkGetTimerValue(&demoTimer) > demoTime)) {
-      activeDemo = (activeDemo + 1) % numDemos;
-      selectDemo(activeDemo);
-    }
+  // // update the simulation
+  // if (!bPause) {
+  //   if (cycleDemo && (sdkGetTimerValue(&demoTimer) > demoTime)) {
+  //     activeDemo = (activeDemo + 1) % numDemos;
+  //     selectDemo(activeDemo);
+  //   }
 
-    updateSimulation();
+  //   updateSimulation();
 
-    if (!useCpu) {
-      cudaEventRecord(hostMemSyncEvent,
-                      0);  // insert an event to wait on before rendering
-    }
-  }
+  //   if (!useCpu) {
+  //     cudaEventRecord(hostMemSyncEvent,
+  //                     0);  // insert an event to wait on before rendering
+  //   }
+  // }
 
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  if (displayEnabled) {
-    // view transform
-    {
-      glMatrixMode(GL_MODELVIEW);
-      glLoadIdentity();
+  // if (displayEnabled) {
+  //   // view transform
+  //   {
+  //     glMatrixMode(GL_MODELVIEW);
+  //     glLoadIdentity();
 
-      for (int c = 0; c < 3; ++c) {
-        camera_trans_lag[c] +=
-            (camera_trans[c] - camera_trans_lag[c]) * inertia;
-        camera_rot_lag[c] += (camera_rot[c] - camera_rot_lag[c]) * inertia;
-      }
+  //     for (int c = 0; c < 3; ++c) {
+  //       camera_trans_lag[c] +=
+  //           (camera_trans[c] - camera_trans_lag[c]) * inertia;
+  //       camera_rot_lag[c] += (camera_rot[c] - camera_rot_lag[c]) * inertia;
+  //     }
 
-      glTranslatef(camera_trans_lag[0], camera_trans_lag[1],
-                   camera_trans_lag[2]);
-      glRotatef(camera_rot_lag[0], 1.0, 0.0, 0.0);
-      glRotatef(camera_rot_lag[1], 0.0, 1.0, 0.0);
-    }
+  //     glTranslatef(camera_trans_lag[0], camera_trans_lag[1],
+  //                  camera_trans_lag[2]);
+  //     glRotatef(camera_rot_lag[0], 1.0, 0.0, 0.0);
+  //     glRotatef(camera_rot_lag[1], 0.0, 1.0, 0.0);
+  //   }
 
-    displayNBodySystem();
+  //   displayNBodySystem();
 
-    // display user interface
-    if (bShowSliders) {
-      glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ZERO);  // invert color
-      glEnable(GL_BLEND);
-      paramlist->Render(0, 0);
-      glDisable(GL_BLEND);
-    }
+  //   // display user interface
+  //   if (bShowSliders) {
+  //     glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ZERO);  // invert color
+  //     glEnable(GL_BLEND);
+  //     paramlist->Render(0, 0);
+  //     glDisable(GL_BLEND);
+  //   }
 
-    if (bFullscreen) {
-      beginWinCoords();
-      char msg0[256], msg1[256], msg2[256];
+  //   if (bFullscreen) {
+  //     beginWinCoords();
+  //     char msg0[256], msg1[256], msg2[256];
 
-      if (bDispInteractions) {
-        sprintf(msg1, "%0.2f billion interactions per second",
-                interactionsPerSecond);
-      } else {
-        sprintf(msg1, "%0.2f GFLOP/s", gflops);
-      }
+  //     if (bDispInteractions) {
+  //       sprintf(msg1, "%0.2f billion interactions per second",
+  //               interactionsPerSecond);
+  //     } else {
+  //       sprintf(msg1, "%0.2f GFLOP/s", gflops);
+  //     }
 
-      sprintf(msg0, "%s", deviceName);
-      sprintf(msg2, "%0.2f FPS [%s | %d bodies]", ifps,
-              fp64 ? "double precision" : "single precision", numBodies);
+  //     sprintf(msg0, "%s", deviceName);
+  //     sprintf(msg2, "%0.2f FPS [%s | %d bodies]", ifps,
+  //             fp64 ? "double precision" : "single precision", numBodies);
 
-      glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ZERO);  // invert color
-      glEnable(GL_BLEND);
-      glColor3f(0.46f, 0.73f, 0.0f);
-      glPrint(80, glutGet(GLUT_WINDOW_HEIGHT) - 122, msg0,
-              GLUT_BITMAP_TIMES_ROMAN_24);
-      glColor3f(1.0f, 1.0f, 1.0f);
-      glPrint(80, glutGet(GLUT_WINDOW_HEIGHT) - 96, msg2,
-              GLUT_BITMAP_TIMES_ROMAN_24);
-      glColor3f(1.0f, 1.0f, 1.0f);
-      glPrint(80, glutGet(GLUT_WINDOW_HEIGHT) - 70, msg1,
-              GLUT_BITMAP_TIMES_ROMAN_24);
-      glDisable(GL_BLEND);
+  //     glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ZERO);  // invert color
+  //     glEnable(GL_BLEND);
+  //     glColor3f(0.46f, 0.73f, 0.0f);
+  //     glPrint(80, glutGet(GLUT_WINDOW_HEIGHT) - 122, msg0,
+  //             GLUT_BITMAP_TIMES_ROMAN_24);
+  //     glColor3f(1.0f, 1.0f, 1.0f);
+  //     glPrint(80, glutGet(GLUT_WINDOW_HEIGHT) - 96, msg2,
+  //             GLUT_BITMAP_TIMES_ROMAN_24);
+  //     glColor3f(1.0f, 1.0f, 1.0f);
+  //     glPrint(80, glutGet(GLUT_WINDOW_HEIGHT) - 70, msg1,
+  //             GLUT_BITMAP_TIMES_ROMAN_24);
+  //     glDisable(GL_BLEND);
 
-      endWinCoords();
-    }
+  //     endWinCoords();
+  //   }
 
-    glutSwapBuffers();
-  }
+  //   glutSwapBuffers();
+  // }
 
-  fpsCount++;
+  // fpsCount++;
 
-  // this displays the frame rate updated every second (independent of frame
-  // rate)
-  if (fpsCount >= fpsLimit) {
-    char fps[256];
+  // // this displays the frame rate updated every second (independent of frame
+  // // rate)
+  // if (fpsCount >= fpsLimit) {
+  //   char fps[256];
 
-    float milliseconds = 1;
+  //   float milliseconds = 1;
 
-    // stop timer
-    if (useCpu) {
-      milliseconds = sdkGetTimerValue(&timer);
-      sdkResetTimer(&timer);
-    } else {
-      checkCudaErrors(cudaEventRecord(stopEvent, 0));
-      checkCudaErrors(cudaEventSynchronize(stopEvent));
-      checkCudaErrors(
-          cudaEventElapsedTime(&milliseconds, startEvent, stopEvent));
-    }
+  //   // stop timer
+  //   if (useCpu) {
+  //     milliseconds = sdkGetTimerValue(&timer);
+  //     sdkResetTimer(&timer);
+  //   } else {
+  //     checkCudaErrors(cudaEventRecord(stopEvent, 0));
+  //     checkCudaErrors(cudaEventSynchronize(stopEvent));
+  //     checkCudaErrors(
+  //         cudaEventElapsedTime(&milliseconds, startEvent, stopEvent));
+  //   }
 
-    milliseconds /= (float)fpsCount;
-    computePerfStats(interactionsPerSecond, gflops, milliseconds, 1);
+  //   milliseconds /= (float)fpsCount;
+  //   computePerfStats(interactionsPerSecond, gflops, milliseconds, 1);
 
-    ifps = 1.f / (milliseconds / 1000.f);
-    sprintf(fps,
-            "CUDA N-Body (%d bodies): "
-            "%0.1f fps | %0.1f BIPS | %0.1f GFLOP/s | %s",
-            numBodies, ifps, interactionsPerSecond, gflops,
-            fp64 ? "double precision" : "single precision");
+  //   ifps = 1.f / (milliseconds / 1000.f);
+  //   sprintf(fps,
+  //           "CUDA N-Body (%d bodies): "
+  //           "%0.1f fps | %0.1f BIPS | %0.1f GFLOP/s | %s",
+  //           numBodies, ifps, interactionsPerSecond, gflops,
+  //           fp64 ? "double precision" : "single precision");
 
-    glutSetWindowTitle(fps);
-    fpsCount = 0;
-    fpsLimit = (ifps > 1.f) ? (int)ifps : 1;
+  //   glutSetWindowTitle(fps);
+  //   fpsCount = 0;
+  //   fpsLimit = (ifps > 1.f) ? (int)ifps : 1;
 
-    if (bPause) {
-      fpsLimit = 0;
-    }
+  //   if (bPause) {
+  //     fpsLimit = 0;
+  //   }
 
-    // restart timer
-    if (!useCpu) {
-      checkCudaErrors(cudaEventRecord(startEvent, 0));
-    }
-  }
+  //   // restart timer
+  //   if (!useCpu) {
+  //     checkCudaErrors(cudaEventRecord(startEvent, 0));
+  //   }
+  // }
 
-  glutReportErrors();
+  // glutReportErrors();
 }
 
 void reshape(int w, int h) {
-  glMatrixMode(GL_PROJECTION);
-  glLoadIdentity();
-  gluPerspective(60.0, (float)w / (float)h, 0.1, 1000.0);
+  // glMatrixMode(GL_PROJECTION);
+  // glLoadIdentity();
+  // gluPerspective(60.0, (float)w / (float)h, 0.1, 1000.0);
 
-  glMatrixMode(GL_MODELVIEW);
-  glViewport(0, 0, w, h);
+  // glMatrixMode(GL_MODELVIEW);
+  // glViewport(0, 0, w, h);
 }
 
 void updateParams() {
@@ -750,64 +737,64 @@ void updateParams() {
 }
 
 void mouse(int button, int state, int x, int y) {
-  if (bShowSliders) {
-    // call list mouse function
-    if (paramlist->Mouse(x, y, button, state)) {
-      updateParams();
-    }
-  }
+  // if (bShowSliders) {
+  //   // call list mouse function
+  //   if (paramlist->Mouse(x, y, button, state)) {
+  //     updateParams();
+  //   }
+  // }
 
-  int mods;
+  // int mods;
 
-  if (state == GLUT_DOWN) {
-    buttonState |= 1 << button;
-  } else if (state == GLUT_UP) {
-    buttonState = 0;
-  }
+  // if (state == GLUT_DOWN) {
+  //   buttonState |= 1 << button;
+  // } else if (state == GLUT_UP) {
+  //   buttonState = 0;
+  // }
 
-  mods = glutGetModifiers();
+  // mods = glutGetModifiers();
 
-  if (mods & GLUT_ACTIVE_SHIFT) {
-    buttonState = 2;
-  } else if (mods & GLUT_ACTIVE_CTRL) {
-    buttonState = 3;
-  }
+  // if (mods & GLUT_ACTIVE_SHIFT) {
+  //   buttonState = 2;
+  // } else if (mods & GLUT_ACTIVE_CTRL) {
+  //   buttonState = 3;
+  // }
 
-  ox = x;
-  oy = y;
+  // ox = x;
+  // oy = y;
 
-  glutPostRedisplay();
+  // glutPostRedisplay();
 }
 
 void motion(int x, int y) {
-  if (bShowSliders) {
-    // call parameter list motion function
-    if (paramlist->Motion(x, y)) {
-      updateParams();
-      glutPostRedisplay();
-      return;
-    }
-  }
+  // if (bShowSliders) {
+  //   // call parameter list motion function
+  //   if (paramlist->Motion(x, y)) {
+  //     updateParams();
+  //     glutPostRedisplay();
+  //     return;
+  //   }
+  // }
 
-  float dx = (float)(x - ox);
-  float dy = (float)(y - oy);
+  // float dx = (float)(x - ox);
+  // float dy = (float)(y - oy);
 
-  if (buttonState == 3) {
-    // left+middle = zoom
-    camera_trans[2] += (dy / 100.0f) * 0.5f * fabs(camera_trans[2]);
-  } else if (buttonState & 2) {
-    // middle = translate
-    camera_trans[0] += dx / 100.0f;
-    camera_trans[1] -= dy / 100.0f;
-  } else if (buttonState & 1) {
-    // left = rotate
-    camera_rot[0] += dy / 5.0f;
-    camera_rot[1] += dx / 5.0f;
-  }
+  // if (buttonState == 3) {
+  //   // left+middle = zoom
+  //   camera_trans[2] += (dy / 100.0f) * 0.5f * fabs(camera_trans[2]);
+  // } else if (buttonState & 2) {
+  //   // middle = translate
+  //   camera_trans[0] += dx / 100.0f;
+  //   camera_trans[1] -= dy / 100.0f;
+  // } else if (buttonState & 1) {
+  //   // left = rotate
+  //   camera_rot[0] += dy / 5.0f;
+  //   camera_rot[1] += dx / 5.0f;
+  // }
 
-  ox = x;
-  oy = y;
-  glutPostRedisplay();
+  // ox = x;
+  // oy = y;
+  // glutPostRedisplay();
 }
 
 // commented out to remove unused parameter warnings in Linux
@@ -908,15 +895,17 @@ void key(unsigned char key, int /*x*/, int /*y*/) {
       break;
   }
 
-  glutPostRedisplay();
+  //glutPostRedisplay();
 }
 
 void special(int key, int x, int y) {
-  paramlist->Special(key, x, y);
-  glutPostRedisplay();
+  // paramlist->Special(key, x, y);
+  // glutPostRedisplay();
 }
 
-void idle(void) { glutPostRedisplay(); }
+void idle(void) {
+  //glutPostRedisplay();
+}
 
 void showHelp() {
   printf("\t-fullscreen       (run n-body simulation in fullscreen mode)\n");

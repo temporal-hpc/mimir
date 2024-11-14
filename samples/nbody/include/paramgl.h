@@ -94,7 +94,7 @@ class ParamListGL : public ParamList {
         m_text_color_shadow(0.0, 0.0, 0.0),
         m_bar_color_outer(0.25, 0.25, 0.25),
         m_bar_color_inner(1.0, 1.0, 1.0) {
-    m_font = (void *)GLUT_BITMAP_9_BY_15;  // GLUT_BITMAP_8_BY_13;
+    //m_font = (void *)GLUT_BITMAP_9_BY_15;  // GLUT_BITMAP_8_BY_13;
     m_font_h = 15;
     m_bar_x = 260;
     m_bar_w = 250;

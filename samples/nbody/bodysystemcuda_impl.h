@@ -281,23 +281,6 @@ void BodySystemCUDA<T>::_finalize() {
     delete[] m_hVel;
 
     checkCudaErrors(cudaFree((void **)m_deviceData[0].dVel));
-
-    if (m_bUsePBO) {
-      checkCudaErrors(cudaGraphicsUnregisterResource(m_pGRes[0]));
-      checkCudaErrors(cudaGraphicsUnregisterResource(m_pGRes[1]));
-      glDeleteBuffers(2, (const GLuint *)m_pbo);
-    } else {
-      checkCudaErrors(cudaFree((void **)m_deviceData[0].dPos[0]));
-      checkCudaErrors(cudaFree((void **)m_deviceData[0].dPos[1]));
-
-      checkCudaErrors(cudaEventDestroy(m_deviceData[0].event));
-
-      if (m_bUseP2P) {
-        for (unsigned int i = 1; i < m_numDevices; i++) {
-          checkCudaErrors(cudaEventDestroy(m_deviceData[i].event));
-        }
-      }
-    }
   }
 
   delete[] m_deviceData;
@@ -416,17 +399,17 @@ void BodySystemCUDA<T>::setArray(BodyArray array, const T *data) {
     default:
     case BODYSYSTEM_POSITION: {
       if (m_bUsePBO) {
-        glBindBuffer(GL_ARRAY_BUFFER, m_pbo[m_currentRead]);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, 4 * sizeof(T) * m_numBodies, data);
+        //glBindBuffer(GL_ARRAY_BUFFER, m_pbo[m_currentRead]);
+        //glBufferSubData(GL_ARRAY_BUFFER, 0, 4 * sizeof(T) * m_numBodies, data);
 
         int size = 0;
-        glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, (GLint *)&size);
+        //glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, (GLint *)&size);
 
         if ((unsigned)size != 4 * (sizeof(T) * m_numBodies)) {
           fprintf(stderr, "WARNING: Pixel Buffer Object download failed!n");
         }
 
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        //glBindBuffer(GL_ARRAY_BUFFER, 0);
       } else {
         if (m_bUseSysMem) {
           memcpy(m_hPos[m_currentRead], data, m_numBodies * 4 * sizeof(T));
