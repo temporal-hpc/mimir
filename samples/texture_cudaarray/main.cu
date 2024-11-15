@@ -5,6 +5,8 @@
 #include "validation.hpp" // checkCuda
 using namespace mimir;
 
+#include <iostream>
+
 // Vector operations copied from 'helper_math.h' at cuda-samples
 
 inline __host__ __device__ float4 make_float4(float s)
@@ -216,15 +218,18 @@ int main(int argc, char *argv[])
     }
     printf("Loaded '%s', '%d'x'%d pixels \n", filepath.c_str(), img_width, img_height);
 
+    ViewerOptions options;
+    options.window.size = {1920,1080}; // Starting window size
+    options.present     = { .mode = PresentMode::VSync };
     Engine engine = nullptr;
-    createEngine(1920, 1080, &engine);
+    createEngine(options, &engine);
 
     cudaMipmappedArray_t mipmap_array = nullptr;
     cudaChannelFormatDesc cuda_format{
         .x = 8, .y = 8, .z = 8, .w = 8,
         .f = cudaChannelFormatKindUnsigned,
     };
-    auto cuda_extent = make_cudaExtent(img_width, img_height, 1);
+    auto cuda_extent = make_cudaExtent(img_width, img_height, 0);
     AllocHandle mipmap = nullptr;
     allocMipmap(engine, &mipmap_array, &cuda_format, cuda_extent, mip_levels, &mipmap);
     TextureDescription tex{
@@ -261,9 +266,10 @@ int main(int argc, char *argv[])
         &cudaMipmappedImageArrayOrig, &cuda_format, cuda_extent, mip_levels
     ));
 
-    cudaResourceDesc res_desc{};
-    res_desc.resType = cudaResourceTypeMipmappedArray;
-    res_desc.res.mipmap.mipmap = cudaMipmappedImageArrayOrig;
+    cudaResourceDesc res_desc{
+        .resType = cudaResourceTypeMipmappedArray,
+        .res     = { .mipmap = { .mipmap = cudaMipmappedImageArrayOrig }},
+    };
 
     cudaTextureDesc tex_desc{
         .addressMode         = { cudaAddressModeWrap },
@@ -327,14 +333,15 @@ int main(int argc, char *argv[])
         sizeof(cudaSurfaceObject_t) * mip_levels, cudaMemcpyHostToDevice
     ));
 
+    int nthreads = 128;
+
     // Engine does not run before starting display
     assert(!isRunning(engine));
     displayAsync(engine);
-    int nthreads = 128;
     while (isRunning(engine))
     {
+        //std::cin.get();
         prepareViews(engine);
-
         // Perform 2D box filter on image using CUDA
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
             d_surf_list_temp, tex_obj, img_width, img_height, mip_levels, filter_radius
@@ -343,7 +350,6 @@ int main(int argc, char *argv[])
             d_surf_list, d_surf_list_temp, img_width, img_height, mip_levels, filter_radius
         );
         varySigma();
-
         updateViews(engine);
     }
 

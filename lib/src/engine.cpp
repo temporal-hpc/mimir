@@ -374,7 +374,7 @@ Texture *MimirEngine::makeTexture(TextureDescription desc)
     ImageParams params{
         .type   = getImageType(desc.extent),
         .format = getVulkanFormat(desc.format),
-        .extent = { desc.extent.x, desc.extent.y, desc.extent.z },
+        .extent = getVulkanExtent(desc.extent),
         .tiling = getImageTiling(desc.source->type),
         .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
         .levels = desc.levels,
@@ -481,6 +481,16 @@ FormatDescription getFormatFromCuda(const cudaChannelFormatDesc *desc)
     return { .kind = kind, .size = size, .components = components };
 }
 
+VkExtent3D getExtentFromCuda(cudaExtent extent)
+{
+    return VkExtent3D
+    {
+        .width  = extent.width > 0? (uint32_t)extent.width : 1,
+        .height = extent.height > 0? (uint32_t)extent.height : 1,
+        .depth  = extent.depth > 0? (uint32_t)extent.depth : 1,
+    };
+}
+
 Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
     const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
 {
@@ -488,7 +498,7 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
     ImageParams img_params{
         .type   = getImageType(ViewExtent::make(extent.width, extent.height, extent.depth)),
         .format = getVulkanFormat(format),
-        .extent = { (uint32_t)extent.width, (uint32_t)extent.height, (uint32_t)extent.depth },
+        .extent = getExtentFromCuda(extent),
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
         .levels = num_levels,
@@ -601,7 +611,7 @@ View *MimirEngine::createView(ViewDescription *desc)
             ImageParams params{
                 .type   = getImageType(desc->extent),
                 .format = getVulkanFormat(attr.format),
-                .extent = { desc->extent.x, desc->extent.y, desc->extent.z },
+                .extent = getVulkanExtent(desc->extent),
                 .tiling = getImageTiling(attr.source->type),
                 .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 .levels = 1,
@@ -1548,7 +1558,7 @@ void MimirEngine::loadTexture(TextureDescription desc, void *data, size_t memsiz
     ImageParams params{
         .type   = getImageType(desc.extent),
         .format = getVulkanFormat(desc.format),
-        .extent = { desc.extent.x, desc.extent.y, desc.extent.z },
+        .extent = getVulkanExtent(desc.extent),
         .tiling = getImageTiling(desc.source->type),
         .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         .levels = desc.levels,

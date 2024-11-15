@@ -133,6 +133,8 @@ constexpr char* getDataType(FormatDescription desc)
     }
 }
 
+VkExtent3D getVulkanExtent(ViewExtent extent);
+
 VkFormat getVulkanFormat(FormatDescription desc);
 
 VkImageType getImageType(ViewExtent extent);

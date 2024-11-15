@@ -33,6 +33,16 @@ VkImageType getImageType(ViewExtent extent)
     }
 }
 
+VkExtent3D getVulkanExtent(ViewExtent extent)
+{
+    return VkExtent3D
+    {
+        .width  = extent.x > 0? extent.x : 1,
+        .height = extent.y > 0? extent.y : 1,
+        .depth  = extent.z > 0? extent.z : 1,
+    };
+}
+
 // Converts a memory format description to its Vulkan equivalent.
 // Only formats whose channels have the same size are currently supported.
 VkFormat getVulkanFormat(FormatDescription desc)
