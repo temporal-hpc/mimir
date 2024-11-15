@@ -7,22 +7,8 @@ FetchContent_Declare(imgui_file_dialog
     GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )
-# Check if population has already been performed
-FetchContent_GetProperties(imgui_file_dialog)
-if(NOT imgui_file_dialog_POPULATED)
-    # Fetch the content using previously declared details
-    FetchContent_Populate(imgui_file_dialog)
-
-    add_library(ImGuiFileDialog STATIC
-        ${imgui_file_dialog_SOURCE_DIR}/ImGuiFileDialog.cpp
-        ${imgui_file_dialog_SOURCE_DIR}/ImGuiFileDialog.h
-    )
-    target_include_directories(ImGuiFileDialog SYSTEM PUBLIC
-        $<BUILD_INTERFACE:${imgui_file_dialog_SOURCE_DIR}>
-        $<INSTALL_INTERFACE:include>
-    )
-    target_link_libraries(ImGuiFileDialog imgui-app)
-endif()
+FetchContent_MakeAvailable(imgui_file_dialog)
+target_link_libraries(ImGuiFileDialog imgui-app)
 
 add_library(cleap STATIC)
 # Compile cleap.cc with nvcc, so that the compiler can find vector_types.h

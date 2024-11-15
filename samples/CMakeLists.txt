@@ -1,5 +1,3 @@
-find_package(OpenMP)
-
 add_library(samples_common INTERFACE)
 target_compile_features(samples_common INTERFACE cxx_std_20)
 target_include_directories(samples_common SYSTEM INTERFACE include)
