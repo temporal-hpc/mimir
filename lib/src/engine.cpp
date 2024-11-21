@@ -1115,7 +1115,7 @@ void MimirEngine::updateDescriptorSets()
                 VkDescriptorBufferInfo ssbo_info{
                     .buffer = ssbo,
                     .offset = 0,
-                    .range  = 2 * sizeof(float4),
+                    .range  = VK_WHOLE_SIZE,
                 };
                 write_buf.dstBinding     = 5;
                 write_buf.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
