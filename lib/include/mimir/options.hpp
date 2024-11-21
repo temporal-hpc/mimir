@@ -30,6 +30,7 @@ struct ViewerOptions
 {
     WindowOptions window   = {};
     PresentOptions present = {};
+    bool show_panel        = false;
     bool show_metrics      = false;
     bool show_demo_window  = false;
     uint report_period     = 0;

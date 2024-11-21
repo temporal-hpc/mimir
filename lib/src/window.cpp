@@ -112,6 +112,11 @@ void framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[m
 void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int action, int mods)
 {
     auto app = getHandler(window);
+    // Toggle info panel
+    if (key == GLFW_KEY_G && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
+    {
+        app->options.show_panel = !app->options.show_panel;
+    }
     // Toggle demo window
     if (key == GLFW_KEY_D && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
@@ -121,6 +126,12 @@ void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int 
     if (key == GLFW_KEY_M && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
         app->options.show_metrics = !app->options.show_metrics;
+    }
+    // Trigger exit (useful when window is undecorated)
+    if (key == GLFW_KEY_Q && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
+    {
+        glfwSetWindowShouldClose(window, GL_TRUE);
+        glfwPollEvents();
     }
 }
 
@@ -138,6 +149,7 @@ GlfwContext GlfwContext::make(int width, int height, const char* title, void *en
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+    //glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     auto window = glfwCreateWindow(width, height, title, nullptr, nullptr);

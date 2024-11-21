@@ -103,36 +103,39 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
     if (opts.show_demo_window) { ImGui::ShowDemoWindow(); }
     if (opts.show_metrics) { ImGui::ShowMetricsWindow(); }
 
-    ImGui::Begin("Scene parameters");
-    //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
-    ImGui::ColorEdit3("Clear color", (float*)&opts.bg_color);
-    if (ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f"))
+    if (opts.show_panel)
     {
-        cam.setPosition(cam.position);
-    }
-    if (ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f"))
-    {
-        cam.setRotation(cam.rotation);
+        ImGui::Begin("Scene parameters");
+        //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
+        ImGui::ColorEdit3("Clear color", (float*)&opts.bg_color);
+        if (ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f"))
+        {
+            cam.setPosition(cam.position);
+        }
+        if (ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f"))
+        {
+            cam.setRotation(cam.rotation);
+        }
+
+        // Use a separate flag for choosing whether to enable the FPS limit target value
+        // This avoids the unpleasant feeling of going from 0 (no FPS limit)
+        // to 1 (the lowest value) in a single step
+        auto& op = opts.present;
+        ImGui::Checkbox("Enable FPS limit", &op.enable_fps_limit);
+        ImGui::BeginDisabled(!opts.present.enable_fps_limit);
+        ImGuiSliderFlags slider_flags = ImGuiSliderFlags_AlwaysClamp;
+        if (ImGui::SliderInt("FPS target", &op.target_fps, 1, op.max_fps, "%d%", slider_flags))
+        {
+            op.target_frame_time = getTargetFrameTime(op.enable_fps_limit, op.target_fps);
+        }
+        ImGui::EndDisabled();
+
+        // Add tabs for showing view parameters
+        for (size_t i = 0; i < views.size(); ++i) { addViewObjectGui(views[i], i); }
+        ImGui::End();
+        callback(); // Display user-provided addons
     }
 
-    // Use a separate flag for choosing whether to enable the FPS limit target value
-    // This avoids the unpleasant feeling of going from 0 (no FPS limit)
-    // to 1 (the lowest value) in a single step
-    auto& op = opts.present;
-    ImGui::Checkbox("Enable FPS limit", &op.enable_fps_limit);
-    ImGui::BeginDisabled(!opts.present.enable_fps_limit);
-    ImGuiSliderFlags slider_flags = ImGuiSliderFlags_AlwaysClamp;
-    if (ImGui::SliderInt("FPS target", &op.target_fps, 1, op.max_fps, "%d%", slider_flags))
-    {
-        op.target_frame_time = getTargetFrameTime(op.enable_fps_limit, op.target_fps);
-    }
-    ImGui::EndDisabled();
-
-    // Add tabs for showing view parameters
-    for (size_t i = 0; i < views.size(); ++i) { addViewObjectGui(views[i], i); }
-    ImGui::End();
-
-    callback(); // Display user-provided addons
     ImGui::Render();
 }
 
