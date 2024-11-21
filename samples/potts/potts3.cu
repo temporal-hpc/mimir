@@ -607,19 +607,34 @@ int main(void)
 	CUDA_SAFE_CALL(cudaMalloc((void**) &black, size));
 	//CUDA_SAFE_CALL(cudaMalloc((void**) &grid, L * L * sizeof(byte)));
 
-    int width = 1920, height = 1080;
+    int width = 2000, height = 2000;
     createEngine(width, height, &engine);
 
-	AllocHandle m1 = nullptr;
+	AllocHandle m1 = nullptr, colormap = nullptr;
 	allocLinear(engine, (void**)&grid, sizeof(int) * L * L, &m1);
 
-    // MemoryParams mp;
-    // mp.layout         = DataLayout::Layout2D;
-    // mp.element_count  = {(uint)L, (uint)L, 1};
-    // mp.component_type = ComponentType::Int;
-    // mp.channel_count  = 1;
-    // mp.resource_type  = ResourceType::Buffer;
-    // auto m1 = engine.createBuffer((void**)&grid, mp);
+    float4 *d_colors = nullptr;
+    float4 h_colors[Q] = {
+		{153,153,153,1},
+		{228,26,28,1},
+		{55,126,184,1},
+		{77,175,74,1},
+		{152,78,163,1},
+		{255,127,0,1},
+		{255,255,51,1},
+		{166,86,40,1},
+		{247,129,191,1},
+	};
+    unsigned int num_colors = std::size(h_colors);
+	for (unsigned int i = 0; i < num_colors; ++i)
+	{
+		auto c = h_colors[i];
+		c.x /= 255.f; c.y /= 255.f; c.z /= 255.f;
+		h_colors[i] = c;
+	}
+    auto color_bytes = sizeof(float4) * num_colors;
+    allocLinear(engine, (void**)&d_colors, color_bytes, &colormap);
+    CUDA_SAFE_CALL(cudaMemcpy(d_colors, h_colors, color_bytes, cudaMemcpyHostToDevice));
 
 	ViewHandle v1 = nullptr;
     ViewDescription desc;
@@ -629,9 +644,11 @@ int main(void)
     desc.view_type     = ViewType::Voxels;
 	desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, {L,L,1});
     desc.attributes[AttributeType::Color] = {
-		.source = m1,
-		.size   = L * L,
-		.format = FormatDescription::make<int>(),
+		.source  = colormap,
+		.size    = num_colors,
+		.format  = FormatDescription::make<float4>(),
+		.indices = m1,
+		.index_size = sizeof(int),
 	};
 	createView(engine, &desc, &v1);
     v1->default_size = 1.f;
