@@ -9,7 +9,7 @@ FetchContent_Declare(vma
 )
 
 # Slang shader lib
-set(SLANG_VERSION 2024.10)
+set(SLANG_VERSION 2024.14.6)
 FetchContent_Declare(
     slang
     URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
@@ -31,7 +31,7 @@ set_target_properties(slang PROPERTIES
 # set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
 # FetchContent_Declare(slang
 #     GIT_REPOSITORY https://github.com/shader-slang/slang.git
-#     GIT_TAG        bd01bd3f4b8eecbfb924b8eb4090694e44e8166c # v2024.1.26
+#     GIT_TAG        e6cf93e3e638cb981a9be392a2f48ea06acd4e3f # v2024.14.6
 #     GIT_SHALLOW    ON
 #     FIND_PACKAGE_ARGS
 # )
