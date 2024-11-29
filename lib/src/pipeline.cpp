@@ -176,19 +176,9 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         }
         case ViewType::Voxels:
         {
-            // When using indirect color mapping, use custom entrypoint with no specializations
-            // Workaround for slang compilation failing when specializing these cases
-            std::string vert_entry = "vertexMain";
-            auto color_attr = desc.attributes[AttributeType::Color];
-            if (color_attr.indices != nullptr)
-            {
-                vert_entry = "vertexMainIndirect";
-                compile.specializations.clear();
-            }
-
             compile.module_path = "shaders/voxel.slang";
             auto geom_entry = std::string("geometryMain") + getDomainType(desc.domain_type);
-            compile.entrypoints = {vert_entry, geom_entry, "fragmentMain"};
+            compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
         case ViewType::Image:

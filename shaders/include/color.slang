@@ -15,7 +15,6 @@ struct ColorTemplate<T, let N:int> : IColor
 {
     vector<T,N> data : COLOR;
 
-    float4 default_color;
     float4 getColor()
     {
         float4 rgba = {0,0,0,1};
@@ -44,24 +43,19 @@ typedef ColorTemplate<double,2> ColorDouble2;
 typedef ColorTemplate<double,3> ColorDouble3;
 typedef ColorTemplate<double,4> ColorDouble4;
 
-struct ColormapTemplate<T, let N : int> : IColor
+struct ColorFloat1 : IColor
 {
-    static const float4 buffer[] = {
-        { 0, 1, 0, 0.1 },
-        { 0, 0, 1, 0.5 }
-    };
-    int input;
-
-    float4 default_color;
-    float4 getColor()
-    {
-        return buffer[input];
-    }
+    float v;
+    float4 getColor() { return float4(v, v, v, 1); }
 };
 
-typedef ColormapTemplate<float, 4> ColorFloat4FromInt;
+// struct ColorInt1 : IColor
+// {
+//     int v;
+//     float4 getColor() { return float4(v, v, v, 1); }
+// };
 
-/*struct ColorInt1 : IColor
+struct ColorInt1 : IColor
 {
     static const float3 colors[] = {
         {49,130,189},
@@ -69,7 +63,6 @@ typedef ColormapTemplate<float, 4> ColorFloat4FromInt;
         {158,202,225},
     };
     int input : COLOR;
-    float4 default_color;
     float4 getColor()
     {
         float3 c = colors[input];
@@ -77,25 +70,5 @@ typedef ColormapTemplate<float, 4> ColorFloat4FromInt;
         c.y /= 255.f;
         c.z /= 255.f;
         return float4(c, 1);
-    }
-};*/
-
-struct ColorFloat1 : IColor
-{
-    float input : COLOR;
-    float4 getColor()
-    {
-        float c = input;
-        return float4(c,c,c,1);
-    }
-};
-
-struct ColorInt1 : IColor
-{
-    int input : COLOR;
-    float4 getColor()
-    {
-        float c = float(input); // / view.element_count;
-        return float4(c, c, c, 1);
     }
 };

@@ -37,6 +37,14 @@ struct FragmentOutput
     //float depth  : SV_Depth;
 };
 
+[[vk::binding(5)]] StructuredBuffer<float4> colorbuf;
+
+struct ColorFloat4FromInt : IColor
+{
+    int input : COLOR;
+    float4 getColor() { return colorbuf[input]; }
+};
+
 float getMarkerSizePx(float size)
 {
     return SQRT_2*size + 2 * (v_linewidth + 1.5*u_antialias);

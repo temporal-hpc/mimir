@@ -17,6 +17,7 @@ add_subdirectory(edgeflip)
 add_subdirectory(voronoi-simple)
 add_subdirectory(texture_cudaarray)
 # Advanced samples
+add_subdirectory(colloids)
 add_subdirectory(potts)
 add_subdirectory(nbody)
 # Utilities

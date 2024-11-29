@@ -2,5 +2,6 @@ build
 .clangd
 .cache
 .vscode
-imgui.ini
-power-gpu.dat
+*.ini
+*.dat
+*.txt
