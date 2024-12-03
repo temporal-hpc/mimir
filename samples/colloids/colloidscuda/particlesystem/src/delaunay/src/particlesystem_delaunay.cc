@@ -16,8 +16,7 @@ ParticleSystemDelaunay::ParticleSystemDelaunay(SimParameters p)
 	: ParticleSystemDelaunay(p, time(nullptr))
 {}
 
-ParticleSystemDelaunay::ParticleSystemDelaunay(SimParameters p,
-                                               unsigned long long seed):
+ParticleSystemDelaunay::ParticleSystemDelaunay(SimParameters p, unsigned long long seed):
 	params_(p),
 	current_read(0),
 	current_write(1),
@@ -38,8 +37,7 @@ ParticleSystemDelaunay::ParticleSystemDelaunay(SimParameters p,
 }
 
 ParticleSystemDelaunay::ParticleSystemDelaunay(SimParameters p,
-                                               unsigned long long seed,
-                                               std::string pFileName):
+    unsigned long long seed, std::string pFileName):
 	params_(p),
 	current_read(0),
 	current_write(1),
@@ -72,6 +70,7 @@ ParticleSystemDelaunay::~ParticleSystemDelaunay()
 	cudaCheck(cudaFree(devicedata_.dTriReserv));
 	cudaCheck(cudaFreeHost(readyflag));
 
+	destroyEngine(engine);
 	cudaCheck(cudaDeviceReset());
 
 	delete [] positions_;
@@ -85,8 +84,7 @@ ParticleSystemDelaunay::~ParticleSystemDelaunay()
 	delete [] delaunay_.edge_op;
 }
 
-void ParticleSystemDelaunay::runSimulation(int num_iter,
-                                           unsigned int save_period=0)
+void ParticleSystemDelaunay::runSimulation(int num_iter, unsigned int save_period=0)
 {
 	int iter;
 	float time = 0.0f;
@@ -173,27 +171,8 @@ void ParticleSystemDelaunay::initCommon()
 	       hEdgeLaunch.x, hEdgeLaunch.y);
 }
 
-float4 getTypeColor(int type)
-{
-    switch (type)
-    {
-        case 0: return {27.f / 255,158.f / 255,119.f / 255,1};
-        case 1: return {217.f / 255,95.f / 255,2.f / 255,1};
-        case 2: return {117.f / 255,112.f / 255,179.f / 255,1};
-        case 3: return {231.f / 255,41.f / 255,138.f / 255,1};
-        default: return {0, 0, 0, 1};
-    }
-}
-
 void ParticleSystemDelaunay::loadOnDevice()
 {
-    std::vector<float4> colors;
-    colors.reserve(params_.num_elements);
-    for (unsigned int i = 0; i < params_.num_elements; ++i)
-    {
-        colors.push_back(getTypeColor(types_[i]));
-    }
-
     ViewerOptions viewer_opts;
     viewer_opts.window.title = "Colloids"; // Top-level window.
     viewer_opts.window.size  = {1920, 1080};
@@ -204,7 +183,6 @@ void ParticleSystemDelaunay::loadOnDevice()
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * sizeof(double2);
     unsigned l = static_cast<unsigned>(params_.boxlength);
-	printf("ASDF %d %lf\n", l, params_.boxlength);
 
     // Particle positions
     allocLinear(engine, (void**)&devicedata_.positions[current_read], pos_bytes, &interop[current_read]);
@@ -213,13 +191,9 @@ void ParticleSystemDelaunay::loadOnDevice()
     // Velocities
     allocLinear(engine, (void**)&devicedata_.velocities, pos_bytes, &interop[2]);
 
-    // Particle types
+    // Particle types / colors
     allocLinear(engine, (void**)&devicedata_.types, sizeof(int) * params_.num_elements, &interop[3]);
-
-    // For colors stored directly
-    //m.component_type = ComponentType::Float;
-    //m.channel_count  = 4;
-    //interop[3] = engine.createBuffer((void**)&devicedata_.colors, m);
+    allocLinear(engine, (void**)&devicedata_.colors, sizeof(float4) * NUM_TYPES, &interop[5]);
 
     ViewDescription vp;
     vp.element_count = params_.num_elements;
@@ -234,14 +208,18 @@ void ParticleSystemDelaunay::loadOnDevice()
 	};
     vp.attributes[AttributeType::Color] =
 	{
-		.source = interop[3],
-		.size   = params_.num_elements,
-		.format = FormatDescription::make<int>(),
+		.source  = interop[5],
+		.size    = NUM_TYPES,
+		.format  = FormatDescription::make<float4>(),
+		.indices = interop[3],
+		.index_size = sizeof(int),
 	};
     createView(engine, &vp, &particle_views[current_read]);
+	particle_views[current_read]->default_size = 1.f;
 
     vp.attributes[AttributeType::Position].source = interop[current_write];
     createView(engine, &vp, &particle_views[current_write]);
+	particle_views[current_write]->default_size = 1.f;
     particle_views[current_write]->visible = false;
 
     // Velocities view
@@ -253,70 +231,68 @@ void ParticleSystemDelaunay::loadOnDevice()
     allocLinear(engine, (void**)&devicedata_.triangles, sizeof(int3) * delaunay_.num_triangles, &interop[4]);
 
     ViewDescription vpe;
-    vpe.element_count = delaunay_.num_triangles;
+    vpe.element_count = delaunay_.num_triangles * 3;
     vpe.extent        = {l, l, 1};
     vpe.domain_type   = DomainType::Domain2D;
     vpe.view_type     = ViewType::Edges;
     vpe.attributes[AttributeType::Position] =
 	{
 		.source  = interop[current_read],
-		.size    = delaunay_.num_triangles * 3,
-		.format  = FormatDescription::make<int>(),
+		.size    = params_.num_elements,
+		.format  = FormatDescription::make<double2>(),
 		.indices = interop[4],
 		.index_size = sizeof(uint),
 	};
-    // createView(engine, &vpe, &edge_views[current_read]);
+    createView(engine, &vpe, &edge_views[current_read]);
 
-    // vpe.attributes[AttributeType::Position].source = interop[current_write];
-    // createView(engine, &vpe, &edge_views[current_write]);
-	// edge_views[current_write]->visible = false;
+    vpe.attributes[AttributeType::Position].source = interop[current_write];
+    createView(engine, &vpe, &edge_views[current_write]);
+	edge_views[current_write]->visible = false;
 
 	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
 	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_,
-			             pos_bytes, cudaMemcpyHostToDevice));
+	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_, pos_bytes, cudaMemcpyHostToDevice));
 
 	//cudaCheck(cudaMalloc(&devicedata_.velocities, pos_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.velocities, velocities_,
-			             pos_bytes, cudaMemcpyHostToDevice));
+	cudaCheck(cudaMemcpy(devicedata_.velocities, velocities_, pos_bytes, cudaMemcpyHostToDevice));
 
 	// Load particle type data
     auto type_bytes = sizeof(int) * params_.num_elements;
     //cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
     cudaCheck(cudaMemcpy(devicedata_.types, types_, type_bytes, cudaMemcpyHostToDevice));
 
-    auto color_bytes = sizeof(float4) * params_.num_elements;
-    cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));
-    cudaCheck(cudaMemcpy(devicedata_.colors, colors.data(), color_bytes, cudaMemcpyHostToDevice));
+    std::vector<float4> h_colors{
+        {27.f / 255,158.f / 255,119.f / 255,1},
+        {217.f / 255,95.f / 255,2.f / 255,1},
+        {117.f / 255,112.f / 255,179.f / 255,1},
+        {231.f / 255,41.f / 255,138.f / 255,1},
+	};
+    auto color_bytes = sizeof(float4) * NUM_TYPES;
+    cudaCheck(cudaMemcpy(devicedata_.colors, h_colors.data(), color_bytes, cudaMemcpyHostToDevice));
+    //cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));
 
 	cudaCheck(cudaMalloc(&devicedata_.charges, pos_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.charges, charges_, pos_bytes,
-			             cudaMemcpyHostToDevice));
+	cudaCheck(cudaMemcpy(devicedata_.charges, charges_, pos_bytes, cudaMemcpyHostToDevice));
 
 	// Load edge data
 	size_t edge_bytes = delaunay_.num_edges * 2 * sizeof(int);
 
 	cudaCheck(cudaMalloc(&devicedata_.edge_idx, edge_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.edge_idx, delaunay_.edge_idx, edge_bytes,
-			             cudaMemcpyHostToDevice));
+	cudaCheck(cudaMemcpy(devicedata_.edge_idx, delaunay_.edge_idx, edge_bytes, cudaMemcpyHostToDevice));
 
 	cudaCheck(cudaMalloc(&devicedata_.edge_ta, edge_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.edge_ta, delaunay_.edge_ta, edge_bytes,
-			             cudaMemcpyHostToDevice));
+	cudaCheck(cudaMemcpy(devicedata_.edge_ta, delaunay_.edge_ta, edge_bytes, cudaMemcpyHostToDevice));
 
 	cudaCheck(cudaMalloc(&devicedata_.edge_tb, edge_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.edge_tb, delaunay_.edge_tb, edge_bytes,
-			             cudaMemcpyHostToDevice));
+	cudaCheck(cudaMemcpy(devicedata_.edge_tb, delaunay_.edge_tb, edge_bytes, cudaMemcpyHostToDevice));
 
 	cudaCheck(cudaMalloc(&devicedata_.edge_op, edge_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.edge_op, delaunay_.edge_op, edge_bytes,
-			             cudaMemcpyHostToDevice));
+	cudaCheck(cudaMemcpy(devicedata_.edge_op, delaunay_.edge_op, edge_bytes, cudaMemcpyHostToDevice));
 
 	// Load triangle data
 	size_t triangle_bytes = delaunay_.num_triangles * 3 * sizeof(unsigned int);
 	//cudaCheck(cudaMalloc(&devicedata_.triangles, triangle_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.triangles, delaunay_.triangles,
-			             triangle_bytes, cudaMemcpyHostToDevice));
+	cudaCheck(cudaMemcpy(devicedata_.triangles, delaunay_.triangles, triangle_bytes, cudaMemcpyHostToDevice));
 
 	// Allocate auxiliary triangle arrays
 	size_t aux_triangle_bytes = delaunay_.num_triangles * sizeof(int);
@@ -330,32 +306,26 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	printf("Triangulation loaded to device memory.\n");
     displayAsync(engine);
+
+	printf("Waiting for key press...\n");
     std::cin.get(); // For recording
 }
 
 void ParticleSystemDelaunay::syncWithDevice()
 {
 	size_t pos_bytes = params_.num_elements * 2 * sizeof(double);
-	cudaCheck(cudaMemcpy(positions_, devicedata_.positions[current_read],
-			             pos_bytes, cudaMemcpyDeviceToHost));
-	cudaCheck(cudaMemcpy(velocities_, devicedata_.velocities,
-			             pos_bytes, cudaMemcpyDeviceToHost));
-	// No need to synchronize particle type data, since it stays the same
-	// throughout the simulation.
+	cudaCheck(cudaMemcpy(positions_, devicedata_.positions[current_read], pos_bytes, cudaMemcpyDeviceToHost));
+	cudaCheck(cudaMemcpy(velocities_, devicedata_.velocities, pos_bytes, cudaMemcpyDeviceToHost));
+	// No need to synchronize particle type data, since it stays the same throughout the simulation.
 
 	size_t triangle_bytes = delaunay_.num_triangles * 3 * sizeof(unsigned int);
-	cudaCheck(cudaMemcpy(delaunay_.triangles, devicedata_.triangles,
-			             triangle_bytes, cudaMemcpyDeviceToHost));
+	cudaCheck(cudaMemcpy(delaunay_.triangles, devicedata_.triangles, triangle_bytes, cudaMemcpyDeviceToHost));
 
 	size_t edge_bytes = delaunay_.num_edges * 2 * sizeof(int);
-	cudaCheck(cudaMemcpy(delaunay_.edge_idx, devicedata_.edge_idx, edge_bytes,
-			             cudaMemcpyDeviceToHost));
-	cudaCheck(cudaMemcpy(delaunay_.edge_ta, devicedata_.edge_ta, edge_bytes,
-			             cudaMemcpyDeviceToHost));
-	cudaCheck(cudaMemcpy(delaunay_.edge_tb, devicedata_.edge_tb, edge_bytes,
-			             cudaMemcpyDeviceToHost));
-	cudaCheck(cudaMemcpy(delaunay_.edge_op, devicedata_.edge_op, edge_bytes,
-			             cudaMemcpyDeviceToHost));
+	cudaCheck(cudaMemcpy(delaunay_.edge_idx, devicedata_.edge_idx, edge_bytes, cudaMemcpyDeviceToHost));
+	cudaCheck(cudaMemcpy(delaunay_.edge_ta, devicedata_.edge_ta, edge_bytes, cudaMemcpyDeviceToHost));
+	cudaCheck(cudaMemcpy(delaunay_.edge_tb, devicedata_.edge_tb, edge_bytes, cudaMemcpyDeviceToHost));
+	cudaCheck(cudaMemcpy(delaunay_.edge_op, devicedata_.edge_op, edge_bytes, cudaMemcpyDeviceToHost));
 }
 
 } // namespace delaunay
