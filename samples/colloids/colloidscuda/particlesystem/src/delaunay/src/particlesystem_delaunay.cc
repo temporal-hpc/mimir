@@ -262,11 +262,12 @@ void ParticleSystemDelaunay::loadOnDevice()
     cudaCheck(cudaMemcpy(devicedata_.types, types_, type_bytes, cudaMemcpyHostToDevice));
 
     std::vector<float4> h_colors{
-        {27.f / 255,158.f / 255,119.f / 255,1},
-        {217.f / 255,95.f / 255,2.f / 255,1},
-        {117.f / 255,112.f / 255,179.f / 255,1},
-        {231.f / 255,41.f / 255,138.f / 255,1},
+		{ 55,126,184, 1 },
+		{ 77,175,74, 1 },
+		{ 152,78,163, 1 },
+		{ 228,26,28, 1 },
 	};
+	for (auto& c : h_colors) { c.x /= 255.f; c.y /= 255.f; c.z /= 255.f; }
     auto color_bytes = sizeof(float4) * NUM_TYPES;
     cudaCheck(cudaMemcpy(devicedata_.colors, h_colors.data(), color_bytes, cudaMemcpyHostToDevice));
     //cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));

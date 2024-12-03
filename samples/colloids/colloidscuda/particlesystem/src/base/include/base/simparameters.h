@@ -24,7 +24,6 @@ typedef struct
 	double conc[NUM_TYPES]; // Concentrations of each particle type.
 	double alpha[NUM_TYPES]; // Alpha charge for each particle type.
 	double mu[NUM_TYPES]; // Mu charge for each particle type.
-    int indices[NUM_TYPES];
 }
 SimParameters;
 

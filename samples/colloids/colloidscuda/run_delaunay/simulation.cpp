@@ -33,7 +33,7 @@ int main(int argc, char **argv)
 	input >> p.num_elements >> p.boxlength >> p.diffusion;
 	for (int i = 0; i < NUM_TYPES; i++)
 	{
-		input >> p.conc[i] >> p.alpha[i] >> p.mu[i] >> p.indices[i];
+		input >> p.conc[i] >> p.alpha[i] >> p.mu[i];
 	}
 
     p.boxlength = sqrt((p.num_elements * M_PI * std::pow(p.radius / 2, 2)) / p.boxlength);
