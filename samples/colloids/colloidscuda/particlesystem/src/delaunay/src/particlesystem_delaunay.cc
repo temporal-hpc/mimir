@@ -215,11 +215,11 @@ void ParticleSystemDelaunay::loadOnDevice()
 		.index_size = sizeof(int),
 	};
     createView(engine, &vp, &particle_views[current_read]);
-	particle_views[current_read]->default_size = 1.f;
+	particle_views[current_read]->default_size = vp.extent.x / l;
 
     vp.attributes[AttributeType::Position].source = interop[current_write];
     createView(engine, &vp, &particle_views[current_write]);
-	particle_views[current_write]->default_size = 1.f;
+	particle_views[current_write]->default_size = vp.extent.x / l;
     particle_views[current_write]->visible = false;
 
     // Velocities view
@@ -251,14 +251,15 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
 	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
-	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_, pos_bytes, cudaMemcpyHostToDevice));
-
 	//cudaCheck(cudaMalloc(&devicedata_.velocities, pos_bytes));
+    //cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
+    //cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));
+	//cudaCheck(cudaMalloc(&devicedata_.triangles, triangle_bytes));
+	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_, pos_bytes, cudaMemcpyHostToDevice));
 	cudaCheck(cudaMemcpy(devicedata_.velocities, velocities_, pos_bytes, cudaMemcpyHostToDevice));
 
 	// Load particle type data
     auto type_bytes = sizeof(int) * params_.num_elements;
-    //cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
     cudaCheck(cudaMemcpy(devicedata_.types, types_, type_bytes, cudaMemcpyHostToDevice));
 
     std::vector<float4> h_colors{
@@ -270,7 +271,6 @@ void ParticleSystemDelaunay::loadOnDevice()
 	for (auto& c : h_colors) { c.x /= 255.f; c.y /= 255.f; c.z /= 255.f; }
     auto color_bytes = sizeof(float4) * NUM_TYPES;
     cudaCheck(cudaMemcpy(devicedata_.colors, h_colors.data(), color_bytes, cudaMemcpyHostToDevice));
-    //cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));
 
 	cudaCheck(cudaMalloc(&devicedata_.charges, pos_bytes));
 	cudaCheck(cudaMemcpy(devicedata_.charges, charges_, pos_bytes, cudaMemcpyHostToDevice));
@@ -292,7 +292,6 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	// Load triangle data
 	size_t triangle_bytes = delaunay_.num_triangles * 3 * sizeof(unsigned int);
-	//cudaCheck(cudaMalloc(&devicedata_.triangles, triangle_bytes));
 	cudaCheck(cudaMemcpy(devicedata_.triangles, delaunay_.triangles, triangle_bytes, cudaMemcpyHostToDevice));
 
 	// Allocate auxiliary triangle arrays

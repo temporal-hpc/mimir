@@ -57,8 +57,13 @@ void addViewObjectGui(View *view_ptr, int uid)
     ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &view_ptr->visible);
     if (node_open)
     {
-        ImGui::SliderFloat("Element size (px)", &view_ptr->default_size, 1.f, 100.f);
-        ImGui::ColorEdit4("Element color",      view_ptr->default_color);
+        const float f32_zero = 0.f;
+        const float f32_max  = 100.f;
+        ImGui::DragScalar("Element size", ImGuiDataType_Float, &view_ptr->default_size,
+            0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
+        );
+        ImGui::ColorEdit4("Element color", view_ptr->default_color);
+        //ImGui::SliderFloat("Element size (px)", &view_ptr->default_size, 1.f, 100.f);
         // ImGui::SliderFloat("depth", &desc.options.depth, 0.f, 1.f);
 
         // if (desc.offsets.size() > 0)

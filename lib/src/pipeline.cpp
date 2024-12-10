@@ -161,9 +161,9 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         case ViewType::Edges:
         {
             compile.module_path = "shaders/mesh.slang";
-            compile.entrypoints = {"vertexMain", "fragmentMain"};
+            //compile.entrypoints = {"vertexMain", "fragmentMain"};
             // Variant for pbc delaunay edges
-            //compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+            compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
             break;
         }
         case ViewType::Boxes:
