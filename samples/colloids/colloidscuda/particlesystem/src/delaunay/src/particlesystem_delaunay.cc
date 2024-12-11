@@ -177,8 +177,8 @@ void ParticleSystemDelaunay::loadOnDevice()
     viewer_opts.window.title = "Colloids"; // Top-level window.
     viewer_opts.window.size  = {1920, 1080};
     viewer_opts.present.mode = PresentMode::Immediate;
+	viewer_opts.bg_color     = {1.f, 1.f, 1.f, 1.f};
     createEngine(viewer_opts, &engine);
-    //engine.setBackgroundColor({1.f,1.f,1.f,1.f});
 
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * sizeof(double2);
@@ -263,10 +263,9 @@ void ParticleSystemDelaunay::loadOnDevice()
     cudaCheck(cudaMemcpy(devicedata_.types, types_, type_bytes, cudaMemcpyHostToDevice));
 
     std::vector<float4> h_colors{
-		{ 55,126,184, 1 },
-		{ 77,175,74, 1 },
-		{ 152,78,163, 1 },
-		{ 228,26,28, 1 },
+        { 49, 130, 189, 1 },
+        { 49, 163, 84, 1 },
+        { 158, 202, 225, 1 },
 	};
 	for (auto& c : h_colors) { c.x /= 255.f; c.y /= 255.f; c.z /= 255.f; }
     auto color_bytes = sizeof(float4) * NUM_TYPES;

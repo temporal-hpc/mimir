@@ -7,19 +7,17 @@ namespace mimir
 
 void createEngine(ViewerOptions opts, Engine *engine)
 {
-    // TODO: Check and forward results
     *engine = new MimirEngine(MimirEngine::make(opts));
 }
 
 void createEngine(int width, int height, Engine *engine)
 {
-    // TODO: Check and forward results
     *engine = new MimirEngine(MimirEngine::make(width, height));
 }
 
 void destroyEngine(Engine engine)
 {
-    engine->exit(); // TODO: Check and forward results
+    engine->exit();
     delete engine;
 }
 
