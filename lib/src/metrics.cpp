@@ -1,6 +1,6 @@
-#include "internal/metrics.hpp"
+#include "mimir/metrics.hpp"
 
-#include "internal/validation.hpp"
+#include "mimir/validation.hpp"
 
 namespace mimir::metrics
 {

@@ -1,10 +1,10 @@
-#include "internal/window.hpp"
+#include "mimir/window.hpp"
 
 #include <imgui.h>
 
-#include "internal/engine.hpp"
-#include "internal/camera.hpp"
-#include "internal/validation.hpp"
+#include "mimir/engine.hpp"
+#include "mimir/camera.hpp"
+#include "mimir/validation.hpp"
 
 namespace mimir::validation
 {

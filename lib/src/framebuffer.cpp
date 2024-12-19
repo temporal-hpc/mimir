@@ -1,6 +1,6 @@
-#include "internal/framebuffer.hpp"
+#include "mimir/framebuffer.hpp"
 
-#include "internal/validation.hpp"
+#include "mimir/validation.hpp"
 
 namespace mimir
 {

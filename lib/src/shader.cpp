@@ -1,10 +1,10 @@
-#include "internal/shader.hpp"
+#include "mimir/shader.hpp"
 
 #define SLANG_CUDA_ENABLE_HALF
 #include <slang.h>
 #include <fstream> // std::ifstream
 
-#include "internal/validation.hpp"
+#include "mimir/validation.hpp"
 
 namespace mimir::validation
 {

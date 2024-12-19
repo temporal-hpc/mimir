@@ -1,7 +1,7 @@
-#include "internal/gui.hpp"
-#include "internal/api.hpp"
-#include "internal/framelimit.hpp"
-#include "internal/camera.hpp"
+#include "mimir/gui.hpp"
+#include "mimir/api.hpp"
+#include "mimir/framelimit.hpp"
+#include "mimir/camera.hpp"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>

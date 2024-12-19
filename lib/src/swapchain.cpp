@@ -1,6 +1,6 @@
-#include "internal/swapchain.hpp"
+#include "mimir/swapchain.hpp"
 
-#include "internal/validation.hpp"
+#include "mimir/validation.hpp"
 
 namespace mimir
 {

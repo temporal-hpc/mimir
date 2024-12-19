@@ -1,9 +1,9 @@
-#include "internal/device.hpp"
+#include "mimir/device.hpp"
 
 #include <spdlog/spdlog.h>
 #include <set> // std::set
 
-#include "internal/validation.hpp"
+#include "mimir/validation.hpp"
 
 namespace mimir
 {

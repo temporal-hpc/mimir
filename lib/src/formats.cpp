@@ -1,4 +1,4 @@
-#include "internal/api.hpp"
+#include "mimir/api.hpp"
 
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>

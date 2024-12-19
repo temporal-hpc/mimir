@@ -1,7 +1,7 @@
-#include "internal/resources.hpp"
+#include "mimir/resources.hpp"
 
 #include <spdlog/spdlog.h>
-#include "internal/validation.hpp"
+#include "mimir/validation.hpp"
 
 namespace mimir
 {

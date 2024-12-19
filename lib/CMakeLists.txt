@@ -1,37 +1,41 @@
 add_library(mimir STATIC)
 
-target_sources(mimir PRIVATE
-    src/mimir.cpp
-    src/formats.cpp
-    src/engine.cpp
-    src/device.cpp
-    src/camera.cpp
-    src/framebuffer.cpp
-    src/framelimit.cpp
-    src/gui.cpp
-    src/interop.cpp
-    src/metrics.cpp
-    src/pipeline.cpp
-    src/resources.cpp
-    src/shader.cpp
-    src/swapchain.cpp
-    src/validation.cpp
-    #src/interop_device.cpp
-    src/window.cpp
-    src/vma_impl.cpp
+target_sources(mimir
+    PRIVATE
+        src/mimir.cpp
+        src/formats.cpp
+        src/engine.cpp
+        src/device.cpp
+        src/camera.cpp
+        src/framebuffer.cpp
+        src/framelimit.cpp
+        src/gui.cpp
+        src/interop.cpp
+        src/metrics.cpp
+        src/pipeline.cpp
+        src/resources.cpp
+        src/shader.cpp
+        src/swapchain.cpp
+        src/validation.cpp
+        #src/interop_device.cpp
+        src/window.cpp
+        src/vma_impl.cpp
+    PUBLIC
+        FILE_SET  library_headers
+        TYPE      HEADERS
+        BASE_DIRS include
+        FILES
+            include/public/mimir/mimir.hpp
+            include/public/mimir/view.hpp
+            include/public/mimir/options.hpp
 )
-target_sources(mimir PUBLIC
-    FILE_SET  library_headers
-    TYPE      HEADERS
-    BASE_DIRS include
-    FILES
-        include/mimir/mimir.hpp
-        include/mimir/view.hpp
-        include/mimir/options.hpp
-)
-target_include_directories(mimir PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+
+target_include_directories(mimir
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/public>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/private>
 )
 
 set_property(TARGET mimir PROPERTY CUDA_STANDARD 20)
@@ -41,9 +45,6 @@ target_compile_options(mimir PRIVATE -Wall -Wextra
     "$<$<CONFIG:Debug>:-g>"
     "$<$<CONFIG:Release>:-O3>"
 )
-# This will print the result of the above generator expression, to check if it is correct
-#add_custom_command(TARGET mimir POST_BUILD COMMAND ${CMAKE_COMMAND} -E echo
-#  "-Wall -Wextra $<$<CONFIG:Debug>:-g> $<$<CONFIG:Release>:-O3>")
 
 find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)

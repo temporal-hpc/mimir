@@ -1,4 +1,4 @@
-#include "internal/validation.hpp"
+#include "mimir/validation.hpp"
 
 #include <cstring> // strcmp
 

@@ -1,11 +1,11 @@
-#include "internal/engine.hpp"
+#include "mimir/engine.hpp"
 
-#include "internal/api.hpp"
-#include "internal/framelimit.hpp"
-#include "internal/gui.hpp"
-#include "internal/resources.hpp"
-#include "internal/validation.hpp"
-#include "internal/shader_types.hpp"
+#include "mimir/api.hpp"
+#include "mimir/framelimit.hpp"
+#include "mimir/gui.hpp"
+#include "mimir/resources.hpp"
+#include "mimir/validation.hpp"
+#include "mimir/shader_types.hpp"
 
 #include <iostream>
 #include <chrono> // std::chrono

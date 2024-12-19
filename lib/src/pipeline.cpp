@@ -1,4 +1,4 @@
-#include "internal/pipeline.hpp"
+#include "mimir/pipeline.hpp"
 
 #include <spdlog/spdlog.h>
 #include <dlfcn.h> // dladdr
@@ -6,10 +6,10 @@
 #include <filesystem> // std::filesystem
 #include <map> // std::map
 
-#include "internal/api.hpp"
-#include "internal/shader_types.hpp"
-#include "internal/shader.hpp"
-#include "internal/validation.hpp"
+#include "mimir/api.hpp"
+#include "mimir/shader_types.hpp"
+#include "mimir/shader.hpp"
+#include "mimir/validation.hpp"
 
 // Setup the shader path so that the library can actually load them
 // Hackish and Linux-only, but works for now

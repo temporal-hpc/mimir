@@ -1,4 +1,4 @@
-#include "internal/framelimit.hpp"
+#include "mimir/framelimit.hpp"
 
 #include <time.h> // timespec
 #include <cstdint> // int64_t
