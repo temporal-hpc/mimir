@@ -4,3 +4,4 @@ build
 .vscode
 *.ini
 *.dat
+safeprimes_base32.txt

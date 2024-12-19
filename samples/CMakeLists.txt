@@ -19,6 +19,7 @@ add_subdirectory(texture_cudaarray)
 # Advanced samples
 add_subdirectory(colloids)
 add_subdirectory(potts)
+add_subdirectory(voronoi2)
 add_subdirectory(nbody)
 # Utilities
 add_subdirectory(powermon)
