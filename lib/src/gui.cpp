@@ -7,8 +7,8 @@
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 
-#include <fmt/core.h>
 #include <spdlog/spdlog.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <array> // std::array
 

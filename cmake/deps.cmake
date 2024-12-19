@@ -58,14 +58,6 @@ FetchContent_Declare(glm
     FIND_PACKAGE_ARGS
 )
 
-# fmt formatting lib
-FetchContent_Declare(fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG        e69e5f977d458f2650bb346dadf2ad30c5320281 # 10.2.1
-    GIT_SHALLOW    ON
-    FIND_PACKAGE_ARGS
-)
-
 # spdlog logging lib
 FetchContent_Declare(spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -75,7 +67,7 @@ FetchContent_Declare(spdlog
 )
 
 # Download and generate the targets provided by the above contents
-FetchContent_MakeAvailable(vma glfw glm fmt spdlog)
+FetchContent_MakeAvailable(vma glfw glm spdlog)
 
 # Imgui Graphical interface lib
 FetchContent_Declare(imgui

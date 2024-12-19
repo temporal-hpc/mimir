@@ -21,7 +21,7 @@ target_sources(mimir
         src/window.cpp
         src/vma_impl.cpp
     PUBLIC
-        FILE_SET  library_headers
+        FILE_SET  public_headers
         TYPE      HEADERS
         BASE_DIRS include
         FILES
@@ -50,20 +50,20 @@ find_package(Vulkan REQUIRED)
 find_package(CUDAToolkit)
 target_link_libraries(mimir
     PUBLIC
-        Vulkan::Vulkan CUDA::cudart imgui-app
+        Vulkan::Vulkan CUDA::cudart
     PRIVATE
-        slang glm::glm glfw spdlog::spdlog fmt::fmt # GPUOpen::VulkanMemoryAllocator
+        slang glm::glm glfw imgui-app spdlog::spdlog # GPUOpen::VulkanMemoryAllocator
 )
 
 install(
-    TARGETS mimir glm glm-header-only glfw VulkanMemoryAllocator fmt spdlog imgui-app
+    TARGETS mimir glm glm-header-only glfw VulkanMemoryAllocator spdlog imgui-app
     EXPORT  MimirTargets
     LIBRARY DESTINATION       lib
     ARCHIVE DESTINATION       lib
     RUNTIME DESTINATION       bin
     INCLUDES DESTINATION      include
     PUBLIC_HEADER DESTINATION include
-    FILE_SET                  library_headers
+    FILE_SET                  public_headers
 )
 
 include(CMakePackageConfigHelpers)
