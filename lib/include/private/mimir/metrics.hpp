@@ -62,7 +62,7 @@ struct GraphicsMonitor
     float stopFrameWatch();
 
     // Starts graphics pipeline stopwatch.
-    void startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx);
+    void startRenderWatch(VkDevice device, VkCommandBuffer cmd, uint32_t frame_idx);
     // Stops graphics pipeline stopwatch.
     void stopRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx);
 };

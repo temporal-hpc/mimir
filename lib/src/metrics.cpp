@@ -14,7 +14,7 @@ VkQueryPool createQueryPool(VkDevice device, uint32_t query_count)
         .pNext      = nullptr,
         .flags      = 0,
         .queryType  = VK_QUERY_TYPE_TIMESTAMP,
-        .queryCount = query_count, //command_buffers.size() * 2;
+        .queryCount = query_count,
         .pipelineStatistics = 0,
     };
 
@@ -24,7 +24,8 @@ VkQueryPool createQueryPool(VkDevice device, uint32_t query_count)
     return pool;
 }
 
-GraphicsMonitor GraphicsMonitor::make(VkDevice device, uint32_t query_count, float period, size_t storage_size)
+GraphicsMonitor GraphicsMonitor::make(VkDevice device, uint32_t query_count,
+    float period, size_t storage_size)
 {
     return {
         .query_pool          = createQueryPool(device, query_count),
@@ -38,17 +39,18 @@ GraphicsMonitor GraphicsMonitor::make(VkDevice device, uint32_t query_count, flo
     };
 }
 
-double GraphicsMonitor::getRenderTimeResults(VkDevice device, uint32_t cmd_idx)
+double GraphicsMonitor::getRenderTimeResults(VkDevice device, uint32_t frame_idx)
 {
-    uint64_t buffer[2];
+    uint64_t buffer[2] = {0, 0};
     validation::checkVulkan(vkGetQueryPoolResults(device, query_pool,
-        2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t),
+        2 * frame_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t),
         VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT)
     );
-    vkResetQueryPool(device, query_pool, cmd_idx * 2, 2);
     // TODO: apply time &= timestamp_mask;
     auto seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
-    return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
+    auto elapsed = static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
+    total_pipeline_time = elapsed;
+    return elapsed;
 }
 
 float GraphicsMonitor::getFramerate()
@@ -78,8 +80,9 @@ float GraphicsMonitor::stopFrameWatch()
     return frame_time;
 }
 
-void GraphicsMonitor::startRenderWatch(VkCommandBuffer cmd, uint32_t frame_idx)
+void GraphicsMonitor::startRenderWatch(VkDevice device, VkCommandBuffer cmd, uint32_t frame_idx)
 {
+    vkResetQueryPool(device, query_pool, frame_idx * 2, 2);
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
 }
 

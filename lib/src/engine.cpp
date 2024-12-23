@@ -1142,19 +1142,22 @@ void MimirEngine::waitTimelineHost()
 
 void MimirEngine::renderFrame()
 {
+    // Get frame index from the inflight frames array
     auto frame_idx = render_timeline % MAX_FRAMES_IN_FLIGHT;
-    //spdlog::trace("frame {} waits for {} and signals {}", render_timeline, interop.timeline_value, render_timeline+1);
-    //std::cin.get();
 
-    // Wait for frame fence and reset it after waiting
+    // Retrieve synchronization data for frame i
     auto frame_sync = sync_data[frame_idx];
     auto fence = frame_sync.frame_fence;
+
+    // Wait for fence of frame i to end, then immediately reset it for further use
     validation::checkVulkan(vkWaitForFences(device, 1, &fence, VK_TRUE, frame_timeout));
     validation::checkVulkan(vkResetFences(device, 1, &fence));
     //waitTimelineHost();
 
-    // Acquire image from swap chain, signaling to the image_ready semaphore
-    // when the image is ready for use
+    // Start measuring frame time
+    graphics_monitor.startFrameWatch();
+
+    // Acquire image from swap chain, signaling to the semaphore when it is ready for use
     uint32_t image_idx;
     auto result = vkAcquireNextImageKHR(device, swapchain.current,
         frame_timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
@@ -1169,12 +1172,16 @@ void MimirEngine::renderFrame()
         return;
     }
 
-    /*if (images_inflight[image_idx] != VK_NULL_HANDLE)
+    // if (images_inflight[image_idx] != VK_NULL_HANDLE)
+    // {
+    //     vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
+    // }
+    // images_inflight[image_idx] = frame.render_fence;
+
+    if (render_timeline > MAX_FRAMES_IN_FLIGHT)
     {
-        vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
+        graphics_monitor.getRenderTimeResults(device, frame_idx);
     }
-    images_inflight[image_idx] = frame.render_fence;
-    */
 
     // Retrieve a command buffer and start recording to it
     auto cmd = command_buffers[frame_idx];
@@ -1186,7 +1193,7 @@ void MimirEngine::renderFrame()
         .pInheritanceInfo = nullptr,
     };
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &cmd_info));
-    //metrics.startRenderWatch(cmd, frame_idx);
+    graphics_monitor.startRenderWatch(device, cmd, frame_idx);
 
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
@@ -1210,7 +1217,7 @@ void MimirEngine::renderFrame()
     gui::render(cmd);
     vkCmdEndRenderPass(cmd);
 
-    //metrics.stopRenderWatch(cmd, frame_idx);
+    graphics_monitor.stopRenderWatch(cmd, frame_idx);
     // Finalize command buffer recording, so it can be executed
     validation::checkVulkan(vkEndCommandBuffer(cmd));
 
@@ -1279,10 +1286,8 @@ void MimirEngine::renderFrame()
     }
 
     // Limit frame if it was configured
-    if (options.present.enable_fps_limit)
-    {
-        frameStall(options.present.target_frame_time);
-    }
+    if (options.present.enable_fps_limit) { frameStall(options.present.target_frame_time); }
+    graphics_monitor.stopFrameWatch();
     //spdlog::trace("frame {} finished", render_timeline-1);
 
     /*if (options.report_period > 0 && frame_time > options.report_period)
