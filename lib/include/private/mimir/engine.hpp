@@ -88,6 +88,7 @@ struct MimirEngine
 
     uint64_t render_timeline;
     bool running;
+    bool compute_active;
     std::thread rendering_thread;
 
     std::vector<AllocatedBuffer> uniform_buffers;

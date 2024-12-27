@@ -85,7 +85,8 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
             .cuda_stream    = 0,
         },
         .render_timeline   = 0,
-        .running    = false,
+        .running           = false,
+        .compute_active    = false,
         .rendering_thread  = {},
         .uniform_buffers   = {},
         .views             = {},
@@ -176,15 +177,18 @@ void MimirEngine::prepareViews()
 
 void MimirEngine::waitKernelStart()
 {
+    static uint64_t wait_value = 1;
     cudaExternalSemaphoreWaitParams wait_params{};
     wait_params.flags = 0;
-    wait_params.params.fence.value = render_timeline+1;
+    wait_params.params.fence.value = wait_value;
     //spdlog::trace("kernel waits for render {}", wait_params.params.fence.value);
 
     // Wait for Vulkan to complete its work
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
         &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
+    wait_value += 2;
+    compute_active = true;
 }
 
 void MimirEngine::updateViews()
@@ -198,16 +202,18 @@ void MimirEngine::updateViews()
 
 void MimirEngine::signalKernelFinish()
 {
-    interop.timeline_value++;
+    static uint64_t signal_value = 2;
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
-    signal_params.params.fence.value = interop.timeline_value;
+    signal_params.params.fence.value = signal_value;
     //spdlog::trace("kernel signals iteration {}", signal_params.params.fence.value);
 
     // Signal Vulkan to continue with the updated buffers
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
         &interop.cuda_semaphore, &signal_params, 1, interop.cuda_stream)
     );
+    signal_value += 2;
+    compute_active = false;
 }
 
 void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
@@ -1157,6 +1163,36 @@ void MimirEngine::renderFrame()
     // Start measuring frame time
     graphics_monitor.startFrameWatch();
 
+    static uint64_t wait_value = 0;
+    static uint64_t signal_value = 1;
+
+    bool advance_timeline = false;
+    std::vector<VkSemaphore> waits           = {frame_sync.image_acquired};
+    std::vector<VkPipelineStageFlags> stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    std::vector<VkSemaphore> signals         = {frame_sync.render_complete};
+    std::vector<uint64_t> wait_values        = {0};
+    std::vector<uint64_t> signal_values      = {0};
+    if (compute_active && options.present.enable_sync)
+    {
+        spdlog::trace("sync interop");
+        VkSemaphoreWaitInfo wait_info{
+            .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+            .pNext          = nullptr,
+            .flags          = 0,
+            .semaphoreCount = 1,
+            .pSemaphores    = &interop.vk_semaphore,
+            .pValues        = &wait_value,
+        };
+        validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
+
+        waits.push_back(interop.vk_semaphore);
+        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        signals.push_back(interop.vk_semaphore);
+        wait_values.push_back(interop.timeline_value);
+        signal_values.push_back(signal_value);
+        advance_timeline = true;
+    }
+
     // Acquire image from swap chain, signaling to the semaphore when it is ready for use
     uint32_t image_idx;
     auto result = vkAcquireNextImageKHR(device, swapchain.current,
@@ -1223,23 +1259,17 @@ void MimirEngine::renderFrame()
 
     updateUniformBuffers(frame_idx);
     render_timeline++;
+    if (advance_timeline)
+    {
+        wait_value += 2;
+        signal_value += 2;
+    }
 
     // Fill submit waits & signals info
-    std::vector<VkSemaphore> waits           = {frame_sync.image_acquired};
-    std::vector<VkPipelineStageFlags> stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    std::vector<VkSemaphore> signals         = {frame_sync.render_complete};
-    std::vector<uint64_t> wait_values        = {0};
-    std::vector<uint64_t> signal_values      = {0};
-    VkTimelineSemaphoreSubmitInfo *extra     = nullptr;
+    VkTimelineSemaphoreSubmitInfo *extra = nullptr;
     VkTimelineSemaphoreSubmitInfo timeline_info{};
     if (running && options.present.enable_sync)
     {
-        waits.push_back(interop.vk_semaphore);
-        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        signals.push_back(interop.vk_semaphore);
-        wait_values.push_back(interop.timeline_value);
-        signal_values.push_back(render_timeline+1);
-
         timeline_info = VkTimelineSemaphoreSubmitInfo{
             .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
             .pNext = nullptr,
