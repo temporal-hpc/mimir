@@ -17,21 +17,20 @@ __global__ void initRng(curandState *states, unsigned int rng_count, unsigned in
 }
 
 // Init starting positions
-__global__ void initPos(float *coords, size_t point_count,
-    curandState *rng, uint3 extent)
+__global__ void initPos(float *coords, size_t point_count, curandState *rng, uint3 extent)
 {
     auto points = reinterpret_cast<float3*>(coords);
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
     auto stride = gridDim.x * blockDim.x;
+    auto state = rng[tidx];
     for (int i = tidx; i < point_count; i += stride)
     {
-        auto state = rng[tidx];
         auto rx = extent.x * curand_uniform(&state);
         auto ry = extent.y * curand_uniform(&state);
         auto rz = extent.z * curand_uniform(&state);
         points[i] = {rx, ry, rz};
-        rng[tidx] = state;
     }
+    rng[tidx] = state;
 }
 
 __global__ void integrate3d(float *coords, size_t point_count, curandState *rng, uint3 extent)
@@ -39,17 +38,16 @@ __global__ void integrate3d(float *coords, size_t point_count, curandState *rng,
     auto points = reinterpret_cast<float3*>(coords);
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
     auto stride = gridDim.x * blockDim.x;
+    auto local_state = rng[tidx];
     for (int i = tidx; i < point_count; i += stride)
     {
         // Read current position
         auto p = points[i];
 
         // Generate random displacements with device RNG state
-        auto local_state = rng[tidx];
         p.x += curand_normal(&local_state);
         p.y += curand_normal(&local_state);
         p.z += curand_normal(&local_state);
-        rng[tidx] = local_state;
 
         // Correct positions to bounds
         if (p.x > extent.x) p.x = extent.x;
@@ -62,6 +60,7 @@ __global__ void integrate3d(float *coords, size_t point_count, curandState *rng,
         // Write updated position
         points[i] = p;
     }
+    rng[tidx] = local_state;
 }
 
 int main(int argc, char *argv[])
@@ -190,9 +189,9 @@ int main(int argc, char *argv[])
         double totalmem = meminfo.total / gigabyte;
         double usedmem = meminfo.used / gigabyte;
         printf("%lf,%lf,", freemem, usedmem);
-        /*printf("Device memory report (GB):\n  free: %.2lf\n  reserved: %.2lf\n  total: %.2lf\n  used: %.2lf\n",
-            freemem, reserved, totalmem, usedmem
-        );*/
+        //printf("Device memory (GB):\nfree: %.2lf\nreserved: %.2lf\ntotal: %.2lf\nused: %.2lf\n",
+        //    freemem, reserved, totalmem, usedmem
+        //);
     }
 
     GPUPowerEnd();
