@@ -1158,7 +1158,6 @@ void MimirEngine::renderFrame()
     // Wait for fence of frame i to end, then immediately reset it for further use
     validation::checkVulkan(vkWaitForFences(device, 1, &fence, VK_TRUE, frame_timeout));
     validation::checkVulkan(vkResetFences(device, 1, &fence));
-    //waitTimelineHost();
 
     // Start measuring frame time
     graphics_monitor.startFrameWatch();
@@ -1174,7 +1173,6 @@ void MimirEngine::renderFrame()
     std::vector<uint64_t> signal_values      = {0};
     if (compute_active && options.present.enable_sync)
     {
-        spdlog::trace("sync interop");
         VkSemaphoreWaitInfo wait_info{
             .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
             .pNext          = nullptr,
