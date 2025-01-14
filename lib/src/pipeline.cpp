@@ -11,6 +11,8 @@
 #include "mimir/shader.hpp"
 #include "mimir/validation.hpp"
 
+#include <spdlog/fmt/fmt.h>
+
 // Setup the shader path so that the library can actually load them
 // Hackish and Linux-only, but works for now
 std::string getDefaultShaderPath()
@@ -59,7 +61,7 @@ VkPipelineDepthStencilStateCreateInfo getDepthInfo()
 
 PipelineBuilder PipelineBuilder::make(VkPipelineLayout layout, VkExtent2D extent)
 {
-    return {
+    return PipelineBuilder{
         .pipeline_infos  = {},
         .pipeline_layout = layout,
         .viewport        = {0.f, 0.f, (float)extent.width, (float)extent.height, 0.f, 1.f},
@@ -131,16 +133,9 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         {AttributeType::Size, "SizeDefault"},
     };
 
-    for (auto &[type, attr] : desc.attributes)
-    {
-        specs[type] = getSpecializationName(type, attr);
-    }
     // Get the list of specialization names
-    for (const auto& spec : specs)
-    {
-        spdlog::trace("Pipeline: added shader specialization {}", spec.second);
-        compile.specializations.push_back(spec.second);
-    }
+    for (auto &[type, attr] : desc.attributes) { specs[type] = getSpecializationName(type, attr); }
+    for (const auto& spec : specs) { compile.specializations.push_back(spec.second); }
 
     // Select source code file and entry points for the view shader
     switch (desc.view_type)
@@ -328,7 +323,7 @@ VertexDescription getVertexDescription(const ViewDescription view)
         }
         else if (type == AttributeType::Position || attr.indices == nullptr)
         {
-            spdlog::trace("Adding input binding for {} attribute, with binding {} and stride {}",
+            spdlog::trace("Adding input binding for {} attribute (binding = {}, stride = {})",
                 getAttributeType(type), binding, attr.format.getSize()
             );
             desc.binding.push_back(VkVertexInputBindingDescription{
@@ -347,7 +342,7 @@ VertexDescription getVertexDescription(const ViewDescription view)
         }
         else
         {
-            spdlog::trace("Adding index binding for {} attribute, with binding {} and stride {}",
+            spdlog::trace("Adding index binding for {} attribute (binding = {}, stride = {})",
                 getAttributeType(type), binding, static_cast<uint32_t>(attr.index_size)
             );
             desc.binding.push_back(VkVertexInputBindingDescription{
@@ -382,7 +377,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
     std::vector<VkPipelineShaderStageCreateInfo> stages;
     // if (ext_shaders.empty())
     // {
-        spdlog::trace("Compiling slang shaders");
+        spdlog::debug("Compiling slang shaders...");
         stages = shader_builder.compileModule(device, compile_params);
     // }
     // else

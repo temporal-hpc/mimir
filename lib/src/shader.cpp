@@ -2,9 +2,11 @@
 
 #define SLANG_CUDA_ENABLE_HALF
 #include <slang.h>
-#include <fstream> // std::ifstream
 
+#include <fstream> // std::ifstream
 #include "mimir/validation.hpp"
+
+#include <spdlog/fmt/ranges.h>
 
 namespace mimir::validation
 {
@@ -15,10 +17,7 @@ constexpr SlangResult checkSlang(SlangResult code, slang::IBlob *diag = nullptr,
     if (code < 0)
     {
         const char* msg = "error";
-        if (diag != nullptr)
-        {
-            msg = static_cast<const char*>(diag->getBufferPointer());
-        }
+        if (diag != nullptr) { msg = static_cast<const char*>(diag->getBufferPointer()); }
         spdlog::error("Slang assertion: {} in function {} at {}({})",
             msg, src.function_name(), src.file_name(), src.line()
         );
@@ -63,7 +62,7 @@ ShaderBuilder ShaderBuilder::make()
     // Obtain a compilation session that scopes compilation and code loading
     validation::checkSlang(global_session->createSession(session_desc, session.writeRef()));
 
-    return {
+    return ShaderBuilder{
         .global_session = global_session,
         .session        = session,
     };
@@ -191,24 +190,28 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
 {
     SlangResult result = SLANG_OK;
     Slang::ComPtr<slang::IBlob> diag = nullptr;
-    // Load code from [source_path].slang as a module
+    spdlog::trace("Compiling '{}' with entrypoints: {}",
+        params.module_path, fmt::join(params.entrypoints, ", ")
+    );
+
+    // Load code from a Slang source as a module
     auto module = session->loadModule(params.module_path.c_str(), diag.writeRef());
     validation::checkSlang(result, diag);
 
+    // Shader components include the loaded module plus all required entrypoints
     std::vector<slang::IComponentType*> components;
     components.reserve(params.entrypoints.size() + 1);
     components.push_back(module);
-    // Lookup entry points by their names
+
     for (const auto& name : params.entrypoints)
     {
+        // Try finding an entrypoint by its name
+        // If found, add its reference to the Slang list of shader components
         Slang::ComPtr<slang::IEntryPoint> entrypoint = nullptr;
         module->findEntryPointByName(name.c_str(), entrypoint.writeRef());
-        if (entrypoint != nullptr)
-        {
-            spdlog::trace("Adding entrypoint {}", name);
-            components.push_back(entrypoint);
-        }
+        if (entrypoint != nullptr) { components.push_back(entrypoint); }
     }
+
     Slang::ComPtr<slang::IComponentType> program = nullptr;
     result = session->createCompositeComponentType(
         components.data(), components.size(), program.writeRef(), diag.writeRef()
@@ -218,14 +221,13 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
     std::vector<slang::SpecializationArg> args;
     if (!params.specializations.empty())
     {
+        spdlog::trace("Shader specializations: {}", fmt::join(params.specializations, ", "));
         for (const auto& spec : params.specializations)
         {
-            spdlog::trace("Specializing shader with name {}", spec);
-            slang::SpecializationArg arg{
+            args.push_back(slang::SpecializationArg{
                 .kind = slang::SpecializationArg::Kind::Type,
                 .type = module->getLayout()->findTypeByName(spec.c_str()),
-            };
-            args.push_back(arg);
+            });
         }
         Slang::ComPtr<slang::IComponentType> spec_program;
         result = program->specialize(args.data(), args.size(),
@@ -286,10 +288,8 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
             .codeSize = kernel->getBufferSize(),
             .pCode    = static_cast<const uint32_t*>(kernel->getBufferPointer()),
         };
-        VkShaderModule shader_module;
-        validation::checkVulkan(
-            vkCreateShaderModule(device, &info, nullptr, &shader_module)
-        );
+        VkShaderModule shader_module = VK_NULL_HANDLE;
+        validation::checkVulkan(vkCreateShaderModule(device, &info, nullptr, &shader_module));
         auto shader_info = shaderStageInfo(stage, shader_module);
         compiled_stages.push_back(shader_info);
     }
@@ -307,10 +307,8 @@ VkShaderModule createShaderModule(std::string_view code, VkDevice device)
         .pCode    = reinterpret_cast<const uint32_t*>(code.data()),
     };
 
-    VkShaderModule module;
-    validation::checkVulkan(
-        vkCreateShaderModule(device, &info, nullptr, &module)
-    );
+    VkShaderModule module = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateShaderModule(device, &info, nullptr, &module));
     return module;
 }
 

@@ -441,7 +441,7 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
-    spdlog::debug("Allocation size {}, requested {}", size, memreq.size);
+    spdlog::debug("Allocated {} bytes for interop ({} requested)", size, memreq.size);
 
     // Export and map the external memory to CUDA
     auto cuda_extmem = interop::importCudaExternalMemory(vk_memory, memreq.size, device);
@@ -526,7 +526,7 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
     auto available = physical_device.memory.memoryProperties;
-    auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    auto memflags  = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
 
     // Export and map the external memory to CUDA
@@ -643,7 +643,7 @@ View *MimirEngine::createView(ViewDescription *desc)
             );
 
             deletors.views.add([=,this]{
-                spdlog::trace("Destroying tex");
+                spdlog::trace("Destroying texture");
                 vkDestroyImageView(device, tex.img_view, nullptr);
                 vkDestroyImage(device, tex.image, nullptr);
                 vkDestroySampler(device, tex.sampler, nullptr);
@@ -666,7 +666,9 @@ View *MimirEngine::createView(ViewDescription *desc)
         else if (type == AttributeType::Position || attr.indices == nullptr)
         {
             VkDeviceSize vb_size = attr.format.getSize() * attr.size; // sizeof(Vertex) * attr.size;
-            spdlog::trace("Position VB size {}, available {}", vb_size, attr.source->size);
+            spdlog::trace("Position vertex buffer created with {} bytes ({} available)",
+                vb_size, attr.source->size
+            );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = attr.source->vk_mem;
             // TODO: Get if there is still space remaining (or maybe do it in validation)
@@ -677,7 +679,9 @@ View *MimirEngine::createView(ViewDescription *desc)
         else
         {
             VkDeviceSize sb_size = attr.format.getSize() * attr.size;
-            spdlog::trace("Position SB size {}, available {}", sb_size, attr.source->size);
+            spdlog::trace("Position storage buffer created with {} bytes ({} available)",
+                sb_size, attr.source->size
+            );
             VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             VkDeviceMemory sb_mem = attr.source->vk_mem;
             detail.storage[detail.ssbo_count++] = createAttributeBuffer(sb_size, sb_usage, sb_mem);
@@ -690,7 +694,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         // and as vertex buffers for all other attributes
         VkDeviceMemory memory = attr.indices->vk_mem;
         VkDeviceSize memsize = attr.index_size * desc->element_count;
-        spdlog::trace("Attr buf size {}", memsize);
+        spdlog::trace("Attribute buffer created with {} bytes", memsize);
         if (type == AttributeType::Position)
         {
             VkBufferUsageFlags ib_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
@@ -1667,8 +1671,8 @@ void MimirEngine::generateMipmaps(VkImage image, VkFormat format,
     immediateSubmit([=](VkCommandBuffer cmd)
     {
         VkImageMemoryBarrier barrier{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .pNext = nullptr,
+            .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext               = nullptr,
             .srcAccessMask       = 0,
             .dstAccessMask       = 0,
             .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1691,8 +1695,8 @@ void MimirEngine::generateMipmaps(VkImage image, VkFormat format,
         for (uint32_t i = 1; i < static_cast<uint32_t>(mip_levels); i++)
         {
             barrier.subresourceRange.baseMipLevel = i - 1;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
@@ -1723,8 +1727,8 @@ void MimirEngine::generateMipmaps(VkImage image, VkFormat format,
                             image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
                             VK_FILTER_LINEAR);
 
-            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
@@ -1737,8 +1741,8 @@ void MimirEngine::generateMipmaps(VkImage image, VkFormat format,
         }
 
         barrier.subresourceRange.baseMipLevel = mip_levels - 1;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
@@ -1749,15 +1753,16 @@ void MimirEngine::generateMipmaps(VkImage image, VkFormat format,
     });
 }
 
-void MimirEngine::transitionImageLayout(VkImage image, VkImageLayout old_layout, VkImageLayout new_layout)
+void MimirEngine::transitionImageLayout(VkImage image,
+    VkImageLayout old_layout, VkImageLayout new_layout)
 {
     VkImageMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
+    barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout           = old_layout;
+    barrier.newLayout           = new_layout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
+    barrier.image               = image;
     barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel   = 0;
     barrier.subresourceRange.levelCount     = 1;
