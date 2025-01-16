@@ -42,6 +42,18 @@ VkPipelineDepthStencilStateCreateInfo getDepthInfo()
     bool use_depth = true; //(domain == DomainType::Domain3D);
     bool depth_test = use_depth;
     bool depth_write = use_depth;
+
+    // Stencil test is currently disabled, but set its parameters explicitly just in case
+    VkStencilOpState default_stencil{
+        .failOp      = VK_STENCIL_OP_KEEP,
+        .passOp      = VK_STENCIL_OP_KEEP,
+        .depthFailOp = VK_STENCIL_OP_KEEP,
+        .compareOp   = VK_COMPARE_OP_NEVER,
+        .compareMask = 0,
+        .writeMask   = 0,
+        .reference   = 0,
+    };
+
     VkCompareOp compare_op = VK_COMPARE_OP_LESS;
     return VkPipelineDepthStencilStateCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
@@ -52,8 +64,8 @@ VkPipelineDepthStencilStateCreateInfo getDepthInfo()
         .depthCompareOp        = depth_test ? compare_op : VK_COMPARE_OP_ALWAYS,
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable     = VK_FALSE,
-        .front                 = {}, // TODO: Get default values for both of these
-        .back                  = {},
+        .front                 = default_stencil,
+        .back                  = default_stencil,
         .minDepthBounds        = 0.f,
         .maxDepthBounds        = 1.f,
     };
@@ -89,17 +101,36 @@ VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
     };
 }
 
-VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
+VkPipelineInputAssemblyStateCreateInfo getInputAssemblyInfo(ViewType view_type)
 {
-    VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-    if (view_type == ViewType::Image || view_type == ViewType::Edges)
+    VkPrimitiveTopology topology;
+    switch (view_type)
     {
-        topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        // Markers require a single point position as marker centroid
+        // Same as voxels
+        case ViewType::Markers:
+        case ViewType::Voxels:
+        default:
+        {
+            topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+            break;
+        }
+        // Image uses a quad formed from two triangles
+        // Edges from triangle mesh uses the primitive directly
+        case ViewType::Image:
+        case ViewType::Edges:
+        {
+            topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            break;
+        }
+        // Boxes need to endpoints (a line) to determine the bounding box extent
+        case ViewType::Boxes:
+        {
+            topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            break;
+        }
     }
-    else if (view_type == ViewType::Boxes)
-    {
-        topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-    }
+
     return VkPipelineInputAssemblyStateCreateInfo{
         .sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         .pNext    = nullptr,
@@ -111,8 +142,9 @@ VkPipelineInputAssemblyStateCreateInfo getAssemblyInfo(ViewType view_type)
 
 std::string getSpecializationName(AttributeType type, AttributeDescription attr)
 {
-    std::string spec = getAttributeType(type);
-    spec += getDataType(attr.format) + std::to_string(attr.format.components);
+    std::string spec = fmt::format("{}{}{}",
+        getAttributeType(type), getDataType(attr.format), std::to_string(attr.format.components)
+    );
     if (type != AttributeType::Position && attr.indices != nullptr)
     {
         spec += std::string("FromInt");
@@ -146,7 +178,7 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
 
             // Add dimensionality specialization
-            auto marker_spec = std::string("Marker") + getDomainType(desc.domain_type);
+            std::string marker_spec = fmt::format("Marker{}", getDomainType(desc.domain_type));
             compile.specializations.push_back(marker_spec);
 
             // Add shape specialization
@@ -164,15 +196,14 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         case ViewType::Boxes:
         {
             compile.module_path = "shaders/boxes.slang";
-            std::string geom_entry = "geometryMain";
-            geom_entry += getDomainType(desc.domain_type);
+            std::string geom_entry = fmt::format("geometryMain{}", getDomainType(desc.domain_type));
             compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
         case ViewType::Voxels:
         {
             compile.module_path = "shaders/voxel.slang";
-            auto geom_entry = std::string("geometryMain") + getDomainType(desc.domain_type);
+            std::string geom_entry = fmt::format("geometryMain{}", getDomainType(desc.domain_type));
             compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
@@ -414,7 +445,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
     PipelineInfo info{
         .shader_stages          = stages,
         .vertex_input_info      = getVertexDescription(params),
-        .input_assembly         = getAssemblyInfo(params.view_type),
+        .input_assembly         = getInputAssemblyInfo(params.view_type),
         .rasterizer             = getRasterizationInfo(params.view_type),
         .depth_stencil          = getDepthInfo(),
         .color_blend_attachment = color_blend,

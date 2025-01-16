@@ -152,23 +152,24 @@ void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescr
     ImGui_ImplGlfw_InitForVulkan(win_ctx.window, true);
 
     ImGui_ImplVulkan_InitInfo info{
-        .Instance        = instance,
-        .PhysicalDevice  = ph_dev,
-        .Device          = device,
-        .QueueFamily     = queue.family_index,
-        .Queue           = queue.queue,
-        .DescriptorPool  = pool,
-        .RenderPass      = pass,
-        .MinImageCount   = 3, // TODO: Check if this is true
-        .ImageCount      = 3,
-        .MSAASamples     = VK_SAMPLE_COUNT_1_BIT,
-        .PipelineCache   = nullptr,
-        .Subpass         = 0,
-        .UseDynamicRendering = false,
+        .Instance                    = instance,
+        .PhysicalDevice              = ph_dev,
+        .Device                      = device,
+        .QueueFamily                 = queue.family_index,
+        .Queue                       = queue.queue,
+        .DescriptorPool              = pool,
+        .RenderPass                  = pass,
+        .MinImageCount               = 3, // TODO: Check if this is true
+        .ImageCount                  = 3,
+        .MSAASamples                 = VK_SAMPLE_COUNT_1_BIT,
+        .PipelineCache               = nullptr,
+        .Subpass                     = 0,
+        .DescriptorPoolSize          = 0,
+        .UseDynamicRendering         = false,
         .PipelineRenderingCreateInfo = {},
-        .Allocator         = nullptr,
-        .CheckVkResultFn   = nullptr,
-        .MinAllocationSize = 0,
+        .Allocator                   = nullptr,
+        .CheckVkResultFn             = nullptr,
+        .MinAllocationSize           = 0,
     };
     ImGui_ImplVulkan_Init(&info);
 }
