@@ -188,7 +188,6 @@ void MimirEngine::waitKernelStart()
         &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
     wait_value += 2;
-    compute_active = true;
 }
 
 void MimirEngine::updateViews()
@@ -213,7 +212,6 @@ void MimirEngine::signalKernelFinish()
         &interop.cuda_semaphore, &signal_params, 1, interop.cuda_stream)
     );
     signal_value += 2;
-    compute_active = false;
 }
 
 void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
@@ -221,6 +219,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
     prepare();
 
     running = true;
+    compute_active = true;
     size_t iter_idx = 0;
     while(!window_context.shouldClose())
     {
@@ -237,6 +236,7 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
         }
     }
     running = false;
+    compute_active = false;
     vkDeviceWaitIdle(device);
 }
 
@@ -1175,6 +1175,7 @@ void MimirEngine::renderFrame()
     std::vector<VkSemaphore> signals         = {frame_sync.render_complete};
     std::vector<uint64_t> wait_values        = {0};
     std::vector<uint64_t> signal_values      = {0};
+
     if (compute_active && options.present.enable_sync)
     {
         VkSemaphoreWaitInfo wait_info{
