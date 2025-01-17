@@ -84,6 +84,18 @@ void makeTexture(Engine engine, TextureDescription desc, TextureHandle *texture)
     *texture = engine->makeTexture(desc);
 }
 
+void exit(Engine engine)
+{
+    engine->exit();
+}
+
+void getMetrics(Engine engine)
+{
+    engine->showMetrics();
+}
+
+
+
 EngineHandle make(int width, int height)
 {
     auto engine_ptr = new MimirEngine(MimirEngine::make(width, height));

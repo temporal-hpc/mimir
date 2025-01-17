@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
     bool enable_sync         = true;
     bool use_interop         = true;
 
-    printf("%d %d %d\n", sm_count, max_block_count, grid_size);
+    //printf("%d %d %d\n", sm_count, max_block_count, grid_size);
 
     // Parse parameters from command line
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
@@ -175,7 +175,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
         if (display) updateViews(engine);
     }
-    //showMetrics();
+    getMetrics(engine);
 
     // Nvml memory report
     {
@@ -189,16 +189,14 @@ int main(int argc, char *argv[])
         double totalmem = meminfo.total / gigabyte;
         double usedmem = meminfo.used / gigabyte;
         printf("%lf,%lf,", freemem, usedmem);
-        //printf("Device memory (GB):\nfree: %.2lf\nreserved: %.2lf\ntotal: %.2lf\nused: %.2lf\n",
-        //    freemem, reserved, totalmem, usedmem
-        //);
     }
 
     GPUPowerEnd();
 
+    exit(engine);
+    destroyEngine(engine);
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
-    destroyEngine(engine);
 
     return EXIT_SUCCESS;
 }

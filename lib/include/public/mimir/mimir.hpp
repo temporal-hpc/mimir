@@ -43,6 +43,8 @@ void setGuiCallback(Engine engine, std::function<void(void)> callback);
 AttributeDescription makeStructuredGrid(Engine engine, ViewExtent extent, float3 start={0.f,0.f,0.f});
 AttributeDescription makeImageFrame(Engine engine);
 void copyTextureData(Engine engine, TextureDescription tex_desc, void *data, size_t memsize);
+void getMetrics(Engine engine);
+void exit(Engine engine);
 
 // C++ API
 
