@@ -188,6 +188,7 @@ void MimirEngine::waitKernelStart()
         &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
     wait_value += 2;
+    compute_active = true;
 }
 
 void MimirEngine::updateViews()
@@ -196,6 +197,7 @@ void MimirEngine::updateViews()
     {
         compute_monitor.stopWatch();
         signalKernelFinish();
+        compute_active = false;
     }
 }
 
