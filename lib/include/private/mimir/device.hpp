@@ -27,7 +27,7 @@ struct PhysicalDevice
     VkPhysicalDeviceMemoryProperties2 memory;
     VkPhysicalDeviceFeatures features;
 
-    static PhysicalDevice make(VkPhysicalDevice device);
+    static PhysicalDevice make(VkPhysicalDevice gpu);
     DeviceMemoryStats getMemoryStats();
     VkDeviceSize getUboOffsetAlignment()
     {

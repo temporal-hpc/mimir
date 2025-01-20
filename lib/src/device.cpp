@@ -58,6 +58,7 @@ DeviceMemoryStats PhysicalDevice::getMemoryStats()
     DeviceMemoryStats stats{ .heap_count = 0, .usage  = 0, .budget = 0 };
     if (handle == nullptr) { return stats; }
 
+    memory.pNext = &budget;
     vkGetPhysicalDeviceMemoryProperties2(handle, &memory);
     auto props = memory.memoryProperties;
     stats.heap_count = props.memoryHeapCount;

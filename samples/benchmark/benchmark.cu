@@ -114,7 +114,6 @@ int main(int argc, char *argv[])
     std::string mode;
     if (width == 0 && height == 0) mode = use_interop? "interop" : "cudaMalloc";
     else mode = enable_sync? "sync" : "desync";
-    printf("%s,%u,", mode.c_str(), point_count);
 
     bool display = true;
     if (width == 0 || height == 0)
@@ -175,6 +174,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
         if (display) updateViews(engine);
     }
+    printf("%s,%u,", mode.c_str(), point_count);
     getMetrics(engine);
 
     // Nvml memory report
