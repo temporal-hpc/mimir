@@ -19,38 +19,31 @@ struct Texture;
 
 // C-style API
 
-typedef struct MimirEngine* Engine;
+typedef struct MimirEngine* EngineHandle;
 typedef struct Allocation* AllocHandle;
 typedef struct View* ViewHandle;
 typedef struct Texture* TextureHandle;
 
-void createEngine(ViewerOptions opts, Engine *engine);
-void createEngine(int width, int height, Engine *engine);
-void destroyEngine(Engine engine);
-bool isRunning(Engine engine);
+void createEngine(ViewerOptions opts, EngineHandle *engine);
+void createEngine(int width, int height, EngineHandle *engine);
+void destroyEngine(EngineHandle engine);
+bool isRunning(EngineHandle engine);
 
-void display(Engine engine, std::function<void(void)> func, size_t iter_count);
-void displayAsync(Engine engine);
-void prepareViews(Engine engine);
-void updateViews(Engine engine);
+void display(EngineHandle engine, std::function<void(void)> func, size_t iter_count);
+void displayAsync(EngineHandle engine);
+void prepareViews(EngineHandle engine);
+void updateViews(EngineHandle engine);
 
-void allocLinear(Engine engine, void **dev_ptr, size_t size, AllocHandle *alloc);
-void allocMipmap(Engine engine, cudaMipmappedArray_t *dev_arr, const cudaChannelFormatDesc *desc,
+void allocLinear(EngineHandle engine, void **dev_ptr, size_t size, AllocHandle *alloc);
+void allocMipmap(EngineHandle engine, cudaMipmappedArray_t *dev_arr, const cudaChannelFormatDesc *desc,
     cudaExtent extent, unsigned int num_levels, AllocHandle *alloc
 );
-void createView(Engine engine, ViewDescription *desc, ViewHandle *view);
-void setGuiCallback(Engine engine, std::function<void(void)> callback);
-AttributeDescription makeStructuredGrid(Engine engine, ViewExtent extent, float3 start={0.f,0.f,0.f});
-AttributeDescription makeImageFrame(Engine engine);
-void copyTextureData(Engine engine, TextureDescription tex_desc, void *data, size_t memsize);
-void getMetrics(Engine engine);
-void exit(Engine engine);
-
-// C++ API
-
-typedef std::unique_ptr<MimirEngine> EngineHandle;
-
-EngineHandle make(int width, int height);
-EngineHandle make(ViewerOptions opts);
+void createView(EngineHandle engine, ViewDescription *desc, ViewHandle *view);
+void setGuiCallback(EngineHandle engine, std::function<void(void)> callback);
+AttributeDescription makeStructuredGrid(EngineHandle engine, ViewExtent extent, float3 start={0.f,0.f,0.f});
+AttributeDescription makeImageFrame(EngineHandle engine);
+void copyTextureData(EngineHandle engine, TextureDescription tex_desc, void *data, size_t memsize);
+void getMetrics(EngineHandle engine);
+void exit(EngineHandle engine);
 
 } // namespace mimir

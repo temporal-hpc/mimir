@@ -169,7 +169,7 @@ int main(int argc, char *argv[])
     if (argc >= 2) seed_count = std::stoul(argv[1]);
     if (argc >= 3) iter_count  = std::stoul(argv[2]);
 
-    Engine engine = nullptr;
+    EngineHandle engine = nullptr;
     createEngine(1920, 1080, &engine);
 
     AllocHandle seeds = nullptr, field = nullptr;

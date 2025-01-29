@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
     options.window.size  = {1920,1080}; // Starting window size
     options.present.mode = PresentMode::VSync;
 
-    Engine engine = nullptr;
+    EngineHandle engine = nullptr;
     createEngine(options, &engine);
 
     AllocHandle points = nullptr, sizes = nullptr;

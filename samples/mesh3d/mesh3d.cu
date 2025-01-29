@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size = {1920,1080}; // Starting window size
     options.bg_color    = {.5f, .5f, .5f, 1.f};
-    Engine engine = nullptr;
+    EngineHandle engine = nullptr;
     createEngine(options, &engine);
 
     AllocHandle vertices = nullptr, edges = nullptr;

@@ -188,7 +188,7 @@ int main(int argc, char *argv[])
     int2 extent           = {grid_size, grid_size};
     curandState *d_states = nullptr;
 
-    Engine engine = nullptr;
+    EngineHandle engine = nullptr;
     createEngine(1920, 1080, &engine);
 
     AllocHandle seeds = nullptr, colors = nullptr;

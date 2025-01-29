@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
         .enable_sync = enable_sync,
         .target_fps  = target_fps,
     };
-    Engine engine = nullptr;
+    EngineHandle engine = nullptr;
     createEngine(options, &engine);
 
     if (use_interop)

@@ -221,7 +221,7 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size = {1920,1080}; // Starting window size
     options.present     = { .mode = PresentMode::VSync };
-    Engine engine = nullptr;
+    EngineHandle engine = nullptr;
     createEngine(options, &engine);
 
     cudaMipmappedArray_t mipmap_array = nullptr;

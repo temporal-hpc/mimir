@@ -53,7 +53,7 @@
 #include <iostream>
 #include <mimir/mimir.hpp>
 using namespace mimir;
-Engine engine;
+EngineHandle engine;
 
 // Default parameters
 #ifndef Q
