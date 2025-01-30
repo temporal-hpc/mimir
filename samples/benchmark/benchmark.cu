@@ -1,4 +1,5 @@
 #include <cooperative_groups.h> // cooperative_groups::{sync, this_thread_block}
+#include <random> //
 #include <string> // std::stoul
 
 #include <mimir/mimir.hpp>
@@ -37,11 +38,11 @@ NBodyParams demoParams[] = {
     {0.016f, 6.040f, 0.f, 1.f, 1.f, 0.760f, 0, 0, -50},
 };
 
-__constant__ float softeningSquared;
+__constant__ float softening_squared;
 
 cudaError_t setSofteningSquared(float value)
 {
-    return cudaMemcpyToSymbol(softeningSquared, &value, sizeof(float), 0, cudaMemcpyHostToDevice);
+    return cudaMemcpyToSymbol(softening_squared, &value, sizeof(float), 0, cudaMemcpyHostToDevice);
 }
 
 struct SharedMemory {
@@ -73,16 +74,16 @@ __device__ float3 bodyBodyInteraction(float3 ai, float4 bi, float4 bj)
     r.y = bj.y - bi.y;
     r.z = bj.z - bi.z;
 
-    // distSqr = dot(r_ij, r_ij) + EPS^2  [6 FLOPS]
-    float distSqr = r.x * r.x + r.y * r.y + r.z * r.z;
-    distSqr += softeningSquared;
+    // dist_sqr = dot(r_ij, r_ij) + EPS^2  [6 FLOPS]
+    float dist_sqr = r.x * r.x + r.y * r.y + r.z * r.z;
+    dist_sqr += softening_squared;
 
-    // invDistCube =1/distSqr^(3/2)  [4 FLOPS (2 mul, 1 sqrt, 1 inv)]
-    float invDist = rsqrtf(distSqr);
-    float invDistCube = invDist * invDist * invDist;
+    // inv_dist_cube =1/dist_sqr^(3/2)  [4 FLOPS (2 mul, 1 sqrt, 1 inv)]
+    float inv_dist = rsqrtf(dist_sqr);
+    float inv_dist_cube = inv_dist * inv_dist * inv_dist;
 
-    // s = m_j * invDistCube [1 FLOP]
-    float s = bj.w * invDistCube;
+    // s = m_j * inv_dist_cube [1 FLOP]
+    float s = bj.w * inv_dist_cube;
 
     // a_i =  a_i + s * r_ij [6 FLOPS]
     ai.x += r.x * s;
@@ -92,22 +93,22 @@ __device__ float3 bodyBodyInteraction(float3 ai, float4 bi, float4 bj)
     return ai;
 }
 
-__device__ float3 computeBodyAccel(float4 bodyPos, float4 *positions, int numTiles,
+__device__ float3 computeBodyAccel(float4 body_pos, float4 *positions, int num_tiles,
     cg::thread_block cta)
 {
-    float4 *sharedPos = SharedMemory();
+    float4 *shared_pos = SharedMemory();
     float3 acc = {0.0f, 0.0f, 0.0f};
 
-    for (int tile = 0; tile < numTiles; tile++)
+    for (int tile = 0; tile < num_tiles; tile++)
     {
-        sharedPos[threadIdx.x] = positions[tile * blockDim.x + threadIdx.x];
+        shared_pos[threadIdx.x] = positions[tile * blockDim.x + threadIdx.x];
         cg::sync(cta);
 
 // This is the "tile_calculation" from the GPUG3 article.
 #pragma unroll 128
         for (unsigned int counter = 0; counter < blockDim.x; counter++)
         {
-            acc = bodyBodyInteraction(acc, bodyPos, sharedPos[counter]);
+            acc = bodyBodyInteraction(acc, body_pos, shared_pos[counter]);
         }
         cg::sync(cta);
     }
@@ -115,59 +116,73 @@ __device__ float3 computeBodyAccel(float4 bodyPos, float4 *positions, int numTil
     return acc;
 }
 
-__global__ void integrateBodies(float4 *__restrict__ newPos, float4 *__restrict__ oldPos,
-    float4 *vel, unsigned int deviceNumBodies, float deltaTime, float damping, int numTiles)
+__global__ void integrateBodies(float4 *__restrict__ new_pos, float4 *__restrict__ old_pos,
+    float4 *vel, unsigned int body_count, float delta_time, float damping, int num_tiles)
 {
     // Handle to thread block group
     cg::thread_block cta = cg::this_thread_block();
     int index = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (index >= deviceNumBodies) { return; }
+    if (index >= body_count) { return; }
 
-    float4 position = oldPos[index];
-    float3 accel = computeBodyAccel(position, oldPos, numTiles, cta);
+    float4 position = old_pos[index];
+    float3 accel = computeBodyAccel(position, old_pos, num_tiles, cta);
 
     // acceleration = force / mass;
-    // new velocity = old velocity + acceleration * deltaTime
-    // note we factor out the body's mass from the equation, here and in
-    // bodyBodyInteraction
-    // (because they cancel out).  Thus here force == acceleration
+    // new velocity = old velocity + acceleration * delta_time
+    // note we factor out the body's mass from the equation, here and in bodyBodyInteraction
+    // (because they cancel out). Thus here force == acceleration
     float4 velocity = vel[index];
 
-    velocity.x += accel.x * deltaTime;
-    velocity.y += accel.y * deltaTime;
-    velocity.z += accel.z * deltaTime;
+    velocity.x += accel.x * delta_time;
+    velocity.y += accel.y * delta_time;
+    velocity.z += accel.z * delta_time;
 
     velocity.x *= damping;
     velocity.y *= damping;
     velocity.z *= damping;
 
-    // new position = old position + velocity * deltaTime
-    position.x += velocity.x * deltaTime;
-    position.y += velocity.y * deltaTime;
-    position.z += velocity.z * deltaTime;
+    // new position = old position + velocity * delta_time
+    position.x += velocity.x * delta_time;
+    position.y += velocity.y * delta_time;
+    position.z += velocity.z * delta_time;
 
     // store new position and velocity
-    newPos[index] = position;
+    new_pos[index] = position;
     vel[index] = velocity;
 }
 
-void integrateNbodySystem(DeviceData deviceData, unsigned int currentRead, float deltaTime,
-    float damping, unsigned int numBodies, int blockSize)
+void integrateNbodySystem(DeviceData device_data, unsigned int current_read, float delta_time,
+    float damping, unsigned int body_count, int block_size)
 {
-    int numBlocks = (numBodies + blockSize - 1) / blockSize;
-    int numTiles = (numBodies + blockSize - 1) / blockSize;
-    int sharedMemSize = blockSize * 4 * sizeof(float);  // 4 floats for pos
+    int num_blocks = (body_count + block_size - 1) / block_size;
+    int num_tiles = (body_count + block_size - 1) / block_size;
+    int shmem_size = block_size * 4 * sizeof(float);  // 4 floats for pos
 
-    integrateBodies<<<numBlocks, blockSize, sharedMemSize>>>(
-        deviceData.dPos[1 - currentRead],
-        deviceData.dPos[currentRead],
-        deviceData.dVel,
-        numBodies, deltaTime, damping, numTiles
+    integrateBodies<<<num_blocks, block_size, shmem_size>>>(
+        device_data.dPos[1 - current_read],
+        device_data.dPos[current_read],
+        device_data.dVel,
+        body_count, delta_time, damping, num_tiles
     );
 
     // check if kernel invocation generated an error
     checkCuda(cudaGetLastError());
+}
+
+enum class NBodyConfig { Random, Shell, Expand };
+
+inline float normalize(float3 &vector)
+{
+    float dist = sqrtf(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
+    if (dist > 1e-6)
+    {
+        vector.x /= dist;
+        vector.y /= dist;
+        vector.z /= dist;
+    }
+
+    return dist;
 }
 
 inline float dot(float3 v0, float3 v1)
@@ -175,56 +190,158 @@ inline float dot(float3 v0, float3 v1)
     return v0.x * v1.x + v0.y * v1.y + v0.z * v1.z;
 }
 
-void randomizeBodies(float *pos, float *vel, float *color,
-    float clusterScale, float velocityScale, int numBodies, bool vec4vel)
+inline float3 cross(float3 v0, float3 v1)
 {
-    float scale = clusterScale * std::max<float>(1.0f, numBodies / (1024.0f));
-    float vscale = velocityScale * scale;
+    float3 rt;
+    rt.x = v0.y * v1.z - v0.z * v1.y;
+    rt.y = v0.z * v1.x - v0.x * v1.z;
+    rt.z = v0.x * v1.y - v0.y * v1.x;
+    return rt;
+}
 
-    int p = 0, v = 0;
-    int i = 0;
-
-    while (i < numBodies)
+void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
+    float cluster_scale, float velocity_scale, int body_count, bool vec4vel)
+{
+    std::mt19937 rng(12345);
+    std::uniform_real_distribution<float> rand_pos(-1, 1);
+    switch (config)
     {
-        float3 point;
-        // const int scale = 16;
-        point.x = rand() / (float)RAND_MAX * 2 - 1;
-        point.y = rand() / (float)RAND_MAX * 2 - 1;
-        point.z = rand() / (float)RAND_MAX * 2 - 1;
-        float lenSqr = dot(point, point);
+        default:
+        case NBodyConfig::Random:
+        {
+            float scale = cluster_scale * std::max<float>(1.0f, body_count / (1024.0f));
+            float vscale = velocity_scale * scale;
 
-        if (lenSqr > 1) continue;
+            int p = 0, v = 0;
+            int i = 0;
 
-        float3 velocity;
-        velocity.x = rand() / (float)RAND_MAX * 2 - 1;
-        velocity.y = rand() / (float)RAND_MAX * 2 - 1;
-        velocity.z = rand() / (float)RAND_MAX * 2 - 1;
-        lenSqr = dot(velocity, velocity);
+            while (i < body_count)
+            {
+                float3 point;
+                // const int scale = 16;
+                point.x = rand_pos(rng);
+                point.y = rand_pos(rng);
+                point.z = rand_pos(rng);
+                float lenSqr = dot(point, point);
 
-        if (lenSqr > 1) continue;
+                if (lenSqr > 1) continue;
 
-        pos[p++] = point.x * scale;  // pos.x
-        pos[p++] = point.y * scale;  // pos.y
-        pos[p++] = point.z * scale;  // pos.z
-        pos[p++] = 1.0f;             // mass
+                float3 velocity;
+                velocity.x = rand_pos(rng);
+                velocity.y = rand_pos(rng);
+                velocity.z = rand_pos(rng);
+                lenSqr = dot(velocity, velocity);
 
-        vel[v++] = velocity.x * vscale;  // pos.x
-        vel[v++] = velocity.y * vscale;  // pos.x
-        vel[v++] = velocity.z * vscale;  // pos.x
+                if (lenSqr > 1) continue;
 
-        if (vec4vel) vel[v++] = 1.0f;  // inverse mass
-        i++;
+                pos[p++] = point.x * scale;  // pos.x
+                pos[p++] = point.y * scale;  // pos.y
+                pos[p++] = point.z * scale;  // pos.z
+                pos[p++] = 1.0f;             // mass
+
+                vel[v++] = velocity.x * vscale;  // pos.x
+                vel[v++] = velocity.y * vscale;  // pos.x
+                vel[v++] = velocity.z * vscale;  // pos.x
+
+                if (vec4vel) vel[v++] = 1.0f;  // inverse mass
+
+                i++;
+            }
+        } break;
+
+        case NBodyConfig::Shell:
+        {
+            float scale = cluster_scale;
+            float vscale = scale * velocity_scale;
+            float inner = 2.5f * scale;
+            float outer = 4.0f * scale;
+
+            int p = 0, v = 0;
+            int i = 0;
+
+            while (i < body_count)
+            {
+                float x, y, z;
+                x = rand_pos(rng);
+                y = rand_pos(rng);
+                z = rand_pos(rng);
+
+                float3 point = {x, y, z};
+                float len = normalize(point);
+                if (len > 1) { continue; }
+
+                pos[p++] = point.x * (inner + (outer - inner) * rand() / (float)RAND_MAX);
+                pos[p++] = point.y * (inner + (outer - inner) * rand() / (float)RAND_MAX);
+                pos[p++] = point.z * (inner + (outer - inner) * rand() / (float)RAND_MAX);
+                pos[p++] = 1.0f;
+
+                x = 0.0f;  // * (rand() / (float) RAND_MAX * 2 - 1);
+                y = 0.0f;  // * (rand() / (float) RAND_MAX * 2 - 1);
+                z = 1.0f;  // * (rand() / (float) RAND_MAX * 2 - 1);
+                float3 axis = {x, y, z};
+                normalize(axis);
+
+                if (1 - dot(point, axis) < 1e-6)
+                {
+                    axis.x = point.y;
+                    axis.y = point.x;
+                    normalize(axis);
+                }
+
+                // if (point.y < 0) axis = scalevec(axis, -1);
+                float3 vv = {(float)pos[4 * i], (float)pos[4 * i + 1], (float)pos[4 * i + 2]};
+                vv = cross(vv, axis);
+                vel[v++] = vv.x * vscale;
+                vel[v++] = vv.y * vscale;
+                vel[v++] = vv.z * vscale;
+
+                if (vec4vel) { vel[v++] = 1.0f; }
+
+                i++;
+            }
+        } break;
+
+        case NBodyConfig::Expand:
+        {
+            float scale = cluster_scale * body_count / (1024.f);
+
+            if (scale < 1.0f) { scale = cluster_scale; }
+            float vscale = scale * velocity_scale;
+            int p = 0, v = 0;
+
+            for (int i = 0; i < body_count;)
+            {
+                float3 point;
+                point.x = rand_pos(rng);
+                point.y = rand_pos(rng);
+                point.z = rand_pos(rng);
+
+                float lenSqr = dot(point, point);
+                if (lenSqr > 1) { continue; }
+
+                pos[p++] = point.x * scale;   // pos.x
+                pos[p++] = point.y * scale;   // pos.y
+                pos[p++] = point.z * scale;   // pos.z
+                pos[p++] = 1.0f;              // mass
+                vel[v++] = point.x * vscale;  // pos.x
+                vel[v++] = point.y * vscale;  // pos.x
+                vel[v++] = point.z * vscale;  // pos.x
+
+                if (vec4vel) vel[v++] = 1.0f;  // inverse mass
+
+                i++;
+            }
+        } break;
     }
 
     if (color != nullptr)
     {
+        std::uniform_real_distribution<float> rand_color(0, 1);
         int v = 0;
-        for (int i = 0; i < numBodies; i++)
-        {
-            // const int scale = 16;
-            color[v++] = rand() / (float)RAND_MAX;
-            color[v++] = rand() / (float)RAND_MAX;
-            color[v++] = rand() / (float)RAND_MAX;
+        for (int i = 0; i < body_count; i++) {
+            color[v++] = rand_color(rng);
+            color[v++] = rand_color(rng);
+            color[v++] = rand_color(rng);
             color[v++] = 1.0f;
         }
     }
@@ -240,12 +357,13 @@ int main(int argc, char *argv[])
     // Default experiment parameters
     int width                = 1920;
     int height               = 1080;
-    unsigned int body_count  = 4096;
+    unsigned int body_count  = 77824;
     int iter_count           = 1000000;
     PresentMode present_mode = PresentMode::Immediate;
     int target_fps           = 0;
     bool enable_sync         = true;
     bool use_interop         = true;
+    NBodyParams params       = demoParams[0];
 
     // Parse parameters from command line
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
@@ -258,7 +376,7 @@ int main(int argc, char *argv[])
 
     // Determine execution mode for benchmarking and write CSV column names
     std::string mode;
-    if (width == 0 && height == 0) mode = use_interop? "mimir" : "original";
+    if (width == 0 && height == 0) mode = use_interop? "mimir" : "no_disp";
     else mode = enable_sync? "sync" : "desync";
 
     bool display = true;
@@ -292,25 +410,26 @@ int main(int argc, char *argv[])
         allocLinear(engine, (void**)&data.dPos[1], nbody_memsize, &allocs[1]);
 
         ViewDescription desc{
-        .element_count = body_count,
-        .view_type     = ViewType::Markers,
-        .domain_type   = DomainType::Domain3D,
-        .extent        = {1, 1, 1},
-        .attributes    = {
-            { AttributeType::Position, {
-                .source = allocs[0],
-                .size   = body_count,
-                .format = FormatDescription::make<float4>(),
-                .indices = {},
-                .index_size = 0,
-            }}}
+            .element_count = body_count,
+            .view_type     = ViewType::Markers,
+            .domain_type   = DomainType::Domain3D,
+            .extent        = {2, 2, 2},
+            .attributes    = {
+                { AttributeType::Position, {
+                    .source = allocs[0],
+                    .size   = body_count,
+                    .format = FormatDescription::make<float4>(),
+                    .indices = {},
+                    .index_size = 0,
+                }}
+            }
         };
         createView(engine, &desc, &views[0]);
-        views[0]->default_size = 100.f;
+        views[0]->default_size = 100.f; //params.point_size;
 
         desc.attributes[AttributeType::Position].source = allocs[1];
         createView(engine, &desc, &views[1]);
-        views[1]->default_size = 100.f;
+        views[1]->default_size = 100.f; //params.point_size;
         views[1]->visible = false;
     }
     else // Run the simulation without display
@@ -324,11 +443,11 @@ int main(int argc, char *argv[])
     unsigned int current_write = 1;
     float delta_time = 0.001f;
 
-    NBodyParams params = demoParams[0];
+    NBodyConfig config = NBodyConfig::Random;
     setSofteningSquared(params.softening);
     float *h_pos = new float[body_count * 4];
     float *h_vel = new float[body_count * 4];
-    randomizeBodies(h_pos, h_vel, nullptr, params.cluster_scale, params.velocity_scale, body_count, true);
+    randomizeBodies(config, h_pos, h_vel, nullptr, params.cluster_scale, params.velocity_scale, body_count, true);
     checkCuda(cudaMemcpy(data.dPos[current_read], h_pos, nbody_memsize, cudaMemcpyHostToDevice));
     checkCuda(cudaMemcpy(data.dVel, h_vel, nbody_memsize, cudaMemcpyHostToDevice));
     delete[] h_pos;
