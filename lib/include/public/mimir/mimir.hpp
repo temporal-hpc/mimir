@@ -67,6 +67,15 @@ void allocMipmap(EngineHandle engine, cudaMipmappedArray_t *dev_arr,
 // The returned handle to the created view can be used to modify its parameters after creating it.
 void createView(EngineHandle engine, ViewDescription *desc, ViewHandle *view);
 
+// Sets the default color for the elements in this view.
+void setDefaultColor(ViewHandle view, float4 color);
+
+// Translates camera to the specified position.
+void setCameraPos(EngineHandle handle, float3 pos);
+
+// Rotates camera to the specified angle.
+void setCameraRot(EngineHandle handle, float3 rot);
+
 // Adds a GUI callback function that gets called after the engine GUI function (if enabled).
 // The callback function can be used to call ImGUI functions to display additional GUI elements.
 void setGuiCallback(EngineHandle engine, std::function<void(void)> callback);

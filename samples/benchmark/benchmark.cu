@@ -28,7 +28,7 @@ struct NBodyParams
     }
 };
 
-NBodyParams demoParams[] = {
+NBodyParams demo_params[] = {
     {0.016f, 1.54f, 8.0f, 0.1f, 1.0f, 1.0f, 0, -2, -100},
     {0.016f, 0.68f, 20.0f, 0.1f, 1.0f, 0.8f, 0, -2, -30},
     {0.0006f, 0.16f, 1000.0f, 1.0f, 1.0f, 0.07f, 0, 0, -1.5f},
@@ -363,7 +363,7 @@ int main(int argc, char *argv[])
     int target_fps           = 0;
     bool enable_sync         = true;
     bool use_interop         = true;
-    NBodyParams params       = demoParams[0];
+    NBodyParams params       = demo_params[0];
 
     // Parse parameters from command line
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
@@ -390,6 +390,7 @@ int main(int argc, char *argv[])
     options.window.size   = {width,height}; // Starting window size
     options.show_metrics  = false; // Show metrics window in GUI
     options.report_period = 0; // Print relevant usage stats every N seconds
+    options.background_color = {0.f, 0.f, 0.f, 1.f};
     options.present = {
         .mode        = present_mode,
         .enable_sync = enable_sync,
@@ -397,6 +398,7 @@ int main(int argc, char *argv[])
     };
     EngineHandle engine = nullptr;
     createEngine(options, &engine);
+    setCameraPos(engine, {0, -2, -150});
 
     auto nbody_memsize = sizeof(float4) * body_count;
     DeviceData data;
@@ -413,7 +415,7 @@ int main(int argc, char *argv[])
             .element_count = body_count,
             .view_type     = ViewType::Markers,
             .domain_type   = DomainType::Domain3D,
-            .extent        = {2, 2, 2},
+            .extent        = {1, 1, 1},
             .attributes    = {
                 { AttributeType::Position, {
                     .source = allocs[0],
@@ -425,10 +427,12 @@ int main(int argc, char *argv[])
             }
         };
         createView(engine, &desc, &views[0]);
+        setDefaultColor(views[0], {1.f, 1.f, 1.f, 1.f});
         views[0]->default_size = 100.f; //params.point_size;
 
         desc.attributes[AttributeType::Position].source = allocs[1];
         createView(engine, &desc, &views[1]);
+        setDefaultColor(views[1], {1.f, 1.f, 1.f, 1.f});
         views[1]->default_size = 100.f; //params.point_size;
         views[1]->visible = false;
     }
@@ -441,7 +445,6 @@ int main(int argc, char *argv[])
     // Initialize simulation
     unsigned int current_read  = 0;
     unsigned int current_write = 1;
-    float delta_time = 0.001f;
 
     NBodyConfig config = NBodyConfig::Random;
     setSofteningSquared(params.softening);
@@ -461,7 +464,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < iter_count; ++i)
     {
         if (display) prepareViews(engine);
-        integrateNbodySystem(data, current_read, delta_time, params.damping, body_count, block_size);
+        integrateNbodySystem(data, current_read, params.time_step, params.damping, body_count, block_size);
         std::swap(current_read, current_write);
         if (display)
         {

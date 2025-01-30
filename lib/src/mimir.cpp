@@ -39,6 +39,25 @@ void createView(EngineHandle engine, ViewDescription *desc, ViewHandle *handle)
     *handle = engine->createView(desc);
 }
 
+void setDefaultColor(ViewHandle view, float4 color)
+{
+    view->default_color[0] = color.x;
+    view->default_color[1] = color.y;
+    view->default_color[2] = color.z;
+    view->default_color[3] = color.w;
+}
+
+void setCameraPos(EngineHandle handle, float3 pos)
+{
+    handle->camera.setPosition(glm::vec3(pos.x, pos.y, pos.z));
+}
+
+// Rotates camera to the specified angle.
+void setCameraRot(EngineHandle handle, float3 rot)
+{
+    handle->camera.setRotation(glm::vec3(rot.x, rot.y, rot.z));
+}
+
 void display(EngineHandle engine, std::function<void(void)> func, size_t iter_count)
 {
     engine->display(func, iter_count);
@@ -92,20 +111,6 @@ void exit(EngineHandle engine)
 void getMetrics(EngineHandle engine)
 {
     engine->showMetrics();
-}
-
-
-
-EngineHandle make(int width, int height)
-{
-    auto engine_ptr = new MimirEngine(MimirEngine::make(width, height));
-    return EngineHandle(engine_ptr);
-}
-
-EngineHandle make(ViewerOptions opts)
-{
-    auto engine_ptr = new MimirEngine(MimirEngine::make(opts));
-    return EngineHandle(engine_ptr);
 }
 
 } // namespace mimir
