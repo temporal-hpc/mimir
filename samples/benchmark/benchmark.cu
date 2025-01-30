@@ -151,6 +151,8 @@ int main(int argc, char *argv[])
             .source = points,
             .size   = point_count,
             .format = FormatDescription::make<float3>(),
+            .indices = {},
+            .index_size = 0,
         };
         createView(engine, &desc, &view);
     }

@@ -4,11 +4,10 @@
 
 #include <fstream>
 #include <iostream>
-#include <map>
-#include <vector>
+#include <map> // std::map
+#include <vector> // std::vector
 
-namespace particlesystem {
-namespace delaunay {
+namespace particlesystem::delaunay {
 
 void ParticleSystemDelaunay::handleError(std::string message)
 {
@@ -67,16 +66,16 @@ void ParticleSystemDelaunay::readFile(std::string filename)
 	input.close();
 }
 
+// DEPRECATED
 int ParticleSystemDelaunay::type(double alpha, double mu)
 {
     if(alpha == params_.alpha[0] && mu == params_.mu[0]) return 3;
     else if (alpha == params_.alpha[1] && mu == params_.mu[1]) return -1;
-    else if (alpha == params_.alpha[2] && mu == params_.mu[2]) return 1;
-    else if (alpha == params_.alpha[3] && mu == params_.mu[3]) return -3;
+    //else if (alpha == params_.alpha[2] && mu == params_.mu[2]) return 1;
+    //else if (alpha == params_.alpha[3] && mu == params_.mu[3]) return -3;
     else
     {
-        fprintf(stderr, "Particle does not belong to any type: (%lf %lf)\n",
-        		alpha, mu);
+        fprintf(stderr, "Particle does not belong to any type: (%lf %lf)\n", alpha, mu);
         exit(EXIT_FAILURE);
     }
 }
@@ -95,7 +94,6 @@ void ParticleSystemDelaunay::saveConfig()
 	}
 
 	output.close();
-
 	rename("Config.tmp", "Config.fin");
 }
 
@@ -104,13 +102,11 @@ void ParticleSystemDelaunay::save_config_counter()
 	syncWithDevice();
 
 	std::ofstream output("Config.tmp", std::ios_base::trunc);
-
 	for (unsigned int i = 0; i < params_.num_elements; i++)
 	{
 		output << positions_[2*i] << " "
 			   << positions_[2*i+1] << "\n";
 	}
-
 	output.close();
 
 	rename("Config.tmp", "Config.fin");
@@ -167,8 +163,7 @@ void ParticleSystemDelaunay::saveMesh2d(std::string filename)
 	faces.reserve(3 * delaunay_.num_triangles);
 	for (unsigned int i = 0; i < delaunay_.num_triangles; i++)
 	{
-		faces.insert(faces.end(), delaunay_.triangles + 3*i,
-				                  delaunay_.triangles + 3*i+3);
+		faces.insert(faces.end(), delaunay_.triangles + 3*i, delaunay_.triangles + 3*i+3);
 	}
 
 	std::map< std::pair<int, int>, int > pairs;
@@ -299,5 +294,4 @@ void ParticleSystemDelaunay::saveMeshSurf(std::string filename)
 	output.close();
 }
 
-} // namespace delaunay
-} // namespace particlesystem
+} // namespace particlesystem::delaunay

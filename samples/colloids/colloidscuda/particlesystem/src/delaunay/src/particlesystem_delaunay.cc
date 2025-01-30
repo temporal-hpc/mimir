@@ -202,9 +202,11 @@ void ParticleSystemDelaunay::loadOnDevice()
     vp.view_type     = ViewType::Markers;
     vp.attributes[AttributeType::Position] =
 	{
-		.source = interop[current_read],
-		.size   = params_.num_elements,
-		.format = FormatDescription::make<double2>(),
+		.source  = interop[current_read],
+		.size    = params_.num_elements,
+		.format  = FormatDescription::make<double2>(),
+		.indices = {},
+		.index_size = 0,
 	};
     vp.attributes[AttributeType::Color] =
 	{
