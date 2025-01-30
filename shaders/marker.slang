@@ -113,7 +113,7 @@ FragmentOutput fragmentMain<S: IShape2D>(GeometryOutput input)
     float distance = shape.apply(p * input.size, input.ele_size);
 
     Filled aa;
-    out.color = aa.apply(distance, v_linewidth, u_antialias, input.color, scene.bg_color);
+    out.color = aa.apply(distance, v_linewidth, u_antialias, input.color, scene.background_color);
     //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;

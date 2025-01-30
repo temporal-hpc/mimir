@@ -157,5 +157,5 @@ float4 fragmentMain(VoxelData input) : SV_Target
     return input.color;
     // float2 p = 2 * input.uv - 1;
     // float distance = disc(p * 10, view.size);
-    // return filled(distance, 1, 1, view.color, scene.bg_color);
+    // return filled(distance, 1, 1, view.color, scene.background_color);
 }

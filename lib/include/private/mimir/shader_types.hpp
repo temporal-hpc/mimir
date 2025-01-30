@@ -23,7 +23,7 @@ struct ViewUniforms
 
 struct SceneUniforms
 {
-    alignas(16) glm::vec4 bg_color;
+    alignas(16) glm::vec4 background_color;
     alignas(16) glm::ivec3 extent;
     alignas(8)  glm::ivec2 resolution;
     alignas(16) glm::vec3 camera_pos;

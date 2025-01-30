@@ -112,7 +112,7 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
     {
         ImGui::Begin("Scene parameters");
         //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
-        ImGui::ColorEdit3("Clear color", (float*)&opts.bg_color);
+        ImGui::ColorEdit3("Clear color", (float*)&opts.background_color);
         if (ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f"))
         {
             cam.setPosition(cam.position);

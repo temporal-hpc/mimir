@@ -28,13 +28,13 @@ struct PresentOptions
 
 struct ViewerOptions
 {
-    WindowOptions window   = {};
-    PresentOptions present = {};
-    bool show_panel        = false;
-    bool show_metrics      = false;
-    bool show_demo_window  = false;
-    uint report_period     = 0;
-    float4 bg_color        = {.5f, .5f, .5f, 1.f};
+    WindowOptions window    = {};
+    PresentOptions present  = {};
+    bool show_panel         = false;
+    bool show_metrics       = false;
+    bool show_demo_window   = false;
+    uint report_period      = 0;
+    float4 background_color = {.5f, .5f, .5f, 1.f};
 };
 
 } // namespace mimir

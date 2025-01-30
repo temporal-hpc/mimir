@@ -1238,7 +1238,7 @@ void MimirEngine::renderFrame()
 
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
-    std::memcpy(clear_values[0].color.float32, &options.bg_color.x, sizeof(options.bg_color));
+    std::memcpy(clear_values[0].color.float32, &options.background_color.x, sizeof(options.background_color));
     clear_values[1].depthStencil = {1.f, 0};
 
     VkRenderPassBeginInfo render_pass_info{
@@ -1457,10 +1457,10 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
             .element_count = 0,
         };
 
-        auto bg = options.bg_color;
+        auto bg = options.background_color;
         auto extent = view->detail->desc.extent;
         SceneUniforms su{
-            .bg_color    = glm::vec4(bg.x, bg.y, bg.z, bg.w),
+            .background_color    = glm::vec4(bg.x, bg.y, bg.z, bg.w),
             .extent      = glm::ivec3{extent.x, extent.y, extent.z},
             .resolution  = glm::ivec2{options.window.size.x, options.window.size.y},
             .camera_pos  = camera.position,

@@ -177,7 +177,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     viewer_opts.window.title = "Colloids"; // Top-level window.
     viewer_opts.window.size  = {1920, 1080};
     viewer_opts.present.mode = PresentMode::Immediate;
-	viewer_opts.bg_color     = {1.f, 1.f, 1.f, 1.f};
+	viewer_opts.background_color     = {1.f, 1.f, 1.f, 1.f};
     createEngine(viewer_opts, &engine);
 
 	// Load particle data
