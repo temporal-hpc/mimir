@@ -1,4 +1,6 @@
-#include <fstream> // std::ifstream
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
 #include <string> // std::string
 #include <vector> // std::vector
 
@@ -6,108 +8,116 @@
 #include "validation.hpp" // checkCuda
 using namespace mimir;
 
-// Load an .off mesh file, only reading vertex and triangle data
-void loadTriangleMesh(const std::string& filename,
-    std::vector<float3>& points, std::vector<uint3>& triangles)
-{
-    constexpr auto stream_max = std::numeric_limits<std::streamsize>::max();
-    std::string temp_string;
-
-    std::ifstream stream(filename);
-    stream >> temp_string;
-    if (temp_string.compare("OFF") != 0)
-    {
-        return;
-    }
-    stream.ignore(stream_max, '\n');
-    while (stream.peek() == '#')
-    {
-        stream.ignore(stream_max, '\n');
-    }
-
-    size_t point_count, face_count, edge_count;
-    stream >> point_count >> face_count >> edge_count;
-    points.reserve(point_count);
-    triangles.reserve(edge_count);
-
-    for (size_t i = 0; i < point_count; ++i)
-    {
-        float3 point;
-        stream >> point.x >> point.y >> point.z;
-        points.push_back(point);
-    }
-    for (size_t j = 0; j < face_count; ++j)
-    {
-        uint3 triangle;
-        stream >> temp_string >> triangle.x >> triangle.y >> triangle.z;
-        triangles.push_back(triangle);
-        stream.ignore(stream_max, '\n');
-    }
-}
-
 int main(int argc, char *argv[])
 {
     std::string filepath;
-    float *d_coords       = nullptr;
-    int3 *d_triangles     = nullptr;
-
-    if (argc == 2)
-    {
-        filepath = argv[1];
-    }
+    if (argc == 2) { filepath = argv[1]; }
     else
     {
-        printf("Usage: ./mesh3d mesh.off (triangle meshes only)\n");
-        return EXIT_FAILURE;
+        printf("Usage: ./mesh3d [mesh_file.obj]\n");
+        return EXIT_SUCCESS;
     }
 
-    std::vector<float3> h_points;
-    std::vector<uint3> h_triangles;
-    loadTriangleMesh(filepath, h_points, h_triangles);
-    unsigned int point_count = h_points.size();
+    // Parse OBJ file and process errors and warnings, if any
+    tinyobj::ObjReaderConfig reader_config;
+    reader_config.mtl_search_path = "./";
+    tinyobj::ObjReader reader;
+    if (!reader.ParseFromFile(filepath, reader_config))
+    {
+        if (!reader.Error().empty())
+        {
+            printf("TinyObjReader error: %s\n", reader.Error().c_str());
+        }
+        return EXIT_FAILURE;
+    }
+    if (!reader.Warning().empty())
+    {
+        printf("TinyObjReader warning: %s\n", reader.Warning().c_str());
+    }
+
+    auto& attrib = reader.GetAttrib();
+    auto& shapes = reader.GetShapes();
+    printf("Loaded %s: %lu shapes found\n", filepath.c_str(), shapes.size());
+
+    std::vector<float3> h_vertices;
+    h_vertices.reserve(attrib.vertices.size());
+    std::vector<float3> h_normals;
+    h_normals.reserve(attrib.normals.size());
+    std::vector<uint32_t> h_triangles;
+    // Process a single shape for now
+    h_triangles.reserve(shapes[0].mesh.num_face_vertices.size());
+
+    for (size_t vec_start = 0; vec_start < attrib.vertices.size(); vec_start += 3) {
+        h_vertices.push_back({
+            attrib.vertices[vec_start],
+            attrib.vertices[vec_start + 1],
+            attrib.vertices[vec_start + 2]
+        });
+    }
+
+    for (auto shape = shapes.begin(); shape < shapes.end(); ++shape)
+    {
+        const std::vector<tinyobj::index_t>& indices = shape->mesh.indices;
+        const std::vector<int>& material_ids = shape->mesh.material_ids;
+
+        for (size_t index = 0; index < material_ids.size(); ++index)
+        {
+            // offset by 3 because values are grouped as vertex/normal/texture
+            h_triangles.push_back(indices[3 * index + 0].vertex_index);
+            h_triangles.push_back(indices[3 * index + 1].vertex_index);
+            h_triangles.push_back(indices[3 * index + 2].vertex_index);
+        }
+    }
+
+    // Check that the collected data is of the expected size
+    uint32_t vertex_count = h_vertices.size();
+    assert(vertex_count == attrib.vertices.size());
+    assert(h_normals.size() == attrib.normals.size());
+    assert(h_triangles.size() = shapes[0].mesh.num_face_vertices.size());
 
     ViewerOptions options;
-    options.window.size = {1920,1080}; // Starting window size
-    options.background_color    = {.5f, .5f, .5f, 1.f};
+    options.window.size      = {1920,1080}; // Starting window size
+    options.background_color = {.5f, .5f, .5f, 1.f};
     EngineHandle engine = nullptr;
     createEngine(options, &engine);
 
+    float *d_coords    = nullptr;
+    uint3 *d_triangles = nullptr;
+
     AllocHandle vertices = nullptr, edges = nullptr;
-    auto vert_size = sizeof(float3) * point_count;
-    auto edge_size = sizeof(int3) * h_triangles.size();
+    auto vert_size = sizeof(float3) * vertex_count;
+    auto edge_size = sizeof(uint3) * h_triangles.size();
     allocLinear(engine, (void**)&d_coords, vert_size, &vertices);
     allocLinear(engine, (void**)&d_triangles, edge_size, &edges);
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
-        .element_count = point_count,
+        .element_count = vertex_count,
         .view_type     = ViewType::Markers,
         .domain_type   = DomainType::Domain3D,
-        .extent        = ViewExtent::make(1,1,1),
+        .extent        = ViewExtent::make(200,200,200),
     };
     desc.attributes[AttributeType::Position] = {
         .source = vertices,
-        .size   = point_count,
+        .size   = vertex_count,
         .format = FormatDescription::make<float3>(),
     };
-    printf("Creating v1, elements %u, array size %lu\n", desc.element_count, vert_size);
     createView(engine, &desc, &v1);
-    v1->default_size = 20.f;
+    v1->default_size = 10.f;
 
     // Recycle the above parameters, changing only what is needed
-    desc.element_count = static_cast<unsigned int>(3 * h_triangles.size());
+    desc.element_count = static_cast<uint32_t>(h_triangles.size());
     desc.view_type = ViewType::Edges;
     desc.attributes[AttributeType::Position] = {
         .source     = vertices,
-        .size       = point_count,
+        .size       = vertex_count,
         .format     = FormatDescription::make<float3>(),
         .indices    = edges,
-        .index_size = sizeof(int),
+        .index_size = sizeof(uint32_t),
     };
-    printf("Creating v2, elements %u, array size %lu\n", desc.element_count, edge_size);
     createView(engine, &desc, &v2);
 
-    checkCuda(cudaMemcpy(d_coords, h_points.data(), vert_size, cudaMemcpyHostToDevice));
+    checkCuda(cudaMemcpy(d_coords, h_vertices.data(), vert_size, cudaMemcpyHostToDevice));
     checkCuda(cudaMemcpy(d_triangles, h_triangles.data(), edge_size, cudaMemcpyHostToDevice));
 
     displayAsync(engine);
