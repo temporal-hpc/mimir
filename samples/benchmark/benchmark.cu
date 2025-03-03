@@ -398,7 +398,7 @@ int main(int argc, char *argv[])
     };
     EngineHandle engine = nullptr;
     createEngine(options, &engine);
-    setCameraPos(engine, {params.x, params.y, params.z});
+    setCameraPosition(engine, {params.x, params.y, params.z});
 
     auto nbody_memsize = sizeof(float4) * body_count;
     DeviceData data;
@@ -427,12 +427,12 @@ int main(int argc, char *argv[])
             }
         };
         createView(engine, &desc, &views[0]);
-        setDefaultColor(views[0], {1.f, 1.f, 1.f, 1.f});
+        setViewDefaultColor(views[0], {1.f, 1.f, 1.f, 1.f});
         views[0]->default_size = params.point_size * 100;
 
         desc.attributes[AttributeType::Position].source = allocs[1];
         createView(engine, &desc, &views[1]);
-        setDefaultColor(views[1], {1.f, 1.f, 1.f, 1.f});
+        setViewDefaultColor(views[1], {1.f, 1.f, 1.f, 1.f});
         views[1]->default_size = params.point_size * 100;
         views[1]->visible = false;
     }

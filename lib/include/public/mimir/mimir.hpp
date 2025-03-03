@@ -68,20 +68,21 @@ void allocMipmap(EngineHandle engine, cudaMipmappedArray_t *dev_arr,
 void createView(EngineHandle engine, ViewDescription *desc, ViewHandle *view);
 
 // Sets the default color for the elements in this view.
-void setDefaultColor(ViewHandle view, float4 color);
+void setViewDefaultColor(ViewHandle view, float4 color);
 
 // Translates camera to the specified position.
-void setCameraPos(EngineHandle handle, float3 pos);
+void setCameraPosition(EngineHandle handle, float3 pos);
 
 // Rotates camera to the specified angle.
-void setCameraRot(EngineHandle handle, float3 rot);
+void setCameraRotation(EngineHandle handle, float3 rot);
 
 // Adds a GUI callback function that gets called after the engine GUI function (if enabled).
 // The callback function can be used to call ImGUI functions to display additional GUI elements.
 void setGuiCallback(EngineHandle engine, std::function<void(void)> callback);
 
-// Helper function to generate
-// The returned structure contains
+// Helper function to generate a regular grid
+// The returned attribute description contains all values needed to use the generated data
+// inside a view description.
 AttributeDescription makeStructuredGrid(EngineHandle engine, ViewExtent extent,
     float3 start={0.f,0.f,0.f}
 );

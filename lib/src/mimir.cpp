@@ -39,7 +39,7 @@ void createView(EngineHandle engine, ViewDescription *desc, ViewHandle *handle)
     *handle = engine->createView(desc);
 }
 
-void setDefaultColor(ViewHandle view, float4 color)
+void setViewDefaultColor(ViewHandle view, float4 color)
 {
     view->default_color[0] = color.x;
     view->default_color[1] = color.y;
@@ -47,13 +47,12 @@ void setDefaultColor(ViewHandle view, float4 color)
     view->default_color[3] = color.w;
 }
 
-void setCameraPos(EngineHandle handle, float3 pos)
+void setCameraPosition(EngineHandle handle, float3 pos)
 {
     handle->camera.setPosition(glm::vec3(pos.x, pos.y, pos.z));
 }
 
-// Rotates camera to the specified angle.
-void setCameraRot(EngineHandle handle, float3 rot)
+void setCameraRotation(EngineHandle handle, float3 rot)
 {
     handle->camera.setRotation(glm::vec3(rot.x, rot.y, rot.z));
 }
