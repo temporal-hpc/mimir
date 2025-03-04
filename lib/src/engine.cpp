@@ -594,20 +594,20 @@ View *MimirEngine::createView(ViewDescription *desc)
         return nullptr;
     }
 
-    ViewDetails detail{
-        .pipeline   = VK_NULL_HANDLE,
-        .draw_count = desc->element_count,
-        .vb_count   = 0,
-        .vbo        = {VK_NULL_HANDLE},
-        .offsets    = {0},
-        .use_ibo    = false,
-        .ibo        = VK_NULL_HANDLE,
-        .index_type = VK_INDEX_TYPE_NONE_KHR,
-        .tex_count  = 0,
-        .textures   = {},
-        .ssbo_count = 0,
-        .storage    = {VK_NULL_HANDLE},
-        .desc       = *desc,
+    View view{
+        .pipeline      = VK_NULL_HANDLE,
+        .draw_count    = desc->element_count,
+        .vb_count      = 0,
+        .vbo           = {VK_NULL_HANDLE},
+        .offsets       = {0},
+        .use_ibo       = false,
+        .ibo           = VK_NULL_HANDLE,
+        .index_type    = VK_INDEX_TYPE_NONE_KHR,
+        .tex_count     = 0,
+        .textures      = {},
+        .ssbo_count    = 0,
+        .storage       = {VK_NULL_HANDLE},
+        .desc          = *desc,
     };
 
     // Create attribute buffers
@@ -651,7 +651,7 @@ View *MimirEngine::createView(ViewDescription *desc)
                 vkDestroySampler(device, tex.sampler, nullptr);
             });
 
-            detail.textures[detail.tex_count++] = tex;
+            view.textures[view.tex_count++] = tex;
         }
         // Handle image quad vertex buffer size
         else if (type == AttributeType::Position && desc->view_type == ViewType::Image)
@@ -660,8 +660,8 @@ View *MimirEngine::createView(ViewDescription *desc)
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = attr.source->vk_mem;
             // TODO: Get if there is still space remaining (or maybe do it in validation)
-            detail.vbo[detail.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
-            detail.vb_count++;
+            view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+            view.vb_count++;
         }
         // Map source to a vertex buffer when accessing its elements directly
         // Source is always mapped this way for position attributes
@@ -674,8 +674,8 @@ View *MimirEngine::createView(ViewDescription *desc)
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = attr.source->vk_mem;
             // TODO: Get if there is still space remaining (or maybe do it in validation)
-            detail.vbo[detail.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
-            detail.vb_count++;
+            view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+            view.vb_count++;
         }
         // If a non-position attribute uses indirect mapping, its source is mapped to a storage buffer
         else
@@ -686,7 +686,7 @@ View *MimirEngine::createView(ViewDescription *desc)
             );
             VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             VkDeviceMemory sb_mem = attr.source->vk_mem;
-            detail.storage[detail.ssbo_count++] = createAttributeBuffer(sb_size, sb_usage, sb_mem);
+            view.storage[view.ssbo_count++] = createAttributeBuffer(sb_size, sb_usage, sb_mem);
         }
 
         // If there is no indirect source access, the attribute is now fully processed
@@ -700,25 +700,19 @@ View *MimirEngine::createView(ViewDescription *desc)
         if (type == AttributeType::Position)
         {
             VkBufferUsageFlags ib_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-            detail.ibo = createAttributeBuffer(memsize, ib_usage, memory);
-            detail.index_type = getIndexBufferType(attr.index_size);
-            detail.use_ibo = true;
+            view.ibo = createAttributeBuffer(memsize, ib_usage, memory);
+            view.index_type = getIndexBufferType(attr.index_size);
+            view.use_ibo = true;
         }
         else
         {
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            detail.vbo[detail.vb_count++] = createAttributeBuffer(memsize, vb_usage, memory);
+            view.vbo[view.vb_count++] = createAttributeBuffer(memsize, vb_usage, memory);
         }
     }
 
-    auto inner = new ViewDetails(detail);
-    auto handle = new View({
-        .detail        = inner,
-        .visible       = true,
-        .default_color = { 0.f, 0.f, 0.f, 1.f },
-        .default_size  = 10.f,
-    });
-    deletors.views.add([=,this]{ delete inner; delete handle; });
+    auto handle = new View(view);
+    deletors.views.add([=,this]{ delete handle; });
     views.push_back(handle);
     return handle;
 }
@@ -1087,9 +1081,9 @@ void MimirEngine::updateDescriptorSets()
 
         for (const auto& view : views)
         {
-            for (uint32_t k = 0; k < view->detail->tex_count; ++k)
+            for (uint32_t k = 0; k < view->tex_count; ++k)
             {
-                auto tex = view->detail->textures[k];
+                auto tex = view->textures[k];
 
                 VkDescriptorImageInfo img_info{
                     .sampler     = tex.sampler,
@@ -1120,9 +1114,9 @@ void MimirEngine::updateDescriptorSets()
                 write_img.pImageInfo     = &samp_info;
                 updates.push_back(write_img);
             }
-            for (uint32_t k = 0; k < view->detail->ssbo_count; ++k)
+            for (uint32_t k = 0; k < view->ssbo_count; ++k)
             {
-                auto ssbo = view->detail->storage[k];
+                auto ssbo = view->storage[k];
 
                 VkDescriptorBufferInfo ssbo_info{
                     .buffer = ssbo,
@@ -1345,8 +1339,8 @@ void MimirEngine::drawElements(uint32_t image_idx)
     for (uint32_t i = 0; i < views.size(); ++i)
     {
         // Do not draw anything if visibility is turned off
-        if (!views[i]->visible) { continue; }
-        auto& view = views[i]->detail;
+        if (!views[i]->desc.visible) { continue; }
+        auto& view = views[i];
 
         // Bind descriptor set and pipeline
         std::vector<uint32_t> offsets = {
@@ -1389,14 +1383,14 @@ void MimirEngine::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> 
     pipeline_builder = PipelineBuilder::make(pipeline_layout, swapchain.extent);
     for (auto& view : views)
     {
-        pipeline_builder.addPipeline(view->detail->desc, device);
+        pipeline_builder.addPipeline(view->desc, device);
     }
     auto pipelines = pipeline_builder.createPipelines(device, render_pass);
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
-        auto& v = views[i]->detail;
-        v->pipeline = pipelines[i];
-        deletors.graphics.add([=,this]{ vkDestroyPipeline(device, v->pipeline, nullptr); });
+        auto& view = views[i];
+        view->pipeline = pipelines[i];
+        deletors.graphics.add([=,this]{ vkDestroyPipeline(device, view->pipeline, nullptr); });
     }
 
     auto end = std::chrono::steady_clock::now();
@@ -1449,23 +1443,23 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
             .proj  = camera.matrices.perspective,
         };
 
-        auto dc = view->default_color;
+        auto color = view->desc.default_color;
         ViewUniforms vu{
-            .color         = glm::vec4(dc[0], dc[1], dc[2], dc[3]),
-            .size          = view->default_size,
+            .color         = glm::vec4(color.x, color.y, color.z, color.w),
+            .size          = view->desc.default_size,
             .depth         = 0.f,
             .element_count = 0,
         };
 
         auto bg = options.background_color;
-        auto extent = view->detail->desc.extent;
+        auto extent = view->desc.extent;
         SceneUniforms su{
-            .background_color    = glm::vec4(bg.x, bg.y, bg.z, bg.w),
-            .extent      = glm::ivec3{extent.x, extent.y, extent.z},
-            .resolution  = glm::ivec2{options.window.size.x, options.window.size.y},
-            .camera_pos  = camera.position,
-            .light_pos   = glm::vec3(0,0,0),
-            .light_color = glm::vec4(0,0,0,0),
+            .background_color = glm::vec4(bg.x, bg.y, bg.z, bg.w),
+            .extent           = glm::ivec3{extent.x, extent.y, extent.z},
+            .resolution       = glm::ivec2{options.window.size.x, options.window.size.y},
+            .camera_pos       = camera.position,
+            .light_pos        = glm::vec3(0,0,0),
+            .light_color      = glm::vec4(0,0,0,0),
         };
 
         char *data = nullptr;

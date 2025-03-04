@@ -6,7 +6,6 @@
 #include <cuda_runtime_api.h>
 
 #include <functional> // std::function
-#include <memory> // std::unique_ptr
 
 namespace mimir
 {
@@ -67,8 +66,20 @@ void allocMipmap(EngineHandle engine, cudaMipmappedArray_t *dev_arr,
 // The returned handle to the created view can be used to modify its parameters after creating it.
 void createView(EngineHandle engine, ViewDescription *desc, ViewHandle *view);
 
+// Switches view state between visible and invisible; does not modify underlying data.
+bool toggleVisibility(ViewHandle view);
+
 // Sets the default color for the elements in this view.
 void setViewDefaultColor(ViewHandle view, float4 color);
+
+// Scales the elements of a view by a factor for each cartesian axis (X,Y,Z).
+void scaleView(ViewHandle view, float3 scale);
+
+// Translates elements of a view.
+void translateView(ViewHandle view, float3 pos);
+
+// Rotates elements of a view using angles in radians.
+void rotateView(ViewHandle view, float3 rot);
 
 // Translates camera to the specified position.
 void setCameraPosition(EngineHandle handle, float3 pos);

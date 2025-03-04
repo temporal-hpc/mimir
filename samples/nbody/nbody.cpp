@@ -187,8 +187,8 @@ class NBodyDemo {
     {
       prepareViews(engine);
       updateSimulation();
-      views[0]->toggleVisibility();
-      views[1]->toggleVisibility();
+      toggleVisibility(views[0]);
+      toggleVisibility(views[1]);
       updateViews(engine);
     }
 

@@ -187,8 +187,9 @@ int main(int argc, char *argv[])
         .size   = seed_count,
         .format = FormatDescription::make<float2>(),
     };
+    desc.default_size  = 10.f;
+    desc.default_color = {0,0,1,1};
     createView(engine, &desc, &v1);
-    //v1->default_color = {0,0,1,1};
 
     desc.element_count = extent.x * extent.y;
     desc.view_type     = ViewType::Voxels;
@@ -199,8 +200,8 @@ int main(int argc, char *argv[])
         .size   = desc.element_count,
         .format = FormatDescription::make<float>(),
     };
+    desc.default_size  = 1.f;
     createView(engine, &desc, &v2);
-    v2->default_size = 1.f;
 
     //checkCuda(cudaMalloc(&_d_distances, dist_size));
     //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * element_count));

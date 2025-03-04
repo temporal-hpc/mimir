@@ -50,20 +50,19 @@ bool addTableRowCombo(const std::string& key, int* current_item,
 void addViewObjectGui(View *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
-    auto& desc = view_ptr->detail->desc;
+    auto& desc = view_ptr->desc;
     //bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
     bool node_open = ImGui::CollapsingHeader("", ImGuiTreeNodeFlags_AllowItemOverlap);
     ImGui::SameLine(); ImGui::Text("%s #%u", "View", uid);
-    ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &view_ptr->visible);
+    ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &desc.visible);
     if (node_open)
     {
         const float f32_zero = 0.f;
         const float f32_max  = 100.f;
-        ImGui::DragScalar("Element size", ImGuiDataType_Float, &view_ptr->default_size,
+        ImGui::DragScalar("Element size", ImGuiDataType_Float, &desc.default_size,
             0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
         );
-        ImGui::ColorEdit4("Element color", view_ptr->default_color);
-        //ImGui::SliderFloat("Element size (px)", &view_ptr->default_size, 1.f, 100.f);
+        ImGui::ColorEdit4("Element color", &desc.default_color.x);
         // ImGui::SliderFloat("depth", &desc.options.depth, 0.f, 1.f);
 
         // if (desc.offsets.size() > 0)

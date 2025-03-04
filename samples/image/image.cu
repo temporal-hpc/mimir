@@ -46,10 +46,10 @@ int main(int argc, char *argv[])
                 .size   = static_cast<unsigned int>(width * height),
                 .format = FormatDescription::make<char4>(),
             }}
-        }
+        },
+        .default_size  = 1.f,
     };
     createView(engine, &desc, &view);
-    view->default_size = 1.f;
 
     auto tex_size = sizeof(uchar4) * width * height;
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));

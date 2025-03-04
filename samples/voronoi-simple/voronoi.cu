@@ -206,8 +206,8 @@ int main(int argc, char *argv[])
         .size   = point_count,
         .format = FormatDescription::make<float2>(),
     };
+    desc.default_size  = 1.f;
     createView(engine, &desc, &v1);
-    v1->default_size = 1.f;
 
     desc.element_count = extent.x * extent.y;
     desc.view_type     = ViewType::Voxels;
@@ -219,7 +219,6 @@ int main(int argc, char *argv[])
         .format = FormatDescription::make<float4>(),
     };
     createView(engine, &desc, &v2);
-    v2->default_size = 1.f;
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     checkCuda(cudaMalloc(&d_colors, sizeof(float3) * point_count));

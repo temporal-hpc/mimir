@@ -61,17 +61,18 @@ Application::Application(){
     desc.domain_type   = DomainType::Domain3D;
     desc.extent        = ViewExtent::make(1,1,1);
     desc.view_type     = ViewType::Markers;
+    desc.visible       = false;
     desc.attributes[AttributeType::Position] = {
         .source = vertices,
         .size   = (unsigned int)cleap_get_vertex_count(m),
         .format = FormatDescription::make<float4>(),
     };
     createView(engine, &desc, &v1);
-    v1->visible = false;
 
     // Recycle the above parameters, changing only what is needed
     desc.element_count = static_cast<unsigned int>(cleap_get_face_count(m) * 3);
     desc.view_type     = ViewType::Edges;
+    desc.visible       = true;
     desc.attributes[AttributeType::Position] = {
         .source     = vertices,
         .size       = (unsigned int)cleap_get_vertex_count(m),
@@ -81,7 +82,6 @@ Application::Application(){
     };
     createView(engine, &desc, &v2);
     //desc.options.default_color = {0.f, 1.f, 0.f, 1.f};
-    v2->visible       = true;
 
     checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
         cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)

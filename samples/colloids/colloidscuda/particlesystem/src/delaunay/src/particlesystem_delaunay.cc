@@ -130,11 +130,11 @@ void ParticleSystemDelaunay::runTimestep()
 	updateDelaunay();
 	correctOverlaps();
 
-    particle_views[current_read]->toggleVisibility();
-    particle_views[current_write]->toggleVisibility();
+    toggleVisibility(particle_views[current_read]);
+    toggleVisibility(particle_views[current_write]);
 
-    edge_views[current_read]->toggleVisibility();
-    edge_views[current_write]->toggleVisibility();
+    toggleVisibility(edge_views[current_read]);
+    toggleVisibility(edge_views[current_write]);
 
     updateViews(engine);
 }
@@ -177,7 +177,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     viewer_opts.window.title = "Colloids"; // Top-level window.
     viewer_opts.window.size  = {1920, 1080};
     viewer_opts.present.mode = PresentMode::Immediate;
-	viewer_opts.background_color     = {1.f, 1.f, 1.f, 1.f};
+	viewer_opts.background_color = {1.f, 1.f, 1.f, 1.f};
     createEngine(viewer_opts, &engine);
 
 	// Load particle data
@@ -200,6 +200,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     vp.extent        = {l, l, 1};
     vp.domain_type   = DomainType::Domain2D;
     vp.view_type     = ViewType::Markers;
+	vp.default_size  = vp.extent.x / l;
     vp.attributes[AttributeType::Position] =
 	{
 		.source  = interop[current_read],
@@ -217,12 +218,10 @@ void ParticleSystemDelaunay::loadOnDevice()
 		.index_size = sizeof(int),
 	};
     createView(engine, &vp, &particle_views[current_read]);
-	particle_views[current_read]->default_size = vp.extent.x / l;
 
+    vp.visible = false;
     vp.attributes[AttributeType::Position].source = interop[current_write];
     createView(engine, &vp, &particle_views[current_write]);
-	particle_views[current_write]->default_size = vp.extent.x / l;
-    particle_views[current_write]->visible = false;
 
     // Velocities view
     //vp.options.visible = true;
@@ -247,9 +246,9 @@ void ParticleSystemDelaunay::loadOnDevice()
 	};
     createView(engine, &vpe, &edge_views[current_read]);
 
+	vpe.visible = false;
     vpe.attributes[AttributeType::Position].source = interop[current_write];
     createView(engine, &vpe, &edge_views[current_write]);
-	edge_views[current_write]->visible = false;
 
 	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
 	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));

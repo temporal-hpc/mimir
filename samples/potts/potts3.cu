@@ -650,8 +650,8 @@ int main(void)
 		.indices = m1,
 		.index_size = sizeof(int),
 	};
+	desc.default_size = 1.f;
 	createView(engine, &desc, &v1);
-    v1->default_size = 1.f;
 
 	displayAsync(engine);
 

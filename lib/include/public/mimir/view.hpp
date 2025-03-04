@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cuda_runtime_api.h>
+
 #include <map> // std::map
 #include <vector> // std::vector
 
@@ -8,7 +10,6 @@ namespace mimir
 
 // Forward declaration
 struct Allocation;
-struct ViewDetails;
 struct Texture;
 
 // Specifies the type of view that will be visualized
@@ -90,21 +91,12 @@ struct ViewDescription
     ViewExtent extent;
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;
-};
-
-struct View
-{
-    ViewDetails *detail;
-    bool visible;
-    float default_color[4];
-    float default_size;
-
-    // Switches view state between visible and invisible; does not modify underlying data.
-    bool toggleVisibility()
-    {
-        visible = !visible;
-        return visible;
-    }
+    // Whether the view contents are shown or not during display.
+    bool visible         = true;
+    // Default color for elements in the view if no color data is specified.
+    float4 default_color = {0.f, 0.f, 0.f, 1.f};
+    // Default size for elements in the view if no size data is specified.
+    float default_size   = 1.f;
 };
 
 } // namespace mimir

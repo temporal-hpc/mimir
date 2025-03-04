@@ -424,17 +424,17 @@ int main(int argc, char *argv[])
                     .indices = {},
                     .index_size = 0,
                 }}
-            }
+            },
+            .visible      = true,
+            .default_size = params.point_size * 100,
         };
         createView(engine, &desc, &views[0]);
         setViewDefaultColor(views[0], {1.f, 1.f, 1.f, 1.f});
-        views[0]->default_size = params.point_size * 100;
 
+        desc.visible = false;
         desc.attributes[AttributeType::Position].source = allocs[1];
         createView(engine, &desc, &views[1]);
         setViewDefaultColor(views[1], {1.f, 1.f, 1.f, 1.f});
-        views[1]->default_size = params.point_size * 100;
-        views[1]->visible = false;
     }
     else // Run the simulation without display
     {
@@ -468,8 +468,8 @@ int main(int argc, char *argv[])
         std::swap(current_read, current_write);
         if (display)
         {
-            views[0]->toggleVisibility();
-            views[1]->toggleVisibility();
+            toggleVisibility(views[0]);
+            toggleVisibility(views[1]);
             updateViews(engine);
         }
     }

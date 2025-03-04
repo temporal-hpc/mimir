@@ -1,6 +1,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
+#include <cstdint> // uint32_t
 #include <string> // std::string
 #include <vector> // std::vector
 
@@ -40,9 +41,9 @@ int main(int argc, char *argv[])
     printf("Loaded %s: %lu shapes found\n", filepath.c_str(), shapes.size());
 
     std::vector<float3> h_vertices;
-    h_vertices.reserve(attrib.vertices.size());
+    h_vertices.reserve(attrib.vertices.size()/3);
     std::vector<float3> h_normals;
-    h_normals.reserve(attrib.normals.size());
+    h_normals.reserve(attrib.normals.size()/3);
     std::vector<uint32_t> h_triangles;
     // Process a single shape for now
     h_triangles.reserve(shapes[0].mesh.num_face_vertices.size());
@@ -71,9 +72,9 @@ int main(int argc, char *argv[])
 
     // Check that the collected data is of the expected size
     uint32_t vertex_count = h_vertices.size();
-    assert(vertex_count == attrib.vertices.size());
-    assert(h_normals.size() == attrib.normals.size());
-    assert(h_triangles.size() = shapes[0].mesh.num_face_vertices.size());
+    assert(3 * vertex_count == attrib.vertices.size());
+    //assert(h_normals.size() == attrib.normals.size());
+    assert(h_triangles.size() == 3 * shapes[0].mesh.num_face_vertices.size());
 
     ViewerOptions options;
     options.window.size      = {1920,1080}; // Starting window size
@@ -102,8 +103,8 @@ int main(int argc, char *argv[])
         .size   = vertex_count,
         .format = FormatDescription::make<float3>(),
     };
+    desc.default_size = 1.f;
     createView(engine, &desc, &v1);
-    v1->default_size = 10.f;
 
     // Recycle the above parameters, changing only what is needed
     desc.element_count = static_cast<uint32_t>(h_triangles.size());

@@ -39,7 +39,7 @@ struct Texture
     VkExtent3D extent;
 };
 
-struct ViewDetails
+struct View
 {
     // Rendering pipeline associated to this view.
     VkPipeline pipeline;

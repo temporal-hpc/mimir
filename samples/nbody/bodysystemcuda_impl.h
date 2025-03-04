@@ -196,15 +196,14 @@ void BodySystemCUDA<T>::_initialize(int numBodies) {
           .source = m_alloc[0],
           .size   = m_numBodies,
           .format = FormatDescription::make<float4>(),
-        }}}
+        }}},
+      .default_size = 100.f
     };
     createView(m_engine, &desc, &m_views[0]);
-    m_views[0]->default_size = 100.f;
 
+    desc.visible = false;
     desc.attributes[AttributeType::Position].source = m_alloc[1];
     createView(m_engine, &desc, &m_views[1]);
-    m_views[1]->default_size = 100.f;
-    m_views[1]->visible = false;
 
     /*if (m_bUsePBO) {
       // create the position pixel buffer objects for rendering

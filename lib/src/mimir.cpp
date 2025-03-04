@@ -1,5 +1,6 @@
 #include <mimir/mimir.hpp>
 
+#include "mimir/api.hpp"
 #include "mimir/engine.hpp"
 
 namespace mimir
@@ -39,12 +40,32 @@ void createView(EngineHandle engine, ViewDescription *desc, ViewHandle *handle)
     *handle = engine->createView(desc);
 }
 
+// Switches view state between visible and invisible; does not modify underlying data.
+bool toggleVisibility(ViewHandle view)
+{
+    auto& visibility = view->desc.visible;
+    visibility = !visibility;
+    return visibility;
+}
+
 void setViewDefaultColor(ViewHandle view, float4 color)
 {
-    view->default_color[0] = color.x;
-    view->default_color[1] = color.y;
-    view->default_color[2] = color.z;
-    view->default_color[3] = color.w;
+    view->desc.default_color = color;
+}
+
+void scaleView(ViewHandle view, float3 scale)
+{
+
+}
+
+void translateView(ViewHandle view, float3 pos)
+{
+
+}
+
+void rotateView(ViewHandle view, float3 rot)
+{
+
 }
 
 void setCameraPosition(EngineHandle handle, float3 pos)

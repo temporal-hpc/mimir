@@ -159,17 +159,16 @@ void allocate_arrays(Setup *setup){
         .size   = n * n,
         .format = FormatDescription::make<float4>(),
     };
+    desc_grid.default_size = 1.f;
     createView(setup->engine, &desc_grid, &v1);
-    v1->default_size = 1.f,
 
     desc_grid.attributes[AttributeType::Color] = {
         .source = dist_colors,
         .size   = n * n,
         .format = FormatDescription::make<float>(),
     };
+    desc_grid.visible = false;
     createView(setup->engine, &desc_grid, &v2);
-    v2->default_size = 1.f;
-    v2->visible = false;
 
     desc_grid.attributes[AttributeType::Color] = {
         .source = grid,
@@ -177,8 +176,6 @@ void allocate_arrays(Setup *setup){
         .format = FormatDescription::make<int>(),
     };
     createView(setup->engine, &desc_grid, &v3);
-    v3->default_size = 1.f;
-    v3->visible = false;
 
     allocLinear(setup->engine, (void**)&setup->gpu_seeds, setup->S * sizeof(int), &seeds);
 
@@ -193,10 +190,10 @@ void allocate_arrays(Setup *setup){
         .size   = (uint)setup->S,
         .format = FormatDescription::make<int>(),
     };
+    desc_seeds.default_size = n / 100.f;
+    //desc_seeds.default_color = {0,0,1,1};
 
     createView(setup->engine, &desc_seeds, &v4);
-    v4->default_size = n / 100.f;
-    //v4->default_color = {0,0,1,1};
 
     setup->v_diagram = (int*)malloc(setup->N*setup->N*sizeof(int));
     setup->backup_v_diagram = (int*)malloc(setup->N*setup->N*sizeof(int));

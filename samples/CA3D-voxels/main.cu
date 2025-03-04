@@ -88,12 +88,13 @@ int main(int argc, char **argv){
                 .index_size = sizeof(int),
             }}
         },
+        .default_size = 10.f,
     };
     createView(engine, &desc, &v1);
 
     desc.attributes[AttributeType::Color].indices = pong;
+    desc.visible = false;
     createView(engine, &desc, &v2);
-    v2->visible = false;
 
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
@@ -126,8 +127,8 @@ int main(int argc, char **argv){
             gpuErrchk( cudaPeekAtLastError() );
             gpuErrchk( cudaDeviceSynchronize() );
 
-            v1->toggleVisibility();
-            v2->toggleVisibility();
+            toggleVisibility(v1);
+            toggleVisibility(v2);
 
             updateViews(engine);
 

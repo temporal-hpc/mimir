@@ -100,10 +100,11 @@ int main(int argc, char *argv[]) {
                 .size   = static_cast<unsigned int>(n),
                 .format = FormatDescription::make<float2>(),
             }}
-        }
+        },
+        .default_size = .02f,
     };
     createView(engine, &desc, &view);
-    view->default_size = .02f;
+
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);
