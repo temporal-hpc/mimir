@@ -6,8 +6,8 @@ FetchContent_Declare(tinyobjloader
 )
 FetchContent_MakeAvailable(tinyobjloader)
 
-add_executable(run_mesh mesh3d.cu)
-target_link_libraries(run_mesh PRIVATE samples_common tinyobjloader)
+add_executable(run_mesh mesh3d.cu mesh_obj.cpp)
+target_link_libraries(run_mesh PRIVATE samples_common tinyobjloader glm::glm)
 set_target_properties(run_mesh PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
 )
