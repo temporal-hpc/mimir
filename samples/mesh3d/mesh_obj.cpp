@@ -223,10 +223,10 @@ MeshData loadMeshObj(const std::string& filepath)
         }
     }
 
-    // Check that the collected data has the expected size
-    printf("vertices %lu %lu\n", 3*mesh.vertices.size(), attrib.vertices.size());
-    printf("normals %lu %lu\n", 3*mesh.normals.size(), attrib.normals.size());
-    printf("triangles %lu %lu\n", mesh.triangles.size(), 3 * shapes[0].mesh.num_face_vertices.size());
+    // Print result size
+    printf("%lu unique vertices (%lu original)\n", mesh.vertices.size(), attrib.vertices.size() / 3);
+    printf("%lu calculated normals (%lu original)\n", mesh.normals.size(), attrib.normals.size() / 3);
+    printf("%lu triangles (%lu original)\n", mesh.triangles.size(), 3 * shapes[0].mesh.num_face_vertices.size());
 
     mesh.loaded = true;
     return mesh;

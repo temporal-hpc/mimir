@@ -1,6 +1,7 @@
 
 #include <cmath> // std::sin
 #include <numbers> // std::numbers::pi
+#include <iostream> // std::cin
 
 #include <mimir/mimir.hpp>
 #include "validation.hpp" // checkCuda
@@ -102,7 +103,8 @@ int main(int argc, char *argv[])
     float scale    = varyAngle(degrees);
 
     displayAsync(engine);
-    //std::cin.get();
+    printf("Press enter to start...\n");
+    std::cin.get();
     while (isRunning(engine))
     {
         prepareViews(engine);

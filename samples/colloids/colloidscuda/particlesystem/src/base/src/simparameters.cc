@@ -85,11 +85,9 @@ void assignAlphaMu(T *alpha_mu, int *types, const T *conc, const T *alpha, const
 				alpha_mu[2*i] = alpha[j];
 				alpha_mu[2*i+1] = mu[j];
                 types[i] = j;
-				printf("Assign %d %d\n", i, j);
 				break;
 			}
 		}
-		printf("%d %d\n", i, types[i]);
 	}
 }
 
