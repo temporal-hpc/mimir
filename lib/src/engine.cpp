@@ -578,12 +578,13 @@ VkBuffer MimirEngine::createAttributeBuffer(VkDeviceSize memsize,
 // TODO: Add more validations
 bool validateViewDescription(ViewDescription *desc)
 {
+    bool has_elements = desc->element_count > 0;
     bool has_position_attr = false;
     for (auto &[type, attr] : desc->attributes)
     {
         has_position_attr |= type == AttributeType::Position;
     }
-    return has_position_attr;
+    return has_elements && has_position_attr;
 }
 
 View *MimirEngine::createView(ViewDescription *desc)
@@ -595,19 +596,22 @@ View *MimirEngine::createView(ViewDescription *desc)
     }
 
     View view{
-        .pipeline      = VK_NULL_HANDLE,
-        .draw_count    = desc->element_count,
-        .vb_count      = 0,
-        .vbo           = {VK_NULL_HANDLE},
-        .offsets       = {0},
-        .use_ibo       = false,
-        .ibo           = VK_NULL_HANDLE,
-        .index_type    = VK_INDEX_TYPE_NONE_KHR,
-        .tex_count     = 0,
-        .textures      = {},
-        .ssbo_count    = 0,
-        .storage       = {VK_NULL_HANDLE},
-        .desc          = *desc,
+        .pipeline   = VK_NULL_HANDLE,
+        .draw_count = desc->element_count,
+        .vb_count   = 0,
+        .vbo        = {VK_NULL_HANDLE},
+        .offsets    = {0},
+        .use_ibo    = false,
+        .ibo        = VK_NULL_HANDLE,
+        .index_type = VK_INDEX_TYPE_NONE_KHR,
+        .tex_count  = 0,
+        .textures   = {},
+        .ssbo_count = 0,
+        .storage    = {VK_NULL_HANDLE},
+        .translation = glm::mat4(1.f),
+        .rotation   = glm::mat4(1.f),
+        .scale      = glm::mat4(1.f),
+        .desc       = *desc,
     };
 
     // Create attribute buffers
@@ -1438,7 +1442,7 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
         auto& view = views[view_idx];
 
         ModelViewProjection mvp{
-            .model = glm::mat4(1.f),
+            .model = view->scale,
             .view  = camera.matrices.view,
             .proj  = camera.matrices.perspective,
         };

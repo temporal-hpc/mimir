@@ -2,6 +2,8 @@
 
 #include <mimir/view.hpp>
 
+#include <glm/mat4x4.hpp>
+
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
 
@@ -65,6 +67,8 @@ struct View
     uint32_t ssbo_count;
     // Storage buffer array.
     VkBuffer storage[max_attr_count];
+    // Model matrices
+    glm::mat4x4 translation, rotation, scale;
 
     // Copy of description used to create this view.
     ViewDescription desc;

@@ -1,3 +1,4 @@
+#include <mimir/mimir.hpp>
 #include "mimir/gui.hpp"
 #include "mimir/api.hpp"
 #include "mimir/framelimit.hpp"
@@ -71,6 +72,15 @@ void addViewObjectGui(View *view_ptr, int uid)
         //     int max_scenario = desc.offsets.size() - 1;
         //     ImGui::SliderScalar("scenario", ImGuiDataType_S32, &desc.options.scenario_index, &min_scenario, &max_scenario);
         // }
+
+        if (ImGui::InputFloat3("Position", &desc.position.x, "%.3f"))
+        {
+            translateView(view_ptr, desc.position);
+        }
+        if (ImGui::InputFloat3("Scale", &desc.scale.x, "%.3f"))
+        {
+            scaleView(view_ptr, desc.scale);
+        }
 
         ImGuiTableFlags table_flags = ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable;
         if (ImGui::BeginTable("split", 2, table_flags))

@@ -3,6 +3,8 @@
 #include "mimir/api.hpp"
 #include "mimir/engine.hpp"
 
+#include <glm/ext/matrix_transform.hpp>
+
 namespace mimir
 {
 
@@ -55,17 +57,19 @@ void setViewDefaultColor(ViewHandle view, float4 color)
 
 void scaleView(ViewHandle view, float3 scale)
 {
-
+    glm::vec3 s{ scale.x, scale.y, scale.z };
+    view->scale = glm::scale(glm::mat4x4(1.f), s);
 }
 
 void translateView(ViewHandle view, float3 pos)
 {
-
+    glm::vec3 t{ pos.x, pos.y, pos.z };
+    view->translation = glm::translate(glm::mat4x4(1.f), t);
 }
 
 void rotateView(ViewHandle view, float3 rot)
 {
-
+    //view->model = glm::rotate();
 }
 
 void setCameraPosition(EngineHandle handle, float3 pos)
