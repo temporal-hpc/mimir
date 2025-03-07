@@ -45,7 +45,7 @@ Camera defaultCamera(int width, int height)
     camera.flip_y         = true;
     camera.setPosition(glm::vec3(0.f, 0.f, -2.85f));
     camera.setRotation(glm::vec3(0.f, 0.f, 0.f));
-    camera.setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
+    camera.setPerspective(70.f, (float)width / (float)height, 10000.f, 0.1f);
     return camera;
 }
 
@@ -966,29 +966,23 @@ void MimirEngine::initGraphics()
         cudaEventDestroy(compute_monitor.stop);
     });
 
-    // Create depth image and image view from available formats
-    std::vector<VkFormat> candidate_formats{
-        VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT
-    };
-    auto depth_format = findSupportedImageFormat(physical_device.handle, candidate_formats,
-        VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
-    );
-    ImageParams params{
+    // Create depth image and image view
+    ImageParams depth_params{
         .type   = VK_IMAGE_TYPE_2D,
-        .format = depth_format,
+        .format = VK_FORMAT_D32_SFLOAT,
         .extent = { swapchain.extent.width, swapchain.extent.height, 1 },
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage  = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
         .levels = 1,
     };
-    depth_image = createImage(device, physical_device.handle, params);
+    depth_image = createImage(device, physical_device.handle, depth_params);
 
     auto available = physical_device.memory.memoryProperties;
     VkMemoryRequirements mem_req{};
     vkGetImageMemoryRequirements(device, depth_image, &mem_req);
     depth_memory = allocateMemory(device, available, mem_req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     validation::checkVulkan(vkBindImageMemory(device, depth_image, depth_memory, 0));
-    depth_view = createImageView(device, depth_image, params, VK_IMAGE_ASPECT_DEPTH_BIT);
+    depth_view = createImageView(device, depth_image, depth_params, VK_IMAGE_ASPECT_DEPTH_BIT);
 
     // Create render pass with color and depth attachments
     VkAttachmentDescription color{
@@ -1004,10 +998,10 @@ void MimirEngine::initGraphics()
     };
     VkAttachmentDescription depth{
         .flags          = 0, // Can be VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT
-        .format         = depth_format,
+        .format         = depth_params.format,
         .samples        = VK_SAMPLE_COUNT_1_BIT,
         .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
         .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
         .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1237,7 +1231,7 @@ void MimirEngine::renderFrame()
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
     std::memcpy(clear_values[0].color.float32, &options.background_color.x, sizeof(options.background_color));
-    clear_values[1].depthStencil = {1.f, 0};
+    clear_values[1].depthStencil = { .depth = 0.f, .stencil = 0 };
 
     VkRenderPassBeginInfo render_pass_info{
         .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,

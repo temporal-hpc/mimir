@@ -54,7 +54,7 @@ VkPipelineDepthStencilStateCreateInfo getDepthInfo()
         .reference   = 0,
     };
 
-    VkCompareOp compare_op = VK_COMPARE_OP_LESS;
+    VkCompareOp compare_op = VK_COMPARE_OP_GREATER_OR_EQUAL;
     return VkPipelineDepthStencilStateCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         .pNext = nullptr,

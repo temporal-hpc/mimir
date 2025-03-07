@@ -18,7 +18,7 @@ Camera Camera::make()
         .near_clip      = 0.f,
         .far_clip       = 0.f,
         .updated        = false,
-        .flip_y         = false,
+        .flip_y         = true,
         .matrices       = { .perspective = glm::mat4(), .view = glm::mat4() }
     };
 }
@@ -44,6 +44,25 @@ void Camera::updateViewMatrix()
     updated = true;
 }
 
+glm::mat4x4 perspective(float vertical_fov, float aspect_ratio, float near, float far)
+{
+    float fov_rad = vertical_fov * glm::pi<float>() / 180.f;
+    float focal_length = 1.f / std::tan(fov_rad / 2.f);
+
+    float x = focal_length / aspect_ratio;
+    float y = -focal_length;
+    float A = near / (far - near);
+    float B = far * A;
+
+    glm::mat4x4 projection({
+        x,   0.f,  0.f, 0.f,
+        0.f,   y,  0.f, 0.f,
+        0.f, 0.f,    A,   B,
+        0.f, 0.f, -1.f, 0.f,
+    });
+    return glm::transpose(projection);
+}
+
 void Camera::setPerspective(float fov, float aspect, float znear, float zfar)
 {
     this->fov       = fov;
@@ -55,6 +74,7 @@ void Camera::setPerspective(float fov, float aspect, float znear, float zfar)
     {
         matrices.perspective[1][1] *= -1.f;
     }
+    matrices.perspective = perspective(fov, aspect, znear, zfar);
 }
 
 void Camera::updateAspectRatio(float aspect)
