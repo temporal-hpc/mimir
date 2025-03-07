@@ -130,6 +130,18 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
         {
             cam.setRotation(cam.rotation);
         }
+        const float f32_zero = 0.f;
+        const float f32_max  = 360.f;
+        bool set_fov = ImGui::DragScalar("FOV", ImGuiDataType_Float, &cam.fov,
+            0.005f, &f32_zero, &f32_max, "%.3f"
+        );
+        bool set_znear = ImGui::InputFloat("Near plane", &cam.near_clip);
+        bool set_zfar = ImGui::InputFloat("Far plane", &cam.far_clip);
+        if (set_fov || set_znear || set_zfar)
+        {
+            float aspect = (float)opts.window.size.x / (float)opts.window.size.y;
+            cam.setPerspective(cam.fov, aspect, cam.near_clip, cam.far_clip);
+        }
 
         // Use a separate flag for choosing whether to enable the FPS limit target value
         // This avoids the unpleasant feeling of going from 0 (no FPS limit)
