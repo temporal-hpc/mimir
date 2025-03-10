@@ -9,6 +9,11 @@ import rotation; // IRotation
 
 #define M_PI 3.1415926535897932384626433832795
 
+float getMarkerSizePx(float size)
+{
+    return SQRT_2 * size + 2 * (v_linewidth + 1.5 * u_antialias);
+}
+
 static const float v_linewidth = 0;
 static const float u_antialias = 0;
 
@@ -37,28 +42,19 @@ struct FragmentOutput
     //float depth  : SV_Depth;
 };
 
-[[vk::binding(5)]] StructuredBuffer<float4> colorbuf;
-
-struct ColorFloat4FromInt : IColor
-{
-    int input : COLOR;
-    float4 getColor() { return colorbuf[input]; }
-};
-
-float getMarkerSizePx(float size)
-{
-    return SQRT_2*size + 2 * (v_linewidth + 1.5*u_antialias);
-}
-
 [shader("vertex")]
 VertexOutput vertexMain<P: IPosition, C: IColor, S: ISize>(
-    P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
+    P in_pos   : POSITION,
+    C in_color : COLOR,
+    S in_size  : PSIZE)
 {
     OrientationDefault in_angle;
     in_angle.setDefault(0);
 
+    float4 pos = in_pos.getPosition({1,1,1});
+
     VertexOutput output;
-    output.center   = in_pos.getPosition(scene.extent);
+    output.center   = mul(pos, mvp.all);
     output.color    = in_color.getColor();
     output.size     = in_size.getSize();
     output.rotation = in_angle.getValue();
@@ -67,27 +63,26 @@ VertexOutput vertexMain<P: IPosition, C: IColor, S: ISize>(
 
 [shader("geometry")]
 [maxvertexcount(4)]
-void geometryMain<M: IMarker>(point VertexOutput input[1],
+void geometryMain<M: IMarker>(
+    point VertexOutput input[1],
     inout TriangleStream<GeometryOutput> stream)
 {
-    float4x4 view_proj = mul(mvp.view, mvp.proj);
-    float4 center = mul(input[0].center, view_proj);
-    //float4 center = input[0].center;
+    float4 center = input[0].center;
 
     GeometryOutput output;
     // TODO: Add antialias and linewidth to output.size (something like getMarkerSizePx)
-    output.size = input[0].size;
+    output.size     = input[0].size;
     output.ele_size = input[0].size;
 
     M marker = {};
-    MarkerOffsets offsets = marker.getVertexOffsets(view_proj, output.ele_size, scene.resolution, scene.extent);
+    MarkerOffsets offsets = marker.getVertexOffsets(output.ele_size);
     float4 dx = offsets.dx;
     float4 dy = offsets.dy;
 
     float4 vertex_offsets[4] = {(-dx-dy), (+dx-dy), (-dx+dy), (+dx+dy)};
-    float2 texcoords[4] = {{0,0}, {1,0}, {0,1}, {1,1}};
+    float2 texcoords[4]      = {{0,0}, {1,0}, {0,1}, {1,1}};
 
-    output.color = input[0].color;
+    output.color    = input[0].color;
     output.rotation = input[0].rotation;
     //output.normal = normal.xyz;
 
@@ -95,7 +90,7 @@ void geometryMain<M: IMarker>(point VertexOutput input[1],
     for (int i = 0; i < 4; ++i)
     {
         output.pos = center + vertex_offsets[i];
-        output.uv = texcoords[i];
+        output.uv  = texcoords[i];
         stream.Append(output);
     }
 }

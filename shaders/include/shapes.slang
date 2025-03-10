@@ -1,4 +1,5 @@
 #include "arrows.slang"
+import uniforms;
 
 static const float SQRT_2 = 1.4142135623730951;
 
@@ -6,32 +7,34 @@ struct MarkerOffsets
 {
     float4 dx;
     float4 dy;
+    float4 dz;
 };
 
 interface IMarker
 {
-    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 res, float3 ext);
+    MarkerOffsets getVertexOffsets(float size);
 };
 
 struct Marker2D : IMarker
 {
-    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 res, float3 ext)
+    MarkerOffsets getVertexOffsets(float size)
     {
-        float aspect = res.x / res.y;
         MarkerOffsets out;
-        out.dx = vp[0] * (size / ext.x);
-        out.dy = vp[1] * (size / ext.y);
+        out.dx = mvp.all[0] / 2.0 * size;
+        out.dy = mvp.all[1] / 2.0 * size;
+        out.dz = mvp.all[2] / 2.0 * size;
         return out;
     }
 };
 
 struct Marker3D : IMarker
 {
-    MarkerOffsets getVertexOffsets(float4x4 vp, float size, float2 res, float3 ext)
+    MarkerOffsets getVertexOffsets(float size)
     {
         MarkerOffsets out;
-        out.dx = float4(size,0,0,0) / res.x;
-        out.dy = float4(0,size,0,0) / res.y;
+        out.dx = mvp.model[0] / 2.0 * size;
+        out.dy = mvp.model[1] / 2.0 * size;
+        out.dz = mvp.model[2] / 2.0 * size;
         return out;
     }
 };

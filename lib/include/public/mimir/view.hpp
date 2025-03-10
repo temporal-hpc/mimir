@@ -13,11 +13,11 @@ struct Allocation;
 struct Texture;
 
 // Specifies the type of view that will be visualized
-enum class ViewType      { Markers, Edges, Image, Boxes, Voxels };
+enum class ViewType   { Markers, Edges, Image, Boxes, Voxels };
 // Specifies the number of spatial dimensions in the view
-enum class DomainType    { Domain2D, Domain3D };
+enum class DomainType { Domain2D, Domain3D };
 
-enum class FormatKind    { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized, SRGB };
+enum class FormatKind { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized, SRGB };
 
 struct ViewExtent
 {
@@ -30,8 +30,8 @@ struct ViewExtent
 };
 
 // Descriptor structure for interpreting elements contained in an engine allocation.
-// Similar to the ChannelFormatDesc structure in the CUDA SDK, but here it is used to describe
-// vector types in both textures and linear arrays.
+// Similar to the ChannelFormatDesc structure in the CUDA SDK, but used to describe
+// components for both linear arrays and textures.
 struct FormatDescription
 {
     // Kind of numeric data stored in each channel.
@@ -92,6 +92,8 @@ struct ViewDescription
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;
     // Whether the view contents are shown or not during display.
+    // Created views are visible by default, which can be changed at runtime
+    // through the toggleViewVisibility() function.
     bool visible         = true;
     // Default color for elements in the view if no color data is specified.
     float4 default_color = {0.f, 0.f, 0.f, 1.f};

@@ -18,7 +18,7 @@ Camera Camera::make()
         .near_clip      = 0.f,
         .far_clip       = 0.f,
         .updated        = false,
-        .flip_y         = true,
+        .flip_y         = false,
         .matrices       = { .perspective = glm::mat4(), .view = glm::mat4() }
     };
 }

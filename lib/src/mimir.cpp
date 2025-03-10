@@ -42,7 +42,6 @@ void createView(EngineHandle engine, ViewDescription *desc, ViewHandle *handle)
     *handle = engine->createView(desc);
 }
 
-// Switches view state between visible and invisible; does not modify underlying data.
 bool toggleVisibility(ViewHandle view)
 {
     auto& visibility = view->desc.visible;

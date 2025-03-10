@@ -14,19 +14,10 @@ struct VertexOutput
 [shader("vertex")]
 VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
 {
-    float4x4 view_proj = mul(mvp.view, mvp.proj);
-    //float4x4 model_view_proj = mul(view_proj, mvp.model);
-
     VertexOutput output;
-    float4 pos = in_pos.getPosition(scene.extent);
-    output.position = mul(pos, view_proj);
+    float4 pos = in_pos.getPosition({1,1,1});
+    output.position = mul(pos, mvp.all);
     output.color    = in_color.getColor();
-
-    pos = ((pos + 1) / 2);
-    pos.x = pos.x * scene.extent.x;
-    pos.y = pos.y * scene.extent.y;
-    pos.z = pos.z * scene.extent.z;
-    output.pos = pos;
 
     return output;
 }

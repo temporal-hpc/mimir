@@ -1436,9 +1436,10 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
         auto& view = views[view_idx];
 
         ModelViewProjection mvp{
-            .model = view->scale,
+            .model = view->translation * view->rotation * view->scale,
             .view  = camera.matrices.view,
             .proj  = camera.matrices.perspective,
+            .all   = mvp.proj * mvp.view * mvp.model,
         };
 
         auto color = view->desc.default_color;

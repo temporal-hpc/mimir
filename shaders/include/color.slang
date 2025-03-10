@@ -72,3 +72,9 @@ struct ColorInt1 : IColor
         return float4(c, 1);
     }
 };
+
+struct ColorFloat4FromInt : IColor
+{
+    int input : COLOR;
+    float4 getColor() { return colorbuf[input]; }
+};

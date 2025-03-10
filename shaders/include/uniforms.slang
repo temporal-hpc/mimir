@@ -3,6 +3,7 @@ struct ModelViewProjection
     float4x4 model;
     float4x4 view;
     float4x4 proj;
+    float4x4 all;
 };
 
 struct SceneParams
@@ -15,7 +16,7 @@ struct SceneParams
     float4 light_color;
 };
 
-struct ViewParamsOld
+struct ViewParams
 {
     float4 default_color;
     float default_size;
@@ -25,4 +26,6 @@ struct ViewParamsOld
 
 ConstantBuffer<ModelViewProjection> mvp;
 ConstantBuffer<SceneParams> scene;
-ConstantBuffer<ViewParamsOld> view;
+ConstantBuffer<ViewParams> view;
+
+[[vk::binding(5)]] StructuredBuffer<float4> colorbuf;
