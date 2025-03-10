@@ -9,7 +9,7 @@ FetchContent_Declare(vma
 )
 
 # Slang shader lib
-set(SLANG_VERSION 2024.17)
+set(SLANG_VERSION 2025.6.1)
 FetchContent_Declare(
     slang
     URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
@@ -61,7 +61,7 @@ FetchContent_Declare(glm
 # spdlog logging lib
 FetchContent_Declare(spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        8e5613379f5140fefb0b60412fbf1f5406e7c7f8 # v1.15.0
+    GIT_TAG        f355b3d58f7067eee1706ff3c801c2361011f3d5 # v1.15.1
     GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )
@@ -72,7 +72,7 @@ FetchContent_MakeAvailable(vma glfw glm spdlog)
 # Imgui Graphical interface lib
 FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        993fa347495860ed44b83574254ef2a317d0c14f # v1.91.6
+    GIT_TAG        dbb5eeaadffb6a3ba6a60de1290312e5802dba5a # v1.91.8
     GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )

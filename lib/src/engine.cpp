@@ -442,7 +442,8 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
-    spdlog::debug("Allocated {} bytes for interop ({} requested)", size, memreq.size);
+    // The real allocated amount is determined by the memory requirements structure
+    spdlog::debug("Allocated {} bytes for interop ({} requested)", memreq.size, size);
 
     // Export and map the external memory to CUDA
     auto cuda_extmem = interop::importCudaExternalMemory(vk_memory, memreq.size, device);
@@ -480,10 +481,9 @@ FormatDescription getFormatFromCuda(const cudaChannelFormatDesc *desc)
         case cudaChannelFormatKindUnsigned: { kind = FormatKind::Unsigned; break; }
         case cudaChannelFormatKindFloat: default: { kind = FormatKind::Float; break; }
     }
-    // For now, assume that all channels have same size
-    // TODO: Handle case when channels are different
+    // Get channel size in bits, assuming that all channels are the same (for now)
     int size = desc->x / 8;
-    // Assume that a component exists if its size is greater than zero
+    // A channel exists if its size is greater than zero
     int components = (desc->x > 0) + (desc->y > 0) + (desc->z > 0) + (desc->w > 0);
     return { .kind = kind, .size = size, .components = components };
 }
@@ -492,9 +492,9 @@ VkExtent3D getExtentFromCuda(cudaExtent extent)
 {
     return VkExtent3D
     {
-        .width  = extent.width > 0? (uint32_t)extent.width : 1,
+        .width  = extent.width  > 0? (uint32_t)extent.width  : 1,
         .height = extent.height > 0? (uint32_t)extent.height : 1,
-        .depth  = extent.depth > 0? (uint32_t)extent.depth : 1,
+        .depth  = extent.depth  > 0? (uint32_t)extent.depth  : 1,
     };
 }
 
@@ -595,22 +595,22 @@ View *MimirEngine::createView(ViewDescription *desc)
     }
 
     View view{
-        .pipeline   = VK_NULL_HANDLE,
-        .draw_count = desc->element_count,
-        .vb_count   = 0,
-        .vbo        = {VK_NULL_HANDLE},
-        .offsets    = {0},
-        .use_ibo    = false,
-        .ibo        = VK_NULL_HANDLE,
-        .index_type = VK_INDEX_TYPE_NONE_KHR,
-        .tex_count  = 0,
-        .textures   = {},
-        .ssbo_count = 0,
-        .storage    = {VK_NULL_HANDLE},
+        .pipeline    = VK_NULL_HANDLE,
+        .draw_count  = desc->element_count,
+        .vb_count    = 0,
+        .vbo         = {VK_NULL_HANDLE},
+        .offsets     = {0},
+        .use_ibo     = false,
+        .ibo         = VK_NULL_HANDLE,
+        .index_type  = VK_INDEX_TYPE_NONE_KHR,
+        .tex_count   = 0,
+        .textures    = {},
+        .ssbo_count  = 0,
+        .storage     = {VK_NULL_HANDLE},
         .translation = glm::mat4(1.f),
-        .rotation   = glm::mat4(1.f),
-        .scale      = glm::mat4(1.f),
-        .desc       = *desc,
+        .rotation    = glm::mat4(1.f),
+        .scale       = glm::mat4(1.f),
+        .desc        = *desc,
     };
 
     // Create attribute buffers
@@ -671,7 +671,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         else if (type == AttributeType::Position || attr.indices == nullptr)
         {
             VkDeviceSize vb_size = attr.format.getSize() * attr.size; // sizeof(Vertex) * attr.size;
-            spdlog::trace("Position vertex buffer created with {} bytes ({} available)",
+            spdlog::trace("Position vertex buffer created for {} bytes ({} available)",
                 vb_size, attr.source->size
             );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
@@ -684,7 +684,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         else
         {
             VkDeviceSize sb_size = attr.format.getSize() * attr.size;
-            spdlog::trace("Position storage buffer created with {} bytes ({} available)",
+            spdlog::trace("Position storage buffer created for {} bytes ({} available)",
                 sb_size, attr.source->size
             );
             VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -699,7 +699,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         // and as vertex buffers for all other attributes
         VkDeviceMemory memory = attr.indices->vk_mem;
         VkDeviceSize memsize = attr.index_size * desc->element_count;
-        spdlog::trace("Attribute buffer created with {} bytes", memsize);
+        spdlog::trace("Attribute buffer created for {} bytes", memsize);
         if (type == AttributeType::Position)
         {
             VkBufferUsageFlags ib_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
