@@ -9,16 +9,13 @@ Camera Camera::make()
 {
     return Camera{
         .type           = CameraType::LookAt,
-        .rotation       = glm::vec3(),
         .position       = glm::vec3(),
-        .view_pos       = glm::vec4(),
+        .rotation       = glm::vec3(),
         .rotation_speed = 1.f,
         .movement_speed = 1.f,
         .fov            = 0.f,
         .near_clip      = 0.f,
         .far_clip       = 0.f,
-        .updated        = false,
-        .flip_y         = false,
         .matrices       = { .perspective = glm::mat4(), .view = glm::mat4() }
     };
 }
@@ -26,22 +23,13 @@ Camera Camera::make()
 void Camera::updateViewMatrix()
 {
     glm::mat4 rotmat(1.f);
-    auto flip = flip_y? -1.f : 1.f;
-    rotmat = glm::rotate(rotmat, glm::radians(rotation.x * flip), glm::vec3(1.f, 0.f, 0.f));
+    rotmat = glm::rotate(rotmat, glm::radians(rotation.x), glm::vec3(1.f, 0.f, 0.f));
     rotmat = glm::rotate(rotmat, glm::radians(rotation.y), glm::vec3(0.f, 1.f, 0.f));
     rotmat = glm::rotate(rotmat, glm::radians(rotation.z), glm::vec3(0.f, 0.f, 1.f));
 
     glm::vec3 translation = position;
-    if (flip_y)
-    {
-        translation.y *= -1.f;
-    }
-
     glm::mat4 transmat = glm::translate(glm::mat4(1.f), translation);
     matrices.view = (type == CameraType::FirstPerson)? rotmat * transmat : transmat * rotmat;
-
-    view_pos = glm::vec4(position, 0.f) * glm::vec4(-1.f, 1.f, -1.f, 1.f);
-    updated = true;
 }
 
 glm::mat4x4 perspective(float vertical_fov, float aspect_ratio, float near, float far)
@@ -69,21 +57,7 @@ void Camera::setPerspective(float fov, float aspect, float znear, float zfar)
     this->near_clip = znear;
     this->far_clip  = zfar;
 
-    matrices.perspective = glm::perspective(glm::radians(fov), aspect, near_clip, far_clip);
-    if (flip_y)
-    {
-        matrices.perspective[1][1] *= -1.f;
-    }
     matrices.perspective = perspective(fov, aspect, znear, zfar);
-}
-
-void Camera::updateAspectRatio(float aspect)
-{
-    matrices.perspective = glm::perspective(glm::radians(fov), aspect, near_clip, far_clip);
-    if (flip_y)
-    {
-        matrices.perspective[1][1] *= -1.f;
-    }
 }
 
 void Camera::setPosition(glm::vec3 position)
@@ -101,12 +75,6 @@ void Camera::setRotation(glm::vec3 rotation)
 void Camera::rotate(glm::vec3 delta)
 {
     this->rotation += delta;
-    updateViewMatrix();
-}
-
-void Camera::setTranslation(glm::vec3 translation)
-{
-    this->position = translation;
     updateViewMatrix();
 }
 

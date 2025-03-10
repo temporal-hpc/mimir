@@ -42,7 +42,6 @@ Camera defaultCamera(int width, int height)
     auto camera = Camera::make();
     camera.type           = Camera::CameraType::LookAt;
     camera.rotation_speed = 0.5f;
-    camera.flip_y         = true;
     camera.setPosition(glm::vec3(0.f, 0.f, -2.85f));
     camera.setRotation(glm::vec3(0.f, 0.f, 0.f));
     camera.setPerspective(70.f, (float)width / (float)height, 10000.f, 0.1f);
