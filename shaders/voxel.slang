@@ -10,20 +10,12 @@ struct VertexData
     float4 color  : COLOR;
 };
 
-[[vk::binding(5)]] StructuredBuffer<float4> colorbuf;
-
-struct ColorFloat4FromInt : IColor
-{
-    int input : COLOR;
-    float4 getColor() { return colorbuf[input]; }
-};
-
 [shader("vertex")]
 VertexData vertexMain<P : IPosition, C : IColor, S : ISize>(
     P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
 {
     VertexData output;
-    output.center = in_pos.getPosition(scene.extent);
+    output.center = in_pos.getPosition();
     output.color = in_color.getColor();
 
     return output;

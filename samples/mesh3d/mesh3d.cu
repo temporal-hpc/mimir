@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
         .element_count = vertex_count,
         .view_type     = ViewType::Markers,
         .domain_type   = DomainType::Domain3D,
-        .extent        = ViewExtent::make(200,200,200),
+        .extent        = ViewExtent::make(1,1,1),
     };
     desc.attributes[AttributeType::Position] = {
         .source = vertices,

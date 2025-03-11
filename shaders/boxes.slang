@@ -17,7 +17,7 @@ VertexData vertexMain<P : IPosition, C : IColor, S : ISize>(
     float4x4 view_proj = mul(mvp.view, mvp.proj);
 
     VertexData output;
-    float4 pos = in_pos.getPosition(scene.extent);
+    float4 pos = in_pos.getPosition();
     pos.z -= 0.001f;
     output.position = pos; //mul(pos, view_proj);
     output.color = in_color.getColor();

@@ -51,10 +51,8 @@ VertexOutput vertexMain<P: IPosition, C: IColor, S: ISize>(
     OrientationDefault in_angle;
     in_angle.setDefault(0);
 
-    float4 pos = in_pos.getPosition({1,1,1});
-
     VertexOutput output;
-    output.center   = mul(pos, mvp.all);
+    output.center   = mul(in_pos.getPosition(), mvp.all);
     output.color    = in_color.getColor();
     output.size     = in_size.getSize();
     output.rotation = in_angle.getValue();

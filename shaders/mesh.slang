@@ -15,7 +15,7 @@ struct VertexOutput
 VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
 {
     VertexOutput output;
-    float4 pos = in_pos.getPosition({1,1,1});
+    float4 pos = in_pos.getPosition();
     output.position = mul(pos, mvp.all);
     output.color    = in_color.getColor();
 

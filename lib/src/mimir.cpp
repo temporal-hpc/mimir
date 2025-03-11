@@ -4,6 +4,9 @@
 #include "mimir/engine.hpp"
 
 #include <glm/ext/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
 
 namespace mimir
 {
@@ -68,7 +71,9 @@ void translateView(ViewHandle view, float3 pos)
 
 void rotateView(ViewHandle view, float3 rot)
 {
-    //view->model = glm::rotate();
+    glm::vec3 euler_angles{ rot.x, rot.y, rot.z };
+    glm::quat quat(glm::radians(euler_angles));
+    view->rotation = glm::toMat4(quat);
 }
 
 void setCameraPosition(EngineHandle handle, float3 pos)

@@ -77,6 +77,10 @@ void addViewObjectGui(View *view_ptr, int uid)
         {
             translateView(view_ptr, desc.position);
         }
+        if (ImGui::InputFloat3("Rotation", &desc.rotation.x, "%.3f"))
+        {
+            rotateView(view_ptr, desc.rotation);
+        }
         if (ImGui::InputFloat3("Scale", &desc.scale.x, "%.3f"))
         {
             scaleView(view_ptr, desc.scale);
