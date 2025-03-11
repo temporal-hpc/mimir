@@ -32,9 +32,9 @@ struct Marker3D : IMarker
     MarkerOffsets getVertexOffsets(float size)
     {
         MarkerOffsets out;
-        out.dx = mvp.model[0] / 2.0 * size;
-        out.dy = mvp.model[1] / 2.0 * size;
-        out.dz = mvp.model[2] / 2.0 * size;
+        out.dx = float4(size / 2, 0, 0, 0);
+        out.dy = float4(0, size / 2, 0, 0);
+        out.dz = float4(0, 0, size / 2, 0);
         return out;
     }
 };
