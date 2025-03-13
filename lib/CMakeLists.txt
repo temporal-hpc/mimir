@@ -1,3 +1,5 @@
+option(MIMIR_ENABLE_ASAN "Enable address sanitizer (ASAN)")
+
 add_library(mimir STATIC)
 
 target_sources(mimir
@@ -41,7 +43,9 @@ target_include_directories(mimir
 set_property(TARGET mimir PROPERTY CUDA_STANDARD 20)
 set_target_properties(mimir PROPERTIES CUDA_ARCHITECTURES native)
 target_compile_features(mimir PUBLIC cxx_std_20)
-target_compile_options(mimir PRIVATE -Wall -Wextra
+target_compile_options(mimir PRIVATE
+    -Wall -Wextra
+    "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"
     "$<$<CONFIG:Debug>:-g>"
     "$<$<CONFIG:Release>:-O3>"
 )
@@ -53,6 +57,7 @@ target_link_libraries(mimir
         Vulkan::Vulkan CUDA::cudart
     PRIVATE
         slang glm::glm glfw imgui-app spdlog::spdlog # GPUOpen::VulkanMemoryAllocator
+        "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"
 )
 
 install(
