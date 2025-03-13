@@ -9,33 +9,38 @@ FetchContent_Declare(vma
 )
 
 # Slang shader lib
-set(SLANG_VERSION 2025.6.1)
-FetchContent_Declare(
-    slang
-    URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
-)
-FetchContent_MakeAvailable(slang)
-# Add imported target containing the precompiled shared library
-add_library(slang UNKNOWN IMPORTED)
-set_target_properties(slang PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES ${slang_SOURCE_DIR}/include
-    IMPORTED_LOCATION ${slang_SOURCE_DIR}/lib/libslang.so
-)
-
-# set(SLANG_ENABLE_GFX        OFF)
-# set(SLANG_ENABLE_SLANGD     OFF)
-# set(SLANG_ENABLE_SLANGRT    OFF)
-# set(SLANG_ENABLE_TESTS      OFF)
-# set(SLANG_ENABLE_EXAMPLES   OFF)
-# set(SLANG_ENABLE_REPLAYER   OFF)
-# set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
-# FetchContent_Declare(slang
-#     GIT_REPOSITORY https://github.com/shader-slang/slang.git
-#     GIT_TAG        e6cf93e3e638cb981a9be392a2f48ea06acd4e3f # v2024.14.6
-#     GIT_SHALLOW    ON
-#     FIND_PACKAGE_ARGS
-# )
-# FetchContent_MakeAvailable(slang)
+if(MIMIR_BUILD_SLANG)
+    message("Building slang from source")
+    set(SLANG_ENABLE_GFX        OFF)
+    set(SLANG_ENABLE_SLANGD     OFF)
+    set(SLANG_ENABLE_SLANGRT    OFF)
+    set(SLANG_ENABLE_TESTS      OFF)
+    set(SLANG_ENABLE_EXAMPLES   OFF)
+    set(SLANG_ENABLE_REPLAYER   OFF)
+    set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
+    FetchContent_Declare(slang
+        GIT_REPOSITORY https://github.com/shader-slang/slang.git
+        GIT_TAG        a09d554721ecf0c6d967d5f55b3416e3284e71f2 # v2025.6.1
+        GIT_SHALLOW    ON
+        FIND_PACKAGE_ARGS
+    )
+    FetchContent_MakeAvailable(slang)
+    # Add slang install target manually, since FetchContent does not export targets
+    install(TARGETS slang EXPORT MimirTargets)
+else()
+    set(SLANG_VERSION 2025.6.1)
+    message("Using slang release ${SLANG_VERSION}")
+    FetchContent_Declare(slang
+        URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
+    )
+    FetchContent_MakeAvailable(slang)
+    # Add imported target containing the precompiled shared library
+    add_library(slang UNKNOWN IMPORTED)
+    set_target_properties(slang PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES ${slang_SOURCE_DIR}/include
+        IMPORTED_LOCATION ${slang_SOURCE_DIR}/lib/libslang.so
+    )
+endif()
 
 # GLFW windowing lib
 set(GLFW_BUILD_EXAMPLES OFF)

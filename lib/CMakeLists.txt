@@ -1,5 +1,3 @@
-option(MIMIR_ENABLE_ASAN "Enable address sanitizer (ASAN)")
-
 add_library(mimir STATIC)
 
 target_sources(mimir
