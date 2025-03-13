@@ -1,14 +1,13 @@
 find_package(CUDAToolkit REQUIRED)
 include(FetchContent)
 
-FetchContent_Declare(imgui_file_dialog
-    GIT_REPOSITORY https://github.com/aiekick/ImGuiFileDialog.git
-    GIT_TAG        f73e29fca08163fdcbd1e58fb7b67c7e56f5fa2e # v0.6.7
+FetchContent_Declare(nfd
+    GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
+    GIT_TAG        86d5f2005fe1c00747348a12070fec493ea2407e # v1.2.1
     GIT_SHALLOW    ON
     FIND_PACKAGE_ARGS
 )
-FetchContent_MakeAvailable(imgui_file_dialog)
-target_link_libraries(ImGuiFileDialog imgui-app)
+FetchContent_MakeAvailable(nfd)
 
 add_library(cleap STATIC)
 # Compile cleap.cc with nvcc, so that the compiler can find vector_types.h
@@ -22,4 +21,4 @@ set_target_properties(tiuque PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
 )
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)
-target_link_libraries(tiuque PRIVATE samples_common cleap ImGuiFileDialog)
+target_link_libraries(tiuque PRIVATE samples_common cleap imgui-app nfd)

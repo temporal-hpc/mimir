@@ -34,11 +34,17 @@ for additional command-line settings.
 Additional options can be passed with `-D` at the build-system generation step.
 The following options are currently provided:
 
-`MIMIR_ENABLE_ASAN`:
+* `CMAKE_BUILD_TYPE` (default `Release`):
+Allows selecting the library type to compile. Currently `Debug` and `Release` modes are supported.
+* `MIMIR_ENABLE_ASAN` (default OFF):
 Enables the address sanitizer [(ASan)](https://github.com/google/sanitizers/wiki/addresssanitizer)
 for debugging (slow!). When this option is on, `ASAN_OPTIONS=protect_shadow_gap=0` must be passed
 to any program that links to this library to avoid crashed due to interactions with CUDA
 [(source)](https://github.com/google/sanitizers/issues/629).
+* `MIMIR_BUILD_SLANG` (default OFF):
+Compiles the slang library from source for linking with Mìmir instead of using a prebuilt release.
+This is slower and more error-prone compared to using the precompiled release,
+and historically was used only for debugging slang library calls.
 
 ## Installing
 

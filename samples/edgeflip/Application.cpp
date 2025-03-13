@@ -27,7 +27,7 @@
 #include "Application.h"
 
 #include <imgui.h>
-#include <ImGuiFileDialog.h>
+#include <nfd.h> // native file dialog
 #include <iostream>
 
 #include "validation.hpp" // checkCuda
@@ -44,8 +44,11 @@ Application::Application(){
     viewer_opts.background_color      = {0.f,0.f,0.f,1.f};
     createEngine(viewer_opts, &engine);
 
+    // Initialize native file dialog lib
+    NFD_Init();
+
     // TODO: Fix dptr in kernels
-	this->myMesh = new Mesh("/home/francisco/Downloads/meshes/chica4.off");
+	this->myMesh = new Mesh("../files_cudaview/meshes/chica4.off");
     auto m = this->myMesh->my_cleap_mesh;
 
     // NOTE: Cudaview code
@@ -92,6 +95,7 @@ Application::Application(){
 }
 
 Application::~Application(){
+    NFD_Quit();
     destroyEngine(engine);
 }
 
@@ -193,7 +197,27 @@ void Application::init()
             {
                 if (ImGui::MenuItem("Open Mesh", "Ctrl+O"))
                 {
-                    ImGuiFileDialog::Instance()->OpenDialog("LoadFileDialog", "Load mesh", ".off");
+                    nfdu8char_t *mesh_path;
+                    nfdu8filteritem_t filters[1] = { { "Mesh files", ".obj" } };
+                    nfdopendialogu8args_t args = {0};
+                    args.filterList  = filters;
+                    args.filterCount = 1;
+                    nfdresult_t result = NFD_OpenDialogU8_With(&mesh_path, &args);
+                    if (result == NFD_OKAY)
+                    {
+                        printf("Opening mesh file %s\n", mesh_path);
+                        load_mesh(mesh_path);
+                        NFD_FreePathU8(mesh_path);
+                    }
+                    else if (result == NFD_CANCEL)
+                    {
+                        printf("Cancelled open dialog\n");
+                    }
+                    else
+                    {
+                        printf("Load file error: %s\n", NFD_GetError());
+                    }
+                    //ImGuiFileDialog::Instance()->OpenDialog("LoadFileDialog", "Load mesh", ".off");
                 }
                 if (ImGui::MenuItem("Save", "Ctrl+S"))
                 {
@@ -201,7 +225,27 @@ void Application::init()
                 }
                 if (ImGui::MenuItem("Save As.."))
                 {
-                    ImGuiFileDialog::Instance()->OpenDialog("SaveFileDialog", "Save mesh", ".off");
+                    nfdu8char_t *mesh_path;
+                    nfdu8filteritem_t filters[1] = { { "Mesh files", ".obj" } };
+                    nfdsavedialogu8args_t args = {0};
+                    args.filterList  = filters;
+                    args.filterCount = 1;
+                    nfdresult_t result = NFD_SaveDialogU8_With(&mesh_path, &args);
+                    if (result == NFD_OKAY)
+                    {
+                        printf("Saving mesh file %s\n", mesh_path);
+                        save_mesh(mesh_path);
+                        NFD_FreePathU8(mesh_path);
+                    }
+                    else if (result == NFD_CANCEL)
+                    {
+                        printf("Cancelled save dialog\n");
+                    }
+                    else
+                    {
+                        printf("Save file error: %s\n", NFD_GetError());
+                    }
+                    //ImGuiFileDialog::Instance()->OpenDialog("SaveFileDialog", "Save mesh", ".off");
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Quit", "Alt+F4"))
@@ -231,24 +275,6 @@ void Application::init()
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
-        }
-        if (ImGuiFileDialog::Instance()->Display("LoadFileDialog"))
-        {
-            if (ImGuiFileDialog::Instance()->IsOk())
-            {
-                std::string filename = ImGuiFileDialog::Instance()->GetFilePathName();
-                load_mesh(filename.c_str());
-            }
-            ImGuiFileDialog::Instance()->Close();
-        }
-        if (ImGuiFileDialog::Instance()->Display("SaveFileDialog"))
-        {
-            if (ImGuiFileDialog::Instance()->IsOk())
-            {
-                std::string filename = ImGuiFileDialog::Instance()->GetFilePathName();
-                save_mesh(filename.c_str());
-            }
-            ImGuiFileDialog::Instance()->Close();
         }
     });
     displayAsync(engine);
