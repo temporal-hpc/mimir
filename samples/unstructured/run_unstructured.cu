@@ -93,7 +93,8 @@ int main(int argc, char *argv[])
                 .indices    = nullptr,
                 .index_size = 0,
             }},
-        }
+        },
+        .scale = { 0.5f, 0.5f, 0.5f },
     };
     createView(engine, &desc, &view);
 
@@ -113,6 +114,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
+    setCameraPosition(engine, {-100.f, -100.f, -150.f});
     display(engine, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
