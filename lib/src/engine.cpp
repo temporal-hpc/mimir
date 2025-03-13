@@ -1,4 +1,5 @@
 #include "mimir/engine.hpp"
+#include "mimir/mimir.hpp"
 
 #include "mimir/api.hpp"
 #include "mimir/framelimit.hpp"
@@ -612,6 +613,10 @@ View *MimirEngine::createView(ViewDescription *desc)
         .scale       = glm::mat4(1.f),
         .desc        = *desc,
     };
+
+    translateView(&view, desc->position);
+    rotateView(&view, desc->rotation);
+    scaleView(&view, desc->scale);
 
     // Create attribute buffers
     for (auto &[type, attr] : desc->attributes)

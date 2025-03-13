@@ -1,5 +1,6 @@
 #include <cooperative_groups.h> // cooperative_groups::{sync, this_thread_block}
-#include <random> //
+#include <iostream>
+#include <random>
 #include <string> // std::stoul
 
 #include <mimir/mimir.hpp>
@@ -363,7 +364,7 @@ int main(int argc, char *argv[])
     int target_fps           = 0;
     bool enable_sync         = true;
     bool use_interop         = true;
-    NBodyParams params       = demo_params[0];
+    NBodyParams params       = demo_params[3];
 
     // Parse parameters from command line
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
@@ -425,16 +426,16 @@ int main(int argc, char *argv[])
                     .index_size = 0,
                 }}
             },
-            .visible      = true,
-            .default_size = params.point_size * 100,
+            .visible       = true,
+            .default_color = {1.f, 1.f, 1.f, 1.f},
+            .default_size  = params.point_size / 2.f,
+            .scale         = {1.f, 1.f, 1.f},
         };
         createView(engine, &desc, &views[0]);
-        setViewDefaultColor(views[0], {1.f, 1.f, 1.f, 1.f});
 
         desc.visible = false;
         desc.attributes[AttributeType::Position].source = allocs[1];
         createView(engine, &desc, &views[1]);
-        setViewDefaultColor(views[1], {1.f, 1.f, 1.f, 1.f});
     }
     else // Run the simulation without display
     {
@@ -446,7 +447,7 @@ int main(int argc, char *argv[])
     unsigned int current_read  = 0;
     unsigned int current_write = 1;
 
-    NBodyConfig config = NBodyConfig::Random;
+    NBodyConfig config = NBodyConfig::Shell;
     setSofteningSquared(params.softening);
     float *h_pos = new float[body_count * 4];
     float *h_vel = new float[body_count * 4];
@@ -457,8 +458,10 @@ int main(int argc, char *argv[])
     delete[] h_vel;
 
     // Start display and measurements
+    setCameraPosition(engine, {1.f, 1.f, -3.f});
     GPUPowerBegin("gpu", 100);
     if (display) displayAsync(engine);
+    std::cin.get();
 
     // Main simulation loop
     for (int i = 0; i < iter_count; ++i)
