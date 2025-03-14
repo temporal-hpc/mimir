@@ -189,19 +189,23 @@ int main(int argc, char *argv[])
     };
     desc.default_size  = 10.f;
     desc.default_color = {0,0,1,1};
+    desc.position      = {-50.f, -50.f, 0.f};
+    desc.scale         = {0.1f, 0.1f, 0.1f};
     createView(engine, &desc, &v1);
 
     desc.element_count = extent.x * extent.y;
     desc.view_type     = ViewType::Voxels;
-    desc.attributes[AttributeType::Position] =
-        makeStructuredGrid(engine, desc.extent, {0.f,0.f,0.4999f});
+    desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.extent);
     desc.attributes[AttributeType::Color] = {
         .source = field,
         .size   = desc.element_count,
         .format = FormatDescription::make<float>(),
     };
-    desc.default_size  = 1.f;
+    desc.default_size  = 1000.f;
+    desc.position      = {-50.f, -50.f, 0.49f};
     createView(engine, &desc, &v2);
+
+    setCameraPosition(engine, {0.f, 0.f, -100.f});
 
     //checkCuda(cudaMalloc(&_d_distances, dist_size));
     //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * element_count));
