@@ -77,7 +77,6 @@ int main(int argc, char *argv[])
         .element_count = point_count,
         .view_type     = ViewType::Markers,
         .domain_type   = DomainType::Domain2D,
-        .extent        = ViewExtent::make(200, 200, 1),
         .attributes    = {
             { AttributeType::Position, {
                 .source     = points,

@@ -62,7 +62,6 @@ Application::Application(){
     ViewDescription desc;
     desc.element_count = cleap_get_vertex_count(m);
     desc.domain_type   = DomainType::Domain3D;
-    desc.extent        = ViewExtent::make(1,1,1);
     desc.view_type     = ViewType::Markers;
     desc.visible       = false;
     desc.attributes[AttributeType::Position] = {

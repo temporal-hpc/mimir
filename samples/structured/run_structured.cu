@@ -9,7 +9,7 @@ using namespace mimir;
 constexpr float max_distance = std::numeric_limits<float>::max();
 
 __device__
-float4 jumpFloodStep(float2 coord, float4 *seeds, int step_length, int2 extent)
+float4 jumpFloodStep(float2 coord, float4 *seeds, int step_length, uint2 extent)
 {
     float best_dist = max_distance;
     float2 best_coord = make_float2(-1.f, -1.f);
@@ -37,7 +37,7 @@ float4 jumpFloodStep(float2 coord, float4 *seeds, int step_length, int2 extent)
 }
 
 __global__
-void kernelJfa(float4 *result, float4 *seeds, const int2 extent, int step_length)
+void kernelJfa(float4 *result, float4 *seeds, const uint2 extent, int step_length)
 {
     const int tx = blockDim.x * blockIdx.x + threadIdx.x;
     const int ty = blockDim.y * blockIdx.y + threadIdx.y;
@@ -50,7 +50,7 @@ void kernelJfa(float4 *result, float4 *seeds, const int2 extent, int step_length
 }
 
 __global__
-void kernelDistanceTransform(float *distances, float4 *seeds, int2 extent)
+void kernelDistanceTransform(float *distances, float4 *seeds, uint2 extent)
 {
     const int tx = blockDim.x * blockIdx.x + threadIdx.x;
     const int ty = blockDim.y * blockIdx.y + threadIdx.y;
@@ -62,7 +62,7 @@ void kernelDistanceTransform(float *distances, float4 *seeds, int2 extent)
     }
 }
 
-void jumpFlood(float *distances, float4 *seeds[], int2 extent)
+void jumpFlood(float *distances, float4 *seeds[], uint2 extent)
 {
     dim3 threads(32, 32);
     dim3 blocks( (extent.x + threads.x - 1) / threads.x,
@@ -89,7 +89,7 @@ void kernelSetNonSeeds(float4 *seeds, int seed_count)
 }
 
 __global__
-void kernelSetSeeds(float4 *seeds, float *raw_coords, int coord_count, int2 extent)
+void kernelSetSeeds(float4 *seeds, float *raw_coords, int coord_count, uint2 extent)
 {
     int tx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -105,7 +105,7 @@ void kernelSetSeeds(float4 *seeds, float *raw_coords, int coord_count, int2 exte
 }
 
 void initJumpFlood(float4 *d_seeds, float *d_coords, int coord_count,
-    int2 extent)
+    uint2 extent)
 {
     dim3 threads{128};
     dim3 blocks1{ (extent.x * extent.y + threads.x - 1) / threads.x};
@@ -118,7 +118,7 @@ void initJumpFlood(float4 *d_seeds, float *d_coords, int coord_count,
 }
 
 __global__ void initSystem(float *coords, size_t particle_count,
-    curandState *global_states, int2 extent, unsigned seed)
+    curandState *global_states, uint2 extent, unsigned seed)
 {
     auto particles = reinterpret_cast<float2*>(coords);
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -140,7 +140,7 @@ __device__ float clamp(float x, float low, float high)
 }
 
 __global__ void integrate2d(float *coords, size_t particle_count,
-    curandState *global_states, int2 extent)
+    curandState *global_states, uint2 extent)
 {
     auto particles = reinterpret_cast<float2*>(coords);
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
     float *d_coords       = nullptr;
     float4 *d_grid[2]     = {nullptr, nullptr};
     curandState *d_states = nullptr;
-    int2 extent           = {512, 512};
+    uint2 extent          = {512, 512};
 
     unsigned seed_count = 100;
     size_t iter_count = 10000;
@@ -181,7 +181,6 @@ int main(int argc, char *argv[])
     desc.element_count = seed_count;
     desc.view_type     = ViewType::Markers;
     desc.domain_type   = DomainType::Domain2D;
-    desc.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
     desc.attributes[AttributeType::Position] = {
         .source = seeds,
         .size   = seed_count,
@@ -195,14 +194,14 @@ int main(int argc, char *argv[])
 
     desc.element_count = extent.x * extent.y;
     desc.view_type     = ViewType::Voxels;
-    desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.extent);
+    desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, {extent.x, extent.y, 1});
     desc.attributes[AttributeType::Color] = {
         .source = field,
         .size   = desc.element_count,
         .format = FormatDescription::make<float>(),
     };
     desc.default_size  = 1000.f;
-    desc.position      = {-50.f, -50.f, 0.49f};
+    desc.position      = {-50.f, -50.f, 0.f};
     createView(engine, &desc, &v2);
 
     setCameraPosition(engine, {0.f, 0.f, -100.f});

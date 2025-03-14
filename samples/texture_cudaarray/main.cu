@@ -235,7 +235,7 @@ int main(int argc, char *argv[])
     TextureDescription tex{
         .source = mipmap,
         .format = FormatDescription::make<uchar4>(),
-        .extent = ViewExtent::make(img_width, img_height, 1),
+        .extent = {img_width, img_height, 1},
         .levels = static_cast<unsigned int>(mip_levels),
     };
     copyTextureData(engine, tex, img_data, sizeof(char4) * img_width * img_height);
@@ -245,7 +245,6 @@ int main(int argc, char *argv[])
         .element_count = 6,
         .view_type     = ViewType::Image,
         .domain_type   = DomainType::Domain2D,
-        .extent        = tex.extent,
         .attributes    = {
             { AttributeType::Position, makeImageFrame(engine) },
             { AttributeType::Color, {

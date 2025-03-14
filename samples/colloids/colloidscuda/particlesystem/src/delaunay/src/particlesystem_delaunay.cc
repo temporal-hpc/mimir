@@ -197,10 +197,9 @@ void ParticleSystemDelaunay::loadOnDevice()
 
     ViewDescription vp;
     vp.element_count = params_.num_elements;
-    vp.extent        = {l, l, 1};
     vp.domain_type   = DomainType::Domain2D;
     vp.view_type     = ViewType::Markers;
-	vp.default_size  = vp.extent.x / l;
+	vp.default_size  = 1.f;
     vp.attributes[AttributeType::Position] =
 	{
 		.source  = interop[current_read],
@@ -233,7 +232,6 @@ void ParticleSystemDelaunay::loadOnDevice()
 
     ViewDescription vpe;
     vpe.element_count = delaunay_.num_triangles * 3;
-    vpe.extent        = {l, l, 1};
     vpe.domain_type   = DomainType::Domain2D;
     vpe.view_type     = ViewType::Edges;
     vpe.attributes[AttributeType::Position] =

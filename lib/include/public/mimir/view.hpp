@@ -19,16 +19,6 @@ enum class DomainType { Domain2D, Domain3D };
 
 enum class FormatKind { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized, SRGB };
 
-struct ViewExtent
-{
-    unsigned int x, y, z;
-
-    static ViewExtent make(unsigned int x, unsigned int y, unsigned int z)
-    {
-        return { .x = x, .y = y, .z = z };
-    }
-};
-
 // Descriptor structure for interpreting elements contained in an engine allocation.
 // Similar to the ChannelFormatDesc structure in the CUDA SDK, but used to describe
 // components for both linear arrays and textures.
@@ -73,7 +63,8 @@ struct TextureDescription
     Allocation *source;
     // Format description for texels.
     FormatDescription format;
-    ViewExtent extent;
+    // Texture size in texels.
+    uint3 extent;
     // Number of mipmap levels stored in the texture.
     unsigned int levels;
 };
@@ -87,8 +78,6 @@ struct ViewDescription
     ViewType view_type;
     // Determines whether to draw 2D or 3D elements for the given view type.
     DomainType domain_type;
-    // Spatial extent of the positions represented in the view.
-    ViewExtent extent;
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;
     // Whether the view contents are shown or not during display.

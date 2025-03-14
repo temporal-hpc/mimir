@@ -263,7 +263,7 @@ constexpr VkIndexType getIndexBufferType(int bytesize)
     }
 }
 
-void initGridCoords(float3 *data, ViewExtent size, float3 start)
+void initGridCoords(float3 *data, uint3 size, float3 start)
 {
     auto slice_size = size.x * size.y;
     for (uint32_t z = 0; z < size.z; ++z)
@@ -281,7 +281,7 @@ void initGridCoords(float3 *data, ViewExtent size, float3 start)
     }
 }
 
-AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 start)
+AttributeDescription MimirEngine::makeStructuredGrid(uint3 size, float3 start)
 {
     assert(size.x > 0 || size.y > 0 || size.z > 0);
     auto memsize = sizeof(float3) * size.x * size.y * size.z;
@@ -299,7 +299,13 @@ AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 sta
     vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
     initGridCoords(data, size, start);
     vkUnmapMemory(device, vk_memory);
-    auto grid_alloc = new Allocation({AllocationType::Linear, memreq.size, vk_memory, nullptr});
+    auto grid_alloc = new Allocation({
+        .type        = AllocationType::Linear,
+        .size        = memreq.size,
+        .extent      = size,
+        .vk_mem      = vk_memory,
+        .cuda_extmem = nullptr
+    });
     deletors.context.add([=,this]{ delete grid_alloc; });
 
     // Add deletors to queue for later cleanup
@@ -340,7 +346,13 @@ AttributeDescription MimirEngine::makeImageDomain()
     auto available = physical_device.memory.memoryProperties;
     auto vbo_mem = allocateMemory(device, available, memreq, flags);
     validation::checkVulkan(vkBindBufferMemory(device, vbo, vbo_mem, 0));
-    auto vbo_alloc = new Allocation({AllocationType::Linear, memreq.size, vbo_mem, nullptr});
+    auto vbo_alloc = new Allocation({
+        .type        = AllocationType::Linear,
+        .size        = memreq.size,
+        .extent      = { 1, 1, 0 },
+        .vk_mem      = vbo_mem,
+        .cuda_extmem = nullptr
+    });
 
     auto ibo = createBuffer(device, ids_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
     vkGetBufferMemoryRequirements(device, ibo, &memreq);
@@ -348,7 +360,13 @@ AttributeDescription MimirEngine::makeImageDomain()
     flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto ibo_mem = allocateMemory(device, available, memreq, flags);
     validation::checkVulkan(vkBindBufferMemory(device, ibo, ibo_mem, 0));
-    auto ibo_alloc = new Allocation({AllocationType::Linear, memreq.size, ibo_mem, nullptr});
+    auto ibo_alloc = new Allocation({
+        .type        = AllocationType::Linear,
+        .size        = memreq.size,
+        .extent      = { 0, 0, 0 },
+        .vk_mem      = ibo_mem,
+        .cuda_extmem = nullptr
+    });
 
     // Init image quad coords and indices
     char *vert_data = nullptr;
@@ -504,7 +522,7 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
 {
     auto format = getFormatFromCuda(desc);
     ImageParams img_params{
-        .type   = getImageType(ViewExtent::make(extent.width, extent.height, extent.depth)),
+        .type   = getImageType(uint3{extent.width, extent.height, extent.depth}),
         .format = getVulkanFormat(format),
         .extent = getExtentFromCuda(extent),
         .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -542,7 +560,13 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
     });
     vkDestroyImage(device, query_img, nullptr);
 
-    auto alloc = Allocation{AllocationType::Opaque, memreq.size, vk_memory, cuda_extmem};
+    auto alloc = Allocation{
+        .type        = AllocationType::Opaque,
+        .size        = memreq.size,
+        .extent      = { extent.width, extent.height, extent.depth },
+        .vk_mem      = vk_memory,
+        .cuda_extmem = cuda_extmem
+    };
     cudaExternalMemoryMipmappedArrayDesc array_desc{
         .offset     = 0,
         .formatDesc = *desc,
@@ -625,9 +649,9 @@ View *MimirEngine::createView(ViewDescription *desc)
         if (type == AttributeType::Color && desc->view_type == ViewType::Image)
         {
             ImageParams params{
-                .type   = getImageType(desc->extent),
+                .type   = getImageType(attr.source->extent),
                 .format = getVulkanFormat(attr.format),
-                .extent = getVulkanExtent(desc->extent),
+                .extent = getVulkanExtent(attr.source->extent),
                 .tiling = getImageTiling(attr.source->type),
                 .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 .levels = 1,
@@ -1455,10 +1479,8 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
         };
 
         auto bg = options.background_color;
-        auto extent = view->desc.extent;
         SceneUniforms su{
             .background_color = glm::vec4(bg.x, bg.y, bg.z, bg.w),
-            .extent           = glm::ivec3{extent.x, extent.y, extent.z},
             .resolution       = glm::ivec2{options.window.size.x, options.window.size.y},
             .camera_pos       = camera.position,
             .light_pos        = glm::vec3(0,0,0),

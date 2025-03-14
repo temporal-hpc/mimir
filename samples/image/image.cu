@@ -38,7 +38,6 @@ int main(int argc, char *argv[])
         .element_count = 6, //static_cast<unsigned int>(width * height),
         .view_type     = ViewType::Image,
         .domain_type   = DomainType::Domain2D,
-        .extent        = ViewExtent::make(width, height, 1),
         .attributes    = {
             {AttributeType::Position, makeImageFrame(engine)},
             {AttributeType::Color, AttributeDescription{

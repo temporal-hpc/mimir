@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 
 #include <type_traits>
+#include <iostream>
 
 namespace mimir
 {
@@ -22,9 +23,10 @@ VkImageTiling getImageTiling(AllocationType type)
 
 // Derive Vulkan image type from the view extent dimensions,
 // assuming that a dimension exists if its size is greater than 1.
-VkImageType getImageType(ViewExtent extent)
+VkImageType getImageType(uint3 extent)
 {
     int dim_count = (extent.x > 1) + (extent.y > 1) + (extent.z > 1);
+    printf("IMAGE TYPE %d %d %d %d\n", extent.x, extent.y, extent.z, dim_count);
     switch (dim_count)
     {
         case 1: { return VK_IMAGE_TYPE_1D; }
@@ -33,7 +35,7 @@ VkImageType getImageType(ViewExtent extent)
     }
 }
 
-VkExtent3D getVulkanExtent(ViewExtent extent)
+VkExtent3D getVulkanExtent(uint3 extent)
 {
     return VkExtent3D
     {

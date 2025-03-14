@@ -145,15 +145,13 @@ void allocate_arrays(Setup *setup){
     allocLinear(setup->engine, (void**)&setup->gpu_vd_dists, dist_size, &dist_colors);
 
     ViewHandle v1 = nullptr, v2 = nullptr, v3 = nullptr, v4 = nullptr;
-    auto extent = ViewExtent::make(n, n, 1);
     ViewDescription desc_grid{
         .element_count = n * n,
         .view_type     = ViewType::Voxels,
         .domain_type   = DomainType::Domain2D,
-        .extent        = extent,
     };
     desc_grid.attributes[AttributeType::Position] =
-        makeStructuredGrid(setup->engine, extent, {0.f,0.f,0.4999f});
+        makeStructuredGrid(setup->engine, {n, n, 1}, {0.f,0.f,0.4999f});
     desc_grid.attributes[AttributeType::Color] = {
         .source = grid_colors,
         .size   = n * n,
@@ -183,7 +181,6 @@ void allocate_arrays(Setup *setup){
         .element_count = (uint)setup->S,
         .view_type     = ViewType::Markers,
         .domain_type   = DomainType::Domain2D,
-        .extent        = {n, n, 1},
     };
     desc_seeds.attributes[AttributeType::Position] = {
         .source = seeds,

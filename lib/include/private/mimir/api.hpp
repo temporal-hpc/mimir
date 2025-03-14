@@ -20,6 +20,8 @@ struct Allocation
     AllocationType type;
     // Allocation memory size in bytes.
     VkDeviceSize size;
+    // Extent used for allocations with multi-dimensional layouts.
+    uint3 extent;
     // Vulkan external device memory handle.
     VkDeviceMemory vk_mem;
     // Cuda external memory handle, provided by the Cuda interop API.
@@ -137,11 +139,11 @@ constexpr char* getDataType(FormatDescription desc)
     }
 }
 
-VkExtent3D getVulkanExtent(ViewExtent extent);
+VkExtent3D getVulkanExtent(uint3 extent);
 
 VkFormat getVulkanFormat(FormatDescription desc);
 
-VkImageType getImageType(ViewExtent extent);
+VkImageType getImageType(uint3 extent);
 
 VkImageTiling getImageTiling(AllocationType type);
 

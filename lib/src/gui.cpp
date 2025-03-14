@@ -16,7 +16,7 @@
 namespace mimir::gui
 {
 
-std::string getExtent(ViewExtent ext, DomainType domain)
+std::string getExtent(uint3 ext, DomainType domain)
 {
     switch (domain)
     {
@@ -92,7 +92,6 @@ void addViewObjectGui(View *view_ptr, int uid)
             addTableRow("View type",     getViewType(desc.view_type));
             addTableRow("Element count", std::to_string(desc.element_count));
             addTableRow("Domain type",   getDomainType(desc.domain_type));
-            addTableRow("Domain extent", getExtent(desc.extent, desc.domain_type));
             ImGui::EndTable();
         }
         for (const auto &[type, attr] : desc.attributes)

@@ -639,7 +639,6 @@ int main(void)
 	ViewHandle v1 = nullptr;
     ViewDescription desc;
     desc.element_count = L * L;
-    desc.extent        = {(unsigned)L, (unsigned)L, 1};
     desc.domain_type   = DomainType::Domain2D;
     desc.view_type     = ViewType::Voxels;
 	desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, {L,L,1});

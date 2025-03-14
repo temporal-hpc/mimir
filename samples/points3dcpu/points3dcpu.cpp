@@ -99,7 +99,6 @@ int main(int argc, char *argv[])
         ViewDescription desc;
         desc.element_count = point_count;
         desc.domain_type   = DomainType::Domain3D;
-        desc.extent        = ViewExtent::make(200,200,200);
         desc.view_type     = ViewType::Markers;
         desc.attributes[AttributeType::Position] = {
             .source = points,

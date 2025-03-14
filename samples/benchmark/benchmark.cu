@@ -416,7 +416,6 @@ int main(int argc, char *argv[])
             .element_count = body_count,
             .view_type     = ViewType::Markers,
             .domain_type   = DomainType::Domain3D,
-            .extent        = {1, 1, 1},
             .attributes    = {
                 { AttributeType::Position, {
                     .source = allocs[0],
