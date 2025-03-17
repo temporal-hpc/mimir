@@ -53,10 +53,10 @@ void integrate3d(std::span<float3> coords, RNG& rng, uint3 extent)
 
 int main(int argc, char *argv[])
 {
-    float *d_coords       = nullptr;
-    unsigned block_size   = 256;
-    unsigned seed         = 123456;
-    uint3 extent          = {200, 200, 200};
+    float *d_coords     = nullptr;
+    unsigned block_size = 256;
+    unsigned seed       = 123456;
+    uint3 extent        = {200, 200, 200};
 
     // Default values for this program
     int width = 1920;
@@ -100,6 +100,7 @@ int main(int argc, char *argv[])
         desc.layout      = Layout::make(point_count);
         desc.domain_type = DomainType::Domain3D;
         desc.view_type   = ViewType::Markers;
+        desc.scale       = {0.1f, 0.1f, 0.1f};
         desc.attributes[AttributeType::Position] = {
             .source = points,
             .size   = point_count,
@@ -119,6 +120,7 @@ int main(int argc, char *argv[])
     auto memsize = sizeof(float3) * point_count;
     checkCuda(cudaMemcpy(d_coords, coords.data(), memsize, cudaMemcpyHostToDevice));
 
+    setCameraPosition(engine, {-15.f, -20.f, -70.f});
     printf("%s,%u,", "host", point_count);
     GPUPowerBegin("gpu", 100);
     if (display) displayAsync(engine);
