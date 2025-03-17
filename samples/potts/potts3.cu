@@ -643,11 +643,14 @@ int main(void)
     desc.view_type   = ViewType::Voxels;
 	desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, {L,L,1});
     desc.attributes[AttributeType::Color] = {
-		.source     = colormap,
-		.size       = num_colors,
-		.format     = FormatDescription::make<float4>(),
-		.indices    = m1,
-		.index_size = sizeof(int),
+		.source   = colormap,
+		.size     = num_colors,
+		.format   = FormatDescription::make<float4>(),
+		.indexing = {
+			.source     = m1,
+			.size       = L * L,
+			.index_size = sizeof(int),
+		}
 	};
 	desc.default_size = 1.f;
 	createView(engine, &desc, &v1);

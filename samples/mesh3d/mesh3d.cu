@@ -48,6 +48,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
     uint32_t vertex_count = mesh.vertices.size();
+    uint32_t triangle_count = mesh.triangles.size();
 
     ViewerOptions options;
     options.window.size      = {1920,1080}; // Starting window size
@@ -61,7 +62,7 @@ int main(int argc, char *argv[])
 
     AllocHandle vertices = nullptr, edges = nullptr;
     auto vert_size = sizeof(float3) * vertex_count;
-    auto edge_size = sizeof(uint) * mesh.triangles.size();
+    auto edge_size = sizeof(uint) * triangle_count;
     allocLinear(engine, (void**)&d_coords, vert_size, &vertices);
     allocLinear(engine, (void**)&d_triangles, edge_size, &edges);
 
@@ -80,14 +81,17 @@ int main(int argc, char *argv[])
     createView(engine, &desc, &v1);
 
     // Reuse the above parameters, changing only what is needed
-    desc.layout = Layout::make(mesh.triangles.size());
+    desc.layout    = Layout::make(triangle_count);
     desc.view_type = ViewType::Edges;
     desc.attributes[AttributeType::Position] = {
-        .source     = vertices,
-        .size       = vertex_count,
-        .format     = FormatDescription::make<float3>(),
-        .indices    = edges,
-        .index_size = sizeof(uint32_t),
+        .source   = vertices,
+        .size     = vertex_count,
+        .format   = FormatDescription::make<float3>(),
+        .indexing = {
+            .source     = edges,
+            .size       = triangle_count,
+            .index_size = sizeof(uint32_t),
+        }
     };
     createView(engine, &desc, &v2);
 

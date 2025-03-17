@@ -79,18 +79,14 @@ int main(int argc, char *argv[])
         .domain_type = DomainType::Domain2D,
         .attributes  = {
             { AttributeType::Position, {
-                .source     = points,
-                .size       = point_count,
-                .format     = FormatDescription::make<double2>(),
-                .indices    = nullptr,
-                .index_size = 0,
+                .source   = points,
+                .size     = point_count,
+                .format   = FormatDescription::make<double2>(),
             }},
             { AttributeType::Size, {
                 .source     = sizes,
                 .size       = point_count,
                 .format     = FormatDescription::make<double>(),
-                .indices    = nullptr,
-                .index_size = 0,
             }},
         },
         .scale = { 0.5f, 0.5f, 0.5f },

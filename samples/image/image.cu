@@ -35,15 +35,15 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .layout      = 6, //Layout::make(width, height),
+        .layout      = Layout::make(width, height),
         .view_type   = ViewType::Image,
         .domain_type = DomainType::Domain2D,
         .attributes  = {
             {AttributeType::Position, makeImageFrame(engine)},
             {AttributeType::Color, AttributeDescription{
-                .source = pixels,
-                .size   = static_cast<unsigned int>(width * height),
-                .format = FormatDescription::make<char4>(),
+                .source   = pixels,
+                .size     = static_cast<unsigned int>(width * height),
+                .format   = FormatDescription::make<char4>(),
             }}
         },
         .default_size  = 1.f,

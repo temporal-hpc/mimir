@@ -150,15 +150,16 @@ int main(int argc, char *argv[])
             .source = points,
             .size   = point_count,
             .format = FormatDescription::make<float3>(),
-            .indices = {},
-            .index_size = 0,
         };
+        desc.default_size = 0.1f;
+        desc.scale = { 0.01f, 0.01f, 0.01f };
         createView(engine, &desc, &view);
     }
     else // Run the simulation without display
     {
         checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
     }
+    setCameraPosition(engine, {-2.f, -2.f, -7.f});
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * rng_state_count));
     initRng<<<grid_size, block_size>>>(d_states, rng_state_count, seed);

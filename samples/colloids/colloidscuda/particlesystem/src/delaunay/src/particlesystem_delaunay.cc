@@ -204,16 +204,17 @@ void ParticleSystemDelaunay::loadOnDevice()
 		.source  = interop[current_read],
 		.size    = params_.num_elements,
 		.format  = FormatDescription::make<double2>(),
-		.indices = {},
-		.index_size = 0,
 	};
     vp.attributes[AttributeType::Color] =
 	{
-		.source  = interop[5],
-		.size    = NUM_TYPES,
-		.format  = FormatDescription::make<float4>(),
-		.indices = interop[3],
-		.index_size = sizeof(int),
+		.source   = interop[5],
+		.size     = NUM_TYPES,
+		.format   = FormatDescription::make<float4>(),
+		.indexing = {
+			.source     = interop[3],
+			.size       = params_.num_elements,
+			.index_size = sizeof(int),
+		}
 	};
     createView(engine, &vp, &particle_views[current_read]);
 
@@ -235,11 +236,14 @@ void ParticleSystemDelaunay::loadOnDevice()
     vpe.view_type   = ViewType::Edges;
     vpe.attributes[AttributeType::Position] =
 	{
-		.source  = interop[current_read],
-		.size    = params_.num_elements,
-		.format  = FormatDescription::make<double2>(),
-		.indices = interop[4],
-		.index_size = sizeof(uint),
+		.source   = interop[current_read],
+		.size     = params_.num_elements,
+		.format   = FormatDescription::make<double2>(),
+		.indexing = {
+			.source     = interop[4],
+			.size       = delaunay_.num_triangles * 3,
+			.index_size = sizeof(uint),
+		}
 	};
     createView(engine, &vpe, &edge_views[current_read]);
 

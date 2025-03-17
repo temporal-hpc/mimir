@@ -310,11 +310,10 @@ AttributeDescription MimirEngine::makeStructuredGrid(Layout size, float3 start)
     });
 
     return AttributeDescription{
-        .source     = grid_alloc,
-        .size       = size.x * size.y * size.z,
-        .format     = FormatDescription::make<float3>(),
-        .indices    = nullptr,
-        .index_size = 0,
+        .source   = grid_alloc,
+        .size     = size.x * size.y * size.z,
+        .format   = FormatDescription::make<float3>(),
+        .indexing = {},
     };
 }
 
@@ -329,10 +328,10 @@ AttributeDescription MimirEngine::makeImageDomain()
     // Indices for a single uv-view quad made from two triangles
     const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0 };//, 4, 5, 6, 6, 7, 4 };
 
-    uint32_t vert_size = sizeof(Vertex) * vertices.size();
-    uint32_t ids_size = sizeof(uint16_t) * indices.size();
+    uint32_t vert_memsize = sizeof(Vertex) * vertices.size();
+    uint32_t ids_memsize = sizeof(uint16_t) * indices.size();
 
-    auto vbo = createBuffer(device, vert_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    auto vbo = createBuffer(device, vert_memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(device, vbo, &memreq);
     // Allocate memory and bind it to buffers
@@ -342,7 +341,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     validation::checkVulkan(vkBindBufferMemory(device, vbo, vbo_mem, 0));
     auto vbo_alloc = new Allocation({AllocationType::Linear, memreq.size, vbo_mem, nullptr});
 
-    auto ibo = createBuffer(device, ids_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    auto ibo = createBuffer(device, ids_memsize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
     vkGetBufferMemoryRequirements(device, ibo, &memreq);
     // Allocate memory and bind it to buffers
     flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -352,13 +351,13 @@ AttributeDescription MimirEngine::makeImageDomain()
 
     // Init image quad coords and indices
     char *vert_data = nullptr;
-    vkMapMemory(device, vbo_mem, 0, vert_size, 0, (void**)&vert_data);
-    std::memcpy(vert_data, vertices.data(), vert_size);
+    vkMapMemory(device, vbo_mem, 0, vert_memsize, 0, (void**)&vert_data);
+    std::memcpy(vert_data, vertices.data(), vert_memsize);
     vkUnmapMemory(device, vbo_mem);
 
     char *ids_data = nullptr;
-    vkMapMemory(device, ibo_mem, 0, ids_size, 0, (void**)&ids_data);
-    std::memcpy(ids_data, indices.data(), ids_size);
+    vkMapMemory(device, ibo_mem, 0, ids_memsize, 0, (void**)&ids_data);
+    std::memcpy(ids_data, indices.data(), ids_memsize);
     vkUnmapMemory(device, ibo_mem);
 
     deletors.views.add([=,this]{
@@ -369,11 +368,14 @@ AttributeDescription MimirEngine::makeImageDomain()
     });
 
     return AttributeDescription{
-        .source     = vbo_alloc,
-        .size       = static_cast<uint32_t>(vertices.size()),
-        .format     = FormatDescription::make<float3>(),
-        .indices    = ibo_alloc,
-        .index_size = sizeof(uint16_t),
+        .source   = vbo_alloc,
+        .size     = (uint32_t)vertices.size(),
+        .format   = FormatDescription::make<float3>(),
+        .indexing = {
+            .source     = ibo_alloc,
+            .size       = (uint32_t)indices.size(),
+            .index_size = sizeof(uint16_t),
+        }
     };
 }
 
@@ -587,6 +589,12 @@ bool validateViewDescription(ViewDescription *desc)
     return has_elements && has_position_attr;
 }
 
+uint32_t getDrawCount(ViewDescription *desc)
+{
+    auto& indexing = desc->attributes[AttributeType::Position].indexing;
+    return indexing.source != nullptr? indexing.size : desc->layout.getTotalCount();
+}
+
 View *MimirEngine::createView(ViewDescription *desc)
 {
     if (!validateViewDescription(desc))
@@ -595,11 +603,9 @@ View *MimirEngine::createView(ViewDescription *desc)
         return nullptr;
     }
 
-    auto element_count = desc->layout.getTotalCount();
-
     View view{
         .pipeline    = VK_NULL_HANDLE,
-        .draw_count  = element_count,
+        .draw_count  = getDrawCount(desc),
         .vb_count    = 0,
         .vbo         = {VK_NULL_HANDLE},
         .offsets     = {0},
@@ -675,7 +681,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         }
         // Map source to a vertex buffer when accessing its elements directly
         // Source is always mapped this way for position attributes
-        else if (type == AttributeType::Position || attr.indices == nullptr)
+        else if (type == AttributeType::Position || attr.indexing.source == nullptr)
         {
             VkDeviceSize vb_size = attr.format.getSize() * attr.size; // sizeof(Vertex) * attr.size;
             spdlog::trace("Position vertex buffer created for {} bytes ({} available)",
@@ -700,18 +706,18 @@ View *MimirEngine::createView(ViewDescription *desc)
         }
 
         // If there is no indirect source access, the attribute is now fully processed
-        if (attr.indices == nullptr) { continue; }
+        if (attr.indexing.source == nullptr) { continue; }
 
         // Create indirect buffers as index buffer for position attributes,
         // and as vertex buffers for all other attributes
-        VkDeviceMemory memory = attr.indices->vk_mem;
-        VkDeviceSize memsize = attr.index_size * element_count;
+        VkDeviceMemory memory = attr.indexing.source->vk_mem;
+        VkDeviceSize memsize = attr.indexing.index_size * attr.indexing.size;
         spdlog::trace("Attribute buffer created for {} bytes", memsize);
         if (type == AttributeType::Position)
         {
             VkBufferUsageFlags ib_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
             view.ibo = createAttributeBuffer(memsize, ib_usage, memory);
-            view.index_type = getIndexBufferType(attr.index_size);
+            view.index_type = getIndexBufferType(attr.indexing.index_size);
             view.use_ibo = true;
         }
         else

@@ -242,7 +242,7 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .layout      = 6, //Layout::make(img_width, img_height),
+        .layout      = Layout::make(img_width, img_height),
         .view_type   = ViewType::Image,
         .domain_type = DomainType::Domain2D,
         .attributes  = {
@@ -339,7 +339,6 @@ int main(int argc, char *argv[])
     displayAsync(engine);
     while (isRunning(engine))
     {
-        //std::cin.get();
         prepareViews(engine);
         // Perform 2D box filter on image using CUDA
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(

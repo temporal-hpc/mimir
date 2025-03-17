@@ -421,8 +421,6 @@ int main(int argc, char *argv[])
                     .source = allocs[0],
                     .size   = body_count,
                     .format = FormatDescription::make<float4>(),
-                    .indices = {},
-                    .index_size = 0,
                 }}
             },
             .visible       = true,

@@ -145,7 +145,7 @@ std::string getSpecializationName(AttributeType type, AttributeDescription attr)
     std::string spec = fmt::format("{}{}{}",
         getAttributeType(type), getDataType(attr.format), std::to_string(attr.format.components)
     );
-    if (type != AttributeType::Position && attr.indices != nullptr)
+    if (type != AttributeType::Position && attr.indexing.source != nullptr)
     {
         spec += std::string("FromInt");
     }
@@ -352,7 +352,7 @@ VertexDescription getVertexDescription(const ViewDescription view)
             });
             return desc;
         }
-        else if (type == AttributeType::Position || attr.indices == nullptr)
+        else if (type == AttributeType::Position || attr.indexing.source == nullptr)
         {
             spdlog::trace("Adding input binding for {} attribute (binding = {}, stride = {})",
                 getAttributeType(type), binding, attr.format.getSize()
@@ -373,12 +373,13 @@ VertexDescription getVertexDescription(const ViewDescription view)
         }
         else
         {
+
             spdlog::trace("Adding index binding for {} attribute (binding = {}, stride = {})",
-                getAttributeType(type), binding, static_cast<uint32_t>(attr.index_size)
+                getAttributeType(type), binding, attr.indexing.index_size
             );
             desc.binding.push_back(VkVertexInputBindingDescription{
                 .binding   = binding,
-                .stride    = static_cast<uint32_t>(attr.index_size),
+                .stride    = attr.indexing.index_size,
                 .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
             });
 

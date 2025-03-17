@@ -80,18 +80,21 @@ int main(int argc, char **argv){
         .attributes  = {
             { AttributeType::Position, makeStructuredGrid(engine, grid_layout) },
             { AttributeType::Color, {
-                .source     = colormap,
-                .size       = num_colors,
-                .format     = FormatDescription::make<float4>(),
-                .indices    = ping,
-                .index_size = sizeof(int),
+                .source   = colormap,
+                .size     = num_colors,
+                .format   = FormatDescription::make<float4>(),
+                .indexing = {
+                    .source     = ping,
+                    .size       = n * n * n,
+                    .index_size = sizeof(int),
+                }
             }}
         },
         .default_size = 10.f,
     };
     createView(engine, &desc, &v1);
 
-    desc.attributes[AttributeType::Color].indices = pong;
+    desc.attributes[AttributeType::Color].indexing.source = pong;
     desc.visible = false;
     createView(engine, &desc, &v2);
 

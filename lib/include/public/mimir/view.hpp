@@ -38,11 +38,11 @@ struct Layout
 struct FormatDescription
 {
     // Kind of numeric data stored in each channel.
-    FormatKind kind;
+    FormatKind kind = FormatKind::Float;
     // Size in bytes of each channel component.
-    int size;
+    int size = 0;
     // Number of data channels; between 1 and 4.
-    int components;
+    int components = 1;
 
     // Returns the size in bytes of a single data element described in this format.
     unsigned int getSize() const { return size * components; }
@@ -52,33 +52,41 @@ struct FormatDescription
 
 enum class AttributeType { Position, Color, Size, Rotation, Texcoord };
 
+struct IndexDescription
+{
+    // Handle for the allocation containing the index data.
+    Allocation *source = nullptr;
+    // Number of elements contained in the source allocation
+    unsigned int size = 0;
+    // Size in bits of the index type stored in the indices allocation.
+    // This value is ignored when indices is null.
+    unsigned int index_size = 0;
+};
+
 // The interpretation of the sources within the engine depends on attribute type and whether
 // the indices array is set to a non-null value or not.
 struct AttributeDescription
 {
     // Handle for the allocation containing the source data.
-    Allocation *source;
+    Allocation *source = nullptr;
     // Number of elements contained in the source allocation.
-    unsigned int size;
+    unsigned int size = 0;
     // Format description for the elements in the source array; ignored when sources is null.
-    FormatDescription format;
+    FormatDescription format = {};
     // Handle for the allocation containing indices referencing the source array.
-    Allocation *indices;
-    // Size in bits of the index type stored in the indices allocation.
-    // This value is ignored when indices is null.
-    int index_size;
+    IndexDescription indexing = {};
 };
 
 // TODO: More texture definitions (e.g. mipmap levels)
 struct TextureDescription
 {
     // Handle for the allocation holding the texture memory.
-    Allocation *source;
+    Allocation *source = nullptr;
     // Format description for texels.
-    FormatDescription format;
-    Layout extent;
+    FormatDescription format = {};
+    Layout extent = {};
     // Number of mipmap levels stored in the texture.
-    unsigned int levels;
+    unsigned int levels = 1;
 };
 
 struct ViewDescription
