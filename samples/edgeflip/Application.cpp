@@ -104,7 +104,7 @@ Application::~Application(){
 }
 
 void Application::on_button_exit_clicked(){
-    //Gtk::Main::quit();
+    exit(engine);
 }
 
 void Application::on_menu_help_about(){
@@ -170,104 +170,23 @@ void Application::on_hscale_size_change_value(){
 
 void Application::init()
 {
-    /*if (ImGui::BeginMainMenuBar())
-    {
-        if (ImGui::BeginMenu("File"))
-        {
-            if (ImGui::MenuItem("Open", "Ctrl+O"))
-            {
-                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".off", ".");
-            }
-            ImGui::EndMenu();
-        }
-        ImGui::EndMainMenuBar();
-    }
-    if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey"))
-    {
-        if (ImGuiFileDialog::Instance()->IsOk())
-        {
-            std::string file_name = ImGuiFileDialog::Instance()->GetFilePathName();
-            std::string curr_path = ImGuiFileDialog::Instance()->GetCurrentPath();
-            //file_handler(file_name, curr_path);
-        }
-        ImGuiFileDialog::Instance()->Close();
-    }*/
-
     setGuiCallback(engine, [=,this]
     {
         if (ImGui::BeginMainMenuBar())
         {
             if (ImGui::BeginMenu("File"))
             {
-                if (ImGui::MenuItem("Open Mesh", "Ctrl+O"))
-                {
-                    nfdu8char_t *mesh_path;
-                    nfdu8filteritem_t filters[1] = { { "Mesh files", ".obj" } };
-                    nfdopendialogu8args_t args = {0};
-                    args.filterList  = filters;
-                    args.filterCount = 1;
-                    nfdresult_t result = NFD_OpenDialogU8_With(&mesh_path, &args);
-                    if (result == NFD_OKAY)
-                    {
-                        printf("Opening mesh file %s\n", mesh_path);
-                        load_mesh(mesh_path);
-                        NFD_FreePathU8(mesh_path);
-                    }
-                    else if (result == NFD_CANCEL)
-                    {
-                        printf("Cancelled open dialog\n");
-                    }
-                    else
-                    {
-                        printf("Load file error: %s\n", NFD_GetError());
-                    }
-                    //ImGuiFileDialog::Instance()->OpenDialog("LoadFileDialog", "Load mesh", ".off");
-                }
-                if (ImGui::MenuItem("Save", "Ctrl+S"))
-                {
-                    on_menu_file_save();
-                }
-                if (ImGui::MenuItem("Save As.."))
-                {
-                    nfdu8char_t *mesh_path;
-                    nfdu8filteritem_t filters[1] = { { "Mesh files", ".obj" } };
-                    nfdsavedialogu8args_t args = {0};
-                    args.filterList  = filters;
-                    args.filterCount = 1;
-                    nfdresult_t result = NFD_SaveDialogU8_With(&mesh_path, &args);
-                    if (result == NFD_OKAY)
-                    {
-                        printf("Saving mesh file %s\n", mesh_path);
-                        save_mesh(mesh_path);
-                        NFD_FreePathU8(mesh_path);
-                    }
-                    else if (result == NFD_CANCEL)
-                    {
-                        printf("Cancelled save dialog\n");
-                    }
-                    else
-                    {
-                        printf("Save file error: %s\n", NFD_GetError());
-                    }
-                    //ImGuiFileDialog::Instance()->OpenDialog("SaveFileDialog", "Save mesh", ".off");
-                }
+                if (ImGui::MenuItem("Open Mesh", "Ctrl+O")) { on_menu_file_open(); }
+                if (ImGui::MenuItem("Save", "Ctrl+S")) { on_menu_file_save(); }
+                if (ImGui::MenuItem("Save As..")) { on_menu_file_save_as(); }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Quit", "Alt+F4"))
-                {
-                    destroyEngine(engine);
-                }
+                if (ImGui::MenuItem("Quit", "Alt+F4")) { on_button_exit_clicked(); }
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Run"))
             {
-                if (ImGui::MenuItem("MDT-2D", "Ctrl+2"))
-                {
-                    on_button_delaunay_2d_clicked();
-                }
-                if (ImGui::MenuItem("MDT-3D", "Ctrl+3"))
-                {
-                    on_button_delaunay_3d_clicked();
-                }
+                if (ImGui::MenuItem("MDT-2D", "Ctrl+2")) { on_button_delaunay_2d_clicked(); }
+                if (ImGui::MenuItem("MDT-3D", "Ctrl+3")) { on_button_delaunay_3d_clicked(); }
                 ImGui::Separator();
                 if (ImGui::BeginMenu("Options"))
                 {
@@ -356,79 +275,60 @@ void Application::init()
 
 void Application::on_menu_file_open()
 {
-/*
-	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog("Open Mesh", Gtk::FILE_CHOOSER_ACTION_OPEN);
-  	dialog->set_transient_for(*this);
-  	//Add response buttons the the dialog:
-  	dialog->add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
-  	dialog->add_button(Gtk::Stock::OPEN, Gtk::RESPONSE_OK);
-  	//Add filters, so that only certain file types can be selected:
-  	Gtk::FileFilter *filter_geomview = new Gtk::FileFilter();
-  	filter_geomview->set_name("off (Geomview)");
-  	filter_geomview->add_pattern("*.off");
-  	dialog->add_filter(*filter_geomview);
-
-  	//Show the dialog and wait for a user response:
-  	int result = dialog->run();
-	if (result==Gtk::RESPONSE_OK){
-		dialog->hide();
-		Gtk::FileFilter *filtro=dialog->get_filter();
-		if (filtro->get_name()=="off (Geomview)"){
-			string file_string = dialog->get_filename();
-			this->myMesh = new Mesh(file_string.c_str());
-			on_toggle_button_solid_toggled();
-			on_toggle_button_wireframe_toggled();
-			//this->my_gl_window->set_mesh_pointer(myMesh);
-			//this->my_gl_window->set_camera_from_mesh_pointer();
-			//my_gl_window->redraw();
-		}
+    nfdu8char_t *mesh_path;
+    nfdu8filteritem_t filters[1] = { { "Mesh files", ".obj" } };
+    nfdopendialogu8args_t args = {0};
+    args.filterList  = filters;
+    args.filterCount = 1;
+    nfdresult_t result = NFD_OpenDialogU8_With(&mesh_path, &args);
+    if (result == NFD_OKAY)
+    {
+        printf("Opening mesh file %s\n", mesh_path);
+        load_mesh(mesh_path);
+        NFD_FreePathU8(mesh_path);
     }
-
-	delete filter_geomview;
-	delete dialog;
-	//my_gl_window->redraw();
-*/
+    else if (result == NFD_CANCEL) { printf("Cancelled open dialog\n"); }
+    else { printf("Load file error: %s\n", NFD_GetError()); }
 }
 
 void Application::on_menu_file_save_as()
 {
     printf("Tiuque::save_as::");
-    if(this->myMesh){
-        /*Gtk::FileChooserDialog dialog("Save as", Gtk::FILE_CHOOSER_ACTION_SAVE);
-        dialog.set_transient_for(*this);
-        //Add response buttons the the dialog:
-        dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
-        dialog.add_button(Gtk::Stock::SAVE, Gtk::RESPONSE_OK);
-        //Add filters, so that only certain file types can be selected:
-        Gtk::FileFilter filter_geomview;
-        filter_geomview.set_name("off (Geomview)");
-        filter_geomview.add_pattern("*.off");
-        dialog.add_filter(filter_geomview);
-        int result=dialog.run();
-        if (result==Gtk::RESPONSE_OK){
-            myMesh->save_mesh(dialog.get_filename().c_str());
-            printf("ok\n");
+    if(this->myMesh)
+    {
+        nfdu8char_t *mesh_path;
+        nfdu8filteritem_t filters[1] = { { "Mesh files", ".obj" } };
+        nfdsavedialogu8args_t args = {0};
+        args.filterList  = filters;
+        args.filterCount = 1;
+        nfdresult_t result = NFD_SaveDialogU8_With(&mesh_path, &args);
+        if (result == NFD_OKAY)
+        {
+            printf("Saving mesh file %s\n", mesh_path);
+            save_mesh(mesh_path);
+            NFD_FreePathU8(mesh_path);
         }
-        else{
-            printf("cancel\n");
-        }*/
+        else if (result == NFD_CANCEL) { printf("Cancelled save dialog\n"); }
+        else { printf("Save file error: %s\n", NFD_GetError()); }
         return;
     }
-    else{
+    else
+    {
         printf("nothing to save... have you loaded a mesh?.\n");
         return;
     }
 }
 
-
 void Application::on_menu_file_save(){
 
     printf("Tiuque::save::");
-    if(this->myMesh){
+    if(this->myMesh)
+    {
         myMesh->save_mesh_default();
         printf("ok\n");
     }
-    else{
+    else
+    {
         printf("nothing to save... have you loaded a mesh?.\n");
         return;
     }
