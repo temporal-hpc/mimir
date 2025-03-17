@@ -71,15 +71,14 @@ int main(int argc, char **argv){
     allocLinear(engine, (void**)&d_colors, color_bytes, &colormap);
     gpuErrchk(cudaMemcpy(d_colors, h_colors, color_bytes, cudaMemcpyHostToDevice));
 
-    auto grid_size = ViewExtent::make(n, n, n);
+    auto grid_layout = Layout::make(n, n, n);
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
-        .element_count = static_cast<unsigned int>(n*n*n),
-        .view_type     = ViewType::Voxels,
-        .domain_type   = DomainType::Domain3D,
-        .extent        = grid_size,
-        .attributes    = {
-            { AttributeType::Position, makeStructuredGrid(engine, grid_size) },
+        .layout      = grid_layout,
+        .view_type   = ViewType::Voxels,
+        .domain_type = DomainType::Domain3D,
+        .attributes  = {
+            { AttributeType::Position, makeStructuredGrid(engine, grid_layout) },
             { AttributeType::Color, {
                 .source     = colormap,
                 .size       = num_colors,

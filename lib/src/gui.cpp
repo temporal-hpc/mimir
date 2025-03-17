@@ -16,13 +16,14 @@
 namespace mimir::gui
 {
 
-std::string getExtent(ViewExtent ext, DomainType domain)
+std::string formatLayout(Layout layout)
 {
-    switch (domain)
+    int dim_count = (layout.x > 1) + (layout.y > 1) + (layout.z > 1);
+    switch (dim_count)
     {
-        case DomainType::Domain2D: { return fmt::format("({},{})", ext.x, ext.y); }
-        case DomainType::Domain3D: { return fmt::format("({},{},{})", ext.x, ext.y, ext.z); }
-        default: return "unknown";
+        case 3: { return fmt::format("({},{},{})", layout.x, layout.y, layout.z); }
+        case 2: { return fmt::format("({},{})", layout.x, layout.y); }
+        case 1: default: { return fmt::format("{}", layout.x, layout.y); }
     }
 }
 
@@ -89,10 +90,9 @@ void addViewObjectGui(View *view_ptr, int uid)
         ImGuiTableFlags table_flags = ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable;
         if (ImGui::BeginTable("split", 2, table_flags))
         {
-            addTableRow("View type",     getViewType(desc.view_type));
-            addTableRow("Element count", std::to_string(desc.element_count));
-            addTableRow("Domain type",   getDomainType(desc.domain_type));
-            addTableRow("Domain extent", getExtent(desc.extent, desc.domain_type));
+            addTableRow("View type",   getViewType(desc.view_type));
+            addTableRow("Layout",      formatLayout(desc.layout));
+            addTableRow("Domain type", getDomainType(desc.domain_type));
             ImGui::EndTable();
         }
         for (const auto &[type, attr] : desc.attributes)

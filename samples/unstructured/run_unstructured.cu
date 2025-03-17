@@ -74,11 +74,10 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .element_count = point_count,
-        .view_type     = ViewType::Markers,
-        .domain_type   = DomainType::Domain2D,
-        .extent        = ViewExtent::make(200, 200, 1),
-        .attributes    = {
+        .layout      = Layout::make(point_count),
+        .view_type   = ViewType::Markers,
+        .domain_type = DomainType::Domain2D,
+        .attributes  = {
             { AttributeType::Position, {
                 .source     = points,
                 .size       = point_count,

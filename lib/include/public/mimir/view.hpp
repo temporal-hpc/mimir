@@ -19,13 +19,16 @@ enum class DomainType { Domain2D, Domain3D };
 
 enum class FormatKind { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized, SRGB };
 
-struct ViewExtent
+// Description for the spatial layout of an arrangement of visualizable elements,
+// whether texture elements (texels) or other graphics primitives.
+struct Layout
 {
-    unsigned int x, y, z;
+    unsigned int x = 0, y = 1, z = 1;
 
-    static ViewExtent make(unsigned int x, unsigned int y, unsigned int z)
+    unsigned int getTotalCount() { return x * y * z; };
+    static Layout make(unsigned int x, unsigned int y = 1, unsigned int z = 1)
     {
-        return { .x = x, .y = y, .z = z };
+        return Layout{ .x = x, .y = y, .z = z };
     }
 };
 
@@ -73,7 +76,7 @@ struct TextureDescription
     Allocation *source;
     // Format description for texels.
     FormatDescription format;
-    ViewExtent extent;
+    Layout extent;
     // Number of mipmap levels stored in the texture.
     unsigned int levels;
 };
@@ -82,13 +85,12 @@ struct ViewDescription
 {
     // Number of elements contained in the view.
     // The amount of vertices consumed per element depends on view type.
-    unsigned int element_count;
+    Layout layout;
     // Determines the element to display in the current view.
     ViewType view_type;
     // Determines whether to draw 2D or 3D elements for the given view type.
     DomainType domain_type;
     // Spatial extent of the positions represented in the view.
-    ViewExtent extent;
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;
     // Whether the view contents are shown or not during display.

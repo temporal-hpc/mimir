@@ -413,11 +413,10 @@ int main(int argc, char *argv[])
         allocLinear(engine, (void**)&data.dPos[1], nbody_memsize, &allocs[1]);
 
         ViewDescription desc{
-            .element_count = body_count,
-            .view_type     = ViewType::Markers,
-            .domain_type   = DomainType::Domain3D,
-            .extent        = {1, 1, 1},
-            .attributes    = {
+            .layout      = Layout::make(body_count),
+            .view_type   = ViewType::Markers,
+            .domain_type = DomainType::Domain3D,
+            .attributes  = {
                 { AttributeType::Position, {
                     .source = allocs[0],
                     .size   = body_count,

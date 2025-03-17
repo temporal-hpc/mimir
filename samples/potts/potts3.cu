@@ -638,16 +638,15 @@ int main(void)
 
 	ViewHandle v1 = nullptr;
     ViewDescription desc;
-    desc.element_count = L * L;
-    desc.extent        = {(unsigned)L, (unsigned)L, 1};
-    desc.domain_type   = DomainType::Domain2D;
-    desc.view_type     = ViewType::Voxels;
+    desc.layout      = Layout::make(L, L);
+    desc.domain_type = DomainType::Domain2D;
+    desc.view_type   = ViewType::Voxels;
 	desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, {L,L,1});
     desc.attributes[AttributeType::Color] = {
-		.source  = colormap,
-		.size    = num_colors,
-		.format  = FormatDescription::make<float4>(),
-		.indices = m1,
+		.source     = colormap,
+		.size       = num_colors,
+		.format     = FormatDescription::make<float4>(),
+		.indices    = m1,
 		.index_size = sizeof(int),
 	};
 	desc.default_size = 1.f;

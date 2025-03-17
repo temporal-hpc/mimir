@@ -90,10 +90,9 @@ int main(int argc, char *argv[]) {
     ViewHandle view = nullptr;
     ViewDescription desc
     {
-        .element_count = static_cast<unsigned int>(n),
-        .view_type     = ViewType::Markers,
-        .domain_type   = DomainType::Domain2D,
-        .extent        = ViewExtent::make(1, 1, 1),
+        .layout      = Layout::make(n),
+        .view_type   = ViewType::Markers,
+        .domain_type = DomainType::Domain2D,
         .attributes = {
             { AttributeType::Position, {
                 .source = points,

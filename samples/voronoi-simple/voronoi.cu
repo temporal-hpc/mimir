@@ -197,10 +197,9 @@ int main(int argc, char *argv[])
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
-    desc.element_count = point_count;
-    desc.domain_type   = DomainType::Domain2D;
-    desc.extent        = ViewExtent::make(extent.x, extent.y, 1);
-    desc.view_type     = ViewType::Markers;
+    desc.layout      = Layout::make(point_count);
+    desc.domain_type = DomainType::Domain2D;
+    desc.view_type   = ViewType::Markers;
     desc.attributes[AttributeType::Position] = {
         .source = seeds,
         .size   = point_count,
@@ -209,13 +208,13 @@ int main(int argc, char *argv[])
     desc.default_size  = 1.f;
     createView(engine, &desc, &v1);
 
-    desc.element_count = extent.x * extent.y;
-    desc.view_type     = ViewType::Voxels;
+    desc.layout    = Layout::make(extent.x, extent.y);
+    desc.view_type = ViewType::Voxels;
     desc.attributes[AttributeType::Position] =
-        makeStructuredGrid(engine, desc.extent, {0.f,0.f,0.4999f});
+        makeStructuredGrid(engine, desc.layout, {0.f,0.f,0.4999f});
     desc.attributes[AttributeType::Color] = {
         .source = colors,
-        .size   = desc.element_count,
+        .size   = (uint)(extent.x * extent.y),
         .format = FormatDescription::make<float4>(),
     };
     createView(engine, &desc, &v2);

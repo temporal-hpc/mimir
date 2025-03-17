@@ -94,7 +94,7 @@ void setGuiCallback(EngineHandle engine, std::function<void(void)> callback);
 // Helper function to generate a regular grid
 // The returned attribute description contains all values needed to use the generated data
 // inside a view description.
-AttributeDescription makeStructuredGrid(EngineHandle engine, ViewExtent extent,
+AttributeDescription makeStructuredGrid(EngineHandle engine, Layout extent,
     float3 start={0.f,0.f,0.f}
 );
 

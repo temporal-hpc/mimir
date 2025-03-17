@@ -22,7 +22,7 @@ VkImageTiling getImageTiling(AllocationType type)
 
 // Derive Vulkan image type from the view extent dimensions,
 // assuming that a dimension exists if its size is greater than 1.
-VkImageType getImageType(ViewExtent extent)
+VkImageType getImageType(Layout extent)
 {
     int dim_count = (extent.x > 1) + (extent.y > 1) + (extent.z > 1);
     switch (dim_count)
@@ -33,7 +33,7 @@ VkImageType getImageType(ViewExtent extent)
     }
 }
 
-VkExtent3D getVulkanExtent(ViewExtent extent)
+VkExtent3D getVulkanExtent(Layout extent)
 {
     return VkExtent3D
     {

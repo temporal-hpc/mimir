@@ -60,11 +60,10 @@ Application::Application(){
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
-    desc.element_count = cleap_get_vertex_count(m);
-    desc.domain_type   = DomainType::Domain3D;
-    desc.extent        = ViewExtent::make(1,1,1);
-    desc.view_type     = ViewType::Markers;
-    desc.visible       = false;
+    desc.layout      = Layout::make(cleap_get_vertex_count(m));
+    desc.domain_type = DomainType::Domain3D;
+    desc.view_type   = ViewType::Markers;
+    desc.visible     = false;
     desc.attributes[AttributeType::Position] = {
         .source = vertices,
         .size   = (unsigned int)cleap_get_vertex_count(m),
@@ -73,9 +72,9 @@ Application::Application(){
     createView(engine, &desc, &v1);
 
     // Recycle the above parameters, changing only what is needed
-    desc.element_count = static_cast<unsigned int>(cleap_get_face_count(m) * 3);
-    desc.view_type     = ViewType::Edges;
-    desc.visible       = true;
+    desc.layout    = Layout::make(cleap_get_face_count(m) * 3);
+    desc.view_type = ViewType::Edges;
+    desc.visible   = true;
     desc.attributes[AttributeType::Position] = {
         .source     = vertices,
         .size       = (unsigned int)cleap_get_vertex_count(m),

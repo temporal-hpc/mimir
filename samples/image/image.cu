@@ -35,11 +35,10 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .element_count = 6, //static_cast<unsigned int>(width * height),
-        .view_type     = ViewType::Image,
-        .domain_type   = DomainType::Domain2D,
-        .extent        = ViewExtent::make(width, height, 1),
-        .attributes    = {
+        .layout      = 6, //Layout::make(width, height),
+        .view_type   = ViewType::Image,
+        .domain_type = DomainType::Domain2D,
+        .attributes  = {
             {AttributeType::Position, makeImageFrame(engine)},
             {AttributeType::Color, AttributeDescription{
                 .source = pixels,

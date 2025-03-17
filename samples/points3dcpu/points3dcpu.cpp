@@ -97,10 +97,9 @@ int main(int argc, char *argv[])
         AllocHandle points = nullptr;
         allocLinear(engine, (void**)&d_coords, sizeof(float3) * point_count, &points);
         ViewDescription desc;
-        desc.element_count = point_count;
-        desc.domain_type   = DomainType::Domain3D;
-        desc.extent        = ViewExtent::make(200,200,200);
-        desc.view_type     = ViewType::Markers;
+        desc.layout      = Layout::make(point_count);
+        desc.domain_type = DomainType::Domain3D;
+        desc.view_type   = ViewType::Markers;
         desc.attributes[AttributeType::Position] = {
             .source = points,
             .size   = point_count,

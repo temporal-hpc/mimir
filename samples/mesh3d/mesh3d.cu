@@ -67,10 +67,9 @@ int main(int argc, char *argv[])
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
-        .element_count = vertex_count,
-        .view_type     = ViewType::Markers,
-        .domain_type   = DomainType::Domain3D,
-        .extent        = ViewExtent::make(1,1,1),
+        .layout      = Layout::make(vertex_count),
+        .view_type   = ViewType::Markers,
+        .domain_type = DomainType::Domain3D,
     };
     desc.attributes[AttributeType::Position] = {
         .source = vertices,
@@ -81,7 +80,7 @@ int main(int argc, char *argv[])
     createView(engine, &desc, &v1);
 
     // Reuse the above parameters, changing only what is needed
-    desc.element_count = static_cast<uint32_t>(mesh.triangles.size());
+    desc.layout = Layout::make(mesh.triangles.size());
     desc.view_type = ViewType::Edges;
     desc.attributes[AttributeType::Position] = {
         .source     = vertices,

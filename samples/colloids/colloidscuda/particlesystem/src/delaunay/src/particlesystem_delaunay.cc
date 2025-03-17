@@ -196,11 +196,9 @@ void ParticleSystemDelaunay::loadOnDevice()
     allocLinear(engine, (void**)&devicedata_.colors, sizeof(float4) * NUM_TYPES, &interop[5]);
 
     ViewDescription vp;
-    vp.element_count = params_.num_elements;
-    vp.extent        = {l, l, 1};
-    vp.domain_type   = DomainType::Domain2D;
-    vp.view_type     = ViewType::Markers;
-	vp.default_size  = vp.extent.x / l;
+    vp.layout      = Layout::make(params_.num_elements);
+    vp.domain_type = DomainType::Domain2D;
+    vp.view_type   = ViewType::Markers;
     vp.attributes[AttributeType::Position] =
 	{
 		.source  = interop[current_read],
@@ -232,10 +230,9 @@ void ParticleSystemDelaunay::loadOnDevice()
     allocLinear(engine, (void**)&devicedata_.triangles, sizeof(int3) * delaunay_.num_triangles, &interop[4]);
 
     ViewDescription vpe;
-    vpe.element_count = delaunay_.num_triangles * 3;
-    vpe.extent        = {l, l, 1};
-    vpe.domain_type   = DomainType::Domain2D;
-    vpe.view_type     = ViewType::Edges;
+    vpe.layout      = Layout::make(delaunay_.num_triangles * 3);
+    vpe.domain_type = DomainType::Domain2D;
+    vpe.view_type   = ViewType::Edges;
     vpe.attributes[AttributeType::Position] =
 	{
 		.source  = interop[current_read],

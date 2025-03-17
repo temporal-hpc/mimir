@@ -111,7 +111,7 @@ void setGuiCallback(EngineHandle engine, std::function<void(void)> callback)
     engine->setGuiCallback(callback);
 }
 
-AttributeDescription makeStructuredGrid(EngineHandle engine, ViewExtent extent, float3 start)
+AttributeDescription makeStructuredGrid(EngineHandle engine, Layout extent, float3 start)
 {
     return engine->makeStructuredGrid(extent, start);
 }

@@ -263,7 +263,7 @@ constexpr VkIndexType getIndexBufferType(int bytesize)
     }
 }
 
-void initGridCoords(float3 *data, ViewExtent size, float3 start)
+void initGridCoords(float3 *data, Layout size, float3 start)
 {
     auto slice_size = size.x * size.y;
     for (uint32_t z = 0; z < size.z; ++z)
@@ -281,7 +281,7 @@ void initGridCoords(float3 *data, ViewExtent size, float3 start)
     }
 }
 
-AttributeDescription MimirEngine::makeStructuredGrid(ViewExtent size, float3 start)
+AttributeDescription MimirEngine::makeStructuredGrid(Layout size, float3 start)
 {
     assert(size.x > 0 || size.y > 0 || size.z > 0);
     auto memsize = sizeof(float3) * size.x * size.y * size.z;
@@ -504,7 +504,7 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
 {
     auto format = getFormatFromCuda(desc);
     ImageParams img_params{
-        .type   = getImageType(ViewExtent::make(extent.width, extent.height, extent.depth)),
+        .type   = getImageType(Layout::make(extent.width, extent.height, extent.depth)),
         .format = getVulkanFormat(format),
         .extent = getExtentFromCuda(extent),
         .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -578,7 +578,7 @@ VkBuffer MimirEngine::createAttributeBuffer(VkDeviceSize memsize,
 // TODO: Add more validations
 bool validateViewDescription(ViewDescription *desc)
 {
-    bool has_elements = desc->element_count > 0;
+    bool has_elements = desc->layout.getTotalCount() > 0;
     bool has_position_attr = false;
     for (auto &[type, attr] : desc->attributes)
     {
@@ -595,9 +595,11 @@ View *MimirEngine::createView(ViewDescription *desc)
         return nullptr;
     }
 
+    auto element_count = desc->layout.getTotalCount();
+
     View view{
         .pipeline    = VK_NULL_HANDLE,
-        .draw_count  = desc->element_count,
+        .draw_count  = element_count,
         .vb_count    = 0,
         .vbo         = {VK_NULL_HANDLE},
         .offsets     = {0},
@@ -625,9 +627,9 @@ View *MimirEngine::createView(ViewDescription *desc)
         if (type == AttributeType::Color && desc->view_type == ViewType::Image)
         {
             ImageParams params{
-                .type   = getImageType(desc->extent),
+                .type   = getImageType(desc->layout),
                 .format = getVulkanFormat(attr.format),
-                .extent = getVulkanExtent(desc->extent),
+                .extent = getVulkanExtent(desc->layout),
                 .tiling = getImageTiling(attr.source->type),
                 .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 .levels = 1,
@@ -703,7 +705,7 @@ View *MimirEngine::createView(ViewDescription *desc)
         // Create indirect buffers as index buffer for position attributes,
         // and as vertex buffers for all other attributes
         VkDeviceMemory memory = attr.indices->vk_mem;
-        VkDeviceSize memsize = attr.index_size * desc->element_count;
+        VkDeviceSize memsize = attr.index_size * element_count;
         spdlog::trace("Attribute buffer created for {} bytes", memsize);
         if (type == AttributeType::Position)
         {
@@ -1455,7 +1457,7 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
         };
 
         auto bg = options.background_color;
-        auto extent = view->desc.extent;
+        auto extent = view->desc.layout;
         SceneUniforms su{
             .background_color = glm::vec4(bg.x, bg.y, bg.z, bg.w),
             .extent           = glm::ivec3{extent.x, extent.y, extent.z},

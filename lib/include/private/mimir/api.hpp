@@ -137,11 +137,11 @@ constexpr char* getDataType(FormatDescription desc)
     }
 }
 
-VkExtent3D getVulkanExtent(ViewExtent extent);
+VkExtent3D getVulkanExtent(Layout extent);
 
 VkFormat getVulkanFormat(FormatDescription desc);
 
-VkImageType getImageType(ViewExtent extent);
+VkImageType getImageType(Layout extent);
 
 VkImageTiling getImageTiling(AllocationType type);
 
