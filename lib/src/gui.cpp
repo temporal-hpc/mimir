@@ -7,11 +7,10 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
-
 #include <spdlog/spdlog.h>
 #include <spdlog/fmt/fmt.h>
 
-#include <array> // std::array
+#include <limits> // std::numeric_limits
 
 namespace mimir::gui
 {
@@ -27,16 +26,7 @@ std::string formatLayout(Layout layout)
     }
 }
 
-void addTableRow(const std::string& key, const std::string& value)
-{
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s", key.c_str());
-    ImGui::TableSetColumnIndex(1);
-    ImGui::Text("%s", value.c_str());
-}
-
+// Helper for adding a GUI table row showing a combo box for setting values at runtime
 bool addTableRowCombo(const std::string& key, int* current_item,
     bool(*items_getter)(void* data, int idx, const char** out_text),
     void* data, int items_count)
@@ -49,18 +39,28 @@ bool addTableRowCombo(const std::string& key, int* current_item,
     return ImGui::Combo(key.c_str(), current_item, items_getter, data, items_count);
 }
 
-void addViewObjectGui(View *view_ptr, int uid)
+// Helper for adding a GUI table row showing static info
+void addTableRow(const std::string& key, const std::string& value)
+{
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", key.c_str());
+    ImGui::TableSetColumnIndex(1);
+    ImGui::Text("%s", value.c_str());
+}
+
+void addViewHandleGUI(View *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
     auto& desc = view_ptr->desc;
-    //bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
     bool node_open = ImGui::CollapsingHeader("", ImGuiTreeNodeFlags_AllowItemOverlap);
     ImGui::SameLine(); ImGui::Text("%s #%u", "View", uid);
     ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &desc.visible);
     if (node_open)
     {
         const float f32_zero = 0.f;
-        const float f32_max  = 100.f;
+        const float f32_max  = std::numeric_limits<float>::max();
         ImGui::DragScalar("Element size", ImGuiDataType_Float, &desc.default_size,
             0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
         );
@@ -74,18 +74,13 @@ void addViewObjectGui(View *view_ptr, int uid)
         //     ImGui::SliderScalar("scenario", ImGuiDataType_S32, &desc.options.scenario_index, &min_scenario, &max_scenario);
         // }
 
-        if (ImGui::InputFloat3("Position", &desc.position.x, "%.3f"))
-        {
-            translateView(view_ptr, desc.position);
-        }
-        if (ImGui::InputFloat3("Rotation", &desc.rotation.x, "%.3f"))
-        {
-            rotateView(view_ptr, desc.rotation);
-        }
-        if (ImGui::InputFloat3("Scale", &desc.scale.x, "%.3f"))
-        {
-            scaleView(view_ptr, desc.scale);
-        }
+        bool in_pos = ImGui::InputFloat3("Position", &desc.position.x, "%.3f");
+        bool in_rot = ImGui::InputFloat3("Rotation", &desc.rotation.x, "%.3f");
+        bool in_scale = ImGui::InputFloat3("Scale", &desc.scale.x, "%.3f");
+
+        if (in_pos)   { translateView(view_ptr, desc.position); }
+        if (in_rot)   { rotateView(view_ptr, desc.rotation); }
+        if (in_scale) { scaleView(view_ptr, desc.scale); }
 
         ImGuiTableFlags table_flags = ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable;
         if (ImGui::BeginTable("split", 2, table_flags))
@@ -106,7 +101,6 @@ void addViewObjectGui(View *view_ptr, int uid)
                 ImGui::EndTable();
             }
         }
-        //ImGui::TreePop();
     }
     ImGui::PopID();
 }
@@ -126,14 +120,13 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
         ImGui::Begin("Scene parameters");
         //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
         ImGui::ColorEdit3("Clear color", (float*)&opts.background_color);
-        if (ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f"))
-        {
-            cam.setPosition(cam.position);
-        }
-        if (ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f"))
-        {
-            cam.setRotation(cam.rotation);
-        }
+
+        bool cam_pos = ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f");
+        bool cam_rot = ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f");
+
+        if (cam_pos) { cam.setPosition(cam.position); }
+        if (cam_rot) { cam.setRotation(cam.rotation); }
+
         const float f32_zero = 0.f;
         const float f32_max  = 360.f;
         bool set_fov = ImGui::DragScalar("FOV", ImGuiDataType_Float, &cam.fov,
@@ -161,7 +154,7 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
         ImGui::EndDisabled();
 
         // Add tabs for showing view parameters
-        for (size_t i = 0; i < views.size(); ++i) { addViewObjectGui(views[i], i); }
+        for (size_t i = 0; i < views.size(); ++i) { addViewHandleGUI(views[i], i); }
         ImGui::End();
         callback(); // Display user-provided addons
     }
