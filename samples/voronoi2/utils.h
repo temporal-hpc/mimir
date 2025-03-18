@@ -21,7 +21,7 @@ __global__ void simple_max(int *data, int *max, int n, int s){
     }
     __syncthreads();
 
-    for(unsigned int s = blockDim.x/2; s>32; s>>1){
+    for(unsigned int s = blockDim.x/2; s>32; s = s>>1){
         if(tid < s){
             if(sd_data[tid] < sd_data[tid + s]) sd_data[tid] = sd_data[tid + s];
         }
@@ -188,7 +188,9 @@ void initSeeds(int *SEEDS, int N, int S){
 
     for(i = 0; i < N*N; ++i) POSSIBLE_SEEDS.push_back(i);
 
-    random_shuffle(POSSIBLE_SEEDS.begin(), POSSIBLE_SEEDS.end());
+    random_device rd;
+    mt19937 g(rd());
+    shuffle(POSSIBLE_SEEDS.begin(), POSSIBLE_SEEDS.end(), g);
 
     for(i = 0; i < S; ++i){
         SEEDS[i] = POSSIBLE_SEEDS[i];
@@ -326,7 +328,6 @@ void read_coords(int *seeds, int N, int S, int count, int molecules){
     printf("%s\n", name.c_str());
 
 	ifstream FILE(name);
-	int i = 0;
     int count_seed = 0;
 	char *ptr;
     int n;

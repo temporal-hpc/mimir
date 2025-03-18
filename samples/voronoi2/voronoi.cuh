@@ -239,7 +239,6 @@ __global__ void pbcVoronoiJFA_8Ng(int *VD, int *S, int k, int N, int s, int DIST
     int tidx = blockDim.x * blockIdx.x + threadIdx.x;
     int tidy = blockDim.y * blockIdx.y + threadIdx.y;
     int tid = tidy*N + tidx;
-    int local_k = k;
     //GRID[i] -> INDICE EN SEEDS
     //Values of the local seed
     int local_value;
@@ -769,16 +768,12 @@ __global__ void pbcVoronoiJFA_4Ng(int *VD, int *S,int k, int N, int s, int DIST,
 
 __global__ void init_rand(int S, int mod, curandState *states){
     int tid = blockDim.x * blockIdx.x + threadIdx.x;
-    int seed = tid;
     if(tid < S) curand_init(1, tid, 0, &states[tid]);
 }
 
 __global__ void moveSeeds(int *SEEDS, int *DELTA, int N, int S, int mod, curandState *states){
     int tid = blockDim.x * blockIdx.x + threadIdx.x;
-    int seed = tid;
-    int old_x, old_y, new_x, new_y, delta_x, delta_y, ref_seed;
-    int old_vd;
-    unsigned long long int old_ref=0,old=0,result;
+    int old_x, old_y, new_x, new_y, delta_x, delta_y;
     __syncthreads();
 
     if(tid < S){
@@ -828,7 +823,6 @@ __global__ void reduxVoronoi(int *VD, int *redux_VD, int N, int n, int mu){
 __global__ void voronoiElection(int *VD, int *redux_VD, int N, int n){
     int tidx = blockDim.x * blockIdx.x + threadIdx.x;
     int tidy = blockDim.y * blockIdx.y + threadIdx.y;
-    int tid = tidy * n + tidx;
     const int mu = 4;
     __shared__ int voronoi_space[mu*mu];
     //Revisar
@@ -895,7 +889,7 @@ __global__ void scaleVoronoi(int *VD,int *REDUX_VD, int N, int n, int mu){
     int tidy = blockDim.y * blockIdx.y + threadIdx.y;
     int tid = tidy * N + tidx;
 
-    int redux_x, redux_y, redux_coord, local_value;
+    int redux_x, redux_y, redux_coord;
 
     if(tidx < N && tidy < N){
         redux_x = tidx / mu;
@@ -1267,7 +1261,6 @@ void itersJFA(Setup setup){
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     float ms1 = 0, ms2 = 0, ms1_t = 0.0, ms2_t = 0.0;
-    int k_used;
     double best_worst_acc[3];
     int count_acc = 0;
     best_worst_acc[0] = 0.0;

@@ -12,7 +12,7 @@ typedef std::pair<int, int> pairArco;
 CLEAP_RESULT _cleap_generate_edges_hash(_cleap_mesh *m, FILE *off, float prog, float cont, float pbFraction){
 
 	// IO:: parsing faces and edges
-	int face_type, io_val;
+	int face_type;
 	int face = 3;
 	float3 normal;
 	float3 v1,v2;
@@ -31,10 +31,10 @@ CLEAP_RESULT _cleap_generate_edges_hash(_cleap_mesh *m, FILE *off, float prog, f
 	int j ,k, op;
 
 	for(int i=0; i<m->face_count; i++) {
-		io_val = fscanf(off,"%d",&face_type);
+		fscanf(off,"%d",&face_type);
 		if( face_type == 3 ){
 			// scan the three triangle indexes
-			io_val = fscanf(off,"%d %d %d",&m->triangles[i*face_type], &m->triangles[i*face_type+1], &m->triangles[i*face_type+2]);
+			fscanf(off,"%d %d %d",&m->triangles[i*face_type], &m->triangles[i*face_type+1], &m->triangles[i*face_type+2]);
 			//Building Edges
 			for(int q=0; q<3; q++){
 				j=j_sec[q], k=k_sec[q], op=op_sec[q];

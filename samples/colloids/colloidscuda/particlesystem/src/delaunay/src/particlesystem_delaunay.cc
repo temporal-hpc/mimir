@@ -182,7 +182,6 @@ void ParticleSystemDelaunay::loadOnDevice()
 
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * sizeof(double2);
-    unsigned l = static_cast<unsigned>(params_.boxlength);
 
     // Particle positions
     allocLinear(engine, (void**)&devicedata_.positions[current_read], pos_bytes, &interop[current_read]);

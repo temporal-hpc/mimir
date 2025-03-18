@@ -23,7 +23,7 @@ int main(int argc, char **argv){
     }
     const char *map[2] = {"CPU", "GPU"};
     // args
-    long n       = atoi(argv[1]);
+    long n      = atoi(argv[1]);
     int nt      = atoi(argv[2]);
     int B       = atoi(argv[3]);
     int seed    = atoi(argv[4]);
@@ -72,6 +72,7 @@ int main(int argc, char **argv){
     gpuErrchk(cudaMemcpy(d_colors, h_colors, color_bytes, cudaMemcpyHostToDevice));
 
     auto grid_layout = Layout::make(n, n, n);
+    uint32_t index_count = n * n * n;
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
         .layout      = grid_layout,
@@ -85,7 +86,7 @@ int main(int argc, char **argv){
                 .format   = FormatDescription::make<float4>(),
                 .indexing = {
                     .source     = ping,
-                    .size       = n * n * n,
+                    .size       = index_count,
                     .index_size = sizeof(int),
                 }
             }}

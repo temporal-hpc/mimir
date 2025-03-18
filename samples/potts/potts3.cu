@@ -692,7 +692,7 @@ int main(void)
 	}
 
 	// stop timer
-	CUDA_SAFE_CALL(cudaThreadSynchronize()); // ensure all threads are done
+	CUDA_SAFE_CALL(cudaDeviceSynchronize()); // ensure all threads are done
 	assert(gettimeofday(&end, NULL)==0);
 	assert(timeval_subtract(&elapsed, &end, &start)==0);
 	secs = (double)elapsed.tv_sec + ((double)elapsed.tv_usec*MICROSEC);

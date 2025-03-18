@@ -7,7 +7,11 @@ target_compile_features(libparticles PUBLIC cxx_std_11)
 
 # We need to explicitly state that we need all CUDA files to be built with -dc,
 # as the member functions could be called by other libraries and executables
-set_target_properties(libparticles PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+set_target_properties(libparticles PROPERTIES
+    CUDA_STANDARD              20
+    CUDA_ARCHITECTURES         native
+    CUDA_SEPARABLE_COMPILATION ON
+)
 
 include(src/base/CMakeLists.txt)
 include(src/delaunay/CMakeLists.txt)
@@ -15,6 +19,4 @@ include(src/verlet/CMakeLists.txt)
 
 # Include CGAL as an imported target
 find_package(CGAL REQUIRED COMPONENTS Core)
-include(${CGAL_USE_FILE})
-
-target_link_libraries(libparticles mimir curand ${CGAL_LIBRARIES} gmp)
+target_link_libraries(libparticles mimir curand CGAL::CGAL)

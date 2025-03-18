@@ -4,7 +4,7 @@
 #SET(CUDA_NVCC_FLAGS "-arch=sm_11")
 
 # ----------------------------------------------------------
-# compiler options for using unordered_map (C and 
+# compiler options for using unordered_map (C and
 # ----------------------------------------------------------
 IF(CMAKE_COMPILER_IS_GNUCXX)
 	SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fmessage-length=0")
@@ -30,7 +30,9 @@ target_link_libraries(cleap ${CUDA_LIBRARIES} ${GLEW_LIBRARY})
 # ------------------------------------------------------
 # library properties
 # ------------------------------------------------------
-set_target_properties(cleap PROPERTIES VERSION 
+set_target_properties(cleap PROPERTIES VERSION
+    CUDA_STANDARD            20
+    CUDA_ARCHITECTURES       native
     "${CLEAP_VERSION_MAJOR}.${CLEAP_VERSION_MINOR}.${CLEAP_VERSION_PATCH}"
 )
 
