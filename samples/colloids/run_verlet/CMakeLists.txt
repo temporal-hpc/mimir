@@ -3,5 +3,5 @@ target_link_libraries(modelo-verlet libparticles)
 set_target_properties(modelo-verlet PROPERTIES
     CUDA_STANDARD            20
     CUDA_ARCHITECTURES       native
-    RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/../..
+    RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/..
 )

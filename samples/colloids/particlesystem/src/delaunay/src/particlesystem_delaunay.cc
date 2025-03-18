@@ -195,9 +195,11 @@ void ParticleSystemDelaunay::loadOnDevice()
     allocLinear(engine, (void**)&devicedata_.colors, sizeof(float4) * NUM_TYPES, &interop[5]);
 
     ViewDescription vp;
-    vp.layout      = Layout::make(params_.num_elements);
-    vp.domain_type = DomainType::Domain2D;
-    vp.view_type   = ViewType::Markers;
+    vp.layout       = Layout::make(params_.num_elements);
+    vp.domain_type  = DomainType::Domain2D;
+    vp.view_type    = ViewType::Markers;
+	vp.default_size = 6.4f;
+	vp.scale        = {0.1f, 0.1f, 0.1f};
     vp.attributes[AttributeType::Position] =
 	{
 		.source  = interop[current_read],
@@ -233,6 +235,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     vpe.layout      = Layout::make(delaunay_.num_triangles * 3);
     vpe.domain_type = DomainType::Domain2D;
     vpe.view_type   = ViewType::Edges;
+	vpe.scale       = {0.1f, 0.1f, 0.1f};
     vpe.attributes[AttributeType::Position] =
 	{
 		.source   = interop[current_read],
@@ -250,12 +253,14 @@ void ParticleSystemDelaunay::loadOnDevice()
     vpe.attributes[AttributeType::Position].source = interop[current_write];
     createView(engine, &vpe, &edge_views[current_write]);
 
+	// Original allocations; replaced by Mimir interop functions
 	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
 	//cudaCheck(cudaMalloc(&devicedata_.positions[1], pos_bytes));
 	//cudaCheck(cudaMalloc(&devicedata_.velocities, pos_bytes));
     //cudaCheck(cudaMalloc(&devicedata_.types, type_bytes));
     //cudaCheck(cudaMalloc(&devicedata_.colors, color_bytes));
 	//cudaCheck(cudaMalloc(&devicedata_.triangles, triangle_bytes));
+
 	cudaCheck(cudaMemcpy(devicedata_.positions[current_read], positions_, pos_bytes, cudaMemcpyHostToDevice));
 	cudaCheck(cudaMemcpy(devicedata_.velocities, velocities_, pos_bytes, cudaMemcpyHostToDevice));
 
@@ -305,6 +310,7 @@ void ParticleSystemDelaunay::loadOnDevice()
 	cudaCheck(cudaHostGetDevicePointer(&devicedata_.readyflag, readyflag, 0));
 
 	printf("Triangulation loaded to device memory.\n");
+	setCameraPosition(engine, {-20.f, -20.f, -30.f});
     displayAsync(engine);
 
 	printf("Waiting for key press...\n");
