@@ -18,6 +18,8 @@ target_link_directories(cleap PRIVATE CUDA::cudart)
 
 add_executable(tiuque)
 set_target_properties(tiuque PROPERTIES
+    CUDA_STANDARD            20
+    CUDA_ARCHITECTURES       native
     RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
 )
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)

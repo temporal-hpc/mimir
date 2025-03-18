@@ -1,5 +1,4 @@
 add_library(samples_common INTERFACE)
-set_property(TARGET samples_common PROPERTY CUDA_STANDARD 20)
 target_compile_features(samples_common INTERFACE cxx_std_20)
 target_include_directories(samples_common SYSTEM INTERFACE include)
 target_link_libraries(samples_common INTERFACE mimir)

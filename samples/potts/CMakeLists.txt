@@ -2,6 +2,8 @@ add_executable(potts3)
 target_sources(potts3 PRIVATE potts3.cu)
 target_link_libraries(potts3 PRIVATE mimir)
 set_target_properties(potts3 PROPERTIES
+    CUDA_STANDARD            20
+    CUDA_ARCHITECTURES       native
     RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
 )
 target_compile_definitions(potts3 PRIVATE
