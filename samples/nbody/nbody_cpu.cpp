@@ -31,7 +31,7 @@ void bodyBodyInteraction(float accel[3], float pos_mass0[4], float pos_mass1[4],
 
 void computeNBodyGravitation(float *pos, float *force, float softening_sqr, int body_count)
 {
-#ifdef OPENMP
+#ifdef _OPENMP
 #pragma omp parallel for
 #endif
     for (int i = 0; i < body_count; i++)
@@ -64,7 +64,7 @@ void integrateNBodySystemCpu(HostData host_data, float delta_time, float damping
 {
     computeNBodyGravitation(host_data.pos, host_data.force, softening_sqr, body_count);
 
-#ifdef OPENMP
+#ifdef _OPENMP
 #pragma omp parallel for
 #endif
     for (int i = 0; i < body_count; ++i)

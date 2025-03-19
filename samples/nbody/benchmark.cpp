@@ -1,10 +1,10 @@
 #include <string> // std::stoul
 
+#include "benchmark.hpp"
 #include "nbody_gpu.cuh"
 #include "nbody_cpu.hpp"
 #include "nvmlPower.hpp"
 
-#include <mimir/mimir.hpp>
 using namespace mimir;
 
 struct NBodyParams
@@ -35,48 +35,7 @@ NBodyParams demo_params[] = {
     {0.016f, 6.040f, 0.f, 1.f, 1.f, 0.760f, 0, 0, -50},
 };
 
-struct BenchmarkInput
-{
-    int width;
-    int height;
-    uint32_t body_count;
-    int iter_count;
-    PresentMode present;
-    int target_fps;
-    bool enable_sync;
-    bool display;
-    bool compute_gpu;
-
-    // Default experiment parameters
-    static BenchmarkInput defaultValues()
-    {
-        return BenchmarkInput{
-            .width       = 1920,
-            .height      = 1080,
-            .body_count  = 77824,
-            .iter_count  = 1000000,
-            .present     = PresentMode::Immediate,
-            .target_fps  = 0,
-            .enable_sync = true,
-            .display     = true,
-            .compute_gpu = true,
-        };
-    }
-};
-
-struct BenchmarkResults
-{
-    float framerate;
-    float compute_time;
-    float pipeline_time;
-    float graphics_time;
-    float freemem;
-    float usedmem;
-    float gpu_mem_usage;
-    float gpu_mem_budget;
-};
-
-void formatResults(BenchmarkInput input, BenchmarkResults output)
+void formatResults(BenchmarkInput input, PerformanceMetrics metrics)
 {
     // Determine execution mode for benchmarking and write CSV column names
     std::string mode;
@@ -96,16 +55,16 @@ void formatResults(BenchmarkInput input, BenchmarkResults output)
         resolution.c_str(),
         input.body_count,
         input.target_fps,
-        output.framerate,
-        output.compute_time,
-        output.pipeline_time,
-        output.graphics_time,
-        output.gpu_mem_usage,
-        output.gpu_mem_budget
+        metrics.frame_rate,
+        metrics.times.compute,
+        metrics.times.pipeline,
+        metrics.times.graphics,
+        metrics.devmem.usage,
+        metrics.devmem.budget
     );
 }
 
-BenchmarkResults runExperiment(BenchmarkInput input, NBodyParams params)
+PerformanceMetrics runExperiment(BenchmarkInput input, NBodyParams params)
 {
     // CUDA initialization
     const int device_id = 0;
@@ -128,17 +87,18 @@ BenchmarkResults runExperiment(BenchmarkInput input, NBodyParams params)
     setCameraPosition(engine, {params.x, params.y, params.z});
 
     auto nbody_memsize = sizeof(float4) * input.body_count;
-    DeviceData data;
-    checkCuda(cudaMalloc((void**)&data.dVel, nbody_memsize));
+    DeviceData device;
+    checkCuda(cudaMalloc((void**)&device.dVel, nbody_memsize));
 
     mimir::ViewHandle views[2];
     if (input.display)
     {
         mimir::AllocHandle allocs[2];
-        allocLinear(engine, (void**)&data.dPos[0], nbody_memsize, &allocs[0]);
-        allocLinear(engine, (void**)&data.dPos[1], nbody_memsize, &allocs[1]);
+        allocLinear(engine, (void**)&device.dPos[0], nbody_memsize, &allocs[0]);
+        allocLinear(engine, (void**)&device.dPos[1], nbody_memsize, &allocs[1]);
 
-        ViewDescription desc{
+        ViewDescription desc
+        {
             .layout      = Layout::make(input.body_count),
             .view_type   = ViewType::Markers,
             .domain_type = DomainType::Domain3D,
@@ -162,8 +122,8 @@ BenchmarkResults runExperiment(BenchmarkInput input, NBodyParams params)
     }
     else // Run the simulation without display
     {
-        checkCuda(cudaMalloc((void**)&data.dPos[0], nbody_memsize));
-        checkCuda(cudaMalloc((void**)&data.dPos[1], nbody_memsize));
+        checkCuda(cudaMalloc((void**)&device.dPos[0], nbody_memsize));
+        checkCuda(cudaMalloc((void**)&device.dPos[1], nbody_memsize));
     }
 
     // Initialize simulation
@@ -172,15 +132,15 @@ BenchmarkResults runExperiment(BenchmarkInput input, NBodyParams params)
 
     NBodyConfig config = NBodyConfig::Shell;
     setSofteningSquared(params.softening);
-    float *h_pos = new float[input.body_count * 4];
-    float *h_vel = new float[input.body_count * 4];
-    randomizeBodies(config, h_pos, h_vel, nullptr,
+    HostData host;
+
+    host.pos = new float[input.body_count * 4];
+    host.vel = new float[input.body_count * 4];
+    randomizeBodies(config, host.pos, host.vel, nullptr,
         params.cluster_scale, params.velocity_scale, input.body_count, true
     );
-    checkCuda(cudaMemcpy(data.dPos[current_read], h_pos, nbody_memsize, cudaMemcpyHostToDevice));
-    checkCuda(cudaMemcpy(data.dVel, h_vel, nbody_memsize, cudaMemcpyHostToDevice));
-    delete[] h_pos;
-    delete[] h_vel;
+    checkCuda(cudaMemcpy(device.dPos[current_read], host.pos, nbody_memsize, cudaMemcpyHostToDevice));
+    checkCuda(cudaMemcpy(device.dVel, host.vel, nbody_memsize, cudaMemcpyHostToDevice));
 
     // Start display and measurements
     setCameraPosition(engine, {1.f, 1.f, -3.f});
@@ -188,47 +148,73 @@ BenchmarkResults runExperiment(BenchmarkInput input, NBodyParams params)
     if (input.display) displayAsync(engine);
 
     // Main simulation loop
-    for (int i = 0; i < input.iter_count; ++i)
+    if (input.use_cpu)
     {
-        if (input.display) prepareViews(engine);
-        integrateNbodySystem(data, current_read, params.time_step,
-            params.damping, input.body_count, block_size
-        );
-        std::swap(current_read, current_write);
-        if (input.display)
+        host.force = new float[input.body_count * 3];
+        memset(host.force, 0, input.body_count * 3 * sizeof(float));
+
+        for (int i = 0; i < input.iter_count; ++i)
         {
-            toggleVisibility(views[0]);
-            toggleVisibility(views[1]);
-            updateViews(engine);
+            printf("loop %d\n", i);
+            integrateNBodySystemCpu(host, params.time_step,
+                params.damping, params.softening, input.body_count
+            );
+            if (input.display) { prepareViews(engine); }
+            checkCuda(cudaMemcpy(device.dPos[current_read], host.pos,
+                nbody_memsize, cudaMemcpyHostToDevice)
+            );
+            if (input.display) { updateViews(engine); }
+        }
+
+        delete[] host.force;
+    }
+    else
+    {
+        for (int i = 0; i < input.iter_count; ++i)
+        {
+            if (input.display) prepareViews(engine);
+
+            integrateNbodySystem(device, current_read, params.time_step,
+                params.damping, input.body_count, block_size
+            );
+            std::swap(current_read, current_write);
+            if (input.display)
+            {
+                toggleVisibility(views[0]);
+                toggleVisibility(views[1]);
+                updateViews(engine);
+            }
         }
     }
 
     // Retrieve metrics
-    //auto metrics = getMetrics(engine);
-    BenchmarkResults output;
+    auto metrics = getMetrics(engine);
 
     // Nvml memory report
     {
-        nvmlMemory_v2_t meminfo;
-        meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
-        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
+        // nvmlMemory_v2_t meminfo;
+        // meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+        // nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
 
-        constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
-        output.freemem  = meminfo.free / gigabyte;
+        // constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
+        //output.freemem  = meminfo.free / gigabyte;
         //output.reserved = meminfo.reserved / gigabyte;
         //output.totalmem = meminfo.total / gigabyte;
-        output.usedmem  = meminfo.used / gigabyte;
+        //output.usedmem  = meminfo.used / gigabyte;
     }
     GPUPowerEnd();
 
     // Cleanup
     exit(engine);
     destroyEngine(engine);
-    checkCuda(cudaFree(data.dPos[0]));
-    checkCuda(cudaFree(data.dPos[1]));
-    checkCuda(cudaFree(data.dVel));
+    checkCuda(cudaFree(device.dPos[0]));
+    checkCuda(cudaFree(device.dPos[1]));
+    checkCuda(cudaFree(device.dVel));
 
-    return output;
+    delete[] host.pos;
+    delete[] host.vel;
+
+    return metrics;
 }
 
 int main(int argc, char *argv[])
@@ -238,13 +224,13 @@ int main(int argc, char *argv[])
 
     // Parse parameters from command line
     if (argc >= 3) { input.width = std::stoi(argv[1]); input.height = std::stoi(argv[2]); }
-    if (argc >= 4) input.body_count   = std::stoul(argv[3]);
-    if (argc >= 5) input.iter_count   = std::stoi(argv[4]);
-    if (argc >= 6) input.present      = static_cast<PresentMode>(std::stoi(argv[5]));
-    if (argc >= 7) input.target_fps   = std::stoi(argv[6]);
-    if (argc >= 8) input.enable_sync  = static_cast<bool>(std::stoi(argv[7]));
-    if (argc >= 9) input.display      = static_cast<bool>(std::stoi(argv[8]));
-    if (argc >= 10) input.compute_gpu = static_cast<bool>(std::stoi(argv[9]));
+    if (argc >= 4) input.body_count  = std::stoul(argv[3]);
+    if (argc >= 5) input.iter_count  = std::stoi(argv[4]);
+    if (argc >= 6) input.present     = static_cast<PresentMode>(std::stoi(argv[5]));
+    if (argc >= 7) input.target_fps  = std::stoi(argv[6]);
+    if (argc >= 8) input.enable_sync = static_cast<bool>(std::stoi(argv[7]));
+    if (argc >= 9) input.display     = static_cast<bool>(std::stoi(argv[8]));
+    if (argc >= 10) input.use_cpu    = static_cast<bool>(std::stoi(argv[9]));
 
     auto result = runExperiment(input, params);
     formatResults(input, result);
