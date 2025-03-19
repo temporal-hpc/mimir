@@ -7,6 +7,21 @@
 namespace mimir
 {
 
+struct PerformanceMetrics
+{
+    float frame_rate;
+    struct {
+        float compute;
+        float graphics;
+        float pipeline;
+    } times;
+
+    struct {
+        float usage;
+        float budget;
+    } devmem;
+};
+
 struct WindowOptions
 {
     std::string title = "Mimir";
@@ -33,7 +48,6 @@ struct ViewerOptions
     bool show_panel         = false;
     bool show_metrics       = false;
     bool show_demo_window   = false;
-    uint report_period      = 0;
     float4 background_color = {.5f, .5f, .5f, 1.f};
 };
 

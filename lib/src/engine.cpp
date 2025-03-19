@@ -1328,13 +1328,6 @@ void MimirEngine::renderFrame()
     if (options.present.enable_fps_limit) { frameStall(options.present.target_frame_time); }
     graphics_monitor.stopFrameWatch();
     //spdlog::trace("frame {} finished", render_timeline-1);
-
-    /*if (options.report_period > 0 && frame_time > options.report_period)
-    {
-        printf("Report at %d seconds:\n", options.report_period);
-        showMetrics();
-        last_time = current_time;
-    }*/
 }
 
 void MimirEngine::drawElements(uint32_t image_idx)
@@ -1513,49 +1506,23 @@ std::string readMemoryHeapFlags(VkMemoryHeapFlags flags)
     return "";
 }
 
-void MimirEngine::showMetrics()
+PerformanceMetrics MimirEngine::getMetrics()
 {
-    int w, h;
-    window_context.getFramebufferSize(w, h);
-    std::string label;
-    if (w == 0 && h == 0) label = "None";
-    else if (w == 1920 && h == 1080) label = "FHD";
-    else if (w == 2560 && h == 1440) label = "QHD";
-    else if (w == 3840 && h == 2160) label = "UHD";
+    // Update memory usage stats
+    auto memory = physical_device.getMemoryStats();
 
-    auto framerate = graphics_monitor.getFramerate();
-
-    auto stats = physical_device.getMemoryStats();
-    auto gpu_usage  = formatMemory(stats.usage);
-    auto gpu_budget = formatMemory(stats.budget);
-
-    printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.present.target_fps,
-        framerate,compute_monitor.total_compute_time,graphics_monitor.total_pipeline_time,
-        graphics_monitor.total_graphics_time,gpu_usage.data,gpu_budget.data
-    );
-
-    //auto fps = ImGui::GetIO().Framerate; printf("\nFPS %f\n", fps);
-    //getTimeResults();
-    /*printf("Framebuffer size: %dx%d\n", w, h);
-    printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
-
-    dev.updateMemoryProperties();
-    auto gpu_usage = dev.formatMemory(dev.props.gpu_usage);
-    printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());
-    auto gpu_budget = dev.formatMemory(dev.props.gpu_budget);
-    printf("GPU memory budget: %.2f %s\n", gpu_budget.data, gpu_budget.units.c_str());
-    //this->exit();
-
-    auto props = dev.budget_properties;
-    for (int i = 0; i < static_cast<int>(dev.props.heap_count); ++i)
-    {
-        auto heap_usage = dev.formatMemory(props.heapUsage[i]);
-        printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
-        auto heap_budget = dev.formatMemory(props.heapBudget[i]);
-        printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
-        auto heap_flags = dev.memory_properties2.memoryProperties.memoryHeaps[i].flags;
-        printf("Heap %d flags: %s\n", i, dev.readMemoryHeapFlags(heap_flags).c_str());
-    }*/
+    return PerformanceMetrics{
+        .frame_rate = graphics_monitor.getFramerate(),
+        .times = {
+            .compute  = compute_monitor.total_compute_time,
+            .graphics = graphics_monitor.total_graphics_time,
+            .pipeline = (float)graphics_monitor.total_pipeline_time,
+        },
+        .devmem = {
+            .usage  = formatMemory(memory.usage).data,
+            .budget = formatMemory(memory.budget).data,
+        }
+    };
 }
 
 void MimirEngine::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)

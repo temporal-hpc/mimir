@@ -40,8 +40,7 @@ Application::Application(){
     viewer_opts.window.title  = "Tiuque"; // Top-level window.
     viewer_opts.window.size   = {1920, 1080};
     viewer_opts.present.mode  = PresentMode::VSync;
-    viewer_opts.report_period = 180;
-    viewer_opts.background_color      = {0.f,0.f,0.f,1.f};
+    viewer_opts.background_color = {0.f,0.f,0.f,1.f};
     createEngine(viewer_opts, &engine);
 
     // Initialize native file dialog lib

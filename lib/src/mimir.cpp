@@ -136,9 +136,9 @@ void exit(EngineHandle engine)
     engine->exit();
 }
 
-void getMetrics(EngineHandle engine)
+PerformanceMetrics getMetrics(EngineHandle engine)
 {
-    engine->showMetrics();
+    return engine->getMetrics();
 }
 
 } // namespace mimir

@@ -105,10 +105,10 @@ AttributeDescription makeImageFrame(EngineHandle engine);
 // in the texture description parameter.
 void copyTextureData(EngineHandle engine, TextureDescription tex_desc, void *data, size_t memsize);
 
-// Prints metrics for the current engine.
-void getMetrics(EngineHandle engine);
-
 // Closes the display window if open.
 void exit(EngineHandle engine);
+
+// Prints metrics for the current engine.
+PerformanceMetrics getMetrics(EngineHandle engine);
 
 } // namespace mimir

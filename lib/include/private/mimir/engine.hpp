@@ -132,8 +132,8 @@ struct MimirEngine
     void displayAsync();
     void prepareViews();
     void updateViews();
-    void showMetrics();
     void exit();
+    PerformanceMetrics getMetrics();
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 

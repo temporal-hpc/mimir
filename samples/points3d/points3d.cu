@@ -123,9 +123,7 @@ int main(int argc, char *argv[])
     }
 
     ViewerOptions options;
-    options.window.size   = {width,height}; // Starting window size
-    options.show_metrics  = false; // Show metrics window in GUI
-    options.report_period = 0; // Print relevant usage stats every N seconds
+    options.window.size = {width,height}; // Starting window size
     options.present = {
         .mode        = present_mode,
         .enable_sync = enable_sync,
