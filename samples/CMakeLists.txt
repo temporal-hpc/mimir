@@ -12,8 +12,6 @@ add_subdirectory(CA3D-voxels)
 add_subdirectory(nbody)
 # Basic samples
 add_subdirectory(GPU-visual-tool-example)
-add_subdirectory(points3d)
-add_subdirectory(points3dcpu)
 add_subdirectory(edgeflip)
 add_subdirectory(voronoi-simple)
 add_subdirectory(texture_cudaarray)

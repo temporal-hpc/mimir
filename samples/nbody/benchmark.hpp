@@ -24,7 +24,7 @@ struct BenchmarkInput
             .target_fps  = 0,
             .enable_sync = true,
             .display     = true,
-            .use_cpu     = true,
+            .use_cpu     = false,
         };
     }
 };

@@ -50,7 +50,7 @@ void formatResults(BenchmarkInput input, PerformanceMetrics metrics)
     else if (input.width == 2560 && input.height == 1440) { resolution = "QHD"; }
     else if (input.width == 3840 && input.height == 2160) { resolution = "UHD"; }
 
-    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f\n",
+    printf("asdf %s,qwer %s,zxcv%d,%d,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
@@ -155,7 +155,6 @@ PerformanceMetrics runExperiment(BenchmarkInput input, NBodyParams params)
 
         for (int i = 0; i < input.iter_count; ++i)
         {
-            printf("loop %d\n", i);
             integrateNBodySystemCpu(host, params.time_step,
                 params.damping, params.softening, input.body_count
             );
