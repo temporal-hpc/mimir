@@ -170,6 +170,7 @@ void MimirEngine::prepareViews()
 {
     if (options.present.enable_sync && running)
     {
+        compute_active = true;
         waitKernelStart();
         compute_monitor.startWatch();
     }
@@ -188,7 +189,6 @@ void MimirEngine::waitKernelStart()
         &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
     wait_value += 2;
-    compute_active = true;
 }
 
 void MimirEngine::updateViews()
@@ -229,16 +229,16 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
         gui::draw(camera, options, views, gui_callback);
         renderFrame();
 
+        if (running) waitKernelStart();
         if (iter_idx < iter_count)
         {
-            waitKernelStart();
             func(); // Advance the simulation
             iter_idx++;
-            signalKernelFinish();
         }
+        if (running) signalKernelFinish();
     }
-    running = false;
     compute_active = false;
+    running = false;
     vkDeviceWaitIdle(device);
 }
 

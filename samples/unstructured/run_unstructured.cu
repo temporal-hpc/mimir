@@ -89,7 +89,7 @@ int main(int argc, char *argv[])
                 .format     = FormatDescription::make<double>(),
             }},
         },
-        .scale = { 0.5f, 0.5f, 0.5f },
+        .scale = { 0.1f, 0.1f, 0.1f },
     };
     createView(engine, &desc, &view);
 
@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    setCameraPosition(engine, {-100.f, -100.f, -150.f});
+    setCameraPosition(engine, {-20.f, -20.f, -30.f});
     display(engine, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
