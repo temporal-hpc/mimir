@@ -123,7 +123,7 @@ MimirEngine MimirEngine::make(int width, int height)
     return MimirEngine::make(opts);
 }
 
-void MimirEngine::exit()
+void MimirEngine::deinit()
 {
     if (rendering_thread.joinable())
     {
@@ -140,6 +140,11 @@ void MimirEngine::exit()
     window_context.exit();
     deletors.views.flush();
     deletors.context.flush();
+}
+
+void MimirEngine::exit()
+{
+    window_context.exit();
 }
 
 void MimirEngine::prepare()

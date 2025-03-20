@@ -132,6 +132,7 @@ struct MimirEngine
     void displayAsync();
     void prepareViews();
     void updateViews();
+    void deinit();
     void exit();
     PerformanceMetrics getMetrics();
 

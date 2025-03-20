@@ -1,3 +1,4 @@
+#include <random>
 #include <string> // std::stoul
 
 #include "benchmark.hpp"
@@ -35,13 +36,26 @@ NBodyParams demo_params[] = {
     {0.016f, 6.040f, 0.f, 1.f, 1.f, 0.760f, 0, 0, -50},
 };
 
-void formatResults(BenchmarkInput input, PerformanceMetrics metrics)
+struct GPUMemoryMetrics {
+    double free;
+    double reserved;
+    double total;
+    double used;
+};
+
+struct BenchmarkResult {
+    PerformanceMetrics perf;
+    GPUPowerMetrics power;
+    GPUMemoryMetrics memory;
+};
+
+void formatResults(BenchmarkInput input, BenchmarkResult result)
 {
     // Determine execution mode for benchmarking and write CSV column names
     std::string mode;
     if (input.width == 0 && input.height == 0)
     {
-        mode = input.display? "mimir" : "no_disp";
+        mode = input.display? "mimir" : "none";
     }
     else { mode = input.enable_sync? "sync" : "desync"; }
 
@@ -50,21 +64,209 @@ void formatResults(BenchmarkInput input, PerformanceMetrics metrics)
     else if (input.width == 2560 && input.height == 1440) { resolution = "QHD"; }
     else if (input.width == 3840 && input.height == 2160) { resolution = "UHD"; }
 
-    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f\n",
+    auto library = result.perf;
+    auto gpu = result.power;
+    auto nvml = result.memory;
+
+    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
         input.target_fps,
-        metrics.frame_rate,
-        metrics.times.compute,
-        metrics.times.pipeline,
-        metrics.times.graphics,
-        metrics.devmem.usage,
-        metrics.devmem.budget
+        library.frame_rate,
+        library.times.compute,
+        library.times.pipeline,
+        library.times.graphics,
+        library.devmem.usage,
+        library.devmem.budget,
+        gpu.average_power,
+        gpu.total_energy,
+        gpu.total_time,
+        nvml.free,
+        nvml.reserved,
+        nvml.total,
+        nvml.used
     );
 }
 
-PerformanceMetrics runExperiment(BenchmarkInput input, NBodyParams params)
+
+inline float normalize(float3 &vector)
+{
+    float dist = sqrtf(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
+    if (dist > 1e-6)
+    {
+        vector.x /= dist;
+        vector.y /= dist;
+        vector.z /= dist;
+    }
+
+    return dist;
+}
+
+inline float dot(float3 v0, float3 v1)
+{
+    return v0.x * v1.x + v0.y * v1.y + v0.z * v1.z;
+}
+
+inline float3 cross(float3 v0, float3 v1)
+{
+    float3 rt;
+    rt.x = v0.y * v1.z - v0.z * v1.y;
+    rt.y = v0.z * v1.x - v0.x * v1.z;
+    rt.z = v0.x * v1.y - v0.y * v1.x;
+    return rt;
+}
+
+void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
+    float cluster_scale, float velocity_scale, int body_count, bool vec4vel)
+{
+    std::mt19937 rng(12345);
+    std::uniform_real_distribution<float> rand_pos(-1.f, 1.f);
+
+    //float weight = 100000.f;
+    float mass = 1.f;//weight / body_count;
+    float inv_mass = 1.f;//body_count / weight;
+    switch (config)
+    {
+        default:
+        case NBodyConfig::Random:
+        {
+            float scale = cluster_scale * std::max<float>(1.0f, body_count / (1024.0f));
+            float vscale = velocity_scale * scale;
+
+            int p = 0, v = 0, i = 0;
+            while (i < body_count)
+            {
+                float3 point;
+                // const int scale = 16;
+                point.x = rand_pos(rng);
+                point.y = rand_pos(rng);
+                point.z = rand_pos(rng);
+                float len_sqr = dot(point, point);
+
+                if (len_sqr > 1) continue;
+
+                float3 velocity;
+                velocity.x = rand_pos(rng);
+                velocity.y = rand_pos(rng);
+                velocity.z = rand_pos(rng);
+                len_sqr = dot(velocity, velocity);
+
+                if (len_sqr > 1) continue;
+
+                pos[p++] = point.x * scale;  // pos.x
+                pos[p++] = point.y * scale;  // pos.y
+                pos[p++] = point.z * scale;  // pos.z
+                pos[p++] = mass;             // mass
+
+                vel[v++] = velocity.x * vscale;  // pos.x
+                vel[v++] = velocity.y * vscale;  // pos.x
+                vel[v++] = velocity.z * vscale;  // pos.x
+
+                if (vec4vel) vel[v++] = inv_mass;  // inverse mass
+
+                i++;
+            }
+        } break;
+
+        case NBodyConfig::Shell:
+        {
+            float scale = cluster_scale;
+            float vscale = scale * velocity_scale;
+            float inner = 2.5f * scale;
+            float outer = 4.0f * scale;
+
+            int p = 0, v = 0, i = 0;
+            while (i < body_count)
+            {
+                float x, y, z;
+                x = rand_pos(rng);
+                y = rand_pos(rng);
+                z = rand_pos(rng);
+
+                float3 point = {x, y, z};
+                float len = normalize(point);
+                if (len > 1) { continue; }
+
+                pos[p++] = point.x * (inner + (outer - inner) * rand() / (float)RAND_MAX);
+                pos[p++] = point.y * (inner + (outer - inner) * rand() / (float)RAND_MAX);
+                pos[p++] = point.z * (inner + (outer - inner) * rand() / (float)RAND_MAX);
+                pos[p++] = mass;
+
+                x = 0.0f;  // * (rand() / (float) RAND_MAX * 2 - 1);
+                y = 0.0f;  // * (rand() / (float) RAND_MAX * 2 - 1);
+                z = 1.0f;  // * (rand() / (float) RAND_MAX * 2 - 1);
+                float3 axis = {x, y, z};
+                normalize(axis);
+
+                if (1 - dot(point, axis) < 1e-6)
+                {
+                    axis.x = point.y;
+                    axis.y = point.x;
+                    normalize(axis);
+                }
+
+                // if (point.y < 0) axis = scalevec(axis, -1);
+                float3 vv = {pos[4 * i], pos[4 * i + 1], pos[4 * i + 2]};
+                vv = cross(vv, axis);
+                vel[v++] = vv.x * vscale;
+                vel[v++] = vv.y * vscale;
+                vel[v++] = vv.z * vscale;
+
+                if (vec4vel) { vel[v++] = inv_mass; }
+
+                i++;
+            }
+        } break;
+
+        case NBodyConfig::Expand:
+        {
+            float scale = cluster_scale * body_count / (1024.f);
+
+            if (scale < 1.0f) { scale = cluster_scale; }
+            float vscale = scale * velocity_scale;
+            int p = 0, v = 0;
+
+            for (int i = 0; i < body_count;)
+            {
+                float3 point;
+                point.x = rand_pos(rng);
+                point.y = rand_pos(rng);
+                point.z = rand_pos(rng);
+
+                float len_sqr = dot(point, point);
+                if (len_sqr > 1) { continue; }
+
+                pos[p++] = point.x * scale;   // pos.x
+                pos[p++] = point.y * scale;   // pos.y
+                pos[p++] = point.z * scale;   // pos.z
+                pos[p++] = mass;              // mass
+                vel[v++] = point.x * vscale;  // pos.x
+                vel[v++] = point.y * vscale;  // pos.x
+                vel[v++] = point.z * vscale;  // pos.x
+
+                if (vec4vel) vel[v++] = inv_mass;  // inverse mass
+
+                i++;
+            }
+        } break;
+    }
+
+    if (color != nullptr)
+    {
+        std::uniform_real_distribution<float> rand_color(0, 1);
+        int v = 0;
+        for (int i = 0; i < body_count; i++)
+        {
+            color[v++] = rand_color(rng);
+            color[v++] = rand_color(rng);
+            color[v++] = rand_color(rng);
+            color[v++] = 1.0f;
+        }
+    }
+}
+
+BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 {
     // CUDA initialization
     const int device_id = 0;
@@ -127,9 +329,7 @@ PerformanceMetrics runExperiment(BenchmarkInput input, NBodyParams params)
     }
 
     // Initialize simulation
-    unsigned int current_read  = 0;
-    unsigned int current_write = 1;
-
+    unsigned int current_read  = 0, current_write = 1;
     NBodyConfig config = NBodyConfig::Shell;
     setSofteningSquared(params.softening);
     HostData host;
@@ -176,7 +376,6 @@ PerformanceMetrics runExperiment(BenchmarkInput input, NBodyParams params)
             integrateNbodySystem(device, current_read, params.time_step,
                 params.damping, input.body_count, block_size
             );
-            checkCuda(cudaDeviceSynchronize());
             std::swap(current_read, current_write);
 
             if (input.display)
@@ -192,20 +391,21 @@ PerformanceMetrics runExperiment(BenchmarkInput input, NBodyParams params)
     auto metrics = getMetrics(engine);
 
     // Nvml memory report
-    {
-        // nvmlMemory_v2_t meminfo;
-        // meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
-        // nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
+    nvmlMemory_v2_t meminfo;
+    meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+    nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
+    constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
+    GPUMemoryMetrics nvml{
+        .free     = meminfo.free / gigabyte,
+        .reserved = meminfo.reserved / gigabyte,
+        .total    = meminfo.total / gigabyte,
+        .used     = meminfo.used / gigabyte,
+    };
 
-        // constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
-        //output.freemem  = meminfo.free / gigabyte;
-        //output.reserved = meminfo.reserved / gigabyte;
-        //output.totalmem = meminfo.total / gigabyte;
-        //output.usedmem  = meminfo.used / gigabyte;
-    }
-    GPUPowerEnd();
+    auto gpu_power = GPUPowerEnd();
 
     // Cleanup
+    exit(engine);
     destroyEngine(engine);
     checkCuda(cudaFree(device.dPos[0]));
     checkCuda(cudaFree(device.dPos[1]));
@@ -214,7 +414,7 @@ PerformanceMetrics runExperiment(BenchmarkInput input, NBodyParams params)
     delete[] host.pos;
     delete[] host.vel;
 
-    return metrics;
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
 }
 
 int main(int argc, char *argv[])

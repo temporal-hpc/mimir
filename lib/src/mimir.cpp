@@ -23,7 +23,7 @@ void createEngine(int width, int height, EngineHandle *engine)
 
 void destroyEngine(EngineHandle engine)
 {
-    engine->exit();
+    engine->deinit();
     delete engine;
 }
 

@@ -1,6 +1,6 @@
 /*
  Copyright (c) 2021 Temporal Guild Group, Austral University of Chile, Valdivia Chile.
- This file and all powermon software is licensed under the MIT License. 
+ This file and all powermon software is licensed under the MIT License.
  Please refer to LICENSE for more details.
  */
 #include "nvmlPower.hpp"
@@ -21,7 +21,6 @@ Rapl *rapl;
 
 int CPU_SAMPLE_MS = 100;
 int GPU_SAMPLE_MS = 100;
-
 
 double gpuCurrentPower;
 double gpuAveragePower;
@@ -47,7 +46,7 @@ void *GPUpowerPollingFunc(void *ptr){
     double power = 0.0;
     // column names
 	fprintf(fp, "%-15s %-15s %-15s %-15s %-15s %-15s\n", "#timestep", "power", "acc-energy", "avg-power", "dt", "acc-time");
-    
+
 
 	while(GPUpollThreadStatus){
         timestep++;
@@ -71,7 +70,7 @@ void *GPUpowerPollingFunc(void *ptr){
         gpuCurrentPower = power;
         accenergy += power*dt;
 		// The output file stores power in Watts.
-        fprintf(fp,"%-15i %-15f %-15f %-15f %-15f %-15f\n", 
+        fprintf(fp,"%-15i %-15f %-15f %-15f %-15f %-15f\n",
                 timestep, power, accenergy, accenergy/acctime, dt, acctime);
         t1 = t2;
 		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, 0);
@@ -153,7 +152,7 @@ void GPUPowerBegin(const char *alg, int ms){
 /*
 End power measurement. This ends the polling thread.
 */
-void GPUPowerEnd(){
+GPUPowerMetrics GPUPowerEnd(){
 	usleep(1000*COOLDOWN_MS);
 	GPUpollThreadStatus = false;
 	pthread_join(GPUpowerPollThread, NULL);
@@ -162,7 +161,6 @@ void GPUPowerEnd(){
     /*printf("GPU Avg. Power:       %f W\n", gpuAveragePower);
     printf("GPU Total Energy:     %f J = %f kWh\n", gpuTotalEnergy, gpuTotalEnergy/ckWh);
     printf("GPU Total Time:       %f secs\n", gpuTotalTime);*/
-    printf("%f,%f,%f\n", gpuAveragePower, gpuTotalEnergy, gpuTotalTime);
 
 	nvmlResult = nvmlShutdown();
 	if (NVML_SUCCESS != nvmlResult)
@@ -170,6 +168,12 @@ void GPUPowerEnd(){
 		printf("Failed to shut down NVML: %s\n", nvmlErrorString(nvmlResult));
 		exit(0);
 	}
+
+	return GPUPowerMetrics{
+		.average_power = gpuAveragePower,
+		.total_energy  = gpuTotalEnergy,
+		.total_time    = gpuTotalTime,
+	};
 }
 
 /*
@@ -266,8 +270,8 @@ void* CPUpowerPollingFunc(void *ptr){
 		// Write current value of CPU PKG
         fprintf(fp, "%-15i %-15f %-15f %-15f %-15f %-15f\n", timestep, rapl->pkg_current_power(), rapl->pkg_total_energy(), rapl->pkg_average_power(), rapl->current_time(), rapl->total_time());
         printf("\r [CPU = %-10.5f (W)  DRAM = %-10.5f (W)]   [GPU = %-10.5f (W)]",
-                rapl->pkg_current_power(), 
-                rapl->dram_current_power(), 
+                rapl->pkg_current_power(),
+                rapl->dram_current_power(),
                 gpuCurrentPower);
         fflush(stdout);
 		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, 0);
