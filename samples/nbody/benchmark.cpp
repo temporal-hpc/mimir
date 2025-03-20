@@ -268,6 +268,11 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
 
 BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 {
+    // Decrease the time step further based on the number of bodies
+    // This is to prevent making them move outside the camera area
+    if (input.body_count <= 10000) { params.time_step /= 1000.f; }
+    params.point_size /= 5.f;
+
     // CUDA initialization
     const int device_id = 0;
     checkCuda(cudaSetDevice(device_id));
@@ -313,7 +318,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
             },
             .visible       = true,
             .default_color = {1.f, 1.f, 1.f, 1.f},
-            .default_size  = params.point_size / 5.f,
+            .default_size  = params.point_size,
             .scale         = {1.f, 1.f, 1.f},
         };
         createView(engine, &desc, &views[0]);
