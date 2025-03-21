@@ -7,15 +7,10 @@ import antialias; // IAntialiased
 import shapes; // IShape
 import rotation; // IRotation
 
-#define M_PI 3.1415926535897932384626433832795
-
 float getMarkerSizePx(float size)
 {
-    return SQRT_2 * size + 2 * (v_linewidth + 1.5 * u_antialias);
+    return SQRT_2 * size + 2 * (view.linewidth + 1.5 * view.antialias);
 }
-
-static const float v_linewidth = 0;
-static const float u_antialias = 0;
 
 struct VertexOutput
 {
@@ -106,7 +101,7 @@ FragmentOutput fragmentMain<S: IShape2D>(GeometryOutput input)
     float distance = shape.apply(p * input.size, input.ele_size);
 
     Filled aa;
-    out.color = aa.apply(distance, v_linewidth, u_antialias, input.color, scene.background_color);
+    out.color = aa.apply(distance, view.linewidth, view.antialias, input.color, scene.background_color);
     //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;

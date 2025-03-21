@@ -59,12 +59,18 @@ void addViewHandleGUI(View *view_ptr, int uid)
     ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &desc.visible);
     if (node_open)
     {
+        ImGui::ColorEdit4("Element color", &desc.default_color.x);
         const float f32_zero = 0.f;
-        const float f32_max  = std::numeric_limits<float>::max();
+        const float f32_max  = 10000.f;
         ImGui::DragScalar("Element size", ImGuiDataType_Float, &desc.default_size,
             0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
         );
-        ImGui::ColorEdit4("Element color", &desc.default_color.x);
+        ImGui::DragScalar("Line width", ImGuiDataType_Float, &desc.linewidth,
+            0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
+        );
+        ImGui::DragScalar("Antialias", ImGuiDataType_Float, &desc.antialias,
+            0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
+        );
         // ImGui::SliderFloat("depth", &desc.options.depth, 0.f, 1.f);
 
         // if (desc.offsets.size() > 0)

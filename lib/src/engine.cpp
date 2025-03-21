@@ -1453,10 +1453,10 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
 
         auto color = view->desc.default_color;
         ViewUniforms vu{
-            .color         = glm::vec4(color.x, color.y, color.z, color.w),
-            .size          = view->desc.default_size,
-            .depth         = 0.f,
-            .element_count = 0,
+            .color     = glm::vec4(color.x, color.y, color.z, color.w),
+            .size      = view->desc.default_size,
+            .linewidth = view->desc.linewidth,
+            .antialias = view->desc.antialias,
         };
 
         auto bg = options.background_color;

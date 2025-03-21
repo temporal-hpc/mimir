@@ -109,6 +109,8 @@ struct ViewDescription
     float4 default_color = {0.f, 0.f, 0.f, 1.f};
     // Default size for elements in the view if no size data is specified.
     float default_size   = 1.f;
+    float linewidth      = 0.f;
+    float antialias      = 0.f;
     float3 position      = {0.f, 0.f, 0.f};
     float3 rotation      = {0.f, 0.f, 0.f};
     float3 scale         = {1.f, 1.f, 1.f};
