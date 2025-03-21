@@ -147,7 +147,7 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
         ImGui::Checkbox("Enable FPS limit", &op.enable_fps_limit);
         ImGui::BeginDisabled(!opts.present.enable_fps_limit);
         ImGuiSliderFlags slider_flags = ImGuiSliderFlags_AlwaysClamp;
-        if (ImGui::SliderInt("FPS target", &op.target_fps, 1, op.max_fps, "%d%", slider_flags))
+        if (ImGui::SliderInt("FPS target", &op.target_fps, 1, 240, "%d%", slider_flags))
         {
             op.target_frame_time = getTargetFrameTime(op.enable_fps_limit, op.target_fps);
         }

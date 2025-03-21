@@ -100,7 +100,6 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
     spdlog::set_level(spdlog::level::trace);
     spdlog::set_pattern("[%H:%M:%S] [%l] %v");
 
-    engine.options.present.max_fps = engine.options.present.mode == PresentMode::VSync? 60 : 300;
     engine.options.present.target_frame_time = getTargetFrameTime(
         engine.options.present.enable_fps_limit, engine.options.present.target_fps
     );

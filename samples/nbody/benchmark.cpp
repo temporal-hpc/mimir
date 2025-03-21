@@ -281,14 +281,13 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
     if (input.display == false) { input.width = input.height = 1; }
 
-    ViewerOptions options;
+    ViewerOptions options{};
     options.window.size = {input.width, input.height}; // Starting window size
     options.background_color = {0.f, 0.f, 0.f, 1.f};
-    options.present = {
-        .mode        = input.present,
-        .enable_sync = input.enable_sync,
-        .target_fps  = input.target_fps,
-    };
+    options.present.mode = input.present;
+    options.present.enable_sync = input.enable_sync;
+    options.present.target_fps  = input.target_fps;
+
     EngineHandle engine = nullptr;
     createEngine(options, &engine);
     setCameraPosition(engine, {params.x, params.y, params.z});
