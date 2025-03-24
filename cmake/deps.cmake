@@ -10,7 +10,7 @@ FetchContent_Declare(vma
 
 # Slang shader lib
 if(MIMIR_BUILD_SLANG)
-    message("Building slang from source")
+    message(CHECK_START "Building slang from source")
     set(SLANG_ENABLE_GFX        OFF)
     set(SLANG_ENABLE_SLANGD     OFF)
     set(SLANG_ENABLE_SLANGRT    OFF)
@@ -28,8 +28,8 @@ if(MIMIR_BUILD_SLANG)
     # Add slang install target manually, since FetchContent does not export targets
     install(TARGETS slang EXPORT MimirTargets)
 else()
-    set(SLANG_VERSION 2025.6.1)
-    message("Using slang release ${SLANG_VERSION}")
+    set(SLANG_VERSION 2025.6.2)
+    message(CHECK_START "Using slang release ${SLANG_VERSION}")
     FetchContent_Declare(slang
         URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-linux-x86_64.tar.gz"
     )
@@ -82,13 +82,13 @@ FetchContent_Declare(imgui
     FIND_PACKAGE_ARGS
 )
 FetchContent_MakeAvailable(imgui)
-add_library(imgui-app STATIC)
-target_include_directories(imgui-app SYSTEM PUBLIC
+add_library(imgui STATIC)
+target_include_directories(imgui SYSTEM PUBLIC
     $<BUILD_INTERFACE:${imgui_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(imgui-app glfw)
-target_sources(imgui-app PRIVATE
+target_link_libraries(imgui glfw)
+target_sources(imgui PRIVATE
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp

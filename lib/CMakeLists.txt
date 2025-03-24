@@ -17,13 +17,12 @@ target_sources(mimir
         src/shader.cpp
         src/swapchain.cpp
         src/validation.cpp
-        #src/interop_device.cpp
         src/window.cpp
         src/vma_impl.cpp
     PUBLIC
         FILE_SET  public_headers
         TYPE      HEADERS
-        BASE_DIRS include
+        BASE_DIRS include/public
         FILES
             include/public/mimir/mimir.hpp
             include/public/mimir/view.hpp
@@ -54,12 +53,12 @@ target_link_libraries(mimir
     PUBLIC
         Vulkan::Vulkan CUDA::cudart
     PRIVATE
-        slang glm::glm glfw imgui-app spdlog::spdlog # GPUOpen::VulkanMemoryAllocator
+        slang glm::glm glfw imgui spdlog::spdlog # GPUOpen::VulkanMemoryAllocator
         "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"
 )
 
 install(
-    TARGETS mimir glm glm-header-only glfw VulkanMemoryAllocator spdlog imgui-app
+    TARGETS mimir glm glm-header-only glfw imgui spdlog
     EXPORT  MimirTargets
     LIBRARY DESTINATION       lib
     ARCHIVE DESTINATION       lib

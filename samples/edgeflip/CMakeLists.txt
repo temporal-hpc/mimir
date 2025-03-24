@@ -23,4 +23,4 @@ set_target_properties(tiuque PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
 )
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)
-target_link_libraries(tiuque PRIVATE samples_common cleap imgui-app nfd)
+target_link_libraries(tiuque PRIVATE samples_common cleap imgui nfd)
