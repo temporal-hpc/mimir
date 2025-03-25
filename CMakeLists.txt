@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 project(mimir VERSION 0.1 LANGUAGES CXX CUDA)
 
-option(MIMIR_ENABLE_ASAN "Enable address sanitizer (ASAN)")
-option(MIMIR_BUILD_SLANG "Build slang library from source")
+option(MIMIR_ENABLE_ASAN "Enable address sanitizer (ASAN)" OFF)
+option(MIMIR_BUILD_SLANG "Build slang library from source" OFF)
+option(MIMIR_BUILD_SAMPLES "Build sample Mimir programs" ON)
 
 # TODO: Should handle this in multi-platform style
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -22,6 +23,6 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(deps) # cmake/deps.cmake
 
 add_subdirectory(lib)
-add_subdirectory(samples)
-add_subdirectory(utils)
-#add_subdirectory(shaders)
+if(MIMIR_BUILD_SAMPLES)
+    add_subdirectory(samples)
+endif()

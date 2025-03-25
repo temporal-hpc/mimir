@@ -1,5 +1,5 @@
 # Mìmir
-Library for visualization of CUDA code with Vulkan
+Library for interactive real-time visualization of CUDA code with Vulkan
 
 ## Dependencies
 
@@ -13,7 +13,6 @@ Mìmir downloads additional dependencies via the CMake `FetchContent` command:
 * [ImGui](https://github.com/ocornut/imgui)
 * [GLFW](https://github.com/glfw/glfw)
 * [GLM](https://github.com/g-truc/glm)
-* [ImGuiFileDialog](https://github.com/aiekick/ImGuiFileDialog)
 
 ## Building
 
@@ -45,6 +44,8 @@ to any program that links to this library to avoid crashed due to interactions w
 Compiles the slang library from source for linking with Mìmir instead of using a prebuilt release.
 This is slower and more error-prone compared to using the precompiled release,
 and historically was used only for debugging slang library calls.
+* `MIMIR_BUILD_SAMPLES` (default ON):
+Compiles sample programs that demonstrate various features provided by the library.
 
 ## Installing
 
