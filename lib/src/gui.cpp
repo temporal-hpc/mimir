@@ -92,8 +92,9 @@ void addViewHandleGUI(View *view_ptr, int uid)
         if (ImGui::BeginTable("split", 2, table_flags))
         {
             addTableRow("View type",   getViewType(desc.view_type));
-            addTableRow("Layout",      formatLayout(desc.layout));
             addTableRow("Domain type", getDomainType(desc.domain_type));
+            addTableRow("Layout",      formatLayout(desc.layout));
+            addTableRow("Style",       getShapeStyle(desc.style));
             ImGui::EndTable();
         }
         for (const auto &[type, attr] : desc.attributes)

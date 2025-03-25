@@ -97,18 +97,32 @@ struct TextureDescription
     unsigned int levels = 1;
 };
 
+enum class ShapeStyle { Stroked, Filled, Outlined };
+
+enum class MarkerShape { Disc, Square, Triangle, Diamond, Arrow };
+
+struct MarkerExtensions
+{
+    MarkerShape shape;
+};
+
 struct ViewDescription
 {
-    // Number of elements contained in the view.
-    // The amount of vertices consumed per element depends on view type.
-    Layout layout;
     // Determines the element to display in the current view.
     ViewType view_type;
+    // Additional configuration parameters for the view, depending on its type.
+    // This pointer must reference an extension structure matching
+    // the view type specified above, or else it will be ignored.
+    void *extensions     = nullptr;
     // Determines whether to draw 2D or 3D elements for the given view type.
     DomainType domain_type;
     // Spatial extent of the positions represented in the view.
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;
+    // Spatial layout of the view.
+    Layout layout;
+    // Shape style (stroked, filled, outlined, etc.) used to draw elements in this view.
+    ShapeStyle style     = ShapeStyle::Filled;
     // Whether the view contents are shown or not during display.
     // Created views are visible by default, which can be changed at runtime
     // through the toggleViewVisibility() function.

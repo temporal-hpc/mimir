@@ -90,7 +90,6 @@ int main(int argc, char *argv[]) {
     ViewHandle view = nullptr;
     ViewDescription desc
     {
-        .layout      = Layout::make(n),
         .view_type   = ViewType::Markers,
         .domain_type = DomainType::Domain2D,
         .attributes = {
@@ -100,6 +99,7 @@ int main(int argc, char *argv[]) {
                 .format = FormatDescription::make<float2>(),
             }}
         },
+        .layout       = Layout::make(n),
         .default_size = .02f,
     };
     createView(engine, &desc, &view);

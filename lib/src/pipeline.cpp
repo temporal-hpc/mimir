@@ -182,7 +182,7 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             compile.specializations.push_back(marker_spec);
 
             // Add shape specializations
-            compile.specializations.push_back("Filled");
+            compile.specializations.push_back(getShapeStyle(desc.style));
             compile.specializations.push_back("DiscShape");
             break;
         }
@@ -320,51 +320,51 @@ uint32_t getLocationIndex(AttributeType type, int attr_idx)
     return attr_idx == 0? static_cast<uint32_t>(type) : max_attr_idx + attr_idx;
 }
 
-VertexDescription getVertexDescription(const ViewDescription view)
+VertexDescription getVertexDescription(const ViewDescription desc)
 {
-    auto attr_count = view.attributes.size();
-    VertexDescription desc;
-    desc.binding.reserve(attr_count);
-    desc.attribute.reserve(attr_count);
+    auto attr_count = desc.attributes.size();
+    VertexDescription vert;
+    vert.binding.reserve(attr_count);
+    vert.attribute.reserve(attr_count);
 
     spdlog::trace("Adding vertex description");
     uint32_t binding = 0;
-    for (auto &[type, attr] : view.attributes)
+    for (auto &[type, attr] : desc.attributes)
     {
-        if (type == AttributeType::Position && view.view_type == ViewType::Image)
+        if (type == AttributeType::Position && desc.view_type == ViewType::Image)
         {
             spdlog::trace("Using image vertex description");
-            desc.binding.push_back(VkVertexInputBindingDescription{
+            vert.binding.push_back(VkVertexInputBindingDescription{
                 .binding   = 0,
                 .stride    = sizeof(Vertex),
                 .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
             });
-            desc.attribute.push_back(VkVertexInputAttributeDescription{
+            vert.attribute.push_back(VkVertexInputAttributeDescription{
                 .location = 0,
                 .binding  = 0,
                 .format   = VK_FORMAT_R32G32B32_SFLOAT,
                 .offset   = offsetof(Vertex, pos)
             });
-            desc.attribute.push_back(VkVertexInputAttributeDescription{
+            vert.attribute.push_back(VkVertexInputAttributeDescription{
                 .location = 1,
                 .binding  = 0,
                 .format   = VK_FORMAT_R32G32_SFLOAT,
                 .offset   = offsetof(Vertex, uv)
             });
-            return desc;
+            return vert;
         }
         else if (type == AttributeType::Position || attr.indexing.source == nullptr)
         {
             spdlog::trace("Adding input binding for {} attribute (binding = {}, stride = {})",
                 getAttributeType(type), binding, attr.format.getSize()
             );
-            desc.binding.push_back(VkVertexInputBindingDescription{
+            vert.binding.push_back(VkVertexInputBindingDescription{
                 .binding   = binding,
                 .stride    = attr.format.getSize(), // sizeof(Vertex)
                 .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
             });
 
-            desc.attribute.push_back(VkVertexInputAttributeDescription{
+            vert.attribute.push_back(VkVertexInputAttributeDescription{
                 .location = static_cast<uint32_t>(type),
                 .binding  = binding,
                 .format   = getVulkanFormat(attr.format),
@@ -378,13 +378,13 @@ VertexDescription getVertexDescription(const ViewDescription view)
             spdlog::trace("Adding index binding for {} attribute (binding = {}, stride = {})",
                 getAttributeType(type), binding, attr.indexing.index_size
             );
-            desc.binding.push_back(VkVertexInputBindingDescription{
+            vert.binding.push_back(VkVertexInputBindingDescription{
                 .binding   = binding,
                 .stride    = attr.indexing.index_size,
                 .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
             });
 
-            desc.attribute.push_back(VkVertexInputAttributeDescription{
+            vert.attribute.push_back(VkVertexInputAttributeDescription{
                 .location = static_cast<uint32_t>(type),
                 .binding  = binding,
                 .format   = VK_FORMAT_R32_SINT,
@@ -393,7 +393,7 @@ VertexDescription getVertexDescription(const ViewDescription view)
             binding++;
         }
     }
-    return desc;
+    return vert;
 }
 
 uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice device)

@@ -74,14 +74,14 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .layout      = Layout::make(point_count),
         .view_type   = ViewType::Markers,
+        .extensions  = nullptr,
         .domain_type = DomainType::Domain2D,
         .attributes  = {
             { AttributeType::Position, {
-                .source   = points,
-                .size     = point_count,
-                .format   = FormatDescription::make<double2>(),
+                .source = points,
+                .size   = point_count,
+                .format = FormatDescription::make<double2>(),
             }},
             // { AttributeType::Size, {
             //     .source     = sizes,
@@ -89,7 +89,9 @@ int main(int argc, char *argv[])
             //     .format     = FormatDescription::make<double>(),
             // }},
         },
-        .scale = { 0.05f, 0.05f, 0.05f },
+        .layout = Layout::make(point_count),
+        .style  = ShapeStyle::Stroked,
+        .scale  = { 0.05f, 0.05f, 0.05f },
     };
     createView(engine, &desc, &view);
 

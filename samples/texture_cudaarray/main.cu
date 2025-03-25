@@ -242,7 +242,6 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .layout      = Layout::make(img_width, img_height),
         .view_type   = ViewType::Image,
         .domain_type = DomainType::Domain2D,
         .attributes  = {
@@ -252,7 +251,8 @@ int main(int argc, char *argv[])
                 .size   = static_cast<unsigned int>(img_width * img_height),
                 .format = tex.format,
             }}
-        }
+        },
+        .layout      = Layout::make(img_width, img_height),
     };
     createView(engine, &desc, &view);
 

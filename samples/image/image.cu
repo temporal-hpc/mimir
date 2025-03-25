@@ -35,7 +35,6 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .layout      = Layout::make(width, height),
         .view_type   = ViewType::Image,
         .domain_type = DomainType::Domain2D,
         .attributes  = {
@@ -46,7 +45,8 @@ int main(int argc, char *argv[])
                 .format   = FormatDescription::make<char4>(),
             }}
         },
-        .default_size  = 1.f,
+        .layout       = Layout::make(width, height),
+        .default_size = 1.f,
     };
     createView(engine, &desc, &view);
 

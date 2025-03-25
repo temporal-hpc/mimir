@@ -9,7 +9,7 @@ interface IStyle
     );
 }
 
-struct Stroke : IStyle
+struct Stroked : IStyle
 {
     // Fill is unused
     float4 apply(float distance, float linewidth, float antialias, float4 stroke, float4 fill)
@@ -55,7 +55,7 @@ struct Filled : IStyle
     }
 }
 
-struct Outline : IStyle
+struct Outlined : IStyle
 {
     float4 apply(float distance, float linewidth, float antialias, float4 stroke, float4 fill)
     {

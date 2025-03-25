@@ -137,6 +137,34 @@ constexpr char* getDataType(FormatDescription desc)
     }
 }
 
+constexpr char* getShapeStyle(ShapeStyle style)
+{
+    switch (style)
+    {
+#define STR(r) case ShapeStyle::r: return (char*)#r
+        STR(Stroked);
+        STR(Filled);
+        STR(Outlined);
+#undef STR
+        default: return (char*)"unknown";
+    }
+}
+
+constexpr char* getMarkerShape(MarkerShape shape)
+{
+    switch (shape)
+    {
+#define STR(r) case MarkerShape::r: return (char*)#r
+        STR(Disc);
+        STR(Square);
+        STR(Triangle);
+        STR(Diamond);
+        STR(Arrow);
+#undef STR
+        default: return (char*)"unknown";
+    }
+}
+
 VkExtent3D getVulkanExtent(Layout extent);
 
 VkFormat getVulkanFormat(FormatDescription desc);

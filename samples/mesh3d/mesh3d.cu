@@ -68,9 +68,9 @@ int main(int argc, char *argv[])
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
-        .layout      = Layout::make(vertex_count),
         .view_type   = ViewType::Markers,
         .domain_type = DomainType::Domain3D,
+        .layout      = Layout::make(vertex_count),
     };
     desc.attributes[AttributeType::Position] = {
         .source = vertices,

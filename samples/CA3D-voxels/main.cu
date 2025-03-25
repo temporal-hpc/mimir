@@ -75,7 +75,6 @@ int main(int argc, char **argv){
     uint32_t index_count = n * n * n;
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
-        .layout      = grid_layout,
         .view_type   = ViewType::Voxels,
         .domain_type = DomainType::Domain3D,
         .attributes  = {
@@ -91,6 +90,7 @@ int main(int argc, char **argv){
                 }
             }}
         },
+        .layout       = grid_layout,
         .default_size = 10.f,
     };
     createView(engine, &desc, &v1);

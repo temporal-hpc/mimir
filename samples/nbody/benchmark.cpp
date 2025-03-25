@@ -305,7 +305,6 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
         ViewDescription desc
         {
-            .layout      = Layout::make(input.body_count),
             .view_type   = ViewType::Markers,
             .domain_type = DomainType::Domain3D,
             .attributes  = {
@@ -315,6 +314,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                     .format = FormatDescription::make<float4>(),
                 }}
             },
+            .layout        = Layout::make(input.body_count),
             .visible       = true,
             .default_color = {1.f, 1.f, 1.f, 1.f},
             .default_size  = params.point_size,
