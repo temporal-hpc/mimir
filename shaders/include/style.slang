@@ -1,4 +1,4 @@
-interface IAntialiased
+interface IStyle
 {
     float4 apply(
         float distance,  // Signed distance to line
@@ -9,7 +9,7 @@ interface IAntialiased
     );
 }
 
-struct Stroke : IAntialiased
+struct Stroke : IStyle
 {
     // Fill is unused
     float4 apply(float distance, float linewidth, float antialias, float4 stroke, float4 fill)
@@ -31,7 +31,7 @@ struct Stroke : IAntialiased
     }
 }
 
-struct Filled : IAntialiased
+struct Filled : IStyle
 {
     // Stroke is unused
     float4 apply(float distance, float linewidth, float antialias, float4 fill, float4 stroke)
@@ -55,7 +55,7 @@ struct Filled : IAntialiased
     }
 }
 
-struct Outline : IAntialiased
+struct Outline : IStyle
 {
     float4 apply(float distance, float linewidth, float antialias, float4 stroke, float4 fill)
     {

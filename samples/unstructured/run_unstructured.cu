@@ -83,13 +83,13 @@ int main(int argc, char *argv[])
                 .size     = point_count,
                 .format   = FormatDescription::make<double2>(),
             }},
-            { AttributeType::Size, {
-                .source     = sizes,
-                .size       = point_count,
-                .format     = FormatDescription::make<double>(),
-            }},
+            // { AttributeType::Size, {
+            //     .source     = sizes,
+            //     .size       = point_count,
+            //     .format     = FormatDescription::make<double>(),
+            // }},
         },
-        .scale = { 0.1f, 0.1f, 0.1f },
+        .scale = { 0.05f, 0.05f, 0.05f },
     };
     createView(engine, &desc, &view);
 
@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    setCameraPosition(engine, {-20.f, -20.f, -30.f});
+    setCameraPosition(engine, {-10.f, -10.f, -20.f});
     display(engine, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));

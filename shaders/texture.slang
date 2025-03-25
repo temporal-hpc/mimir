@@ -34,11 +34,11 @@ struct VertexData3d
 VertexData3d vertex3dMain(VertexInput input)
 {
     float4 pos = float4(input.pos, 1);
-    pos.z = pos.z - view.depth;
+    //pos.z = pos.z - view.depth;
 
     VertexData3d output;
     output.pos = mul(pos, mvp.all);
-    output.uv  = float3(input.uv, view.depth);
+    //output.uv  = float3(input.uv, view.depth);
 
     return output;
 }

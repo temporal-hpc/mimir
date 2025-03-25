@@ -181,7 +181,8 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             std::string marker_spec = fmt::format("Marker{}", getDomainType(desc.domain_type));
             compile.specializations.push_back(marker_spec);
 
-            // Add shape specialization
+            // Add shape specializations
+            compile.specializations.push_back("Filled");
             compile.specializations.push_back("DiscShape");
             break;
         }

@@ -3,7 +3,7 @@ import uniforms;
 import position;  // IPosition
 import color; // IColor
 import size; // ISize
-import antialias; // IAntialiased
+import style; // IStyle
 import shapes; // IShape
 import rotation; // IRotation
 
@@ -25,9 +25,9 @@ struct GeometryOutput
     float4 pos   : SV_Position;
     float2 uv    : TEXCOORD;
     float4 color : COLOR;
-    float size   : PSIZE;
+    float size   : PSIZE; // SV_PointSize;
     float2 rotation;
-    float ele_size;
+    float size_px;
     //float3 normal : NORMAL;
 };
 
@@ -64,11 +64,11 @@ void geometryMain<M: IMarker>(
 
     GeometryOutput output;
     // TODO: Add antialias and linewidth to output.size (something like getMarkerSizePx)
-    output.size     = input[0].size;
-    output.ele_size = input[0].size;
+    output.size    = input[0].size;
+    output.size_px = getMarkerSizePx(input[0].size);
 
     M marker = {};
-    MarkerOffsets offsets = marker.getVertexOffsets(output.ele_size);
+    MarkerOffsets offsets = marker.getVertexOffsets(output.size_px);
     float4 dx = offsets.dx;
     float4 dy = offsets.dy;
 
@@ -89,7 +89,7 @@ void geometryMain<M: IMarker>(
 }
 
 [shader("fragment")]
-FragmentOutput fragmentMain<S: IShape2D>(GeometryOutput input)
+FragmentOutput fragmentMain<I: IStyle, S: IShape2D>(GeometryOutput input)
 {
     FragmentOutput out;
 
@@ -98,9 +98,9 @@ FragmentOutput fragmentMain<S: IShape2D>(GeometryOutput input)
     p = float2(rot.x * p.x - rot.y * p.y, rot.y * p.x + rot.x * p.y);
 
     S shape = {};
-    float distance = shape.apply(p * input.size, input.ele_size);
+    float distance = shape.apply(p * input.size_px, input.size);
 
-    Filled aa;
+    I aa;
     out.color = aa.apply(distance, view.linewidth, view.antialias, input.color, scene.background_color);
     //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));

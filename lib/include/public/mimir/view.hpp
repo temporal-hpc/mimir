@@ -8,7 +8,7 @@
 namespace mimir
 {
 
-// Forward declaration
+// Forward declarations
 struct Allocation;
 struct Texture;
 
@@ -16,16 +16,20 @@ struct Texture;
 enum class ViewType   { Markers, Edges, Image, Boxes, Voxels };
 // Specifies the number of spatial dimensions in the view
 enum class DomainType { Domain2D, Domain3D };
-
+// Specifies the numeric type of the data described by this format.
 enum class FormatKind { Float, Signed, Unsigned, SignedNormalized, UnsignedNormalized, SRGB };
 
 // Description for the spatial layout of an arrangement of visualizable elements,
 // whether texture elements (texels) or other graphics primitives.
 struct Layout
 {
+    // Layout size in cartesian (x,y,z) format.
     unsigned int x = 0, y = 1, z = 1;
 
+    // Returns the total number of elements contained in this layout.
     unsigned int getTotalCount() { return x * y * z; };
+
+    // Creates a layout with default value of 1 for Y and Z axes.
     static Layout make(unsigned int x, unsigned int y = 1, unsigned int z = 1)
     {
         return Layout{ .x = x, .y = y, .z = z };
@@ -55,11 +59,13 @@ enum class AttributeType { Position, Color, Size, Rotation, Texcoord };
 struct IndexDescription
 {
     // Handle for the allocation containing the index data.
+    // Must be non-null to describe a valid indexing.
     Allocation *source = nullptr;
     // Number of elements contained in the source allocation
+    // Must be non-zero to describe a valid indexing.
     unsigned int size = 0;
     // Size in bits of the index type stored in the indices allocation.
-    // This value is ignored when indices is null.
+    // Must be non-zero to describe a valid indexing.
     unsigned int index_size = 0;
 };
 
@@ -68,16 +74,18 @@ struct IndexDescription
 struct AttributeDescription
 {
     // Handle for the allocation containing the source data.
+    // Must be non-null to describe a valid attribute.
     Allocation *source = nullptr;
     // Number of elements contained in the source allocation.
+    // Must be non-zero to describe a valid attribute.
     unsigned int size = 0;
     // Format description for the elements in the source array; ignored when sources is null.
     FormatDescription format = {};
     // Handle for the allocation containing indices referencing the source array.
+    // Can be left uninitialized for direct access to the source.
     IndexDescription indexing = {};
 };
 
-// TODO: More texture definitions (e.g. mipmap levels)
 struct TextureDescription
 {
     // Handle for the allocation holding the texture memory.
@@ -109,10 +117,15 @@ struct ViewDescription
     float4 default_color = {0.f, 0.f, 0.f, 1.f};
     // Default size for elements in the view if no size data is specified.
     float default_size   = 1.f;
-    float linewidth      = 0.f;
+    // Line width size.
+    float linewidth      = 1.f;
+    // Antialias magnitude.
     float antialias      = 0.f;
+    // Dataset translation applied to the positions of all its elements.
     float3 position      = {0.f, 0.f, 0.f};
+    // Dataset rotation, applied after translation.
     float3 rotation      = {0.f, 0.f, 0.f};
+    // Dataset scale, applied after rotation and translation.
     float3 scale         = {1.f, 1.f, 1.f};
 };
 
