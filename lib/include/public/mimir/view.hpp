@@ -117,6 +117,7 @@ struct MarkerOptions
         // Special
         Ellipse,
     };
+
     // Marker shape used in this view.
     Shape shape;
     // Rendering mode used by the shader associated to this view.
@@ -130,9 +131,12 @@ struct MarkerOptions
 
 struct LineOptions {
     enum class Style { Solid, Dashed, DashDotted };
+    enum class CapType { None, Butt, Square, Round, TriangleOut, TriangleIn };
 
     // Style used to render lines in this view.
     Style style;
+    // Line cap (segment end) type used in this view.
+    CapType caps;
 
     // Initialize options with sensible defaults when not specified by the user.
     static LineOptions defaults() {

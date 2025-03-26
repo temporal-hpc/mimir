@@ -178,6 +178,35 @@ constexpr char* getMarkerShape(MarkerOptions::Shape shape)
     }
 }
 
+constexpr char* getLineStyle(LineOptions::Style style)
+{
+    switch (style)
+    {
+#define STR(r) case LineOptions::Style::r: return (char*)#r
+        STR(Solid);
+        STR(Dashed);
+        STR(DashDotted);
+#undef STR
+        default: return (char*)"unknown";
+    }
+}
+
+constexpr char* getCapType(LineOptions::CapType cap)
+{
+    switch (cap)
+    {
+#define STR(r) case LineOptions::CapType::r: return (char*)#r
+        STR(None);
+        STR(Butt);
+        STR(Square);
+        STR(Round);
+        STR(TriangleOut);
+        STR(TriangleIn);
+#undef STR
+        default: return (char*)"unknown";
+    }
+}
+
 VkExtent3D getVulkanExtent(Layout extent);
 
 VkFormat getVulkanFormat(FormatDescription desc);
