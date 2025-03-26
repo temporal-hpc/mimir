@@ -150,16 +150,29 @@ constexpr char* getShapeStyle(ShapeStyle style)
     }
 }
 
-constexpr char* getMarkerShape(MarkerShape shape)
+constexpr char* getMarkerShape(MarkerOptions::Shape shape)
 {
     switch (shape)
     {
-#define STR(r) case MarkerShape::r: return (char*)#r
+#define STR(r) case MarkerOptions::Shape::r: return (char*)#r
         STR(Disc);
         STR(Square);
         STR(Triangle);
         STR(Diamond);
-        STR(Arrow);
+        STR(Chevron);
+        STR(Clover);
+        STR(Ring);
+        STR(Tag);
+        STR(Cross);
+        STR(Asterisk);
+        STR(Infinity);
+        STR(Pin);
+        STR(Ellipse);
+        STR(ArrowBlock);
+        STR(ArrowCurved);
+        STR(ArrowStealth);
+        STR(ArrowTriangle);
+        STR(ArrowAngle);
 #undef STR
         default: return (char*)"unknown";
     }

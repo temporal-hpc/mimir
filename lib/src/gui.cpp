@@ -50,6 +50,19 @@ void addTableRow(const std::string& key, const std::string& value)
     ImGui::Text("%s", value.c_str());
 }
 
+void addTableRowOptions(ViewType type, ViewOptions options)
+{
+    switch (type)
+    {
+        case ViewType::Markers:
+        {
+            auto markers = std::get<MarkerOptions>(options);
+            addTableRow("Shape", getMarkerShape(markers.shape));
+        }
+        default: { return; }
+    }
+}
+
 void addViewHandleGUI(View *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
@@ -91,10 +104,11 @@ void addViewHandleGUI(View *view_ptr, int uid)
         ImGuiTableFlags table_flags = ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable;
         if (ImGui::BeginTable("split", 2, table_flags))
         {
-            addTableRow("View type",   getViewType(desc.view_type));
-            addTableRow("Domain type", getDomainType(desc.domain_type));
-            addTableRow("Layout",      formatLayout(desc.layout));
-            addTableRow("Style",       getShapeStyle(desc.style));
+            addTableRow("Type",   getViewType(desc.view_type));
+            addTableRow("Domain", getDomainType(desc.domain_type));
+            addTableRow("Layout", formatLayout(desc.layout));
+            addTableRow("Style",  getShapeStyle(desc.style));
+            addTableRowOptions(desc.view_type, desc.options);
             ImGui::EndTable();
         }
         for (const auto &[type, attr] : desc.attributes)

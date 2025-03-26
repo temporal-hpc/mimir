@@ -75,7 +75,10 @@ int main(int argc, char *argv[])
     ViewHandle view = nullptr;
     ViewDescription desc{
         .view_type   = ViewType::Markers,
-        .extensions  = nullptr,
+        .options     = MarkerOptions{
+            .shape     = MarkerOptions::Shape::Disc,
+            .rendering = RenderingMode::Geometry
+        },
         .domain_type = DomainType::Domain2D,
         .attributes  = {
             { AttributeType::Position, {
@@ -90,7 +93,8 @@ int main(int argc, char *argv[])
             // }},
         },
         .layout = Layout::make(point_count),
-        .style  = ShapeStyle::Stroked,
+        .style  = ShapeStyle::Filled,
+        .default_size = 10.f,
         .scale  = { 0.05f, 0.05f, 0.05f },
     };
     createView(engine, &desc, &view);

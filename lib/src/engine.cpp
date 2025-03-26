@@ -599,6 +599,17 @@ uint32_t getDrawCount(ViewDescription *desc)
     return indexing.source != nullptr? indexing.size : desc->layout.getTotalCount();
 }
 
+ViewOptions defaultOptions(ViewType type) {
+    ViewOptions options;
+    switch (type)
+    {
+        case ViewType::Markers: { options = MarkerOptions::defaults(); break; }
+        case ViewType::Edges:   { options = LineOptions::defaults(); break; }
+        default:                { break; }
+    }
+    return options;
+}
+
 View *MimirEngine::createView(ViewDescription *desc)
 {
     if (!validateViewDescription(desc))
@@ -625,6 +636,13 @@ View *MimirEngine::createView(ViewDescription *desc)
         .scale       = glm::mat4(1.f),
         .desc        = *desc,
     };
+
+    // If no option value is set (the variant is default-initialized to std::monostate)
+    if (view.desc.options.index() == 0)
+    {
+        // Generate default options for the current view type
+        view.desc.options = defaultOptions(view.desc.view_type);
+    }
 
     translateView(&view, desc->position);
     rotateView(&view, desc->rotation);

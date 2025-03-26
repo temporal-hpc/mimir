@@ -89,7 +89,7 @@ void geometryMain<M: IMarker>(
 }
 
 [shader("fragment")]
-FragmentOutput fragmentMain<I: IStyle, S: IShape2D>(GeometryOutput input)
+FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
 {
     FragmentOutput out;
 
@@ -97,11 +97,11 @@ FragmentOutput fragmentMain<I: IStyle, S: IShape2D>(GeometryOutput input)
     float2 rot = input.rotation;
     p = float2(rot.x * p.x - rot.y * p.y, rot.y * p.x + rot.x * p.y);
 
-    S shape = {};
+    M shape;
     float distance = shape.apply(p * input.size_px, input.size);
 
-    I aa;
-    out.color = aa.apply(distance, view.linewidth, view.antialias, input.color, scene.background_color);
+    S style;
+    out.color = style.apply(distance, view.linewidth, view.antialias, input.color, scene.background_color);
     //float4x4 view_proj = mul(mvp.view, mvp.proj);
     //float4 clip_pos = mul(view_proj, float4(1, 1, 1, 1));
     //out.depth = clip_pos.z / clip_pos.w;

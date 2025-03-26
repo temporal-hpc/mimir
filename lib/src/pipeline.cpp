@@ -183,7 +183,8 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
 
             // Add shape specializations
             compile.specializations.push_back(getShapeStyle(desc.style));
-            compile.specializations.push_back("DiscShape");
+            auto options = std::get<MarkerOptions>(desc.options);
+            compile.specializations.push_back(getMarkerShape(options.shape));
             break;
         }
         case ViewType::Edges:

@@ -3,6 +3,7 @@
 #include <cuda_runtime_api.h>
 
 #include <map> // std::map
+#include <variant> // std::Variant
 #include <vector> // std::vector
 
 namespace mimir
@@ -92,6 +93,7 @@ struct TextureDescription
     Allocation *source = nullptr;
     // Format description for texels.
     FormatDescription format = {};
+    // Amount of texels in (width, height, depth) format.
     Layout extent = {};
     // Number of mipmap levels stored in the texture.
     unsigned int levels = 1;
@@ -99,12 +101,33 @@ struct TextureDescription
 
 enum class ShapeStyle { Stroked, Filled, Outlined };
 
-enum class MarkerShape { Disc, Square, Triangle, Diamond, Arrow };
+enum class RenderingMode { Raster, Geometry, Voxel };
 
-struct MarkerExtensions
+struct MarkerOptions
 {
-    MarkerShape shape;
+    enum class Shape {
+        Disc, Square, Triangle, Diamond,
+        Chevron, Clover, Ring, Tag, Cross, Asterisk, Infinity, Pin, Ellipse,
+        ArrowBlock, ArrowCurved, ArrowStealth, ArrowTriangle, ArrowAngle
+    };
+    Shape shape;
+    RenderingMode rendering;
+
+    static MarkerOptions defaults() {
+        return { .shape = Shape::Disc, .rendering = RenderingMode::Geometry };
+    }
 };
+
+struct LineOptions {
+    enum class Style { Solid, Dashed, DashDotted };
+    Style style;
+    static LineOptions defaults() {
+        return { .style = Style::Solid };
+    }
+};
+
+typedef std::variant<std::monostate, MarkerOptions, LineOptions> ViewOptions;
+ViewOptions defaultOptions(ViewType type);
 
 struct ViewDescription
 {
@@ -113,7 +136,7 @@ struct ViewDescription
     // Additional configuration parameters for the view, depending on its type.
     // This pointer must reference an extension structure matching
     // the view type specified above, or else it will be ignored.
-    void *extensions     = nullptr;
+    ViewOptions options;
     // Determines whether to draw 2D or 3D elements for the given view type.
     DomainType domain_type;
     // Spatial extent of the positions represented in the view.

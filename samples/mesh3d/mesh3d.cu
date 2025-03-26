@@ -78,6 +78,7 @@ int main(int argc, char *argv[])
         .format = FormatDescription::make<float3>(),
     };
     desc.default_size = 1.f;
+    desc.linewidth    = 0.f;
     createView(engine, &desc, &v1);
 
     // Reuse the above parameters, changing only what is needed
