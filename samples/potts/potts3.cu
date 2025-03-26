@@ -639,8 +639,8 @@ int main(void)
 	ViewHandle v1 = nullptr;
     ViewDescription desc;
     desc.layout      = Layout::make(L, L);
-    desc.domain_type = DomainType::Domain2D;
-    desc.view_type   = ViewType::Voxels;
+    desc.domain = DomainType::Domain2D;
+    desc.type   = ViewType::Voxels;
 	desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, {L,L,1});
     desc.attributes[AttributeType::Color] = {
 		.source   = colormap,

@@ -104,11 +104,11 @@ void addViewHandleGUI(View *view_ptr, int uid)
         ImGuiTableFlags table_flags = ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable;
         if (ImGui::BeginTable("split", 2, table_flags))
         {
-            addTableRow("Type",   getViewType(desc.view_type));
-            addTableRow("Domain", getDomainType(desc.domain_type));
+            addTableRow("Type",   getViewType(desc.type));
+            addTableRow("Domain", getDomainType(desc.domain));
             addTableRow("Layout", formatLayout(desc.layout));
             addTableRow("Style",  getShapeStyle(desc.style));
-            addTableRowOptions(desc.view_type, desc.options);
+            addTableRowOptions(desc.type, desc.options);
             ImGui::EndTable();
         }
         for (const auto &[type, attr] : desc.attributes)

@@ -142,8 +142,8 @@ int main(int argc, char *argv[])
         ViewHandle view = nullptr;
         ViewDescription desc;
         desc.layout      = Layout::make(point_count);
-        desc.domain_type = DomainType::Domain3D;
-        desc.view_type   = ViewType::Markers;
+        desc.domain = DomainType::Domain3D;
+        desc.type   = ViewType::Markers;
         desc.attributes[AttributeType::Position] = {
             .source = points,
             .size   = point_count,

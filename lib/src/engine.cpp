@@ -599,12 +599,14 @@ uint32_t getDrawCount(ViewDescription *desc)
     return indexing.source != nullptr? indexing.size : desc->layout.getTotalCount();
 }
 
-ViewOptions defaultOptions(ViewType type) {
+ViewOptions initOptions(ViewType type) {
     ViewOptions options;
     switch (type)
     {
+        // Initialize option to known defaults for the matching view type
         case ViewType::Markers: { options = MarkerOptions::defaults(); break; }
         case ViewType::Edges:   { options = LineOptions::defaults(); break; }
+        // Default: don't know (or care) about options
         default:                { break; }
     }
     return options;
@@ -641,7 +643,7 @@ View *MimirEngine::createView(ViewDescription *desc)
     if (view.desc.options.index() == 0)
     {
         // Generate default options for the current view type
-        view.desc.options = defaultOptions(view.desc.view_type);
+        view.desc.options = initOptions(view.desc.type);
     }
 
     translateView(&view, desc->position);
@@ -652,7 +654,7 @@ View *MimirEngine::createView(ViewDescription *desc)
     for (auto &[type, attr] : desc->attributes)
     {
         spdlog::trace("Processing {} attribute", getAttributeType(type));
-        if (type == AttributeType::Color && desc->view_type == ViewType::Image)
+        if (type == AttributeType::Color && desc->type == ViewType::Image)
         {
             ImageParams params{
                 .type   = getImageType(desc->layout),
@@ -692,7 +694,7 @@ View *MimirEngine::createView(ViewDescription *desc)
             view.textures[view.tex_count++] = tex;
         }
         // Handle image quad vertex buffer size
-        else if (type == AttributeType::Position && desc->view_type == ViewType::Image)
+        else if (type == AttributeType::Position && desc->type == ViewType::Image)
         {
             VkDeviceSize vb_size = sizeof(Vertex) * attr.size;
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;

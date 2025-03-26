@@ -242,8 +242,8 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .view_type   = ViewType::Image,
-        .domain_type = DomainType::Domain2D,
+        .type   = ViewType::Image,
+        .domain = DomainType::Domain2D,
         .attributes  = {
             { AttributeType::Position, makeImageFrame(engine) },
             { AttributeType::Color, {

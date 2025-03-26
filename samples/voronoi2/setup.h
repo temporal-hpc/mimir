@@ -147,8 +147,8 @@ void allocate_arrays(Setup *setup){
     ViewHandle v1 = nullptr, v2 = nullptr, v3 = nullptr, v4 = nullptr;
     auto extent = Layout::make(n, n, 1);
     ViewDescription desc_grid{
-        .view_type   = ViewType::Voxels,
-        .domain_type = DomainType::Domain2D,
+        .type   = ViewType::Voxels,
+        .domain = DomainType::Domain2D,
         .layout      = Layout::make(n, n),
     };
     desc_grid.attributes[AttributeType::Position] =
@@ -179,8 +179,8 @@ void allocate_arrays(Setup *setup){
     allocLinear(setup->engine, (void**)&setup->gpu_seeds, setup->S * sizeof(int), &seeds);
 
     ViewDescription desc_seeds{
-        .view_type   = ViewType::Markers,
-        .domain_type = DomainType::Domain2D,
+        .type   = ViewType::Markers,
+        .domain = DomainType::Domain2D,
         .layout      = Layout::make(setup->S),
     };
     desc_seeds.attributes[AttributeType::Position] = {

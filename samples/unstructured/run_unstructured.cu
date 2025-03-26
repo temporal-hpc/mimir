@@ -74,12 +74,12 @@ int main(int argc, char *argv[])
 
     ViewHandle view = nullptr;
     ViewDescription desc{
-        .view_type   = ViewType::Markers,
+        .type   = ViewType::Markers,
         .options     = MarkerOptions{
             .shape     = MarkerOptions::Shape::Disc,
             .rendering = RenderingMode::Geometry
         },
-        .domain_type = DomainType::Domain2D,
+        .domain = DomainType::Domain2D,
         .attributes  = {
             { AttributeType::Position, {
                 .source = points,

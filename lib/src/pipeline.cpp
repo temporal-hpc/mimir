@@ -101,10 +101,10 @@ VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
     };
 }
 
-VkPipelineInputAssemblyStateCreateInfo getInputAssemblyInfo(ViewType view_type)
+VkPipelineInputAssemblyStateCreateInfo getInputAssemblyInfo(ViewType type)
 {
     VkPrimitiveTopology topology;
-    switch (view_type)
+    switch (type)
     {
         // Markers require a single point position as marker centroid
         // Same as voxels
@@ -170,7 +170,7 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
     for (const auto& spec : specs) { compile.specializations.push_back(spec.second); }
 
     // Select source code file and entry points for the view shader
-    switch (desc.view_type)
+    switch (desc.type)
     {
         case ViewType::Markers:
         {
@@ -178,7 +178,7 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
 
             // Add dimensionality specialization
-            std::string marker_spec = fmt::format("Marker{}", getDomainType(desc.domain_type));
+            std::string marker_spec = fmt::format("Marker{}", getDomainType(desc.domain));
             compile.specializations.push_back(marker_spec);
 
             // Add shape specializations
@@ -198,14 +198,14 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         case ViewType::Boxes:
         {
             compile.module_path = "shaders/boxes.slang";
-            std::string geom_entry = fmt::format("geometryMain{}", getDomainType(desc.domain_type));
+            std::string geom_entry = fmt::format("geometryMain{}", getDomainType(desc.domain));
             compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
         case ViewType::Voxels:
         {
             compile.module_path = "shaders/voxel.slang";
-            std::string geom_entry = fmt::format("geometryMain{}", getDomainType(desc.domain_type));
+            std::string geom_entry = fmt::format("geometryMain{}", getDomainType(desc.domain));
             compile.entrypoints = {"vertexMain", geom_entry, "fragmentMain"};
             break;
         }
@@ -219,7 +219,7 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         }
         default:
         {
-            spdlog::error("Unimplemented shader for view type {}", getViewType(desc.view_type));
+            spdlog::error("Unimplemented shader for view type {}", getViewType(desc.type));
         }
     }
     return compile;
@@ -332,7 +332,7 @@ VertexDescription getVertexDescription(const ViewDescription desc)
     uint32_t binding = 0;
     for (auto &[type, attr] : desc.attributes)
     {
-        if (type == AttributeType::Position && desc.view_type == ViewType::Image)
+        if (type == AttributeType::Position && desc.type == ViewType::Image)
         {
             spdlog::trace("Using image vertex description");
             vert.binding.push_back(VkVertexInputBindingDescription{
@@ -448,8 +448,8 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
     PipelineInfo info{
         .shader_stages          = stages,
         .vertex_input_info      = getVertexDescription(params),
-        .input_assembly         = getInputAssemblyInfo(params.view_type),
-        .rasterizer             = getRasterizationInfo(params.view_type),
+        .input_assembly         = getInputAssemblyInfo(params.type),
+        .rasterizer             = getRasterizationInfo(params.type),
         .depth_stencil          = getDepthInfo(),
         .color_blend_attachment = color_blend,
         .multisampling          = multisampling,

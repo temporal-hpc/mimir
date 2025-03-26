@@ -62,8 +62,8 @@ Application::Application(){
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
     desc.layout      = Layout::make(vertex_count);
-    desc.domain_type = DomainType::Domain3D;
-    desc.view_type   = ViewType::Markers;
+    desc.domain = DomainType::Domain3D;
+    desc.type   = ViewType::Markers;
     desc.visible     = false;
     desc.attributes[AttributeType::Position] = {
         .source = vertices,
@@ -74,7 +74,7 @@ Application::Application(){
 
     // Recycle the above parameters, changing only what is needed
     desc.layout    = Layout::make(face_count * 3);
-    desc.view_type = ViewType::Edges;
+    desc.type = ViewType::Edges;
     desc.visible   = true;
     desc.default_color = {0, 1, 0, 1};
     desc.attributes[AttributeType::Position] = {

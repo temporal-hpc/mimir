@@ -68,8 +68,8 @@ int main(int argc, char *argv[])
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
-        .view_type   = ViewType::Markers,
-        .domain_type = DomainType::Domain3D,
+        .type   = ViewType::Markers,
+        .domain = DomainType::Domain3D,
         .layout      = Layout::make(vertex_count),
     };
     desc.attributes[AttributeType::Position] = {
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 
     // Reuse the above parameters, changing only what is needed
     desc.layout    = Layout::make(triangle_count);
-    desc.view_type = ViewType::Edges;
+    desc.type = ViewType::Edges;
     desc.attributes[AttributeType::Position] = {
         .source   = vertices,
         .size     = vertex_count,

@@ -75,8 +75,8 @@ int main(int argc, char **argv){
     uint32_t index_count = n * n * n;
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
-        .view_type   = ViewType::Voxels,
-        .domain_type = DomainType::Domain3D,
+        .type   = ViewType::Voxels,
+        .domain = DomainType::Domain3D,
         .attributes  = {
             { AttributeType::Position, makeStructuredGrid(engine, grid_layout) },
             { AttributeType::Color, {

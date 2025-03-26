@@ -3,7 +3,7 @@
 #include <cuda_runtime_api.h>
 
 #include <map> // std::map
-#include <variant> // std::Variant
+#include <variant> // std::variant
 #include <vector> // std::vector
 
 namespace mimir
@@ -106,13 +106,23 @@ enum class RenderingMode { Raster, Geometry, Voxel };
 struct MarkerOptions
 {
     enum class Shape {
-        Disc, Square, Triangle, Diamond,
-        Chevron, Clover, Ring, Tag, Cross, Asterisk, Infinity, Pin, Ellipse,
-        ArrowBlock, ArrowCurved, ArrowStealth, ArrowTriangle, ArrowAngle
+        // Disc-based
+        Disc, Clover, Ring, Infinity, Pin,
+        // Square-based
+        Square, Diamond, Chevron,
+        // Half-plane based
+        Triangle, Tag, Cross, Asterisk, ArrowBlock,
+        // Styled arrows (angled arrows fixed at 60 deg for now)
+        ArrowCurved, ArrowStealth, ArrowTriangle, ArrowAngle,
+        // Special
+        Ellipse,
     };
+    // Marker shape used in this view.
     Shape shape;
+    // Rendering mode used by the shader associated to this view.
     RenderingMode rendering;
 
+    // Initialize options with sensible defaults when not specified by the user.
     static MarkerOptions defaults() {
         return { .shape = Shape::Disc, .rendering = RenderingMode::Geometry };
     }
@@ -120,25 +130,31 @@ struct MarkerOptions
 
 struct LineOptions {
     enum class Style { Solid, Dashed, DashDotted };
+
+    // Style used to render lines in this view.
     Style style;
+
+    // Initialize options with sensible defaults when not specified by the user.
     static LineOptions defaults() {
         return { .style = Style::Solid };
     }
 };
 
+// Structure for specifing view-specific options matching the selected view type.
+// If left uninitialized or initialized for the wrong view type,
+// a default configuration will be initialized and used.
 typedef std::variant<std::monostate, MarkerOptions, LineOptions> ViewOptions;
-ViewOptions defaultOptions(ViewType type);
 
 struct ViewDescription
 {
     // Determines the element to display in the current view.
-    ViewType view_type;
+    ViewType type;
     // Additional configuration parameters for the view, depending on its type.
     // This pointer must reference an extension structure matching
     // the view type specified above, or else it will be ignored.
     ViewOptions options;
     // Determines whether to draw 2D or 3D elements for the given view type.
-    DomainType domain_type;
+    DomainType domain;
     // Spatial extent of the positions represented in the view.
     // Dictionary of attached attributes.
     std::map<AttributeType, AttributeDescription> attributes;

@@ -305,8 +305,8 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
         ViewDescription desc
         {
-            .view_type   = ViewType::Markers,
-            .domain_type = DomainType::Domain3D,
+            .type   = ViewType::Markers,
+            .domain = DomainType::Domain3D,
             .attributes  = {
                 { AttributeType::Position, {
                     .source = allocs[0],

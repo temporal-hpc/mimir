@@ -90,8 +90,8 @@ int main(int argc, char *argv[]) {
     ViewHandle view = nullptr;
     ViewDescription desc
     {
-        .view_type   = ViewType::Markers,
-        .domain_type = DomainType::Domain2D,
+        .type   = ViewType::Markers,
+        .domain = DomainType::Domain2D,
         .attributes = {
             { AttributeType::Position, {
                 .source = points,
