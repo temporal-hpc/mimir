@@ -11,12 +11,12 @@ struct MarkerOffsets
     float4 dz;
 };
 
-interface IMarker
+interface IMarkerGeometry
 {
     MarkerOffsets getVertexOffsets(float size);
 };
 
-struct Marker2D : IMarker
+struct Marker2D : IMarkerGeometry
 {
     MarkerOffsets getVertexOffsets(float size)
     {
@@ -28,7 +28,7 @@ struct Marker2D : IMarker
     }
 };
 
-struct Marker3D : IMarker
+struct Marker3D : IMarkerGeometry
 {
     MarkerOffsets getVertexOffsets(float size)
     {
