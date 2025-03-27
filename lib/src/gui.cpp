@@ -58,12 +58,14 @@ void addTableRowOptions(ViewType type, ViewOptions options)
         {
             auto marker = std::get<MarkerOptions>(options);
             addTableRow("Shape", getMarkerShape(marker.shape));
+            break;
         }
         case ViewType::Edges:
         {
             auto line = std::get<LineOptions>(options);
             addTableRow("Style", getLineStyle(line.style));
             addTableRow("Cap type", getCapType(line.caps));
+            break;
         }
         // Don't know / don't care
         default: { return; }

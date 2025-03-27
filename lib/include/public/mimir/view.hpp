@@ -51,7 +51,7 @@ struct FormatDescription
 
     // Returns the size in bytes of a single data element described in this format.
     unsigned int getSize() const { return size * components; }
-    // Helper for creating format descriptions for commonly used types, including CUDA vector types.
+    // Format description helper for commonly used types, including CUDA vector types.
     template <typename T> static FormatDescription make();
 };
 
@@ -101,7 +101,8 @@ struct TextureDescription
 
 enum class ShapeStyle { Stroked, Filled, Outlined };
 
-enum class RenderingMode { Raster, Geometry, Voxel };
+// TODO: Add voxel mode
+enum class RenderingMode { Raster, Geometry };
 
 struct MarkerOptions
 {
@@ -140,7 +141,7 @@ struct LineOptions {
 
     // Initialize options with sensible defaults when not specified by the user.
     static LineOptions defaults() {
-        return { .style = Style::Solid };
+        return { .style = Style::Solid, .caps = CapType::None };
     }
 };
 
@@ -170,7 +171,8 @@ struct ViewDescription
     // Created views are visible by default, which can be changed at runtime
     // through the toggleViewVisibility() function.
     bool visible         = true;
-    // Default color for elements in the view if no color data is specified.
+    // Default color for view elements in RGBA format.
+    // This value is used when no color attribute is specified.
     float4 default_color = {0.f, 0.f, 0.f, 1.f};
     // Default size for elements in the view if no size data is specified.
     float default_size   = 1.f;
