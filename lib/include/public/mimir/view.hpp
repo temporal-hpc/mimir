@@ -167,7 +167,7 @@ struct ViewDescription
     Layout layout;
     // Shape style (stroked, filled, outlined, etc.) used to draw elements in this view.
     ShapeStyle style     = ShapeStyle::Filled;
-    // Whether the view contents are shown or not during display.
+    // Whether the view contents are shown or hidden during display.
     // Created views are visible by default, which can be changed at runtime
     // through the toggleViewVisibility() function.
     bool visible         = true;

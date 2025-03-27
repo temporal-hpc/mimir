@@ -192,7 +192,7 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             compile.module_path = "shaders/line.slang";
             //compile.entrypoints = {"vertexMain", "fragmentMain"};
             // Variant for pbc delaunay edges
-            compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+            compile.entrypoints = {"vertexMain", "geometryPBCMain", "fragmentMain"};
             break;
         }
         case ViewType::Boxes:
