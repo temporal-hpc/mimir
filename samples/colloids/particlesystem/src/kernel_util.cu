@@ -1,6 +1,6 @@
-#include "base/kernel_util.h"
+#include "kernel_util.h"
 
-#include "base/cuda_check.h"
+#include "cuda_check.h"
 
 namespace particlesystem {
 

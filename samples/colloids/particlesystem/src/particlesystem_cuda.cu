@@ -1,14 +1,14 @@
 
-#include "particlesystem/particlesystem_delaunay.h"
+#include "particlesystem_delaunay.h"
 
 #include <cassert>
 #include <cstdio>
 
-#include "base/cuda_check.h"
-#include "base/kernel_random.cuh"
-#include "base/kernel_util.h"
-#include "base/math_functions.cuh"
-#include "base/simparameters.h"
+#include "cuda_check.h"
+#include "kernel_random.cuh"
+#include "kernel_util.h"
+#include "math_functions.cuh"
+#include "simparameters.h"
 
 #define EPSILON_DISTANCE    0.001
 #define EPSILON_ANGLE 	    0.001

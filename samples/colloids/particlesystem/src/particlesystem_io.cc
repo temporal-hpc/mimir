@@ -1,4 +1,4 @@
-#include "particlesystem/particlesystem_delaunay.h"
+#include "particlesystem_delaunay.h"
 
 #include <math_constants.h> // CUDART_PI
 

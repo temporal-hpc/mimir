@@ -1,4 +1,4 @@
-#include "particlesystem/particlesystem_delaunay.h"
+#include "particlesystem_delaunay.h"
 #include "configvars.h"
 
 #define _USE_MATH_DEFINES

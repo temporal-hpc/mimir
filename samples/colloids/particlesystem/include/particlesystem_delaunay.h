@@ -13,8 +13,8 @@
 #include <memory> // std::unique_ptr
 #include <string> // std::string
 
-#include "base/particlesystem.h"
-#include "base/simparameters.h"
+#include "particlesystem.h"
+#include "simparameters.h"
 #include "../src/device_data.h"
 
 #include <mimir/mimir.hpp>

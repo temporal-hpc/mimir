@@ -1,11 +1,11 @@
-#include "particlesystem/particlesystem_delaunay.h"
+#include "particlesystem_delaunay.h"
 
 #include <math_constants.h> // CUDART_PI
 
 #include <cstdio>
 #include <iostream> // std::cin
 
-#include "base/cuda_check.h"
+#include "cuda_check.h"
 
 namespace particlesystem {
 namespace delaunay {
@@ -195,11 +195,10 @@ void ParticleSystemDelaunay::loadOnDevice()
     allocLinear(engine, (void**)&devicedata_.colors, sizeof(float4) * NUM_TYPES, &interop[5]);
 
     ViewDescription vp;
-    vp.layout       = Layout::make(params_.num_elements);
-    vp.domain  = DomainType::Domain2D;
-    vp.type    = ViewType::Markers;
-	vp.default_size = 6.4f;
-	vp.scale        = {0.1f, 0.1f, 0.1f};
+    vp.layout = Layout::make(params_.num_elements);
+    vp.domain = DomainType::Domain2D;
+    vp.type   = ViewType::Markers;
+	vp.scale  = {0.1f, 0.1f, 0.1f};
     vp.attributes[AttributeType::Position] =
 	{
 		.source  = interop[current_read],

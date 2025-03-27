@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "particlesystem/particlesystem_delaunay.h"
+#include "particlesystem_delaunay.h"
 
 namespace particlesystem {
 namespace delaunay {

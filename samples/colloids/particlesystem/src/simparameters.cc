@@ -1,10 +1,10 @@
-#include "base/simparameters.h"
+#include "simparameters.h"
 
 #include <cmath>
 #include <iostream>
 #include <numeric> // std::partial_sum
 
-#include "base/randgen.h"
+#include "randgen.h"
 
 namespace particlesystem {
 

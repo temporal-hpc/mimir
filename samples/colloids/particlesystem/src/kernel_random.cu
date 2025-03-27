@@ -1,6 +1,6 @@
-#include "base/kernel_random.cuh"
+#include "kernel_random.cuh"
 
-#include "base/cuda_check.h"
+#include "cuda_check.h"
 
 namespace particlesystem {
 

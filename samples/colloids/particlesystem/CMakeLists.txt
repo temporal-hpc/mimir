@@ -13,9 +13,40 @@ set_target_properties(libparticles PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
 )
 
-include(src/base/CMakeLists.txt)
-include(src/delaunay/CMakeLists.txt)
-include(src/verlet/CMakeLists.txt)
+target_sources(libparticles
+    PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/src/randgen.cc
+        ${CMAKE_CURRENT_LIST_DIR}/src/simparameters.cc
+        ${CMAKE_CURRENT_LIST_DIR}/src/kernel_random.cu
+        ${CMAKE_CURRENT_LIST_DIR}/src/kernel_util.cu
+    PUBLIC
+        ${CMAKE_CURRENT_LIST_DIR}/include/cuda_check.h
+        ${CMAKE_CURRENT_LIST_DIR}/include/kernel_random.cuh
+        ${CMAKE_CURRENT_LIST_DIR}/include/kernel_util.h
+        ${CMAKE_CURRENT_LIST_DIR}/include/math_functions.cuh
+        ${CMAKE_CURRENT_LIST_DIR}/include/particlesystem.h
+        ${CMAKE_CURRENT_LIST_DIR}/include/randgen.h
+        ${CMAKE_CURRENT_LIST_DIR}/include/simparameters.h
+)
+
+target_sources(libparticles
+    PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/src/particlesystem_delaunay.cc
+        ${CMAKE_CURRENT_LIST_DIR}/src/particlesystem_io.cc
+        ${CMAKE_CURRENT_LIST_DIR}/src/particlesystem_cgal.cc
+        ${CMAKE_CURRENT_LIST_DIR}/src/particlesystem_cuda.cu
+        ${CMAKE_CURRENT_LIST_DIR}/src/device_data.h
+    PUBLIC
+        ${CMAKE_CURRENT_LIST_DIR}/include/particlesystem_delaunay.h
+)
+
+# Define headers for this library. PUBLIC headers are used for compiling the
+# library, and will be added to consumers' build paths.
+target_include_directories(libparticles PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+
+# Define headers for this library. PUBLIC headers are used for compiling the
+# library, and will be added to consumers' build paths.
+target_include_directories(libparticles PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
 
 # Include CGAL as an imported target
 find_package(CGAL REQUIRED COMPONENTS Core)

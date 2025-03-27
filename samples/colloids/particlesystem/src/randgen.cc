@@ -1,10 +1,10 @@
-#include "base/randgen.h"
+#include "randgen.h"
 
 #include <curand.h>
 
 #include <iostream>
 
-#include "base/cuda_check.h"
+#include "cuda_check.h"
 
 namespace particlesystem {
 
