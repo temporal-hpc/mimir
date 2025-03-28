@@ -553,9 +553,7 @@ bool validateViewDescription(ViewDescription *desc)
 uint32_t getDrawCount(ViewDescription *desc)
 {
     auto& pos_attr = desc->attributes[AttributeType::Position];
-    auto draw_count = hasIndexing(pos_attr)? pos_attr.indexing.size : desc->layout.getTotalCount();
-    spdlog::trace("DRAW COUNT {} {}", hasIndexing(pos_attr), draw_count);
-    return draw_count;
+    return hasIndexing(pos_attr)? pos_attr.indexing.size : desc->layout.getTotalCount();
 }
 
 ViewOptions initOptions(ViewType type) {
@@ -693,7 +691,7 @@ View *MimirEngine::createView(ViewDescription *desc)
 
         // Create indirect buffers as index buffer for position attributes,
         // and as vertex buffers for all other attributes
-        VkDeviceMemory memory = getMemoryVulkan(attr.source);
+        VkDeviceMemory memory = getMemoryVulkan(attr.indexing.source);
         VkDeviceSize memsize = attr.indexing.index_size * attr.indexing.size;
         spdlog::trace("Attribute buffer created for {} bytes", memsize);
         if (type == AttributeType::Position)
