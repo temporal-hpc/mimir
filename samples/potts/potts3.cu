@@ -610,7 +610,7 @@ int main(void)
     int width = 2000, height = 2000;
     createEngine(width, height, &engine);
 
-	AllocHandle m1 = nullptr, colormap = nullptr;
+	AllocHandle m1, colormap;
 	allocLinear(engine, (void**)&grid, sizeof(int) * L * L, &m1);
 
     float4 *d_colors = nullptr;

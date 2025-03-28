@@ -17,7 +17,6 @@ struct Texture;
 
 // Opaque handle declarations
 typedef struct MimirEngine* EngineHandle;
-typedef struct Allocation* AllocHandle;
 typedef struct View* ViewHandle;
 typedef struct Texture* TextureHandle;
 

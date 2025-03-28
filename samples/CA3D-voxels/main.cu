@@ -60,7 +60,7 @@ int main(int argc, char **argv){
     EngineHandle engine = nullptr;
     createEngine(width, height, &engine);
 
-    AllocHandle ping = nullptr, pong = nullptr, colormap = nullptr;
+    AllocHandle ping, pong, colormap;
     allocLinear(engine, (void**)&d1, sizeof(int) * n*n*n, &ping);
     allocLinear(engine, (void**)&d2, sizeof(int) * n*n*n, &pong);
 

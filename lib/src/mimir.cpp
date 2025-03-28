@@ -126,11 +126,6 @@ void copyTextureData(EngineHandle engine, TextureDescription tex_desc, void *dat
     engine->loadTexture(tex_desc, data, memsize);
 }
 
-void makeTexture(EngineHandle engine, TextureDescription desc, TextureHandle *texture)
-{
-    *texture = engine->makeTexture(desc);
-}
-
 void exit(EngineHandle engine)
 {
     engine->exit();

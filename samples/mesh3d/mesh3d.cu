@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
     float3 *d_normals  = nullptr;
     uint3 *d_triangles = nullptr;
 
-    AllocHandle vertices = nullptr, edges = nullptr;
+    AllocHandle vertices, edges;
     auto vert_size = sizeof(float3) * vertex_count;
     auto edge_size = sizeof(uint) * triangle_count;
     allocLinear(engine, (void**)&d_coords, vert_size, &vertices);

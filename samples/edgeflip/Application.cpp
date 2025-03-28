@@ -52,10 +52,11 @@ Application::Application(){
 
     uint32_t vertex_count = cleap_get_vertex_count(m);
     uint32_t face_count = cleap_get_face_count(m);
-    // NOTE: Cudaview code
+
     // TODO: Delete views
     // TODO: Add stride to attribute desc
-    AllocHandle vertices = nullptr, triangles = nullptr;
+
+    AllocHandle vertices, triangles;
     allocLinear(engine, (void**)&m->dm->d_vbo_v, sizeof(float4) * vertex_count, &vertices);
     allocLinear(engine, (void**)&m->dm->d_eab, sizeof(int3) * face_count, &triangles);
 

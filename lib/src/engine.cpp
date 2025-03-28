@@ -303,7 +303,7 @@ AttributeDescription MimirEngine::makeStructuredGrid(Layout size, float3 start)
     vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
     initGridCoords(data, size, start);
     vkUnmapMemory(device, vk_memory);
-    auto grid_alloc = new Allocation({AllocationType::Linear, memreq.size, vk_memory, nullptr});
+    auto grid_alloc = new LinearAlloc({memreq.size, vk_memory, nullptr});
     deletors.context.add([=,this]{ delete grid_alloc; });
 
     // Add deletors to queue for later cleanup
@@ -343,7 +343,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     auto available = physical_device.memory.memoryProperties;
     auto vbo_mem = allocateMemory(device, available, memreq, flags);
     validation::checkVulkan(vkBindBufferMemory(device, vbo, vbo_mem, 0));
-    auto vbo_alloc = new Allocation({AllocationType::Linear, memreq.size, vbo_mem, nullptr});
+    auto vbo_alloc = new LinearAlloc({memreq.size, vbo_mem, nullptr});
 
     auto ibo = createBuffer(device, ids_memsize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
     vkGetBufferMemoryRequirements(device, ibo, &memreq);
@@ -351,7 +351,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto ibo_mem = allocateMemory(device, available, memreq, flags);
     validation::checkVulkan(vkBindBufferMemory(device, ibo, ibo_mem, 0));
-    auto ibo_alloc = new Allocation({AllocationType::Linear, memreq.size, ibo_mem, nullptr});
+    auto ibo_alloc = new LinearAlloc({memreq.size, ibo_mem, nullptr});
 
     // Init image quad coords and indices
     char *vert_data = nullptr;
@@ -383,49 +383,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     };
 }
 
-Texture *MimirEngine::makeTexture(TextureDescription desc)
-{
-    ImageParams params{
-        .type   = getImageType(desc.extent),
-        .format = getVulkanFormat(desc.format),
-        .extent = getVulkanExtent(desc.extent),
-        .tiling = getImageTiling(desc.source->type),
-        .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
-        .levels = desc.levels,
-    };
-    VkExternalMemoryImageCreateInfo extmem_info{
-        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-        .pNext       = nullptr,
-        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-    };
-    auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
-    validation::checkVulkan(vkBindImageMemory(device, teximg, desc.source->vk_mem, 0));
-
-    Texture texture{
-        .image    = teximg,
-        .img_view = createImageView(device, texture.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
-        .sampler  = createSampler(device, VK_FILTER_LINEAR, false),
-        .format   = params.format,
-        .extent   = params.extent,
-    };
-
-    transitionImageLayout(texture.image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    );
-
-    deletors.context.add([=,this]{
-        spdlog::trace("Destroying texture");
-        vkDestroyImageView(device, texture.img_view, nullptr);
-        vkDestroyImage(device, texture.image, nullptr);
-        vkDestroySampler(device, texture.sampler, nullptr);
-    });
-
-    auto tex_ptr = new Texture(texture);
-    deletors.context.add([=,this]{ delete tex_ptr; });
-    return tex_ptr;
-}
-
-Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
+LinearAlloc *MimirEngine::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 
@@ -463,8 +421,7 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     });
     vkDestroyBuffer(device, query_buf, nullptr);
 
-    Allocation alloc{
-        .type        = AllocationType::Linear,
+    LinearAlloc alloc{
         .size        = memreq.size,
         .vk_mem      = vk_memory,
         .cuda_extmem = cuda_extmem
@@ -473,7 +430,7 @@ Allocation *MimirEngine::allocLinear(void **dev_ptr, size_t size)
     validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
         dev_ptr, alloc.cuda_extmem, &buffer_desc)
     );
-    auto alloc_ptr = new Allocation(alloc);
+    auto alloc_ptr = new LinearAlloc(alloc);
     deletors.context.add([=,this]{ delete alloc_ptr; });
     return alloc_ptr;
 }
@@ -505,7 +462,7 @@ VkExtent3D getExtentFromCuda(cudaExtent extent)
     };
 }
 
-Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
+OpaqueAlloc *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
     const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
 {
     auto format = getFormatFromCuda(desc);
@@ -548,7 +505,7 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
     });
     vkDestroyImage(device, query_img, nullptr);
 
-    auto alloc = Allocation{AllocationType::Opaque, memreq.size, vk_memory, cuda_extmem};
+    auto alloc = OpaqueAlloc{memreq.size, vk_memory, cuda_extmem};
     cudaExternalMemoryMipmappedArrayDesc array_desc{
         .offset     = 0,
         .formatDesc = *desc,
@@ -560,7 +517,7 @@ Allocation *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
         dev_arr, cuda_extmem, &array_desc)
     );
 
-    auto alloc_ptr = new Allocation(alloc);
+    auto alloc_ptr = new OpaqueAlloc(alloc);
     deletors.context.add([=,this]{ delete alloc_ptr; });
     return alloc_ptr;
 }
@@ -595,8 +552,10 @@ bool validateViewDescription(ViewDescription *desc)
 
 uint32_t getDrawCount(ViewDescription *desc)
 {
-    auto& indexing = desc->attributes[AttributeType::Position].indexing;
-    return indexing.source != nullptr? indexing.size : desc->layout.getTotalCount();
+    auto& pos_attr = desc->attributes[AttributeType::Position];
+    auto draw_count = hasIndexing(pos_attr)? pos_attr.indexing.size : desc->layout.getTotalCount();
+    spdlog::trace("DRAW COUNT {} {}", hasIndexing(pos_attr), draw_count);
+    return draw_count;
 }
 
 ViewOptions initOptions(ViewType type) {
@@ -660,7 +619,7 @@ View *MimirEngine::createView(ViewDescription *desc)
                 .type   = getImageType(desc->layout),
                 .format = getVulkanFormat(attr.format),
                 .extent = getVulkanExtent(desc->layout),
-                .tiling = getImageTiling(attr.source->type),
+                .tiling = getImageTiling(attr.source),
                 .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 .levels = 1,
             };
@@ -670,7 +629,7 @@ View *MimirEngine::createView(ViewDescription *desc)
                 .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
             };
             auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
-            vkBindImageMemory(device, teximg, attr.source->vk_mem, 0);
+            vkBindImageMemory(device, teximg, getMemoryVulkan(attr.source), 0);
 
             Texture tex{
                 .image    = teximg,
@@ -698,21 +657,21 @@ View *MimirEngine::createView(ViewDescription *desc)
         {
             VkDeviceSize vb_size = sizeof(Vertex) * attr.size;
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            VkDeviceMemory vb_mem = attr.source->vk_mem;
+            VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
             view.vb_count++;
         }
         // Map source to a vertex buffer when accessing its elements directly
         // Source is always mapped this way for position attributes
-        else if (type == AttributeType::Position || attr.indexing.source == nullptr)
+        else if (type == AttributeType::Position || !hasIndexing(attr))
         {
             VkDeviceSize vb_size = attr.format.getSize() * attr.size; // sizeof(Vertex) * attr.size;
-            spdlog::trace("Position vertex buffer created for {} bytes ({} available)",
-                vb_size, attr.source->size
+            spdlog::trace("Position vertex buffer created for {} bytes ({} elements)",
+                vb_size, getSourceSize(attr.source)
             );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            VkDeviceMemory vb_mem = attr.source->vk_mem;
+            VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
             view.vb_count++;
@@ -721,20 +680,20 @@ View *MimirEngine::createView(ViewDescription *desc)
         else
         {
             VkDeviceSize sb_size = attr.format.getSize() * attr.size;
-            spdlog::trace("Position storage buffer created for {} bytes ({} available)",
-                sb_size, attr.source->size
+            spdlog::trace("Position storage buffer created for {} bytes ({} elements)",
+                sb_size, getSourceSize(attr.source)
             );
             VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-            VkDeviceMemory sb_mem = attr.source->vk_mem;
+            VkDeviceMemory sb_mem = getMemoryVulkan(attr.source);
             view.storage[view.ssbo_count++] = createAttributeBuffer(sb_size, sb_usage, sb_mem);
         }
 
         // If there is no indirect source access, the attribute is now fully processed
-        if (attr.indexing.source == nullptr) { continue; }
+        if (!hasIndexing(attr)) { continue; }
 
         // Create indirect buffers as index buffer for position attributes,
         // and as vertex buffers for all other attributes
-        VkDeviceMemory memory = attr.indexing.source->vk_mem;
+        VkDeviceMemory memory = getMemoryVulkan(attr.source);
         VkDeviceSize memsize = attr.indexing.index_size * attr.indexing.size;
         spdlog::trace("Attribute buffer created for {} bytes", memsize);
         if (type == AttributeType::Position)
@@ -1595,7 +1554,7 @@ void MimirEngine::loadTexture(TextureDescription desc, void *data, size_t memsiz
         .type   = getImageType(desc.extent),
         .format = getVulkanFormat(desc.format),
         .extent = getVulkanExtent(desc.extent),
-        .tiling = getImageTiling(desc.source->type),
+        .tiling = getImageTiling(desc.source),
         .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         .levels = desc.levels,
     };
@@ -1605,10 +1564,10 @@ void MimirEngine::loadTexture(TextureDescription desc, void *data, size_t memsiz
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     };
     auto image = createImage(device, physical_device.handle, params, &extmem_info);
-    validation::checkVulkan(vkBindImageMemory(device, image, desc.source->vk_mem, 0));
+    validation::checkVulkan(vkBindImageMemory(device, image, getMemoryVulkan(desc.source), 0));
 
     // Create staging buffer to copy image data
-    VkDeviceSize staging_size = desc.source->size;
+    VkDeviceSize staging_size = getSourceSize(desc.source);
     auto staging_buffer = createBuffer(device, staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     auto available = physical_device.memory.memoryProperties;
     VkMemoryRequirements staging_req{};

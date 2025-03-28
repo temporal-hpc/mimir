@@ -68,7 +68,7 @@ int main(int argc, char *argv[])
     EngineHandle engine = nullptr;
     createEngine(options, &engine);
 
-    AllocHandle points = nullptr, sizes = nullptr;
+    AllocHandle points, sizes;
     allocLinear(engine, (void**)&d_coords, sizeof(double2) * point_count, &points);
     allocLinear(engine, (void**)&d_sizes, sizeof(double) * point_count, &sizes);
 

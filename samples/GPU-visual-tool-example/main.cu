@@ -84,7 +84,7 @@ int main(int argc, char *argv[]) {
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    AllocHandle points = nullptr;
+    AllocHandle points;
     allocLinear(engine, (void**)&dPoints, sizeof(float2) * n, &points);
 
     ViewHandle view = nullptr;

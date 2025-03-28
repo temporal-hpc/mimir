@@ -111,16 +111,15 @@ struct MimirEngine
     static MimirEngine make(int width, int height);
 
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
-    Allocation *allocLinear(void **dev_ptr, size_t size);
+    LinearAlloc *allocLinear(void **dev_ptr, size_t size);
     // Allocates opaque device memory, equivalent to cudaMallocMipmappedArray()
-    Allocation *allocMipmap(cudaMipmappedArray_t *dev_arr,
+    OpaqueAlloc *allocMipmap(cudaMipmappedArray_t *dev_arr,
          const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels = 1
     );
 
     // Allocates device memory initialized for representing a structured domain
     AttributeDescription makeStructuredGrid(Layout size, float3 start={0.f,0.f,0.f});
     AttributeDescription makeImageDomain();
-    Texture *makeTexture(TextureDescription desc);
 
     // View creation
     View *createView(ViewDescription *desc);

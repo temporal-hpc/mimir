@@ -10,8 +10,9 @@ namespace mimir
 {
 
 // Forward declarations
-struct Allocation;
-struct Texture;
+struct LinearAlloc;
+struct OpaqueAlloc;
+typedef std::variant<std::monostate, LinearAlloc*, OpaqueAlloc*> AllocHandle;
 
 // Specifies the type of view that will be visualized
 enum class ViewType   { Markers, Edges, Image, Boxes, Voxels };
@@ -61,7 +62,7 @@ struct IndexDescription
 {
     // Handle for the allocation containing the index data.
     // Must be non-null to describe a valid indexing.
-    Allocation *source = nullptr;
+    AllocHandle source = {};
     // Number of elements contained in the source allocation
     // Must be non-zero to describe a valid indexing.
     unsigned int size = 0;
@@ -76,7 +77,7 @@ struct AttributeDescription
 {
     // Handle for the allocation containing the source data.
     // Must be non-null to describe a valid attribute.
-    Allocation *source = nullptr;
+    AllocHandle source = {};
     // Number of elements contained in the source allocation.
     // Must be non-zero to describe a valid attribute.
     unsigned int size = 0;
@@ -90,7 +91,7 @@ struct AttributeDescription
 struct TextureDescription
 {
     // Handle for the allocation holding the texture memory.
-    Allocation *source = nullptr;
+    AllocHandle source = {};
     // Format description for texels.
     FormatDescription format = {};
     // Amount of texels in (width, height, depth) format.

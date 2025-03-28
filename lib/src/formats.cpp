@@ -2,22 +2,57 @@
 
 #include <cuda_runtime_api.h>
 #include <vulkan/vulkan.h>
+#include <spdlog/spdlog.h>
 
 #include <type_traits>
 
 namespace mimir
 {
 
-// Derive Vulkan image tiling from the allocation type,
-// which is set when initializing said allocation.
-VkImageTiling getImageTiling(AllocationType type)
+template<class... Ts>
+struct overloaded : Ts... { using Ts::operator()...; };
+
+VkDeviceSize getSourceSize(AllocHandle alloc)
 {
-    switch (type)
-    {
-        case AllocationType::Linear: { return VK_IMAGE_TILING_LINEAR; }
-        case AllocationType::Opaque:
-        default:                     { return VK_IMAGE_TILING_OPTIMAL; }
-    }
+    return std::visit(overloaded{
+        [](auto) { return VkDeviceSize(0); },
+        [](LinearAlloc *arg) { return arg->size; },
+        [](OpaqueAlloc *arg) { return arg->size; }
+    }, alloc);
+}
+
+VkDeviceMemory getMemoryVulkan(AllocHandle alloc)
+{
+    return std::visit(overloaded{
+        [](auto) { return VkDeviceMemory(VK_NULL_HANDLE); },
+        [](LinearAlloc *arg) { return arg->vk_mem; },
+        [](OpaqueAlloc *arg) { return arg->vk_mem; }
+    }, alloc);
+}
+
+cudaExternalMemory_t getMemoryCuda(AllocHandle alloc)
+{
+    return std::visit(overloaded{
+        [](auto) { return cudaExternalMemory_t(nullptr); },
+        [](LinearAlloc *arg) { return arg->cuda_extmem; },
+        [](OpaqueAlloc *arg) { return arg->cuda_extmem; }
+    }, alloc);
+}
+
+VkImageTiling getImageTiling(AllocHandle alloc)
+{
+    return std::visit(overloaded{
+        [](auto) { spdlog::trace("LINEAR"); return VK_IMAGE_TILING_LINEAR; },
+        [](OpaqueAlloc*) { spdlog::trace("OPTIMAL"); return VK_IMAGE_TILING_OPTIMAL; }
+    }, alloc);
+}
+
+bool hasIndexing(const AttributeDescription& desc)
+{
+    return std::visit(overloaded{
+        [](auto) { return false; },
+        [](LinearAlloc*) { return true; }
+    }, desc.indexing.source);
 }
 
 // Derive Vulkan image type from the view extent dimensions,

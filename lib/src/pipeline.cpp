@@ -145,7 +145,7 @@ std::string getSpecializationName(AttributeType type, AttributeDescription attr)
     std::string spec = fmt::format("{}{}{}",
         getAttributeType(type), getDataType(attr.format), std::to_string(attr.format.components)
     );
-    if (type != AttributeType::Position && attr.indexing.source != nullptr)
+    if (type != AttributeType::Position && hasIndexing(attr))
     {
         spec += std::string("FromInt");
     }
@@ -354,7 +354,7 @@ VertexDescription getVertexDescription(const ViewDescription desc)
             });
             return vert;
         }
-        else if (type == AttributeType::Position || attr.indexing.source == nullptr)
+        else if (type == AttributeType::Position || !hasIndexing(attr))
         {
             spdlog::trace("Adding input binding for {} attribute (binding = {}, stride = {})",
                 getAttributeType(type), binding, attr.format.getSize()
@@ -375,7 +375,6 @@ VertexDescription getVertexDescription(const ViewDescription desc)
         }
         else
         {
-
             spdlog::trace("Adding index binding for {} attribute (binding = {}, stride = {})",
                 getAttributeType(type), binding, attr.indexing.index_size
             );

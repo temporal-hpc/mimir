@@ -191,7 +191,7 @@ int main(int argc, char *argv[])
     EngineHandle engine = nullptr;
     createEngine(1920, 1080, &engine);
 
-    AllocHandle seeds = nullptr, colors = nullptr;
+    AllocHandle seeds, colors;
     allocLinear(engine, (void**)&d_coords, sizeof(float2) * point_count, &seeds);
     allocLinear(engine, (void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y, &colors);
 

@@ -172,7 +172,7 @@ int main(int argc, char *argv[])
     EngineHandle engine = nullptr;
     createEngine(1920, 1080, &engine);
 
-    AllocHandle seeds = nullptr, field = nullptr;
+    AllocHandle seeds, field;
     allocLinear(engine, (void**)&d_coords, sizeof(float2) * seed_count, &seeds);
     allocLinear(engine, (void**)&d_distances, sizeof(float) * extent.x * extent.y, &field);
 

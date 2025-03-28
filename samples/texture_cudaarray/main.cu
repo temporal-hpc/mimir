@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
         .f = cudaChannelFormatKindUnsigned,
     };
     auto cuda_extent = make_cudaExtent(img_width, img_height, 0);
-    AllocHandle mipmap = nullptr;
+    AllocHandle mipmap;
     allocMipmap(engine, &mipmap_array, &cuda_format, cuda_extent, mip_levels, &mipmap);
     TextureDescription tex{
         .source = mipmap,

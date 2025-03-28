@@ -134,7 +134,7 @@ void allocate_arrays(Setup *setup){
     createEngine(options, &setup->engine);
 
     unsigned int n = setup->N;
-    AllocHandle grid = nullptr, grid_colors = nullptr, dist_colors = nullptr, seeds = nullptr;
+    AllocHandle grid, grid_colors, dist_colors, seeds;
     auto grid_size = n * n * sizeof(int);
     allocLinear(setup->engine, (void**)&setup->gpu_backup_vd, grid_size, &grid);
 

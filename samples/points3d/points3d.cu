@@ -136,7 +136,7 @@ int main(int argc, char *argv[])
     curandState *d_states = nullptr;
     if (use_interop)
     {
-        AllocHandle points = nullptr;
+        AllocHandle points;
         allocLinear(engine, (void**)&d_coords, sizeof(float3) * point_count, &points);
 
         ViewHandle view = nullptr;

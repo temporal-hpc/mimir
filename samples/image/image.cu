@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
     EngineHandle engine = nullptr;
     createEngine(1920, 1080, &engine);
 
-    AllocHandle pixels = nullptr;
+    AllocHandle pixels;
     allocLinear(engine, (void**)&d_pixels, sizeof(char4) * width * height, &pixels);
 
     ViewHandle view = nullptr;

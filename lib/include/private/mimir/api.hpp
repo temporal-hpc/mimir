@@ -10,20 +10,33 @@
 namespace mimir
 {
 
+// Limit for number of attributes defined for a view
 constexpr uint32_t max_attr_count = 10;
 
-enum class AllocationType { Linear, Opaque };
-
-struct Allocation
+struct LinearAlloc
 {
-    // Shows the kind of CUDA memory mapping passed to this allocation.
-    AllocationType type;
     // Allocation memory size in bytes.
     VkDeviceSize size;
     // Vulkan external device memory handle.
     VkDeviceMemory vk_mem;
     // Cuda external memory handle, provided by the Cuda interop API.
     cudaExternalMemory_t cuda_extmem;
+};
+
+struct OpaqueAlloc
+{
+    // Allocation memory size in bytes.
+    VkDeviceSize size;
+    // Vulkan external device memory handle.
+    VkDeviceMemory vk_mem;
+    // Cuda external memory handle, provided by the Cuda interop API.
+    cudaExternalMemory_t cuda_extmem;
+    // Format description for texels.
+    FormatDescription format = {};
+    // Amount of texels in (width, height, depth) format.
+    Layout extent = {};
+    // Number of mipmap levels stored in the texture.
+    unsigned int levels = 1;
 };
 
 struct Texture
@@ -213,6 +226,15 @@ VkFormat getVulkanFormat(FormatDescription desc);
 
 VkImageType getImageType(Layout extent);
 
-VkImageTiling getImageTiling(AllocationType type);
+VkDeviceSize getSourceSize(AllocHandle alloc);
+VkDeviceMemory getMemoryVulkan(AllocHandle alloc);
+cudaExternalMemory_t getMemoryCuda(AllocHandle alloc);
+
+// Return Vulkan image tiling (linear/opaque) from the allocation type.
+VkImageTiling getImageTiling(AllocHandle alloc);
+
+// Query whether the attribute has a defined indexing scheme
+// Returns true if indexing contains a source, and false otherwise.
+bool hasIndexing(const AttributeDescription& desc);
 
 } // namespace mimir
