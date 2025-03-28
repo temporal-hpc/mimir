@@ -13,8 +13,7 @@ struct PositionTemplate<T, let N:int> : IPosition
         [unroll]
         for (int i = 0; i < N; ++i)
         {
-            float p = reinterpret<float>(data[i]);
-            pos[i] = 2 * p - 1;
+            pos[i] = reinterpret<float>(data[i]);
         }
         pos.w = 1;
         return pos;
@@ -31,8 +30,7 @@ struct PositionTemplateLarge<T, let N:int> : IPosition
         [unroll]
         for (int i = 0; i < N; ++i)
         {
-            float p = float(reinterpret<double>(data[i]));
-            pos[i] = 2 * p - 1;
+            pos[i] = float(reinterpret<double>(data[i]));
         }
         pos.w = 1;
         return pos;

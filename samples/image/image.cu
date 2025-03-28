@@ -40,9 +40,9 @@ int main(int argc, char *argv[])
         .attributes  = {
             {AttributeType::Position, makeImageFrame(engine)},
             {AttributeType::Color, AttributeDescription{
-                .source   = pixels,
-                .size     = static_cast<unsigned int>(width * height),
-                .format   = FormatDescription::make<char4>(),
+                .source = pixels,
+                .size   = static_cast<unsigned int>(width * height),
+                .format = FormatDescription::make<char4>(),
             }}
         },
         .layout       = Layout::make(width, height),

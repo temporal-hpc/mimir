@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
                 .format = tex.format,
             }}
         },
-        .layout      = Layout::make(img_width, img_height),
+        .layout = Layout::make(img_width, img_height),
     };
     createView(engine, &desc, &view);
 

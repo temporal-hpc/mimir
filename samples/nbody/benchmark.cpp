@@ -290,7 +290,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
     EngineHandle engine = nullptr;
     createEngine(options, &engine);
-    setCameraPosition(engine, {params.x, params.y, params.z});
+    setCameraPosition(engine, {params.x, params.y, params.z - 1.f});
 
     auto nbody_memsize = sizeof(float4) * input.body_count;
     DeviceData device;
@@ -306,6 +306,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         ViewDescription desc
         {
             .type   = ViewType::Markers,
+            .options = {},
             .domain = DomainType::Domain3D,
             .attributes  = {
                 { AttributeType::Position, {
@@ -317,7 +318,8 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
             .layout        = Layout::make(input.body_count),
             .visible       = true,
             .default_color = {1.f, 1.f, 1.f, 1.f},
-            .default_size  = params.point_size,
+            .default_size  = params.point_size / 5.f,
+            .linewidth     = 0.f,
             .scale         = {1.f, 1.f, 1.f},
         };
         createView(engine, &desc, &views[0]);
@@ -347,7 +349,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     checkCuda(cudaMemcpy(device.dVel, host.vel, nbody_memsize, cudaMemcpyHostToDevice));
 
     // Start display and measurements
-    setCameraPosition(engine, {1.f, 1.f, -3.f});
+    //setCameraPosition(engine, {0.f, 0.f, -3.f});
     GPUPowerBegin("gpu", 100);
     if (input.display) displayAsync(engine);
 

@@ -197,7 +197,7 @@ int main(int argc, char *argv[])
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
-    desc.layout      = Layout::make(point_count);
+    desc.layout = Layout::make(point_count);
     desc.domain = DomainType::Domain2D;
     desc.type   = ViewType::Markers;
     desc.attributes[AttributeType::Position] = {
@@ -205,18 +205,22 @@ int main(int argc, char *argv[])
         .size   = point_count,
         .format = FormatDescription::make<float2>(),
     };
-    desc.default_size  = 1.f;
+    desc.default_size = 1.f;
+    // Move points closer to display them before the distance field and avoid z-fighting
+    desc.position     = {-6.f, -6.f, -0.001f};
+    desc.scale        = {0.1f, 0.1f, 0.1f};
     createView(engine, &desc, &v1);
 
-    desc.layout    = Layout::make(extent.x, extent.y);
+    desc.layout = Layout::make(extent.x, extent.y);
     desc.type = ViewType::Voxels;
-    desc.attributes[AttributeType::Position] =
-        makeStructuredGrid(engine, desc.layout, {0.f,0.f,0.4999f});
+    desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.layout);
     desc.attributes[AttributeType::Color] = {
         .source = colors,
         .size   = (uint)(extent.x * extent.y),
         .format = FormatDescription::make<float4>(),
     };
+    desc.default_size = 100.f;
+    desc.position.z   = 0.f;
     createView(engine, &desc, &v2);
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
@@ -235,6 +239,7 @@ int main(int argc, char *argv[])
     initJumpFlood(d_grid[1], d_coords, point_count, extent);
 
     // Start rendering loop
+    setCameraPosition(engine, {0.f, 0.f, -10.f});
     auto timestep_function = [&]
     {
         dim3 threads{128};

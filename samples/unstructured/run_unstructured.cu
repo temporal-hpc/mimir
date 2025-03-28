@@ -95,7 +95,8 @@ int main(int argc, char *argv[])
         .layout = Layout::make(point_count),
         .style  = ShapeStyle::Filled,
         .default_size = 10.f,
-        .scale  = { 0.05f, 0.05f, 0.05f },
+        .position = {-10.f, -10.f, 0.f},
+        .scale    = { 0.1f, 0.1f, 0.1f },
     };
     createView(engine, &desc, &view);
 
@@ -115,7 +116,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    setCameraPosition(engine, {-10.f, -10.f, -20.f});
+    setCameraPosition(engine, {0.f, 0.f, -20.f});
     display(engine, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));

@@ -178,7 +178,7 @@ int main(int argc, char *argv[])
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
-    desc.layout      = Layout::make(seed_count);
+    desc.layout = Layout::make(seed_count);
     desc.type   = ViewType::Markers;
     desc.domain = DomainType::Domain2D;
     desc.attributes[AttributeType::Position] = {
@@ -188,12 +188,12 @@ int main(int argc, char *argv[])
     };
     desc.default_size  = 10.f;
     desc.default_color = {0,0,1,1};
-    desc.position      = {-50.f, -50.f, 0.f};
+    desc.position      = {-25.f, -25.f, 0.f};
     desc.scale         = {0.1f, 0.1f, 0.1f};
     createView(engine, &desc, &v1);
 
-    desc.layout    = Layout::make(extent.x, extent.y);
-    desc.type = ViewType::Voxels;
+    desc.layout = Layout::make(extent.x, extent.y);
+    desc.type   = ViewType::Voxels;
     desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.layout);
     desc.attributes[AttributeType::Color] = {
         .source = field,
@@ -201,10 +201,10 @@ int main(int argc, char *argv[])
         .format = FormatDescription::make<float>(),
     };
     desc.default_size  = 1000.f;
-    desc.position      = {-50.f, -50.f, 0.49f};
+    desc.position      = {-25.f, -25.f, 0.49f};
     createView(engine, &desc, &v2);
 
-    setCameraPosition(engine, {0.f, 0.f, -100.f});
+    setCameraPosition(engine, {0.f, 0.f, -40.f});
 
     //checkCuda(cudaMalloc(&_d_distances, dist_size));
     //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * element_count));

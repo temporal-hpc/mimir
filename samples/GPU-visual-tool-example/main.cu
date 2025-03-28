@@ -100,10 +100,11 @@ int main(int argc, char *argv[]) {
             }}
         },
         .layout       = Layout::make(n),
-        .default_size = .02f,
+        .default_size = .01f,
+        .linewidth    = .01f,
+        .position     = {-0.5, -0.5, 0.f}
     };
     createView(engine, &desc, &view);
-
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);

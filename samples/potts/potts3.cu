@@ -652,11 +652,12 @@ int main(void)
 			.index_size = sizeof(int),
 		}
 	};
-	desc.default_size = 1030.f;
-	desc.scale = {0.01f, 0.01f, 0.01f};
+	desc.default_size = 512.f;
+	desc.position = {-5.f, -5.f, 0.f};
+	desc.scale    = {0.01f, 0.01f, 0.01f};
 	createView(engine, &desc, &v1);
 
-	setCameraPosition(engine, {-10.2f, -10.2f, -15.f});
+	setCameraPosition(engine, {0.f, 0.f, -15.f});
 	displayAsync(engine);
 
 	// print header
