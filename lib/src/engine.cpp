@@ -553,7 +553,7 @@ bool validateViewDescription(ViewDescription *desc)
 uint32_t getDrawCount(ViewDescription *desc)
 {
     auto& pos_attr = desc->attributes[AttributeType::Position];
-    return hasIndexing(pos_attr)? pos_attr.indexing.size : desc->layout.getTotalCount();
+    return hasIndexing(pos_attr)? pos_attr.indexing.size : pos_attr.size;
 }
 
 ViewOptions initOptions(ViewType type) {
@@ -562,7 +562,7 @@ ViewOptions initOptions(ViewType type) {
     {
         // Initialize option to known defaults for the matching view type
         case ViewType::Markers: { options = MarkerOptions::defaults(); break; }
-        case ViewType::Edges:   { options = LineOptions::defaults(); break; }
+        case ViewType::Edges:   { options = MeshOptions::defaults(); break; }
         // Default: don't know (or care) about options
         default:                { break; }
     }

@@ -62,9 +62,10 @@ void addTableRowOptions(ViewType type, ViewOptions options)
         }
         case ViewType::Edges:
         {
-            auto line = std::get<LineOptions>(options);
-            addTableRow("Style", getLineStyle(line.style));
-            addTableRow("Cap type", getCapType(line.caps));
+            auto mesh = std::get<MeshOptions>(options);
+            addTableRow("Periodic", mesh.periodic? "yes" : "no");
+            //addTableRow("Style", getLineStyle(line.style));
+            //addTableRow("Cap type", getCapType(line.caps));
             break;
         }
         // Don't know / don't care

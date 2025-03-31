@@ -191,8 +191,16 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         {
             compile.module_path = "shaders/line.slang";
             //compile.entrypoints = {"vertexMain", "fragmentMain"};
-            // Variant for pbc delaunay edges
-            compile.entrypoints = {"vertexMain", "geometryPBCMain", "fragmentMain"};
+            auto options = std::get<MeshOptions>(desc.options);
+            if (options.periodic)
+            {
+                // Variant for periodic delaunay triangulations
+                compile.entrypoints = {"vertexMain", "geometryPBCMain", "fragmentMain"};
+            }
+            else
+            {
+                compile.entrypoints = {"vertexMain", "fragmentMain"};
+            }
             break;
         }
         case ViewType::Boxes:
@@ -303,7 +311,7 @@ std::vector<VkPipeline> PipelineBuilder::createPipelines(
         create_infos.size(), create_infos.data(), nullptr, pipelines.data())
     );
 
-    // Delete all shader modules, as they fulfilled their utility
+    // Delete shader modules after using them
     for (auto& info : pipeline_infos)
     {
         for (auto& stage : info.shader_stages)

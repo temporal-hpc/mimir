@@ -199,7 +199,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     vp.domain = DomainType::Domain2D;
     vp.type   = ViewType::Markers;
 	vp.scale  = {0.1f, 0.1f, 0.1f};
-	vp.position  = {-1.f, -1.f, 0.f};
+	vp.position  = {-10.f, -10.f, 0.f};
 	vp.linewidth = 0.f;
     vp.attributes[AttributeType::Position] =
 	{
@@ -232,12 +232,15 @@ void ParticleSystemDelaunay::loadOnDevice()
     // Edges
     allocLinear(engine, (void**)&devicedata_.triangles, sizeof(int3) * delaunay_.num_triangles, &interop[4]);
 
+	MeshOptions options{ .periodic = true, };
+
     ViewDescription vpe;
-    vpe.layout = Layout::make(delaunay_.num_triangles * 3);
+    vpe.layout = Layout::make(params_.boxlength, params_.boxlength);
+	vpe.options = options;
     vpe.domain = DomainType::Domain2D;
     vpe.type   = ViewType::Edges;
 	vpe.scale  = {0.1f, 0.1f, 0.1f};
-	vpe.position  = {-1.f, -1.f, 0.f};
+	vpe.position  = {-10.f, -10.f, 0.f};
 	vpe.linewidth = 0.f;
     vpe.attributes[AttributeType::Position] =
 	{
@@ -313,7 +316,7 @@ void ParticleSystemDelaunay::loadOnDevice()
 	cudaCheck(cudaHostGetDevicePointer(&devicedata_.readyflag, readyflag, 0));
 
 	printf("Triangulation loaded to device memory.\n");
-	setCameraPosition(engine, {0.f, 0.f, -2.f});
+	setCameraPosition(engine, {0.f, 0.f, -15.f});
     displayAsync(engine);
 
 	printf("Waiting for key press...\n");

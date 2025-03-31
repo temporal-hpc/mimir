@@ -131,6 +131,7 @@ struct MarkerOptions
     }
 };
 
+// TODO: Implement
 struct LineOptions {
     enum class Style { Solid, Dashed, DashDotted };
     enum class CapType { None, Butt, Square, Round, TriangleOut, TriangleIn };
@@ -146,10 +147,18 @@ struct LineOptions {
     }
 };
 
+struct MeshOptions {
+    bool periodic;
+
+    static MeshOptions defaults() {
+        return { .periodic = false };
+    }
+};
+
 // Structure for specifing view-specific options matching the selected view type.
 // If left uninitialized or initialized for the wrong view type,
 // a default configuration will be initialized and used.
-typedef std::variant<std::monostate, MarkerOptions, LineOptions> ViewOptions;
+typedef std::variant<std::monostate, MarkerOptions, MeshOptions> ViewOptions;
 
 struct ViewDescription
 {
