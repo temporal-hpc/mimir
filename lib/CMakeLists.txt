@@ -1,5 +1,7 @@
-add_library(mimir STATIC)
+find_package(Vulkan      REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
+add_library(mimir STATIC)
 target_sources(mimir
     PRIVATE
         src/mimir.cpp
@@ -37,18 +39,19 @@ target_include_directories(mimir
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/private>
 )
 
-set_property(TARGET mimir PROPERTY CUDA_STANDARD 20)
-set_target_properties(mimir PROPERTIES CUDA_ARCHITECTURES native)
-target_compile_features(mimir PUBLIC cxx_std_20)
+set_target_properties(mimir PROPERTIES
+    COMPILE_WARNING_AS_ERROR ON
+    CUDA_ARCHITECTURES       native
+    CUDA_STANDARD            20
+)
+target_compile_features(mimir PRIVATE cxx_std_20)
 target_compile_options(mimir PRIVATE
-    -Wall -Wextra
+    -Wall -Wextra -Wformat -Wformat=2 -Wconversion -Wimplicit-fallthrough
     "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"
     "$<$<CONFIG:Debug>:-g>"
     "$<$<CONFIG:Release>:-O3>"
 )
 
-find_package(Vulkan REQUIRED)
-find_package(CUDAToolkit)
 target_link_libraries(mimir
     PUBLIC
         Vulkan::Vulkan CUDA::cudart
@@ -71,7 +74,7 @@ install(
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/mimir/mimirConfigVersion.cmake"
-    VERSION 0.0.1
+    VERSION       0.0.1
     COMPATIBILITY AnyNewerVersion
 )
 

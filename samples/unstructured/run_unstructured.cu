@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
     // Initialize engine
     ViewerOptions options;
     options.window.size  = {1920,1080}; // Starting window size
-    options.present.mode = PresentMode::VSync;
+    options.present.mode = PresentMode::Immediate;
 
     EngineHandle engine = nullptr;
     createEngine(options, &engine);

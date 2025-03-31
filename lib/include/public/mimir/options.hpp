@@ -54,7 +54,7 @@ struct PresentOptions
     bool enable_fps_limit;
     // Throttle rendering to achieve this value when 'enable_fps_limit' is enabled.
     int target_fps;
-    float target_frame_time;
+    int64_t target_frame_time;
 
     static PresentOptions makeDefault()
     {
@@ -63,7 +63,7 @@ struct PresentOptions
             .enable_sync       = true,
             .enable_fps_limit  = true,
             .target_fps        = 60,
-            .target_frame_time = 0.f,
+            .target_frame_time = 0,
         };
     }
 };
