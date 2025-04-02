@@ -102,9 +102,6 @@ struct TextureDescription
 
 enum class ShapeStyle { Stroked, Filled, Outlined };
 
-// TODO: Add voxel mode
-enum class RenderingMode { Raster, Geometry };
-
 struct MarkerOptions
 {
     enum class Shape {
@@ -122,28 +119,10 @@ struct MarkerOptions
 
     // Marker shape used in this view.
     Shape shape;
-    // Rendering mode used by the shader associated to this view.
-    RenderingMode rendering;
 
     // Initialize options with sensible defaults when not specified by the user.
     static MarkerOptions defaults() {
-        return { .shape = Shape::Disc, .rendering = RenderingMode::Geometry };
-    }
-};
-
-// TODO: Implement
-struct LineOptions {
-    enum class Style { Solid, Dashed, DashDotted };
-    enum class CapType { None, Butt, Square, Round, TriangleOut, TriangleIn };
-
-    // Style used to render lines in this view.
-    Style style;
-    // Line cap (segment end) type used in this view.
-    CapType caps;
-
-    // Initialize options with sensible defaults when not specified by the user.
-    static LineOptions defaults() {
-        return { .style = Style::Solid, .caps = CapType::None };
+        return { .shape = Shape::Disc };
     }
 };
 

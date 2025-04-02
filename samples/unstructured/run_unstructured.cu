@@ -77,7 +77,6 @@ int main(int argc, char *argv[])
         .type   = ViewType::Markers,
         .options     = MarkerOptions{
             .shape     = MarkerOptions::Shape::Disc,
-            .rendering = RenderingMode::Geometry
         },
         .domain = DomainType::Domain2D,
         .attributes  = {
