@@ -147,7 +147,7 @@ private:
 
 	// should be *hDeviceData if using multiple gpus
 	DeviceData devicedata_;
-    mimir::EngineHandle engine;
+    mimir::InstanceHandle engine;
     mimir::AllocHandle interop[6];
     mimir::ViewHandle particle_views[2];
     mimir::ViewHandle edge_views[2];

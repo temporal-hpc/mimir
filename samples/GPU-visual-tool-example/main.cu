@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)
     // [OTRA OPCION] FLIB_crearVentanaSync(WIDTH, HEIGHT, ...)
     // En este momento, la ventana podria aparecer (en negro, sin datos aun)
-    EngineHandle engine = nullptr;
+    InstanceHandle engine = nullptr;
     createEngine(900, 900, &engine);
 
     // [VULKAN] II) "PASAR LOS DATOS AL VISUALIZADOR"

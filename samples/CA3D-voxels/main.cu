@@ -57,7 +57,7 @@ int main(int argc, char **argv){
     init_prob(n, original, seed, prob);
 
     int width = 1920, height = 1080;
-    EngineHandle engine = nullptr;
+    InstanceHandle engine = nullptr;
     createEngine(width, height, &engine);
 
     AllocHandle ping, pong, colormap;

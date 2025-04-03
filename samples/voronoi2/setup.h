@@ -91,7 +91,7 @@ struct Setup{
     float3 *gpu_seed_colors = nullptr;
     float4 *gpu_vd_colors = nullptr;
     float *gpu_vd_dists = nullptr;
-    EngineHandle engine;
+    InstanceHandle engine;
 };
 
 void initialize_variables(Setup *setup, int N, int S, int mode, int iters, int device, int mem_gpu, int block_size, int distance_function, int redux,int mu, int sample, int molecules, int comparison){

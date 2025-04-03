@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size      = {1920,1080}; // Starting window size
     options.background_color = {.5f, .5f, .5f, 1.f};
-    EngineHandle engine = nullptr;
+    InstanceHandle engine = nullptr;
     createEngine(options, &engine);
 
     float3 *d_coords   = nullptr;

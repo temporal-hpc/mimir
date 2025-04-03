@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    EngineHandle engine = nullptr;
+    InstanceHandle engine = nullptr;
     createEngine(1920, 1080, &engine);
 
     AllocHandle pixels;

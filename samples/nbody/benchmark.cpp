@@ -288,7 +288,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     options.present.enable_sync = input.enable_sync;
     options.present.target_fps  = input.target_fps;
 
-    EngineHandle engine = nullptr;
+    InstanceHandle engine = nullptr;
     createEngine(options, &engine);
     setCameraPosition(engine, {params.x, params.y, params.z - 1.f});
 
