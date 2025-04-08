@@ -268,9 +268,6 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
 
 BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 {
-    // Decrease the time step further based on the number of bodies
-    // This is to prevent making them move outside the camera area
-    if (input.body_count <= 10000) { params.time_step /= 1000.f; }
     params.point_size /= 5.f;
 
     // CUDA initialization
@@ -288,9 +285,9 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     options.present.enable_sync = input.enable_sync;
     options.present.target_fps  = input.target_fps;
 
-    InstanceHandle engine = nullptr;
-    createEngine(options, &engine);
-    setCameraPosition(engine, {params.x, params.y, params.z - 1.f});
+    InstanceHandle instance = nullptr;
+    createInstance(options, &instance);
+    setCameraPosition(instance, {params.x, params.y, params.z - 1.f});
 
     auto nbody_memsize = sizeof(float4) * input.body_count;
     DeviceData device;
@@ -300,8 +297,8 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     if (input.display)
     {
         mimir::AllocHandle allocs[2];
-        allocLinear(engine, (void**)&device.dPos[0], nbody_memsize, &allocs[0]);
-        allocLinear(engine, (void**)&device.dPos[1], nbody_memsize, &allocs[1]);
+        allocLinear(instance, (void**)&device.dPos[0], nbody_memsize, &allocs[0]);
+        allocLinear(instance, (void**)&device.dPos[1], nbody_memsize, &allocs[1]);
 
         ViewDescription desc
         {
@@ -322,16 +319,24 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
             .linewidth     = 0.f,
             .scale         = {1.f, 1.f, 1.f},
         };
-        createView(engine, &desc, &views[0]);
+        createView(instance, &desc, &views[0]);
 
         desc.visible = false;
         desc.attributes[AttributeType::Position].source = allocs[1];
-        createView(engine, &desc, &views[1]);
+        createView(instance, &desc, &views[1]);
     }
     else // Run the simulation without display
     {
         checkCuda(cudaMalloc((void**)&device.dPos[0], nbody_memsize));
         checkCuda(cudaMalloc((void**)&device.dPos[1], nbody_memsize));
+    }
+
+    // Decrease the time step further based on the number of bodies
+    // This is to prevent making them move outside the camera area
+    if (input.body_count <= 10000)
+    {
+        params.time_step /= 1000.f;
+        setCameraPosition(instance, {0.f, 0.f, -1.3f});
     }
 
     // Initialize simulation
@@ -349,9 +354,9 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     checkCuda(cudaMemcpy(device.dVel, host.vel, nbody_memsize, cudaMemcpyHostToDevice));
 
     // Start display and measurements
-    //setCameraPosition(engine, {0.f, 0.f, -3.f});
+    //setCameraPosition(instance, {0.f, 0.f, -3.f});
     GPUPowerBegin("gpu", 100);
-    if (input.display) displayAsync(engine);
+    if (input.display) displayAsync(instance);
 
     // Main simulation loop
     if (input.use_cpu)
@@ -364,20 +369,20 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
             integrateNBodySystemCpu(host, params.time_step,
                 params.damping, params.softening, input.body_count
             );
-            if (input.display) { prepareViews(engine); }
+            if (input.display) { prepareViews(instance); }
             checkCuda(cudaMemcpy(device.dPos[current_read], host.pos,
                 nbody_memsize, cudaMemcpyHostToDevice)
             );
-            if (input.display) { updateViews(engine); }
+            if (input.display) { updateViews(instance); }
         }
 
         delete[] host.force;
     }
     else
     {
-        for (int i = 0; i < input.iter_count && isRunning(engine); ++i)
+        for (int i = 0; i < input.iter_count && isRunning(instance); ++i)
         {
-            if (input.display) { prepareViews(engine); }
+            if (input.display) { prepareViews(instance); }
 
             integrateNbodySystem(device, current_read, params.time_step,
                 params.damping, input.body_count, block_size
@@ -388,13 +393,13 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
             {
                 toggleVisibility(views[0]);
                 toggleVisibility(views[1]);
-                updateViews(engine);
+                updateViews(instance);
             }
         }
     }
 
     // Retrieve metrics
-    auto metrics = getMetrics(engine);
+    auto metrics = getMetrics(instance);
 
     // Nvml memory report
     nvmlMemory_v2_t meminfo;
@@ -411,8 +416,8 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     auto gpu_power = GPUPowerEnd();
 
     // Cleanup
-    exit(engine);
-    destroyEngine(engine);
+    exit(instance);
+    destroyInstance(instance);
     checkCuda(cudaFree(device.dPos[0]));
     checkCuda(cudaFree(device.dPos[1]));
     checkCuda(cudaFree(device.dVel));

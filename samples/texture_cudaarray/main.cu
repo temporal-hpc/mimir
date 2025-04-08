@@ -221,8 +221,8 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size = {1920,1080}; // Starting window size
     options.present     = { .mode = PresentMode::VSync };
-    InstanceHandle engine = nullptr;
-    createEngine(options, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(options, &instance);
 
     cudaMipmappedArray_t mipmap_array = nullptr;
     cudaChannelFormatDesc cuda_format{
@@ -231,21 +231,21 @@ int main(int argc, char *argv[])
     };
     auto cuda_extent = make_cudaExtent(img_width, img_height, 0);
     AllocHandle mipmap;
-    allocMipmap(engine, &mipmap_array, &cuda_format, cuda_extent, mip_levels, &mipmap);
+    allocMipmap(instance, &mipmap_array, &cuda_format, cuda_extent, mip_levels, &mipmap);
     TextureDescription tex{
         .source = mipmap,
         .format = FormatDescription::make<uchar4>(),
         .extent = Layout::make(img_width, img_height, 1),
         .levels = static_cast<unsigned int>(mip_levels),
     };
-    copyTextureData(engine, tex, img_data, sizeof(char4) * img_width * img_height);
+    copyTextureData(instance, tex, img_data, sizeof(char4) * img_width * img_height);
 
     ViewHandle view = nullptr;
     ViewDescription desc{
         .type   = ViewType::Image,
         .domain = DomainType::Domain2D,
         .attributes  = {
-            { AttributeType::Position, makeImageFrame(engine) },
+            { AttributeType::Position, makeImageFrame(instance) },
             { AttributeType::Color, {
                 .source = tex.source,
                 .size   = static_cast<unsigned int>(img_width * img_height),
@@ -254,7 +254,7 @@ int main(int argc, char *argv[])
         },
         .layout = Layout::make(img_width, img_height),
     };
-    createView(engine, &desc, &view);
+    createView(instance, &desc, &view);
 
     cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
     checkCuda(cudaMallocMipmappedArray(
@@ -334,12 +334,12 @@ int main(int argc, char *argv[])
 
     int nthreads = 128;
 
-    // Engine does not run before starting display
-    assert(!isRunning(engine));
-    displayAsync(engine);
-    while (isRunning(engine))
+    // instance does not run before starting display
+    assert(!isRunning(instance));
+    displayAsync(instance);
+    while (isRunning(instance))
     {
-        prepareViews(engine);
+        prepareViews(instance);
         // Perform 2D box filter on image using CUDA
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
             d_surf_list_temp, tex_obj, img_width, img_height, mip_levels, filter_radius
@@ -348,13 +348,13 @@ int main(int argc, char *argv[])
             d_surf_list, d_surf_list_temp, img_width, img_height, mip_levels, filter_radius
         );
         varySigma();
-        updateViews(engine);
+        updateViews(instance);
     }
 
     checkCuda(cudaDestroyTextureObject(tex_obj));
     checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayTemp));
     checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayOrig));
-    destroyEngine(engine);
+    destroyInstance(instance);
 
     return EXIT_SUCCESS;
 }

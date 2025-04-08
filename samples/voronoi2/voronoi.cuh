@@ -932,7 +932,7 @@ float euclideanDistanceCPU(int x1, int x2, int y1, int y2){
 }
 
 void dynamicSeeds(Setup setup, int iter){
-    prepareViews(setup.engine);
+    prepareViews(setup.instance);
     if(setup.sample == 0){
         moveSeeds<<<setup.seeds_grid, setup.seeds_block>>>(setup.gpu_seeds, setup.gpu_delta,setup.N, setup.S, 1, setup.r_device);
         cudaDeviceSynchronize();
@@ -957,7 +957,7 @@ void dynamicSeeds(Setup setup, int iter){
         }
 
     }
-    updateViews(setup.engine);
+    updateViews(setup.instance);
 }
 
 // This method needs to be check due to posible concurrence errors
@@ -1026,34 +1026,34 @@ void mjfaVDIters(Setup setup, int *v_diagram, int *seeds, int N, int S, int k, i
         //prepareViews();
         while(k_copy >= k/2){
             //printf("Von Neumann NB\n"); std::cin.get();
-            prepareViews(setup.engine);
+            prepareViews(setup.instance);
             voronoiJFA_4Ng<<< grid, block>>>(v_diagram, seeds, setup.gpu_delta_max, k_copy, N, S, setup.distance_function, mu);
             cudaDeviceSynchronize();
             if(cudaGetLastError() != cudaSuccess){
                 printf("Something went wrong on Von Neumman NB\n");
                 exit(0);
             }
-            updateViews(setup.engine);
+            updateViews(setup.instance);
             k_copy = k_copy/2;
         }
         while(k_copy >= 1){
             //printf("k=%d\n", k_copy); std::cin.get();
-            prepareViews(setup.engine);
+            prepareViews(setup.instance);
             voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, k_copy, N, S, setup.distance_function, mu);
             cudaDeviceSynchronize();
-            updateViews(setup.engine);
+            updateViews(setup.instance);
             k_copy = k_copy/2;
         }
         //printf("waiting for key press...\n"); std::cin.get();
-        prepareViews(setup.engine);
+        prepareViews(setup.instance);
         voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 2, N, S, setup.distance_function, mu);
         voronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 1, N, S, setup.distance_function, mu);
         writeGridColors(&setup);
         writeGridDistances(&setup);
-        updateViews(setup.engine);
+        updateViews(setup.instance);
     }
     else{
-        prepareViews(setup.engine);
+        prepareViews(setup.instance);
         while(k_copy >= k/2){
             pbcVoronoiJFA_4Ng<<< grid, block>>>(v_diagram, seeds, k_copy, N, S, setup.distance_function, mu);
             cudaDeviceSynchronize();
@@ -1068,7 +1068,7 @@ void mjfaVDIters(Setup setup, int *v_diagram, int *seeds, int N, int S, int k, i
         pbcVoronoiJFA_8Ng<<< grid, block>>>(v_diagram, seeds, 1, N, S, setup.distance_function, mu);
         writeGridColors(&setup);
         writeGridDistances(&setup);
-        updateViews(setup.engine);
+        updateViews(setup.instance);
     }
 }
 
@@ -1254,7 +1254,7 @@ void writeGridDistances(Setup *setup){
 void itersJFA(Setup setup){
     int iter_copy = setup.iters;
 
-    displayAsync(setup.engine);
+    displayAsync(setup.instance);
     std::cin.get();
 
     cudaEvent_t start, stop;

@@ -11,17 +11,17 @@
 namespace mimir
 {
 
-void createEngine(ViewerOptions opts, InstanceHandle *engine)
+void createInstance(ViewerOptions opts, InstanceHandle *engine)
 {
-    *engine = new MimirEngine(MimirEngine::make(opts));
+    *engine = new MimirInstance(MimirInstance::make(opts));
 }
 
-void createEngine(int width, int height, InstanceHandle *engine)
+void createInstance(int width, int height, InstanceHandle *engine)
 {
-    *engine = new MimirEngine(MimirEngine::make(width, height));
+    *engine = new MimirInstance(MimirInstance::make(width, height));
 }
 
-void destroyEngine(InstanceHandle engine)
+void destroyInstance(InstanceHandle engine)
 {
     engine->deinit();
     delete engine;

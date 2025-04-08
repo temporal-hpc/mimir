@@ -27,18 +27,18 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    InstanceHandle engine = nullptr;
-    createEngine(1920, 1080, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(1920, 1080, &instance);
 
     AllocHandle pixels;
-    allocLinear(engine, (void**)&d_pixels, sizeof(char4) * width * height, &pixels);
+    allocLinear(instance, (void**)&d_pixels, sizeof(char4) * width * height, &pixels);
 
     ViewHandle view = nullptr;
     ViewDescription desc{
         .type   = ViewType::Image,
         .domain = DomainType::Domain2D,
         .attributes  = {
-            {AttributeType::Position, makeImageFrame(engine)},
+            {AttributeType::Position, makeImageFrame(instance)},
             {AttributeType::Color, AttributeDescription{
                 .source = pixels,
                 .size   = static_cast<unsigned int>(width * height),
@@ -48,15 +48,15 @@ int main(int argc, char *argv[])
         .layout       = Layout::make(width, height),
         .default_size = 1.f,
     };
-    createView(engine, &desc, &view);
+    createView(instance, &desc, &view);
 
     auto tex_size = sizeof(uchar4) * width * height;
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));
     stbi_image_free(h_pixels);
 
-    displayAsync(engine);
+    displayAsync(instance);
     checkCuda(cudaFree(d_pixels));
-    destroyEngine(engine);
+    destroyInstance(instance);
 
     return EXIT_SUCCESS;
 }

@@ -169,12 +169,12 @@ int main(int argc, char *argv[])
     if (argc >= 2) seed_count = std::stoul(argv[1]);
     if (argc >= 3) iter_count  = std::stoul(argv[2]);
 
-    InstanceHandle engine = nullptr;
-    createEngine(1920, 1080, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(1920, 1080, &instance);
 
     AllocHandle seeds, field;
-    allocLinear(engine, (void**)&d_coords, sizeof(float2) * seed_count, &seeds);
-    allocLinear(engine, (void**)&d_distances, sizeof(float) * extent.x * extent.y, &field);
+    allocLinear(instance, (void**)&d_coords, sizeof(float2) * seed_count, &seeds);
+    allocLinear(instance, (void**)&d_distances, sizeof(float) * extent.x * extent.y, &field);
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
@@ -190,11 +190,11 @@ int main(int argc, char *argv[])
     desc.default_color = {0,0,1,1};
     desc.position      = {-25.f, -25.f, 0.f};
     desc.scale         = {0.1f, 0.1f, 0.1f};
-    createView(engine, &desc, &v1);
+    createView(instance, &desc, &v1);
 
     desc.layout = Layout::make(extent.x, extent.y);
     desc.type   = ViewType::Voxels;
-    desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.layout);
+    desc.attributes[AttributeType::Position] = makeStructuredGrid(instance, desc.layout);
     desc.attributes[AttributeType::Color] = {
         .source = field,
         .size   = (uint)(extent.x * extent.y),
@@ -202,9 +202,9 @@ int main(int argc, char *argv[])
     };
     desc.default_size  = 1000.f;
     desc.position      = {-25.f, -25.f, 0.49f};
-    createView(engine, &desc, &v2);
+    createView(instance, &desc, &v2);
 
-    setCameraPosition(engine, {0.f, 0.f, -40.f});
+    setCameraPosition(instance, {0.f, 0.f, -40.f});
 
     //checkCuda(cudaMalloc(&_d_distances, dist_size));
     //checkCuda(cudaMalloc(&d_coords, sizeof(float2) * element_count));
@@ -233,14 +233,14 @@ int main(int argc, char *argv[])
         jumpFlood(d_distances, d_grid, extent);
         checkCuda(cudaDeviceSynchronize());
     };
-    display(engine, timestep_function, iter_count);
+    display(instance, timestep_function, iter_count);
 
     checkCuda(cudaFree(d_grid[0]));
     checkCuda(cudaFree(d_grid[1]));
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_distances));
     checkCuda(cudaFree(d_coords));
-    destroyEngine(engine);
+    destroyInstance(instance);
 
     return EXIT_SUCCESS;
 }

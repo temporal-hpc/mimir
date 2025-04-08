@@ -53,8 +53,8 @@ int main(int argc, char *argv[])
     ViewerOptions options;
     options.window.size      = {1920,1080}; // Starting window size
     options.background_color = {.5f, .5f, .5f, 1.f};
-    InstanceHandle engine = nullptr;
-    createEngine(options, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(options, &instance);
 
     float3 *d_coords   = nullptr;
     float3 *d_normals  = nullptr;
@@ -63,8 +63,8 @@ int main(int argc, char *argv[])
     AllocHandle vertices, edges;
     auto vert_size = sizeof(float3) * vertex_count;
     auto edge_size = sizeof(uint) * triangle_count;
-    allocLinear(engine, (void**)&d_coords, vert_size, &vertices);
-    allocLinear(engine, (void**)&d_triangles, edge_size, &edges);
+    allocLinear(instance, (void**)&d_coords, vert_size, &vertices);
+    allocLinear(instance, (void**)&d_triangles, edge_size, &edges);
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc{
@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
     };
     desc.default_size = 1.f;
     desc.linewidth    = 0.f;
-    createView(engine, &desc, &v1);
+    createView(instance, &desc, &v1);
 
     // Reuse the above parameters, changing only what is needed
     desc.layout    = Layout::make(triangle_count);
@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
             .index_size = sizeof(uint32_t),
         }
     };
-    createView(engine, &desc, &v2);
+    createView(instance, &desc, &v2);
 
     checkCuda(cudaMalloc(&d_normals, vert_size));
     checkCuda(cudaMemcpy(d_coords, mesh.vertices.data(), vert_size, cudaMemcpyHostToDevice));
@@ -106,21 +106,21 @@ int main(int argc, char *argv[])
     float degrees  = 0.f;
     float scale    = varyAngle(degrees);
 
-    displayAsync(engine);
+    displayAsync(instance);
     printf("Press enter to start...\n");
     std::cin.get();
-    while (isRunning(engine))
+    while (isRunning(instance))
     {
-        prepareViews(engine);
+        prepareViews(instance);
         breatheKernel<<< grid_size, block_size >>>(d_coords, d_normals, vertex_count, scale);
         scale = varyAngle(degrees);
-        updateViews(engine);
+        updateViews(instance);
     }
 
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_normals));
     checkCuda(cudaFree(d_triangles));
-    destroyEngine(engine);
+    destroyInstance(instance);
 
     return EXIT_SUCCESS;
 }

@@ -91,7 +91,7 @@ struct Setup{
     float3 *gpu_seed_colors = nullptr;
     float4 *gpu_vd_colors = nullptr;
     float *gpu_vd_dists = nullptr;
-    InstanceHandle engine;
+    InstanceHandle instance;
 };
 
 void initialize_variables(Setup *setup, int N, int S, int mode, int iters, int device, int mem_gpu, int block_size, int distance_function, int redux,int mu, int sample, int molecules, int comparison){
@@ -131,18 +131,18 @@ void initialize_variables(Setup *setup, int N, int S, int mode, int iters, int d
 void allocate_arrays(Setup *setup){
     ViewerOptions options;
     options.window.size = {1920, 1080}; // Starting window size
-    createEngine(options, &setup->engine);
+    createInstance(options, &setup->instance);
 
     unsigned int n = setup->N;
     AllocHandle grid, grid_colors, dist_colors, seeds;
     auto grid_size = n * n * sizeof(int);
-    allocLinear(setup->engine, (void**)&setup->gpu_backup_vd, grid_size, &grid);
+    allocLinear(setup->instance, (void**)&setup->gpu_backup_vd, grid_size, &grid);
 
     auto colors_size = n * n * sizeof(float4);
-    allocLinear(setup->engine, (void**)&setup->gpu_vd_colors, colors_size, &grid_colors);
+    allocLinear(setup->instance, (void**)&setup->gpu_vd_colors, colors_size, &grid_colors);
 
     auto dist_size = n * n * sizeof(float);
-    allocLinear(setup->engine, (void**)&setup->gpu_vd_dists, dist_size, &dist_colors);
+    allocLinear(setup->instance, (void**)&setup->gpu_vd_dists, dist_size, &dist_colors);
 
     ViewHandle v1 = nullptr, v2 = nullptr, v3 = nullptr, v4 = nullptr;
     auto extent = Layout::make(n, n, 1);
@@ -152,14 +152,14 @@ void allocate_arrays(Setup *setup){
         .layout      = Layout::make(n, n),
     };
     desc_grid.attributes[AttributeType::Position] =
-        makeStructuredGrid(setup->engine, extent, {0.f,0.f,0.4999f});
+        makeStructuredGrid(setup->instance, extent, {0.f,0.f,0.4999f});
     desc_grid.attributes[AttributeType::Color] = {
         .source = grid_colors,
         .size   = n * n,
         .format = FormatDescription::make<float4>(),
     };
     desc_grid.default_size = 1.f;
-    createView(setup->engine, &desc_grid, &v1);
+    createView(setup->instance, &desc_grid, &v1);
 
     desc_grid.attributes[AttributeType::Color] = {
         .source = dist_colors,
@@ -167,16 +167,16 @@ void allocate_arrays(Setup *setup){
         .format = FormatDescription::make<float>(),
     };
     desc_grid.visible = false;
-    createView(setup->engine, &desc_grid, &v2);
+    createView(setup->instance, &desc_grid, &v2);
 
     desc_grid.attributes[AttributeType::Color] = {
         .source = grid,
         .size   = n * n,
         .format = FormatDescription::make<int>(),
     };
-    createView(setup->engine, &desc_grid, &v3);
+    createView(setup->instance, &desc_grid, &v3);
 
-    allocLinear(setup->engine, (void**)&setup->gpu_seeds, setup->S * sizeof(int), &seeds);
+    allocLinear(setup->instance, (void**)&setup->gpu_seeds, setup->S * sizeof(int), &seeds);
 
     ViewDescription desc_seeds{
         .type   = ViewType::Markers,
@@ -191,7 +191,7 @@ void allocate_arrays(Setup *setup){
     desc_seeds.default_size = n / 100.f;
     //desc_seeds.default_color = {0,0,1,1};
 
-    createView(setup->engine, &desc_seeds, &v4);
+    createView(setup->instance, &desc_seeds, &v4);
 
     setup->v_diagram = (int*)malloc(setup->N*setup->N*sizeof(int));
     setup->backup_v_diagram = (int*)malloc(setup->N*setup->N*sizeof(int));

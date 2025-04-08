@@ -29,7 +29,7 @@
 class Application
 {
     private:
-        mimir::InstanceHandle engine;
+        mimir::InstanceHandle instance;
         Mesh* myMesh;
         bool toggle_solid;
         bool toggle_wireframe = true;

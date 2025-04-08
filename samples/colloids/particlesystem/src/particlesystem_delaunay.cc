@@ -70,7 +70,7 @@ ParticleSystemDelaunay::~ParticleSystemDelaunay()
 	cudaCheck(cudaFree(devicedata_.dTriReserv));
 	cudaCheck(cudaFreeHost(readyflag));
 
-	destroyEngine(engine);
+	destroyInstance(instance);
 	cudaCheck(cudaDeviceReset());
 
 	delete [] positions_;
@@ -122,7 +122,7 @@ void ParticleSystemDelaunay::runSimulation(int num_iter, unsigned int save_perio
 
 void ParticleSystemDelaunay::runTimestep()
 {
-    prepareViews(engine);
+    prepareViews(instance);
 
 	integrateShuffle();
 	updateTriangles();
@@ -136,7 +136,7 @@ void ParticleSystemDelaunay::runTimestep()
     toggleVisibility(edge_views[current_read]);
     toggleVisibility(edge_views[current_write]);
 
-    updateViews(engine);
+    updateViews(instance);
 }
 
 void ParticleSystemDelaunay::initCommon()
@@ -178,21 +178,21 @@ void ParticleSystemDelaunay::loadOnDevice()
     viewer_opts.window.size  = {1920, 1080};
     viewer_opts.present.mode = PresentMode::Immediate;
 	viewer_opts.background_color = {1.f, 1.f, 1.f, 1.f};
-    createEngine(viewer_opts, &engine);
+    createInstance(viewer_opts, &instance);
 
 	// Load particle data
 	size_t pos_bytes = params_.num_elements * sizeof(double2);
 
     // Particle positions
-    allocLinear(engine, (void**)&devicedata_.positions[current_read], pos_bytes, &interop[current_read]);
-    allocLinear(engine, (void**)&devicedata_.positions[current_write], pos_bytes, &interop[current_write]);
+    allocLinear(instance, (void**)&devicedata_.positions[current_read], pos_bytes, &interop[current_read]);
+    allocLinear(instance, (void**)&devicedata_.positions[current_write], pos_bytes, &interop[current_write]);
 
     // Velocities
-    allocLinear(engine, (void**)&devicedata_.velocities, pos_bytes, &interop[2]);
+    allocLinear(instance, (void**)&devicedata_.velocities, pos_bytes, &interop[2]);
 
     // Particle types / colors
-    allocLinear(engine, (void**)&devicedata_.types, sizeof(int) * params_.num_elements, &interop[3]);
-    allocLinear(engine, (void**)&devicedata_.colors, sizeof(float4) * NUM_TYPES, &interop[5]);
+    allocLinear(instance, (void**)&devicedata_.types, sizeof(int) * params_.num_elements, &interop[3]);
+    allocLinear(instance, (void**)&devicedata_.colors, sizeof(float4) * NUM_TYPES, &interop[5]);
 
     ViewDescription vp;
     vp.layout = Layout::make(params_.num_elements);
@@ -218,19 +218,19 @@ void ParticleSystemDelaunay::loadOnDevice()
 			.index_size = sizeof(int),
 		}
 	};
-    createView(engine, &vp, &particle_views[current_read]);
+    createView(instance, &vp, &particle_views[current_read]);
 
     vp.visible = false;
     vp.attributes[AttributeType::Position].source = interop[current_write];
-    createView(engine, &vp, &particle_views[current_write]);
+    createView(instance, &vp, &particle_views[current_write]);
 
     // Velocities view
     //vp.options.visible = true;
     //vp.attributes[AttributeType::Position] = *interop[2];
-    //engine.createView(vp);
+    //instance.createView(vp);
 
     // Edges
-    allocLinear(engine, (void**)&devicedata_.triangles, sizeof(int3) * delaunay_.num_triangles, &interop[4]);
+    allocLinear(instance, (void**)&devicedata_.triangles, sizeof(int3) * delaunay_.num_triangles, &interop[4]);
 
 	MeshOptions options{ .periodic = true, };
 
@@ -253,11 +253,11 @@ void ParticleSystemDelaunay::loadOnDevice()
 			.index_size = sizeof(uint),
 		}
 	};
-    createView(engine, &vpe, &edge_views[current_read]);
+    createView(instance, &vpe, &edge_views[current_read]);
 
 	vpe.visible = false;
     vpe.attributes[AttributeType::Position].source = interop[current_write];
-    createView(engine, &vpe, &edge_views[current_write]);
+    createView(instance, &vpe, &edge_views[current_write]);
 
 	// Original allocations; replaced by Mimir interop functions
 	//cudaCheck(cudaMalloc(&devicedata_.positions[0], pos_bytes));
@@ -316,8 +316,8 @@ void ParticleSystemDelaunay::loadOnDevice()
 	cudaCheck(cudaHostGetDevicePointer(&devicedata_.readyflag, readyflag, 0));
 
 	printf("Triangulation loaded to device memory.\n");
-	setCameraPosition(engine, {0.f, 0.f, -15.f});
-    displayAsync(engine);
+	setCameraPosition(instance, {0.f, 0.f, -15.f});
+    displayAsync(instance);
 
 	printf("Waiting for key press...\n");
     std::cin.get(); // For recording

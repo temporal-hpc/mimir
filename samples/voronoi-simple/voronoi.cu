@@ -188,12 +188,12 @@ int main(int argc, char *argv[])
     int2 extent           = {grid_size, grid_size};
     curandState *d_states = nullptr;
 
-    InstanceHandle engine = nullptr;
-    createEngine(1920, 1080, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(1920, 1080, &instance);
 
     AllocHandle seeds, colors;
-    allocLinear(engine, (void**)&d_coords, sizeof(float2) * point_count, &seeds);
-    allocLinear(engine, (void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y, &colors);
+    allocLinear(instance, (void**)&d_coords, sizeof(float2) * point_count, &seeds);
+    allocLinear(instance, (void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y, &colors);
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
@@ -209,11 +209,11 @@ int main(int argc, char *argv[])
     // Move points closer to display them before the distance field and avoid z-fighting
     desc.position     = {-6.f, -6.f, -0.001f};
     desc.scale        = {0.1f, 0.1f, 0.1f};
-    createView(engine, &desc, &v1);
+    createView(instance, &desc, &v1);
 
     desc.layout = Layout::make(extent.x, extent.y);
     desc.type = ViewType::Voxels;
-    desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, desc.layout);
+    desc.attributes[AttributeType::Position] = makeStructuredGrid(instance, desc.layout);
     desc.attributes[AttributeType::Color] = {
         .source = colors,
         .size   = (uint)(extent.x * extent.y),
@@ -221,7 +221,7 @@ int main(int argc, char *argv[])
     };
     desc.default_size = 100.f;
     desc.position.z   = 0.f;
-    createView(engine, &desc, &v2);
+    createView(instance, &desc, &v2);
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     checkCuda(cudaMalloc(&d_colors, sizeof(float3) * point_count));
@@ -239,7 +239,7 @@ int main(int argc, char *argv[])
     initJumpFlood(d_grid[1], d_coords, point_count, extent);
 
     // Start rendering loop
-    setCameraPosition(engine, {0.f, 0.f, -10.f});
+    setCameraPosition(instance, {0.f, 0.f, -10.f});
     auto timestep_function = [&]
     {
         dim3 threads{128};
@@ -250,7 +250,7 @@ int main(int argc, char *argv[])
         initJumpFlood(d_grid[1], d_coords, point_count, extent);
         jumpFlood(d_vd_dists, d_vd_colors, d_grid, d_colors, extent);
     };
-    display(engine, timestep_function, iter_count);
+    display(instance, timestep_function, iter_count);
 
     checkCuda(cudaDeviceSynchronize());
     checkCuda(cudaFree(d_grid[0]));

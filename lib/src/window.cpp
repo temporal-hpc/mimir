@@ -46,9 +46,9 @@ namespace mimir
 {
 
 // Helper to retrieve engine pointer from handle associated to GLFW window object
-MimirEngine *getHandler(GLFWwindow *window)
+MimirInstance *getHandler(GLFWwindow *window)
 {
-    return reinterpret_cast<MimirEngine*>(glfwGetWindowUserPointer(window));
+    return reinterpret_cast<MimirInstance*>(glfwGetWindowUserPointer(window));
 }
 
 // Translates GLFW mouse movement into Viewer flags for detecting camera movement

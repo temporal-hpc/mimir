@@ -41,7 +41,7 @@ Application::Application(){
     viewer_opts.window.size   = {1920, 1080};
     viewer_opts.present.mode  = PresentMode::VSync;
     viewer_opts.background_color = {0.f,0.f,0.f,1.f};
-    createEngine(viewer_opts, &engine);
+    createInstance(viewer_opts, &instance);
 
     // Initialize native file dialog lib
     NFD_Init();
@@ -57,8 +57,8 @@ Application::Application(){
     // TODO: Add stride to attribute desc
 
     AllocHandle vertices, triangles;
-    allocLinear(engine, (void**)&m->dm->d_vbo_v, sizeof(float4) * vertex_count, &vertices);
-    allocLinear(engine, (void**)&m->dm->d_eab, sizeof(int3) * face_count, &triangles);
+    allocLinear(instance, (void**)&m->dm->d_vbo_v, sizeof(float4) * vertex_count, &vertices);
+    allocLinear(instance, (void**)&m->dm->d_eab, sizeof(int3) * face_count, &triangles);
 
     ViewHandle v1 = nullptr, v2 = nullptr;
     ViewDescription desc;
@@ -71,7 +71,7 @@ Application::Application(){
         .size   = (unsigned int)vertex_count,
         .format = FormatDescription::make<float4>(),
     };
-    createView(engine, &desc, &v1);
+    createView(instance, &desc, &v1);
 
     // Recycle the above parameters, changing only what is needed
     desc.layout    = Layout::make(face_count * 3);
@@ -88,7 +88,7 @@ Application::Application(){
             .index_size = sizeof(int),
         }
     };
-    createView(engine, &desc, &v2);
+    createView(instance, &desc, &v2);
 
     checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
         vertex_count * sizeof(float3), cudaMemcpyHostToDevice)
@@ -100,11 +100,11 @@ Application::Application(){
 
 Application::~Application(){
     NFD_Quit();
-    destroyEngine(engine);
+    destroyInstance(instance);
 }
 
 void Application::on_button_exit_clicked(){
-    exit(engine);
+    exit(instance);
 }
 
 void Application::on_menu_help_about(){
@@ -114,13 +114,13 @@ void Application::on_menu_help_about(){
 
 void Application::on_button_delaunay_2d_clicked(){
     if(myMesh){
-        //engine->prepareViews();
+        //instance->prepareViews();
         if (educational_mode) //if(check_button_educational_mode->get_active())
         	myMesh->delaunay_transformation_interactive(CLEAP_MODE_2D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_2D);
 
-        //engine->updateViews(); ////my_gl_window->redraw();
+        //instance->updateViews(); ////my_gl_window->redraw();
     }
 }
 
@@ -133,13 +133,13 @@ void Application::on_button_clear_clicked(){
 
 void Application::on_button_delaunay_3d_clicked(){
     if(myMesh){
-        //engine->prepareViews();
+        //instance->prepareViews();
         if (educational_mode) //if(check_button_educational_mode->get_active())
             myMesh->delaunay_transformation_interactive(CLEAP_MODE_3D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_3D);
 
-        //engine->updateViews(); //my_gl_window->redraw();
+        //instance->updateViews(); //my_gl_window->redraw();
     }
 }
 
@@ -170,7 +170,7 @@ void Application::on_hscale_size_change_value(){
 
 void Application::init()
 {
-    setGuiCallback(engine, [=,this]
+    setGuiCallback(instance, [=,this]
     {
         if (ImGui::BeginMainMenuBar())
         {
@@ -200,7 +200,7 @@ void Application::init()
             ImGui::EndMainMenuBar();
         }
     });
-    displayAsync(engine);
+    displayAsync(instance);
 
     //! linking widgets to logic
     // gl window -- important to be first

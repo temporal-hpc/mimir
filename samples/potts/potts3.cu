@@ -53,7 +53,7 @@
 #include <iostream>
 #include <mimir/mimir.hpp>
 using namespace mimir;
-InstanceHandle engine;
+InstanceHandle instance;
 
 // Default parameters
 #ifndef Q
@@ -396,12 +396,12 @@ static void update(const float temp, byte* const white, byte* const black, int* 
 	updateCUDA<<<dimGrid, dimBlock>>>(temp, BLACK, black, white);
 	CUT_CHECK_ERROR("Kernel updateCUDA(BLACK) execution failed");
 
-	prepareViews(engine);
+	prepareViews(instance);
 	dim3 block2(TILE, TILE);
 	dim3 grid2(L/TILE, (L/2)/TILE);
 	writeGrid<<<grid2, block2>>>(white, black, grid);
 	CUT_CHECK_ERROR("Kernel writeGrid execution failed");
-	updateViews(engine);
+	updateViews(instance);
 
 	//std::cin.get();
 }
@@ -608,10 +608,10 @@ int main(void)
 	//CUDA_SAFE_CALL(cudaMalloc((void**) &grid, L * L * sizeof(byte)));
 
     int width = 2000, height = 2000;
-    createEngine(width, height, &engine);
+    createInstance(width, height, &instance);
 
 	AllocHandle m1, colormap;
-	allocLinear(engine, (void**)&grid, sizeof(int) * L * L, &m1);
+	allocLinear(instance, (void**)&grid, sizeof(int) * L * L, &m1);
 
     float4 *d_colors = nullptr;
     float4 h_colors[Q] = {
@@ -633,7 +633,7 @@ int main(void)
 		h_colors[i] = c;
 	}
     auto color_bytes = sizeof(float4) * num_colors;
-    allocLinear(engine, (void**)&d_colors, color_bytes, &colormap);
+    allocLinear(instance, (void**)&d_colors, color_bytes, &colormap);
     CUDA_SAFE_CALL(cudaMemcpy(d_colors, h_colors, color_bytes, cudaMemcpyHostToDevice));
 
 	ViewHandle v1 = nullptr;
@@ -641,7 +641,7 @@ int main(void)
     desc.layout      = Layout::make(L, L);
     desc.domain = DomainType::Domain2D;
     desc.type   = ViewType::Voxels;
-	desc.attributes[AttributeType::Position] = makeStructuredGrid(engine, {L,L,1});
+	desc.attributes[AttributeType::Position] = makeStructuredGrid(instance, {L,L,1});
     desc.attributes[AttributeType::Color] = {
 		.source   = colormap,
 		.size     = num_colors,
@@ -655,10 +655,10 @@ int main(void)
 	desc.default_size = 512.f;
 	desc.position = {-5.f, -5.f, 0.f};
 	desc.scale    = {0.01f, 0.01f, 0.01f};
-	createView(engine, &desc, &v1);
+	createView(instance, &desc, &v1);
 
-	setCameraPosition(engine, {0.f, 0.f, -15.f});
-	displayAsync(engine);
+	setCameraPosition(instance, {0.f, 0.f, -15.f});
+	displayAsync(instance);
 
 	// print header
 	printf("# Q: %i\n", Q);
@@ -711,7 +711,7 @@ int main(void)
 			stat[i].m4/SAMPLES);
 	}
 
-	destroyEngine(engine);
+	destroyInstance(instance);
 	return 0;
 }
 

@@ -60,17 +60,17 @@ int main(int argc, char *argv[])
     if (argc >= 2) point_count = std::stoul(argv[1]);
     if (argc >= 3) iter_count  = std::stoul(argv[2]);
 
-    // Initialize engine
+    // Initialize instance
     ViewerOptions options;
     options.window.size  = {1920,1080}; // Starting window size
     options.present.mode = PresentMode::Immediate;
 
-    InstanceHandle engine = nullptr;
-    createEngine(options, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(options, &instance);
 
     AllocHandle points, sizes;
-    allocLinear(engine, (void**)&d_coords, sizeof(double2) * point_count, &points);
-    allocLinear(engine, (void**)&d_sizes, sizeof(double) * point_count, &sizes);
+    allocLinear(instance, (void**)&d_coords, sizeof(double2) * point_count, &points);
+    allocLinear(instance, (void**)&d_sizes, sizeof(double) * point_count, &sizes);
 
     ViewHandle view = nullptr;
     ViewDescription desc{
@@ -97,10 +97,10 @@ int main(int argc, char *argv[])
         .position = {-10.f, -10.f, 0.f},
         .scale    = { 0.1f, 0.1f, 0.1f },
     };
-    createView(engine, &desc, &view);
+    createView(instance, &desc, &view);
 
     // Cannot make CUDA calls that use the target device memory before
-    // registering it on the engine
+    // registering it on the instance
     //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     initSystem<<<grid_size, block_size>>>(
@@ -115,13 +115,13 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    setCameraPosition(engine, {0.f, 0.f, -20.f});
-    display(engine, cuda_call, iter_count);
+    setCameraPosition(instance, {0.f, 0.f, -20.f});
+    display(instance, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_sizes));
-    destroyEngine(engine);
+    destroyInstance(instance);
 
     return EXIT_SUCCESS;
 }

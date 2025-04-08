@@ -11,25 +11,25 @@ namespace mimir
 {
 
 // Forward declarations
-struct MimirEngine;
+struct MimirInstance;
 struct View;
 struct Texture;
 
 // Opaque handle declarations
-typedef struct MimirEngine* InstanceHandle;
+typedef struct MimirInstance* InstanceHandle;
 typedef struct View* ViewHandle;
 typedef struct Texture* TextureHandle;
 
 // Initializes a Mimir engine instance with a window of the specified dimensions.
-// Resources managed by this instance must be cleaned up by calling destroyEngine().
-void createEngine(int width, int height, InstanceHandle *engine);
+// Resources managed by this instance must be cleaned up by calling destroyInstance().
+void createInstance(int width, int height, InstanceHandle *engine);
 
 // Initializes a Mimir engine instance with additional option values passed as argument.
-void createEngine(ViewerOptions opts, InstanceHandle *engine);
+void createInstance(ViewerOptions opts, InstanceHandle *engine);
 
-// Destroys an engine instance created with createEngine().
+// Destroys an engine instance created with createInstance().
 // The destroyed engine handle cannot be used after this call.
-void destroyEngine(InstanceHandle engine);
+void destroyInstance(InstanceHandle engine);
 
 // Query to check if a visualization window created by this engine is open.
 bool isRunning(InstanceHandle engine);

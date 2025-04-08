@@ -77,15 +77,15 @@ int main(int argc, char *argv[]) {
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)
     // [OTRA OPCION] FLIB_crearVentanaSync(WIDTH, HEIGHT, ...)
     // En este momento, la ventana podria aparecer (en negro, sin datos aun)
-    InstanceHandle engine = nullptr;
-    createEngine(900, 900, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(900, 900, &instance);
 
     // [VULKAN] II) "PASAR LOS DATOS AL VISUALIZADOR"
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
     AllocHandle points;
-    allocLinear(engine, (void**)&dPoints, sizeof(float2) * n, &points);
+    allocLinear(instance, (void**)&dPoints, sizeof(float2) * n, &points);
 
     ViewHandle view = nullptr;
     ViewDescription desc
@@ -104,24 +104,24 @@ int main(int argc, char *argv[]) {
         .linewidth    = .01f,
         .position     = {-0.5, -0.5, 0.f}
     };
-    createView(engine, &desc, &view);
+    createView(instance, &desc, &view);
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);
     cudaDeviceSynchronize();
 
-    displayAsync(engine);
+    displayAsync(instance);
 
     for(int i = 0; i < steps; i++) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en
         // 'dPoints' se ve refleada inmediatamente en la ventana async)
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        prepareViews(engine);
+        prepareViews(instance);
 
         kernel_random_movement<<<g, b>>>(n, dPoints, dStates);
         cudaDeviceSynchronize();
         // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
-        updateViews(engine);
+        updateViews(instance);
 
         #ifdef DEBUG
             printf("[DEBUG] simulation step %i:\n", i);
@@ -142,7 +142,7 @@ int main(int argc, char *argv[]) {
     /* Cleanup */
     CUDA_CALL(cudaFree(dStates));
     CUDA_CALL(cudaFree(dPoints));
-    destroyEngine(engine);
+    destroyInstance(instance);
     free(hPoints);
 
     return EXIT_SUCCESS;

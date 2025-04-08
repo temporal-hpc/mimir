@@ -49,9 +49,9 @@ Camera defaultCamera(int width, int height)
     return camera;
 }
 
-MimirEngine MimirEngine::make(ViewerOptions opts)
+MimirInstance MimirInstance::make(ViewerOptions opts)
 {
-    MimirEngine engine{
+    MimirInstance engine{
         .options           = opts,
         .instance          = VK_NULL_HANDLE,
         .physical_device   = {},
@@ -119,14 +119,14 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
     return engine;
 }
 
-MimirEngine MimirEngine::make(int width, int height)
+MimirInstance MimirInstance::make(int width, int height)
 {
     ViewerOptions opts;
     opts.window.size = {width, height};
-    return MimirEngine::make(opts);
+    return MimirInstance::make(opts);
 }
 
-void MimirEngine::deinit()
+void MimirInstance::deinit()
 {
     if (rendering_thread.joinable())
     {
@@ -145,19 +145,19 @@ void MimirEngine::deinit()
     deletors.context.flush();
 }
 
-void MimirEngine::exit()
+void MimirInstance::exit()
 {
     window_context.exit();
 }
 
-void MimirEngine::prepare()
+void MimirInstance::prepare()
 {
     initUniformBuffers();
     createViewPipelines();
     updateDescriptorSets();
 }
 
-void MimirEngine::displayAsync()
+void MimirInstance::displayAsync()
 {
     prepare();
     running = true;
@@ -174,7 +174,7 @@ void MimirEngine::displayAsync()
     });
 }
 
-void MimirEngine::prepareViews()
+void MimirInstance::prepareViews()
 {
     if (options.present.enable_sync && running)
     {
@@ -184,7 +184,7 @@ void MimirEngine::prepareViews()
     }
 }
 
-void MimirEngine::waitKernelStart()
+void MimirInstance::waitKernelStart()
 {
     static uint64_t wait_value = 1;
     cudaExternalSemaphoreWaitParams wait_params{};
@@ -199,7 +199,7 @@ void MimirEngine::waitKernelStart()
     wait_value += 2;
 }
 
-void MimirEngine::updateViews()
+void MimirInstance::updateViews()
 {
     if (options.present.enable_sync && running)
     {
@@ -209,7 +209,7 @@ void MimirEngine::updateViews()
     }
 }
 
-void MimirEngine::signalKernelFinish()
+void MimirInstance::signalKernelFinish()
 {
     static uint64_t signal_value = 2;
     cudaExternalSemaphoreSignalParams signal_params{};
@@ -224,7 +224,7 @@ void MimirEngine::signalKernelFinish()
     signal_value += 2;
 }
 
-void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
+void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();
 
@@ -289,7 +289,7 @@ void initGridCoords(float3 *data, Layout size, float3 start)
     }
 }
 
-AttributeDescription MimirEngine::makeStructuredGrid(Layout size, float3 start)
+AttributeDescription MimirInstance::makeStructuredGrid(Layout size, float3 start)
 {
     assert(size.x > 0 || size.y > 0 || size.z > 0);
     auto memsize = sizeof(float3) * size.x * size.y * size.z;
@@ -325,7 +325,7 @@ AttributeDescription MimirEngine::makeStructuredGrid(Layout size, float3 start)
     };
 }
 
-AttributeDescription MimirEngine::makeImageDomain()
+AttributeDescription MimirInstance::makeImageDomain()
 {
     const std::vector<Vertex> vertices{
         { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
@@ -387,7 +387,7 @@ AttributeDescription MimirEngine::makeImageDomain()
     };
 }
 
-LinearAlloc *MimirEngine::allocLinear(void **dev_ptr, size_t size)
+LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 
@@ -466,7 +466,7 @@ VkExtent3D getExtentFromCuda(cudaExtent extent)
     };
 }
 
-OpaqueAlloc *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
+OpaqueAlloc *MimirInstance::allocMipmap(cudaMipmappedArray_t *dev_arr,
     const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
 {
     auto format = getFormatFromCuda(desc);
@@ -526,7 +526,7 @@ OpaqueAlloc *MimirEngine::allocMipmap(cudaMipmappedArray_t *dev_arr,
     return alloc_ptr;
 }
 
-VkBuffer MimirEngine::createAttributeBuffer(VkDeviceSize memsize,
+VkBuffer MimirInstance::createAttributeBuffer(VkDeviceSize memsize,
     VkBufferUsageFlags usage, VkDeviceMemory memory)
 {
     // Create and bind buffer
@@ -573,7 +573,7 @@ ViewOptions initOptions(ViewType type) {
     return options;
 }
 
-View *MimirEngine::createView(ViewDescription *desc)
+View *MimirInstance::createView(ViewDescription *desc)
 {
     if (!validateViewDescription(desc))
     {
@@ -730,7 +730,7 @@ VkDescriptorSetLayoutBinding descriptorLayoutBinding(
     };
 }
 
-void MimirEngine::initVulkan()
+void MimirInstance::initVulkan()
 {
     createInstance();
     window_context.createSurface(instance, &surface);
@@ -846,7 +846,7 @@ void MimirEngine::initVulkan()
     );
 }
 
-void MimirEngine::createInstance()
+void MimirInstance::createInstance()
 {
     if (validation::enable_layers && !validation::checkValidationLayerSupport())
     {
@@ -909,7 +909,7 @@ void MimirEngine::createInstance()
     }
 }
 
-void MimirEngine::createSyncObjects()
+void MimirInstance::createSyncObjects()
 {
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
     for (auto& sync : sync_data)
@@ -930,14 +930,14 @@ void MimirEngine::createSyncObjects()
     });
 }
 
-void MimirEngine::cleanupGraphics()
+void MimirInstance::cleanupGraphics()
 {
     vkDeviceWaitIdle(device);
     //vkFreeCommandBuffers(device, command_pool, command_buffers.size(), command_buffers.data());
     deletors.graphics.flush();
 }
 
-void MimirEngine::initGraphics()
+void MimirInstance::initGraphics()
 {
     // Initialize swapchain
     int width, height;
@@ -1023,14 +1023,14 @@ void MimirEngine::initGraphics()
     }
 }
 
-void MimirEngine::recreateGraphics()
+void MimirInstance::recreateGraphics()
 {
     cleanupGraphics();
     initGraphics();
     createViewPipelines();
 }
 
-void MimirEngine::updateDescriptorSets()
+void MimirInstance::updateDescriptorSets()
 {
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
@@ -1128,7 +1128,7 @@ void MimirEngine::updateDescriptorSets()
     }
 }
 
-void MimirEngine::waitTimelineHost()
+void MimirInstance::waitTimelineHost()
 {
     VkSemaphoreWaitInfo wait_info{
         .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
@@ -1141,7 +1141,7 @@ void MimirEngine::waitTimelineHost()
     validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
 }
 
-void MimirEngine::renderFrame()
+void MimirInstance::renderFrame()
 {
     // Get frame index from the inflight frames array
     auto frame_idx = render_timeline % MAX_FRAMES_IN_FLIGHT;
@@ -1315,7 +1315,7 @@ void MimirEngine::renderFrame()
     //spdlog::trace("frame {} finished", render_timeline-1);
 }
 
-void MimirEngine::drawElements(uint32_t image_idx)
+void MimirInstance::drawElements(uint32_t image_idx)
 {
     auto min_alignment = physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -1364,7 +1364,7 @@ void MimirEngine::drawElements(uint32_t image_idx)
     }
 }
 
-void MimirEngine::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> views*/)
+void MimirInstance::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> views*/)
 {
     auto start = std::chrono::steady_clock::now();
 
@@ -1386,7 +1386,7 @@ void MimirEngine::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> 
     spdlog::trace("Created {} pipeline object(s) in {} ms", pipelines.size(), elapsed);
 }
 
-void MimirEngine::initUniformBuffers()
+void MimirInstance::initUniformBuffers()
 {
     auto min_alignment = physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -1412,7 +1412,7 @@ void MimirEngine::initUniformBuffers()
 }
 
 // Update uniform buffers for view at index [view_idx] for frame [image_idx]
-void MimirEngine::updateUniformBuffers(uint32_t image_idx)
+void MimirInstance::updateUniformBuffers(uint32_t image_idx)
 {
     auto min_alignment = physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
@@ -1491,7 +1491,7 @@ std::string readMemoryHeapFlags(VkMemoryHeapFlags flags)
     return "";
 }
 
-PerformanceMetrics MimirEngine::getMetrics()
+PerformanceMetrics MimirInstance::getMetrics()
 {
     // Update memory usage stats
     auto memory = physical_device.getMemoryStats();
@@ -1510,7 +1510,7 @@ PerformanceMetrics MimirEngine::getMetrics()
     };
 }
 
-void MimirEngine::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
+void MimirInstance::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
 {
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     auto alloc_info = VkCommandBufferAllocateInfo{
@@ -1550,7 +1550,7 @@ void MimirEngine::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& fun
     vkFreeCommandBuffers(device, command_pool, 1, &cmd);
 }
 
-void MimirEngine::loadTexture(TextureDescription desc, void *data, size_t memsize)
+void MimirInstance::loadTexture(TextureDescription desc, void *data, size_t memsize)
 {
     ImageParams params{
         .type   = getImageType(desc.extent),
@@ -1595,7 +1595,7 @@ void MimirEngine::loadTexture(TextureDescription desc, void *data, size_t memsiz
     vkDestroyImage(device, image, nullptr);
 }
 
-void MimirEngine::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent)
+void MimirInstance::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent)
 {
     VkImageSubresourceLayers subres{
         .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -1618,7 +1618,7 @@ void MimirEngine::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D
     });
 }
 
-void MimirEngine::generateMipmaps(VkImage image, VkFormat format,
+void MimirInstance::generateMipmaps(VkImage image, VkFormat format,
     int img_width, int img_height, int mip_levels)
 {
     auto props = getImageFormatProperties(physical_device.handle, format);
@@ -1713,7 +1713,7 @@ void MimirEngine::generateMipmaps(VkImage image, VkFormat format,
     });
 }
 
-void MimirEngine::transitionImageLayout(VkImage image,
+void MimirInstance::transitionImageLayout(VkImage image,
     VkImageLayout old_layout, VkImageLayout new_layout)
 {
     VkImageMemoryBarrier barrier{};

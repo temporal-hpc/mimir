@@ -57,18 +57,18 @@ int main(int argc, char **argv){
     init_prob(n, original, seed, prob);
 
     int width = 1920, height = 1080;
-    InstanceHandle engine = nullptr;
-    createEngine(width, height, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(width, height, &instance);
 
     AllocHandle ping, pong, colormap;
-    allocLinear(engine, (void**)&d1, sizeof(int) * n*n*n, &ping);
-    allocLinear(engine, (void**)&d2, sizeof(int) * n*n*n, &pong);
+    allocLinear(instance, (void**)&d1, sizeof(int) * n*n*n, &ping);
+    allocLinear(instance, (void**)&d2, sizeof(int) * n*n*n, &pong);
 
     float4 *d_colors = nullptr;
     float4 h_colors[2] = { {1,1,1,0.5}, {0,0,1,1} };
     unsigned int num_colors = std::size(h_colors);
     auto color_bytes = sizeof(float4) * num_colors;
-    allocLinear(engine, (void**)&d_colors, color_bytes, &colormap);
+    allocLinear(instance, (void**)&d_colors, color_bytes, &colormap);
     gpuErrchk(cudaMemcpy(d_colors, h_colors, color_bytes, cudaMemcpyHostToDevice));
 
     auto grid_layout = Layout::make(n, n, n);
@@ -78,7 +78,7 @@ int main(int argc, char **argv){
         .type   = ViewType::Voxels,
         .domain = DomainType::Domain3D,
         .attributes  = {
-            { AttributeType::Position, makeStructuredGrid(engine, grid_layout) },
+            { AttributeType::Position, makeStructuredGrid(instance, grid_layout) },
             { AttributeType::Color, {
                 .source   = colormap,
                 .size     = num_colors,
@@ -93,17 +93,17 @@ int main(int argc, char **argv){
         .layout       = grid_layout,
         .default_size = 10.f,
     };
-    createView(engine, &desc, &v1);
+    createView(instance, &desc, &v1);
 
     desc.attributes[AttributeType::Color].indexing.source = pong;
     desc.visible = false;
-    createView(engine, &desc, &v2);
+    createView(instance, &desc, &v2);
 
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);
 
-    displayAsync(engine);
+    displayAsync(instance);
 
     // ejecucion
     print_cube(n, original, "INPUT");
@@ -124,7 +124,7 @@ int main(int argc, char **argv){
             cudaEventRecord(start);
 
             // llamada al kernel
-            prepareViews(engine);
+            prepareViews(instance);
 
             kernel_CA3D<<<grid, block>>>(n, d1, d2);
             gpuErrchk( cudaPeekAtLastError() );
@@ -133,7 +133,7 @@ int main(int argc, char **argv){
             toggleVisibility(v1);
             toggleVisibility(v2);
 
-            updateViews(engine);
+            updateViews(instance);
 
             // tiempo y print
             cudaEventRecord(stop);
@@ -168,5 +168,5 @@ int main(int argc, char **argv){
         }
     }
     printf("Finished running all steps\n");
-    destroyEngine(engine);
+    destroyInstance(instance);
 }

@@ -51,7 +51,7 @@ struct VulkanQueue
     VkQueue queue;
 };
 
-struct MimirEngine
+struct MimirInstance
 {
     ViewerOptions options;
 
@@ -107,8 +107,8 @@ struct MimirEngine
     metrics::GraphicsMonitor graphics_monitor;
     metrics::ComputeMonitor compute_monitor;
 
-    static MimirEngine make(ViewerOptions opts);
-    static MimirEngine make(int width, int height);
+    static MimirInstance make(ViewerOptions opts);
+    static MimirInstance make(int width, int height);
 
     // Allocates linear device memory, equivalent to cudaMalloc(dev_ptr, size)
     LinearAlloc *allocLinear(void **dev_ptr, size_t size);
@@ -169,8 +169,8 @@ struct MimirEngine
     );
 };
 
-static_assert(std::is_default_constructible_v<MimirEngine>);
-//static_assert(std::is_nothrow_default_constructible_v<MimirEngine>);
-//static_assert(std::is_trivially_default_constructible_v<MimirEngine>);
+static_assert(std::is_default_constructible_v<MimirInstance>);
+//static_assert(std::is_nothrow_default_constructible_v<MimirInstance>);
+//static_assert(std::is_trivially_default_constructible_v<MimirInstance>);
 
 } // namespace mimir

@@ -129,15 +129,15 @@ int main(int argc, char *argv[])
         .enable_sync = enable_sync,
         .target_fps  = target_fps,
     };
-    InstanceHandle engine = nullptr;
-    createEngine(options, &engine);
+    InstanceHandle instance = nullptr;
+    createInstance(options, &instance);
 
     float *d_coords       = nullptr;
     curandState *d_states = nullptr;
     if (use_interop)
     {
         AllocHandle points;
-        allocLinear(engine, (void**)&d_coords, sizeof(float3) * point_count, &points);
+        allocLinear(instance, (void**)&d_coords, sizeof(float3) * point_count, &points);
 
         ViewHandle view = nullptr;
         ViewDescription desc;
@@ -151,13 +151,13 @@ int main(int argc, char *argv[])
         };
         desc.default_size = 0.1f;
         desc.scale = { 0.01f, 0.01f, 0.01f };
-        createView(engine, &desc, &view);
+        createView(instance, &desc, &view);
     }
     else // Run the simulation without display
     {
         checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
     }
-    setCameraPosition(engine, {-2.f, -2.f, -7.f});
+    setCameraPosition(instance, {-2.f, -2.f, -7.f});
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * rng_state_count));
     initRng<<<grid_size, block_size>>>(d_states, rng_state_count, seed);
@@ -166,16 +166,16 @@ int main(int argc, char *argv[])
     checkCuda(cudaDeviceSynchronize());
 
     GPUPowerBegin("gpu", 100);
-    if (display) displayAsync(engine);
-    for (int i = 0; i < iter_count && isRunning(engine); ++i)
+    if (display) displayAsync(instance);
+    for (int i = 0; i < iter_count && isRunning(instance); ++i)
     {
-        if (display) prepareViews(engine);
+        if (display) prepareViews(instance);
         integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
-        if (display) updateViews(engine);
+        if (display) updateViews(instance);
     }
     printf("%s,%u,", mode.c_str(), point_count);
-    getMetrics(engine);
+    getMetrics(instance);
 
     // Nvml memory report
     {
@@ -193,7 +193,7 @@ int main(int argc, char *argv[])
 
     GPUPowerEnd();
 
-    destroyEngine(engine);
+    destroyInstance(instance);
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
 
