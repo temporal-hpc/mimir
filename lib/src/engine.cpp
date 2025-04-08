@@ -97,7 +97,11 @@ MimirEngine MimirEngine::make(ViewerOptions opts)
         .compute_monitor   = {},
     };
 
+#ifdef NDEBUG
+    spdlog::set_level(spdlog::level::off);
+#else
     spdlog::set_level(spdlog::level::trace);
+#endif
     spdlog::set_pattern("[%H:%M:%S] [%l] %v");
 
     engine.options.present.target_frame_time = getTargetFrameTime(

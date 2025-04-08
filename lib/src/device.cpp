@@ -220,6 +220,9 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
     {
         spdlog::error("could not find devices supporting CUDA");
     }
+    auto all_devices = getDevices(instance);
+
+#ifndef NDEBUG
     printf("Enumerating CUDA devices:\n");
     for (int dev_id = 0; dev_id < cuda_dev_count; ++dev_id)
     {
@@ -229,14 +232,13 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
             dev_id, dev_prop.name, dev_prop.major, dev_prop.minor
         );
     }
-
-    auto all_devices = getDevices(instance);
     printf("Enumerating Vulkan devices:\n");
     for (const auto& dev : all_devices)
     {
         auto props = dev.general.properties;
         printf("* ID: %u\n  Name: %s\n", props.deviceID, props.deviceName);
     }
+#endif
 
     PhysicalDevice chosen_device{};
     int curr_device = 0, prohibited_count = 0;
