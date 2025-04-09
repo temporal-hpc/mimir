@@ -3,11 +3,11 @@ Library for interactive real-time visualization of CUDA code with Vulkan
 
 ## Dependencies
 
-### Required
-* [Vulkan](https://vulkan.lunarg.com/sdk/home) 1.2 or higher
-* [CUDA](https://developer.nvidia.com/cuda-downloads) 10 or higher (for Vulkan interop)
+### Platforms
+* [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) 1.2 or higher
+* [CUDA SDK](https://developer.nvidia.com/cuda-downloads) 10 or higher (for Vulkan interop)
 
-### Included
+### Libraries
 Mìmir downloads additional dependencies via the CMake `FetchContent` command:
 * [Slang shading language](https://github.com/shader-slang/slang)
 * [ImGui](https://github.com/ocornut/imgui)
@@ -27,6 +27,11 @@ The above commands will generate the corresponding makefiles and build the libra
 using all available cores to speed up compilation.
 Refer to the [CMake documentation](https://cmake.org/cmake/help/latest/manual/cmake.1.html)
 for additional command-line settings.
+
+By default, `FetchContent` will attempt to use local installations of the required libraries before
+downloading them. This may create issues, for example, when using glm
+in [Arch Linux](https://bugs.archlinux.org/task/71987). To override this behavious, pass the
+`FETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER` option when generating the makefiles.
 
 ### Build options
 
@@ -64,11 +69,38 @@ link with the installed library. If the library was installed to a non-default p
 cmake build -DCMAKE_PREFIX_PATH=<install_prefix>
 ```
 
+## Using Mìmir
+
+To use the library in code, include the `mimir/mimir.hpp` header, which defines all the
+necessary interface. Most Mìmir functions require an instance handle, which is created with
+the `createInstance` call. After using the instance, `destroyInstance` must be called to free
+all the resources initialized with it.
+
+Once an instance is created, it can be passed to allocation functions to obtain interop-mapped
+device memory. `allocLinear` matches a typical `cudaMalloc` call, while `allocMipmapped` can
+be used to obtain `cudaArray` handles to opaque memory for usage in CUDA textures.
+Allocation functions return the CUDA memory pointer or handle, plus a Mìmir allocation handle.
+
+The `createView` method is the main way to generate visualizations using the library.
+This function takes a `ViewDescription` structure which includes a dictionary of
+`AttributeDescription` structures, whose `source` fields must point to a initialized
+allocation handle.
+
+There are two methods for starting display to screen. The `display` function takes a lambda
+function which typically should contain CUDA kernel calls or memory transfers using
+interop-mapped memory. This lambda is called a number of times specified as argument in
+the function call.
+
+Alternatively, the `displayAsync` function initializes display but returns immediately.
+Under this mode, CUDA calls manipulating interop-mapped memory must be enclosed between
+the `prepareViews` and `updateViews` function calls respectively. This ensures proper
+synchronization and load balancing between rendering and compute work.
+
 ## Running samples
 
-A successful build with the above steps allows to run samples from the `build` directory, so
-running the unstructured domain sample should be executed as `./samples/<sample_name> <args>`. The
-library currently provides the following samples:
+A successful build generates sample programs that link to the compiled library.
+From the source root, samples are placed in `build/samples/<sample_name>`.
+The library currently provides the following samples:
 
 * `run_unstructured`: Displays a 2D brownian moving point cloud with various point sizes.
 * `run_structured`: As above, but executing and a Jump Flood Algorithm (JFA) CUDA kernel to compute
@@ -90,7 +122,8 @@ iteration results to device before displaying each time step.
 * `run_automata3d`: Demonstrates the mapping of double buffered algorithms using a ping-pong scheme
 to display the evolution of a 3D cellular automata. Press enter to advance the simulation.
 
-# Current features
+## Current features
+
 * Visualization of 2D structured and non-structured data
 * Synchronous and asynchronous (on separate thread) rendering
 * Camera manipulation
