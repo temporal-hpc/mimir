@@ -20,7 +20,6 @@ target_sources(mimir
         src/swapchain.cpp
         src/validation.cpp
         src/window.cpp
-        src/vma_impl.cpp
     PUBLIC
         FILE_SET  public_headers
         TYPE      HEADERS
@@ -56,7 +55,7 @@ target_link_libraries(mimir
     PUBLIC
         Vulkan::Vulkan CUDA::cudart
     PRIVATE
-        slang glm::glm glfw imgui spdlog::spdlog # GPUOpen::VulkanMemoryAllocator
+        slang glm::glm glfw imgui spdlog::spdlog
         "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"
 )
 

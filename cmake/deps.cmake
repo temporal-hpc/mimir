@@ -1,13 +1,5 @@
 include(FetchContent)
 
-# Vulkan Memory Allocator (VMA)
-FetchContent_Declare(vma
-    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-    GIT_TAG        009ecd192c1289c7529bff248a16cfe896254816 # v3.1.0
-    GIT_SHALLOW    ON
-    FIND_PACKAGE_ARGS
-)
-
 # Slang shader lib
 if(MIMIR_BUILD_SLANG)
     message(CHECK_START "Building slang from source")
@@ -72,7 +64,7 @@ FetchContent_Declare(spdlog
 )
 
 # Download and generate the targets provided by the above contents
-FetchContent_MakeAvailable(vma glfw glm spdlog)
+FetchContent_MakeAvailable(glfw glm spdlog)
 
 # Imgui Graphical interface lib
 FetchContent_Declare(imgui
