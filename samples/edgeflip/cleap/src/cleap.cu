@@ -6,7 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 //										//
 //	Copyright © 2011 Cristobal A. Navarro.					//
-//										//	
+//										//
 //	This file is part of cleap.						//
 //	cleap is free software: you can redistribute it and/or modify		//
 //	it under the terms of the GNU General Public License as published by	//
@@ -132,105 +132,102 @@ _cleap_mesh* cleap_load_mesh(const char* filename){
 
 CLEAP_RESULT cleap_paint_mesh(_cleap_mesh *m, GLfloat r, GLfloat g, GLfloat b, GLfloat a ){
 
-	printf("CLEAP::kernel::paint_mesh::");
-	//size_t bytes;
-	float4 *dptr;
-	int vcount = cleap_get_vertex_count(m);
-	//cleap_device_mesh *dm = m->dm;
-	//cudaGraphicsMapResources(1, &dm->vbo_c_cuda, 0);
-	//cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, dm->vbo_c_cuda);
+	// printf("CLEAP::kernel::paint_mesh::");
+	// size_t bytes;
+	// float4 *dptr;
+	// int vcount = cleap_get_vertex_count(m);
+	// cleap_device_mesh *dm = m->dm;
+	// cudaGraphicsMapResources(1, &dm->vbo_c_cuda, 0);
+	// cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, dm->vbo_c_cuda);
 
-	dim3 dimBlock(CLEAP_CUDA_BLOCKSIZE);
-	dim3 dimGrid((vcount+CLEAP_CUDA_BLOCKSIZE) / dimBlock.x);
-	//cudaThreadSynchronize();
-	cleap_kernel_paint_mesh<<< dimGrid, dimBlock >>>(dptr, vcount, r, g, b, a);
-	cudaDeviceSynchronize(); //cudaThreadSynchronize();
-	// unmap buffer object
-	//cudaGraphicsUnmapResources(1, &dm->vbo_c_cuda, 0);
-	printf("ok\n");
+	// dim3 dimBlock(CLEAP_CUDA_BLOCKSIZE);
+	// dim3 dimGrid((vcount+CLEAP_CUDA_BLOCKSIZE) / dimBlock.x);
+	// //cudaThreadSynchronize();
+	// cleap_kernel_paint_mesh<<< dimGrid, dimBlock >>>(dptr, vcount, r, g, b, a);
+	// cudaDeviceSynchronize(); //cudaThreadSynchronize();
+	// // unmap buffer object
+	// cudaGraphicsUnmapResources(1, &dm->vbo_c_cuda, 0);
+	// printf("ok\n");
 
 	return CLEAP_SUCCESS;
 }
 
 CLEAP_RESULT cleap_render_mesh(_cleap_mesh *m){
-/*
-	if(m->status == CLEAP_SUCCESS && m->dm->status == CLEAP_SUCCESS){
-	  	glEnable (GL_POLYGON_OFFSET_FILL); 	//Necesario para permitir dibujar 2 poligonos
-    		glPolygonOffset (1.0, 1.0); 		//coplanares (Wireframe y poligono solido)
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m->dm->eab);
+	// if(m->status == CLEAP_SUCCESS && m->dm->status == CLEAP_SUCCESS){
+	//   	glEnable (GL_POLYGON_OFFSET_FILL); 	//Necesario para permitir dibujar 2 poligonos
+    // 		glPolygonOffset (1.0, 1.0); 		//coplanares (Wireframe y poligono solido)
+	// 	glEnable(GL_BLEND);
+	// 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	// 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m->dm->eab);
 
-		//! position vectors
-		glBindBuffer(GL_ARRAY_BUFFER, m->dm->vbo_v);
-		glEnableClientState(GL_VERTEX_ARRAY);
-		glVertexPointer(3,      GL_FLOAT, 4*sizeof(float), 0);
-		//! normal vectors
-		glBindBuffer(GL_ARRAY_BUFFER, m->dm->vbo_n);
-		glEnableClientState(GL_NORMAL_ARRAY);
-		glNormalPointer(        GL_FLOAT, 4*sizeof(float), 0);
-		//! color vectors
-		glBindBuffer(GL_ARRAY_BUFFER, m->dm->vbo_c);
-		glEnableClientState(GL_COLOR_ARRAY);
-		glColorPointer(4,       GL_FLOAT, 4*sizeof(float), 0);
+	// 	//! position vectors
+	// 	glBindBuffer(GL_ARRAY_BUFFER, m->dm->vbo_v);
+	// 	glEnableClientState(GL_VERTEX_ARRAY);
+	// 	glVertexPointer(3,      GL_FLOAT, 4*sizeof(float), 0);
+	// 	//! normal vectors
+	// 	glBindBuffer(GL_ARRAY_BUFFER, m->dm->vbo_n);
+	// 	glEnableClientState(GL_NORMAL_ARRAY);
+	// 	glNormalPointer(        GL_FLOAT, 4*sizeof(float), 0);
+	// 	//! color vectors
+	// 	glBindBuffer(GL_ARRAY_BUFFER, m->dm->vbo_c);
+	// 	glEnableClientState(GL_COLOR_ARRAY);
+	// 	glColorPointer(4,       GL_FLOAT, 4*sizeof(float), 0);
 
-		if (m->solid){
-			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-			glDrawElements(GL_TRIANGLES, cleap_get_face_count(m)*3, GL_UNSIGNED_INT, BUFFER_OFFSET(0));
-		}
-		if (m->wireframe){
-			glDisableClientState(GL_COLOR_ARRAY);
-			glColor3f(0.0f, 0.0f, 1.0f);
-			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-			glDrawElements(GL_TRIANGLES, cleap_get_face_count(m)*3, GL_UNSIGNED_INT, BUFFER_OFFSET(0));
-		}
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-		glDisableClientState(GL_NORMAL_ARRAY);
-		glDisableClientState(GL_VERTEX_ARRAY);
-		glDisableClientState(GL_COLOR_ARRAY);
-		glDisable(GL_POLYGON_OFFSET_FILL);
-		glDisable(GL_BLEND);
-	}
-*/
+	// 	if (m->solid){
+	// 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	// 		glDrawElements(GL_TRIANGLES, cleap_get_face_count(m)*3, GL_UNSIGNED_INT, BUFFER_OFFSET(0));
+	// 	}
+	// 	if (m->wireframe){
+	// 		glDisableClientState(GL_COLOR_ARRAY);
+	// 		glColor3f(0.0f, 0.0f, 1.0f);
+	// 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	// 		glDrawElements(GL_TRIANGLES, cleap_get_face_count(m)*3, GL_UNSIGNED_INT, BUFFER_OFFSET(0));
+	// 	}
+	// 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	// 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	// 	glDisableClientState(GL_NORMAL_ARRAY);
+	// 	glDisableClientState(GL_VERTEX_ARRAY);
+	// 	glDisableClientState(GL_COLOR_ARRAY);
+	// 	glDisable(GL_POLYGON_OFFSET_FILL);
+	// 	glDisable(GL_BLEND);
+	// }
 	return CLEAP_SUCCESS;
-	
 }
 
 CLEAP_RESULT cleap_sync_mesh(_cleap_mesh *m){
 
-	float4 *d_vbo_v, *d_vbo_n, *d_vbo_c;
-	GLuint *d_eab;
+	// float4 *d_vbo_v, *d_vbo_n, *d_vbo_c;
+	// GLuint *d_eab;
 
-	//size_t num_bytes=0;
-	int mem_size_vbo = cleap_get_vertex_count(m)*sizeof(float4);
-	int mem_size_eab = 3*cleap_get_face_count(m)*sizeof(GLuint);
-	int mem_size_edges = sizeof(int2)*cleap_get_edge_count(m);
+	// size_t num_bytes=0;
+	// int mem_size_vbo = cleap_get_vertex_count(m)*sizeof(float4);
+	// int mem_size_eab = 3*cleap_get_face_count(m)*sizeof(GLuint);
+	// int mem_size_edges = sizeof(int2)*cleap_get_edge_count(m);
 
-	//cudaGraphicsMapResources(1, &m->dm->vbo_v_cuda, 0);
-	//cudaGraphicsMapResources(1, &m->dm->vbo_n_cuda, 0);
-	//cudaGraphicsMapResources(1, &m->dm->vbo_c_cuda, 0);
-	//cudaGraphicsMapResources(1, &m->dm->eab_cuda, 0);
+	// cudaGraphicsMapResources(1, &m->dm->vbo_v_cuda, 0);
+	// cudaGraphicsMapResources(1, &m->dm->vbo_n_cuda, 0);
+	// cudaGraphicsMapResources(1, &m->dm->vbo_c_cuda, 0);
+	// cudaGraphicsMapResources(1, &m->dm->eab_cuda, 0);
 
-	//cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_v, &num_bytes, m->dm->vbo_v_cuda);
-	//cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_n, &num_bytes, m->dm->vbo_v_cuda);
-	//cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_c, &num_bytes, m->dm->vbo_v_cuda);
-	//cudaGraphicsResourceGetMappedPointer( (void**)&d_eab, &num_bytes, m->dm->eab_cuda);
+	// cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_v, &num_bytes, m->dm->vbo_v_cuda);
+	// cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_n, &num_bytes, m->dm->vbo_v_cuda);
+	// cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_c, &num_bytes, m->dm->vbo_v_cuda);
+	// cudaGraphicsResourceGetMappedPointer( (void**)&d_eab, &num_bytes, m->dm->eab_cuda);
 
-	cudaMemcpy( m->vnc_data.v, d_vbo_v, mem_size_vbo, cudaMemcpyDeviceToHost );
-	cudaMemcpy( m->vnc_data.n, d_vbo_n, mem_size_vbo, cudaMemcpyDeviceToHost );
-	cudaMemcpy( m->vnc_data.c, d_vbo_c, mem_size_vbo, cudaMemcpyDeviceToHost );
-	cudaMemcpy( m->triangles, d_eab, mem_size_eab, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( m->vnc_data.v, d_vbo_v, mem_size_vbo, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( m->vnc_data.n, d_vbo_n, mem_size_vbo, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( m->vnc_data.c, d_vbo_c, mem_size_vbo, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( m->triangles, d_eab, mem_size_eab, cudaMemcpyDeviceToHost );
 
-	//cudaGraphicsUnmapResources(1, &m->dm->vbo_v_cuda, 0);
-	//cudaGraphicsUnmapResources(1, &m->dm->vbo_n_cuda, 0);
-	//cudaGraphicsUnmapResources(1, &m->dm->vbo_c_cuda, 0);
-	//cudaGraphicsUnmapResources(1, &m->dm->eab_cuda, 0);
+	// cudaGraphicsUnmapResources(1, &m->dm->vbo_v_cuda, 0);
+	// cudaGraphicsUnmapResources(1, &m->dm->vbo_n_cuda, 0);
+	// cudaGraphicsUnmapResources(1, &m->dm->vbo_c_cuda, 0);
+	// cudaGraphicsUnmapResources(1, &m->dm->eab_cuda, 0);
 
-	cudaMemcpy( m->edge_data.n, m->dm->d_edges_n, mem_size_edges, cudaMemcpyDeviceToHost );
-	cudaMemcpy( m->edge_data.a, m->dm->d_edges_a, mem_size_edges, cudaMemcpyDeviceToHost );
-	cudaMemcpy( m->edge_data.b, m->dm->d_edges_b, mem_size_edges, cudaMemcpyDeviceToHost );
-	cudaMemcpy( m->edge_data.op, m->dm->d_edges_op, mem_size_edges, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( m->edge_data.n, m->dm->d_edges_n, mem_size_edges, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( m->edge_data.a, m->dm->d_edges_a, mem_size_edges, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( m->edge_data.b, m->dm->d_edges_b, mem_size_edges, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( m->edge_data.op, m->dm->d_edges_op, mem_size_edges, cudaMemcpyDeviceToHost );
 
 	return CLEAP_SUCCESS;
 
@@ -238,56 +235,55 @@ CLEAP_RESULT cleap_sync_mesh(_cleap_mesh *m){
 
 void cleap_print_mesh( _cleap_mesh *m ){
 
-	cleap_sync_mesh(m);
-	float4 *d_vbo_v, *d_vbo_n, *d_vbo_c;
-	GLuint *d_eab;
-	float4 *h_vbo_v, *h_vbo_n, *h_vbo_c;
-	GLuint *h_eab;
+	// cleap_sync_mesh(m);
+	// float4 *d_vbo_v, *d_vbo_n, *d_vbo_c;
+	// GLuint *d_eab;
+	// float4 *h_vbo_v, *h_vbo_n, *h_vbo_c;
+	// GLuint *h_eab;
 
-	h_vbo_v = (float4*)malloc(cleap_get_vertex_count(m)*sizeof(float4));
-	h_vbo_n = (float4*)malloc(cleap_get_vertex_count(m)*sizeof(float4));
-	h_vbo_c = (float4*)malloc(cleap_get_vertex_count(m)*sizeof(float4));
-	h_eab = (GLuint*)malloc(3*cleap_get_face_count(m)*sizeof(GLuint));
+	// h_vbo_v = (float4*)malloc(cleap_get_vertex_count(m)*sizeof(float4));
+	// h_vbo_n = (float4*)malloc(cleap_get_vertex_count(m)*sizeof(float4));
+	// h_vbo_c = (float4*)malloc(cleap_get_vertex_count(m)*sizeof(float4));
+	// h_eab = (GLuint*)malloc(3*cleap_get_face_count(m)*sizeof(GLuint));
 
-	//size_t num_bytes=0;
-	int mem_size_vbo = cleap_get_vertex_count(m)*sizeof(float4);
-	int mem_size_eab = 3*cleap_get_face_count(m)*sizeof(GLuint);
+	// size_t num_bytes=0;
+	// int mem_size_vbo = cleap_get_vertex_count(m)*sizeof(float4);
+	// int mem_size_eab = 3*cleap_get_face_count(m)*sizeof(GLuint);
 
-	//cudaGraphicsMapResources(1, &m->dm->vbo_v_cuda, 0);
-	//cudaGraphicsMapResources(1, &m->dm->vbo_n_cuda, 0);
-	//cudaGraphicsMapResources(1, &m->dm->vbo_c_cuda, 0);
-	//cudaGraphicsMapResources(1, &m->dm->eab_cuda, 0);
+	// cudaGraphicsMapResources(1, &m->dm->vbo_v_cuda, 0);
+	// cudaGraphicsMapResources(1, &m->dm->vbo_n_cuda, 0);
+	// cudaGraphicsMapResources(1, &m->dm->vbo_c_cuda, 0);
+	// cudaGraphicsMapResources(1, &m->dm->eab_cuda, 0);
 
-	//cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_v, &num_bytes, m->dm->vbo_v_cuda);
-	//cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_n, &num_bytes, m->dm->vbo_v_cuda);
-	//cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_c, &num_bytes, m->dm->vbo_v_cuda);
+	// cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_v, &num_bytes, m->dm->vbo_v_cuda);
+	// cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_n, &num_bytes, m->dm->vbo_v_cuda);
+	// cudaGraphicsResourceGetMappedPointer( (void**)&d_vbo_c, &num_bytes, m->dm->vbo_v_cuda);
 
-	//cudaGraphicsResourceGetMappedPointer( (void**)&d_eab, &num_bytes, m->dm->eab_cuda);
+	// cudaGraphicsResourceGetMappedPointer( (void**)&d_eab, &num_bytes, m->dm->eab_cuda);
 
-	cudaMemcpy( h_vbo_v, d_vbo_v, mem_size_vbo, cudaMemcpyDeviceToHost );
-	cudaMemcpy( h_vbo_n, d_vbo_n, mem_size_vbo, cudaMemcpyDeviceToHost );
-	cudaMemcpy( h_vbo_c, d_vbo_c, mem_size_vbo, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( h_vbo_v, d_vbo_v, mem_size_vbo, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( h_vbo_n, d_vbo_n, mem_size_vbo, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( h_vbo_c, d_vbo_c, mem_size_vbo, cudaMemcpyDeviceToHost );
+	// cudaMemcpy( h_eab, d_eab, mem_size_eab, cudaMemcpyDeviceToHost );
 
-	cudaMemcpy( h_eab, d_eab, mem_size_eab, cudaMemcpyDeviceToHost );
+	// cudaGraphicsUnmapResources(1, &m->dm->vbo_v_cuda, 0);
+	// cudaGraphicsUnmapResources(1, &m->dm->vbo_n_cuda, 0);
+	// cudaGraphicsUnmapResources(1, &m->dm->vbo_c_cuda, 0);
+	// cudaGraphicsUnmapResources(1, &m->dm->eab_cuda, 0);
 
-	//cudaGraphicsUnmapResources(1, &m->dm->vbo_v_cuda, 0);
-	//cudaGraphicsUnmapResources(1, &m->dm->vbo_n_cuda, 0);
-	//cudaGraphicsUnmapResources(1, &m->dm->vbo_c_cuda, 0);
-	//cudaGraphicsUnmapResources(1, &m->dm->eab_cuda, 0);
+	// for(int i=0; i<cleap_get_vertex_count(m); i++){
+	// 	printf("mesh_data[%i] = (%f, %f, %f)  w=%f\n", i, h_vbo_v[i].x, h_vbo_v[i].y, h_vbo_v[i].z, h_vbo_v[i].w);
+	// }
+	// for(int i=0; i<cleap_get_face_count(m); i++){
+	// 	printf("T[%i] = (%i, %i, %i)\n", i, h_eab[3*i], h_eab[3*i+1], h_eab[3*i+2]);
+	// }
 
-	for(int i=0; i<cleap_get_vertex_count(m); i++){
-		printf("mesh_data[%i] = (%f, %f, %f)  w=%f\n", i, h_vbo_v[i].x, h_vbo_v[i].y, h_vbo_v[i].z, h_vbo_v[i].w);
-	}
-	for(int i=0; i<cleap_get_face_count(m); i++){
-		printf("T[%i] = (%i, %i, %i)\n", i, h_eab[3*i], h_eab[3*i+1], h_eab[3*i+2]);
-	}
-
-	for( int i=0; i<cleap_get_edge_count(m); i++ ){
-	    printf("edge[%i]:\n", i);
-	    printf("\tn = (%i, %i)\t", m->edge_data.n[i].x, m->edge_data.n[i].y);
-	    printf("a = (%i, %i)\t", m->edge_data.a[i].x, m->edge_data.a[i].y);
-	    printf("b = (%i, %i)\n", m->edge_data.b[i].x, m->edge_data.b[i].y);
-	}
+	// for( int i=0; i<cleap_get_edge_count(m); i++ ){
+	//     printf("edge[%i]:\n", i);
+	//     printf("\tn = (%i, %i)\t", m->edge_data.n[i].x, m->edge_data.n[i].y);
+	//     printf("a = (%i, %i)\t", m->edge_data.a[i].x, m->edge_data.a[i].y);
+	//     printf("b = (%i, %i)\n", m->edge_data.b[i].x, m->edge_data.b[i].y);
+	// }
 }
 
 CLEAP_RESULT cleap_delaunay_transformation(_cleap_mesh *m, int mode){
@@ -329,9 +325,9 @@ CLEAP_RESULT cleap_delaunay_transformation(_cleap_mesh *m, int mode){
 			cudaDeviceSynchronize(); //cudaThreadSynchronize();
 			if( mode == CLEAP_MODE_2D )
 				cleap_kernel_exclusion_processing_2d<256><<< dimGrid, dimBlock >>>(d_vbo_v, d_eab, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m), m->dm->d_listo, m->dm->d_trirel, m->dm->d_trireservs);
-			else 
+			else
 				cleap_kernel_exclusion_processing_3d<256><<< dimGrid, dimBlock >>>(d_vbo_v, d_eab, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m), m->dm->d_listo, m->dm->d_trirel, m->dm->d_trireservs);
-			
+
 			cudaDeviceSynchronize(); //cudaThreadSynchronize();
 			if( h_listo[0] ){break;}
 			cleap_kernel_repair<<< dimGrid, dimBlock >>>(d_eab, m->dm->d_trirel, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m)); //update
@@ -354,7 +350,7 @@ CLEAP_RESULT cleap_delaunay_transformation(_cleap_mesh *m, int mode){
 			_cleap_init_device_dual_arrays_int(m->dm->d_trirel, m->dm->d_trireservs, cleap_get_face_count(m), -1, dimBlockInit, dimGridInit); //demora el orden de 10^-5 secs
 			if( mode == CLEAP_MODE_2D )
 				cleap_kernel_exclusion_processing_2d<256><<< dimGrid, dimBlock >>>(d_vbo_v, d_eab, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m), m->dm->d_listo, m->dm->d_trirel, m->dm->d_trireservs);
-			else 
+			else
 				cleap_kernel_exclusion_processing_3d<256><<< dimGrid, dimBlock >>>(d_vbo_v, d_eab, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m), m->dm->d_listo, m->dm->d_trirel, m->dm->d_trireservs);
 			cudaDeviceSynchronize(); //cudaThreadSynchronize();
 			cudaMemcpy( h_listo, m->dm->d_listo, sizeof(int), cudaMemcpyDeviceToHost );
@@ -421,9 +417,9 @@ CLEAP_RESULT cleap_delaunay_transformation_interactive(_cleap_mesh *m, int mode)
         cudaDeviceSynchronize();
 		if( mode == CLEAP_MODE_2D )
 			cleap_kernel_exclusion_processing_2d<256><<< dimGrid, dimBlock >>>(d_vbo_v, d_eab, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m), m->dm->d_listo, m->dm->d_trirel, m->dm->d_trireservs);
-		else 
+		else
 			cleap_kernel_exclusion_processing_3d<256><<< dimGrid, dimBlock >>>(d_vbo_v, d_eab, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m), m->dm->d_listo, m->dm->d_trirel, m->dm->d_trireservs);
-		
+
 		//cudaThreadSynchronize();
 		if( h_listo[0] ){
 			//cudaUnbindTexture(tex_triangles);
@@ -450,7 +446,7 @@ CLEAP_RESULT cleap_delaunay_transformation_interactive(_cleap_mesh *m, int mode)
 		_cleap_init_device_dual_arrays_int(m->dm->d_trirel, m->dm->d_trireservs, cleap_get_face_count(m), -1, dimBlockInit, dimGridInit); //demora el orden de 10^-5 secs
 		if( mode == CLEAP_MODE_2D )
 			cleap_kernel_exclusion_processing_2d<128><<< dimGrid, dimBlock >>>(d_vbo_v, d_eab, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m), m->dm->d_listo, m->dm->d_trirel, m->dm->d_trireservs);
-		else 
+		else
 			cleap_kernel_exclusion_processing_3d<128><<< dimGrid, dimBlock >>>(d_vbo_v, d_eab, m->dm->d_edges_n, m->dm->d_edges_a, m->dm->d_edges_b, m->dm->d_edges_op, cleap_get_edge_count(m), m->dm->d_listo, m->dm->d_trirel, m->dm->d_trireservs);
 		//cudaThreadSynchronize();
 		cudaDeviceSynchronize();
@@ -598,23 +594,23 @@ void _cleap_reset_minmax(_cleap_mesh* m){
 
 CLEAP_RESULT _cleap_normalize_normals(_cleap_mesh *m){
 
-	printf("CLEAP::kernel::normalize_normals::");
-	//size_t bytes;
-	float4 *dptr;
-	int vcount = cleap_get_vertex_count(m);
-	//cleap_device_mesh *dm = m->dm;
-	//cudaGraphicsMapResources(1, &dm->vbo_n_cuda, 0);
-	//cudaGraphicsResourceGetMappedPointer((void**)&dptr, &bytes, dm->vbo_n_cuda );
+	// printf("CLEAP::kernel::normalize_normals::");
+	// size_t bytes;
+	// float4 *dptr;
+	// int vcount = cleap_get_vertex_count(m);
+	// cleap_device_mesh *dm = m->dm;
+	// cudaGraphicsMapResources(1, &dm->vbo_n_cuda, 0);
+	// cudaGraphicsResourceGetMappedPointer((void**)&dptr, &bytes, dm->vbo_n_cuda );
 
-	dim3 dimBlock(CLEAP_CUDA_BLOCKSIZE);
-	dim3 dimGrid( (vcount+CLEAP_CUDA_BLOCKSIZE)/dimBlock.x);
-	//cudaThreadSynchronize();
-	cleap_kernel_normalize_normals<<< dimGrid, dimBlock >>>(dptr, vcount);
-	//cudaThreadSynchronize();
-    cudaDeviceSynchronize();
-	// unmap buffer object
-	//cudaGraphicsUnmapResources(1, &dm->vbo_n_cuda, 0);
-	printf("ok\n");
+	// dim3 dimBlock(CLEAP_CUDA_BLOCKSIZE);
+	// dim3 dimGrid( (vcount+CLEAP_CUDA_BLOCKSIZE)/dimBlock.x);
+	// cudaThreadSynchronize();
+	// cleap_kernel_normalize_normals<<< dimGrid, dimBlock >>>(dptr, vcount);
+	// cudaThreadSynchronize();
+    // cudaDeviceSynchronize();
+	// // unmap buffer object
+	// cudaGraphicsUnmapResources(1, &dm->vbo_n_cuda, 0);
+	// printf("ok\n");
 
 	return CLEAP_SUCCESS;
 }
@@ -641,7 +637,7 @@ CLEAP_RESULT _cleap_device_load_mesh(_cleap_mesh* m)
 	err = //cudaGraphicsGLRegisterBuffer(&dmesh->vbo_v_cuda, dmesh->vbo_v, //cudaGraphicsMapFlagsNone);
 	if( err != cudaSuccess )
 		printf("CLEAP::device_load_mesh:://cudaGraphicsRegisterBuffer::vbo_p:: %s\n", cudaGetErrorString(err));
-	
+
 	// CLEAP::DEVICE_LOAD:: vbo normal data
 	glGenBuffers(1, &dmesh->vbo_n);
 	glBindBuffer(GL_ARRAY_BUFFER, dmesh->vbo_n);
@@ -649,7 +645,7 @@ CLEAP_RESULT _cleap_device_load_mesh(_cleap_mesh* m)
 	glBufferSubData(GL_ARRAY_BUFFER, 0, size, m->vnc_data.n);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	err = //cudaGraphicsGLRegisterBuffer(&dmesh->vbo_n_cuda, dmesh->vbo_n, //cudaGraphicsMapFlagsNone);
-	if( err != cudaSuccess )	
+	if( err != cudaSuccess )
 		printf("CLEAP::device_load_mesh:://cudaGraphicsRegisterBuffer::vbo_n:: %s\n", cudaGetErrorString(err));
 
 	// CLEAP::DEVICE_LOAD:: vbo color data

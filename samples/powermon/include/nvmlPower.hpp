@@ -1,6 +1,6 @@
 /*
  Copyright (c) 2021 Temporal Guild Group, Austral University of Chile, Valdivia Chile.
- This file and all powermon software is licensed under the MIT License. 
+ This file and all powermon software is licensed under the MIT License.
  Please refer to LICENSE for more details.
  */
 /*
@@ -23,10 +23,16 @@ Header file including necessary nvml headers.
 
 #define COOLDOWN_MS  1
 
+struct GPUPowerMetrics
+{
+	double average_power;
+	double total_energy;
+	double total_time;
+};
 
 // GPU power measure functions
 void GPUPowerBegin(const char *alg, int ms);
-void GPUPowerEnd();
+GPUPowerMetrics GPUPowerEnd();
 nvmlDevice_t getNvmlDevice();
 
 // CPU power measure functions

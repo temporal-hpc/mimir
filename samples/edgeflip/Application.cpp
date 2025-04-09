@@ -27,73 +27,84 @@
 #include "Application.h"
 
 #include <imgui.h>
-#include <ImGuiFileDialog.h>
+#include <nfd.h> // native file dialog
 #include <iostream>
 
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 Application::Application(){
     myMesh = 0;
 
     ViewerOptions viewer_opts;
-    viewer_opts.window_title = "Tiuque"; // Top-level window.
-    viewer_opts.window_size = {1920, 1080};
-    viewer_opts.present = PresentOptions::VSync;
-    viewer_opts.report_period = 180;
-    engine.init(viewer_opts);
-    engine.setBackgroundColor({0.f,0.f,0.f,1.f});
+    viewer_opts.window.title  = "Tiuque"; // Top-level window.
+    viewer_opts.window.size   = {1920, 1080};
+    viewer_opts.present.mode  = PresentMode::VSync;
+    viewer_opts.background_color = {0.f,0.f,0.f,1.f};
+    createInstance(viewer_opts, &instance);
+
+    // Initialize native file dialog lib
+    NFD_Init();
 
     // TODO: Fix dptr in kernels
-	this->myMesh = new Mesh("/home/francisco/code/files_cudaview/mesh.off");
+	this->myMesh = new Mesh("../files_cudaview/meshes/chica4.off");
     auto m = this->myMesh->my_cleap_mesh;
 
-    // NOTE: Cudaview code
+    uint32_t vertex_count = cleap_get_vertex_count(m);
+    uint32_t face_count = cleap_get_face_count(m);
+
     // TODO: Delete views
-    MemoryParams mem1;
-    mem1.layout          = DataLayout::Layout1D;
-    mem1.element_count.x = cleap_get_vertex_count(m);
-    mem1.component_type  = ComponentType::Float;
-    mem1.channel_count   = 4;
-    mem1.resource_type   = ResourceType::Buffer;
-    auto vertices = engine.createBuffer((void**)&m->dm->d_vbo_v, mem1);
+    // TODO: Add stride to attribute desc
 
-    ViewParams params;
-    params.element_count = cleap_get_vertex_count(m);
-    params.data_domain   = DataDomain::Domain3D;
-    params.domain_type   = DomainType::Unstructured;
-    params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = *vertices;
-    engine.createView(params);
+    AllocHandle vertices, triangles;
+    allocLinear(instance, (void**)&m->dm->d_vbo_v, sizeof(float4) * vertex_count, &vertices);
+    allocLinear(instance, (void**)&m->dm->d_eab, sizeof(int3) * face_count, &triangles);
 
-    MemoryParams mem2;
-    mem2.layout          = DataLayout::Layout1D;
-    mem2.element_count.x = cleap_get_face_count(m);
-    mem2.component_type  = ComponentType::Int;
-    mem2.channel_count   = 3;
-    mem2.resource_type   = ResourceType::IndexBuffer;
-    auto triangles = engine.createBuffer((void**)&m->dm->d_eab, mem2);
+    ViewHandle v1 = nullptr, v2 = nullptr;
+    ViewDescription desc;
+    desc.layout      = Layout::make(vertex_count);
+    desc.domain = DomainType::Domain3D;
+    desc.type   = ViewType::Markers;
+    desc.visible     = false;
+    desc.attributes[AttributeType::Position] = {
+        .source = vertices,
+        .size   = (unsigned int)vertex_count,
+        .format = FormatDescription::make<float4>(),
+    };
+    createView(instance, &desc, &v1);
 
-    params.element_count = cleap_get_face_count(m);
-    params.view_type     = ViewType::Edges;
-    params.attributes[AttributeType::Index] = *triangles;
-    params.options.default_color  = {0.f, 1.f, 0.f, 1.f};
-    engine.createView(params);
+    // Recycle the above parameters, changing only what is needed
+    desc.layout    = Layout::make(face_count * 3);
+    desc.type = ViewType::Edges;
+    desc.visible   = true;
+    desc.default_color = {0, 1, 0, 1};
+    desc.attributes[AttributeType::Position] = {
+        .source   = vertices,
+        .size     = (unsigned int)vertex_count,
+        .format   = FormatDescription::make<float4>(),
+        .indexing = {
+            .source     = triangles,
+            .size       = face_count * 3,
+            .index_size = sizeof(int),
+        }
+    };
+    createView(instance, &desc, &v2);
 
-    validation::checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
-        cleap_get_vertex_count(m) * sizeof(float3), cudaMemcpyHostToDevice)
+    checkCuda(cudaMemcpy(m->dm->d_vbo_v, m->vnc_data.v,
+        vertex_count * sizeof(float3), cudaMemcpyHostToDevice)
     );
-    validation::checkCuda(cudaMemcpy(m->dm->d_eab, m->triangles,
-        cleap_get_face_count(m) * sizeof(uint3), cudaMemcpyHostToDevice)
+    checkCuda(cudaMemcpy(m->dm->d_eab, m->triangles,
+        face_count * sizeof(uint3), cudaMemcpyHostToDevice)
     );
 }
 
 Application::~Application(){
+    NFD_Quit();
+    destroyInstance(instance);
 }
 
 void Application::on_button_exit_clicked(){
-    //Gtk::Main::quit();
+    exit(instance);
 }
 
 void Application::on_menu_help_about(){
@@ -103,13 +114,13 @@ void Application::on_menu_help_about(){
 
 void Application::on_button_delaunay_2d_clicked(){
     if(myMesh){
-        //engine.prepareViews();
+        //instance->prepareViews();
         if (educational_mode) //if(check_button_educational_mode->get_active())
         	myMesh->delaunay_transformation_interactive(CLEAP_MODE_2D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_2D);
 
-        //engine.updateViews(); ////my_gl_window->redraw();
+        //instance->updateViews(); ////my_gl_window->redraw();
     }
 }
 
@@ -122,13 +133,13 @@ void Application::on_button_clear_clicked(){
 
 void Application::on_button_delaunay_3d_clicked(){
     if(myMesh){
-        //engine.prepareViews();
+        //instance->prepareViews();
         if (educational_mode) //if(check_button_educational_mode->get_active())
             myMesh->delaunay_transformation_interactive(CLEAP_MODE_3D);
         else
             myMesh->delaunay_transformation(CLEAP_MODE_3D);
 
-        //engine.updateViews(); //my_gl_window->redraw();
+        //instance->updateViews(); //my_gl_window->redraw();
     }
 }
 
@@ -159,64 +170,23 @@ void Application::on_hscale_size_change_value(){
 
 void Application::init()
 {
-    /*if (ImGui::BeginMainMenuBar())
-    {
-        if (ImGui::BeginMenu("File"))
-        {
-            if (ImGui::MenuItem("Open", "Ctrl+O"))
-            {
-                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".off", ".");
-            }
-            ImGui::EndMenu();
-        }
-        ImGui::EndMainMenuBar();
-    }
-    if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey"))
-    {
-        if (ImGuiFileDialog::Instance()->IsOk())
-        {
-            std::string file_name = ImGuiFileDialog::Instance()->GetFilePathName();
-            std::string curr_path = ImGuiFileDialog::Instance()->GetCurrentPath();
-            //file_handler(file_name, curr_path);
-        }
-        ImGuiFileDialog::Instance()->Close();
-    }*/
-
-    engine.setGuiCallback([=,this]
+    setGuiCallback(instance, [=,this]
     {
         if (ImGui::BeginMainMenuBar())
         {
             if (ImGui::BeginMenu("File"))
             {
-                if (ImGui::MenuItem("Open Mesh", "Ctrl+O"))
-                {
-                    ImGuiFileDialog::Instance()->OpenDialog("LoadFileDialog", "Load mesh", ".off");
-                }
-                if (ImGui::MenuItem("Save", "Ctrl+S"))
-                {
-                    on_menu_file_save();
-                }
-                if (ImGui::MenuItem("Save As.."))
-                {
-                    ImGuiFileDialog::Instance()->OpenDialog("SaveFileDialog", "Save mesh", ".off");
-                }
+                if (ImGui::MenuItem("Open Mesh", "Ctrl+O")) { on_menu_file_open(); }
+                if (ImGui::MenuItem("Save", "Ctrl+S")) { on_menu_file_save(); }
+                if (ImGui::MenuItem("Save As..")) { on_menu_file_save_as(); }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Quit", "Alt+F4"))
-                {
-                    engine.exit();
-                }
+                if (ImGui::MenuItem("Quit", "Alt+F4")) { on_button_exit_clicked(); }
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Run"))
             {
-                if (ImGui::MenuItem("MDT-2D", "Ctrl+2"))
-                {
-                    on_button_delaunay_2d_clicked();
-                }
-                if (ImGui::MenuItem("MDT-3D", "Ctrl+3"))
-                {
-                    on_button_delaunay_3d_clicked();
-                }
+                if (ImGui::MenuItem("MDT-2D", "Ctrl+2")) { on_button_delaunay_2d_clicked(); }
+                if (ImGui::MenuItem("MDT-3D", "Ctrl+3")) { on_button_delaunay_3d_clicked(); }
                 ImGui::Separator();
                 if (ImGui::BeginMenu("Options"))
                 {
@@ -229,26 +199,8 @@ void Application::init()
             }
             ImGui::EndMainMenuBar();
         }
-        if (ImGuiFileDialog::Instance()->Display("LoadFileDialog"))
-        {
-            if (ImGuiFileDialog::Instance()->IsOk())
-            {
-                std::string filename = ImGuiFileDialog::Instance()->GetFilePathName();
-                load_mesh(filename.c_str());
-            }
-            ImGuiFileDialog::Instance()->Close();
-        }
-        if (ImGuiFileDialog::Instance()->Display("SaveFileDialog"))
-        {
-            if (ImGuiFileDialog::Instance()->IsOk())
-            {
-                std::string filename = ImGuiFileDialog::Instance()->GetFilePathName();
-                save_mesh(filename.c_str());
-            }
-            ImGuiFileDialog::Instance()->Close();
-        }
     });
-    engine.displayAsync();
+    displayAsync(instance);
 
     //! linking widgets to logic
     // gl window -- important to be first
@@ -323,79 +275,60 @@ void Application::init()
 
 void Application::on_menu_file_open()
 {
-/*
-	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog("Open Mesh", Gtk::FILE_CHOOSER_ACTION_OPEN);
-  	dialog->set_transient_for(*this);
-  	//Add response buttons the the dialog:
-  	dialog->add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
-  	dialog->add_button(Gtk::Stock::OPEN, Gtk::RESPONSE_OK);
-  	//Add filters, so that only certain file types can be selected:
-  	Gtk::FileFilter *filter_geomview = new Gtk::FileFilter();
-  	filter_geomview->set_name("off (Geomview)");
-  	filter_geomview->add_pattern("*.off");
-  	dialog->add_filter(*filter_geomview);
-
-  	//Show the dialog and wait for a user response:
-  	int result = dialog->run();
-	if (result==Gtk::RESPONSE_OK){
-		dialog->hide();
-		Gtk::FileFilter *filtro=dialog->get_filter();
-		if (filtro->get_name()=="off (Geomview)"){
-			string file_string = dialog->get_filename();
-			this->myMesh = new Mesh(file_string.c_str());
-			on_toggle_button_solid_toggled();
-			on_toggle_button_wireframe_toggled();
-			//this->my_gl_window->set_mesh_pointer(myMesh);
-			//this->my_gl_window->set_camera_from_mesh_pointer();
-			//my_gl_window->redraw();
-		}
+    nfdu8char_t *mesh_path;
+    nfdu8filteritem_t filters[1] = { { "Mesh files", ".obj" } };
+    nfdopendialogu8args_t args = {0};
+    args.filterList  = filters;
+    args.filterCount = 1;
+    nfdresult_t result = NFD_OpenDialogU8_With(&mesh_path, &args);
+    if (result == NFD_OKAY)
+    {
+        printf("Opening mesh file %s\n", mesh_path);
+        load_mesh(mesh_path);
+        NFD_FreePathU8(mesh_path);
     }
-
-	delete filter_geomview;
-	delete dialog;
-	//my_gl_window->redraw();
-*/
+    else if (result == NFD_CANCEL) { printf("Cancelled open dialog\n"); }
+    else { printf("Load file error: %s\n", NFD_GetError()); }
 }
 
 void Application::on_menu_file_save_as()
 {
     printf("Tiuque::save_as::");
-    if(this->myMesh){
-        /*Gtk::FileChooserDialog dialog("Save as", Gtk::FILE_CHOOSER_ACTION_SAVE);
-        dialog.set_transient_for(*this);
-        //Add response buttons the the dialog:
-        dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
-        dialog.add_button(Gtk::Stock::SAVE, Gtk::RESPONSE_OK);
-        //Add filters, so that only certain file types can be selected:
-        Gtk::FileFilter filter_geomview;
-        filter_geomview.set_name("off (Geomview)");
-        filter_geomview.add_pattern("*.off");
-        dialog.add_filter(filter_geomview);
-        int result=dialog.run();
-        if (result==Gtk::RESPONSE_OK){
-            myMesh->save_mesh(dialog.get_filename().c_str());
-            printf("ok\n");
+    if(this->myMesh)
+    {
+        nfdu8char_t *mesh_path;
+        nfdu8filteritem_t filters[1] = { { "Mesh files", ".obj" } };
+        nfdsavedialogu8args_t args = {0};
+        args.filterList  = filters;
+        args.filterCount = 1;
+        nfdresult_t result = NFD_SaveDialogU8_With(&mesh_path, &args);
+        if (result == NFD_OKAY)
+        {
+            printf("Saving mesh file %s\n", mesh_path);
+            save_mesh(mesh_path);
+            NFD_FreePathU8(mesh_path);
         }
-        else{
-            printf("cancel\n");
-        }*/
+        else if (result == NFD_CANCEL) { printf("Cancelled save dialog\n"); }
+        else { printf("Save file error: %s\n", NFD_GetError()); }
         return;
     }
-    else{
+    else
+    {
         printf("nothing to save... have you loaded a mesh?.\n");
         return;
     }
 }
 
-
 void Application::on_menu_file_save(){
 
     printf("Tiuque::save::");
-    if(this->myMesh){
+    if(this->myMesh)
+    {
         myMesh->save_mesh_default();
         printf("ok\n");
     }
-    else{
+    else
+    {
         printf("nothing to save... have you loaded a mesh?.\n");
         return;
     }

@@ -1,6 +1,7 @@
 add_executable(run_image image.cu)
-target_include_directories(run_image SYSTEM PRIVATE ../include)
-target_link_libraries(run_image PRIVATE mimir)
+target_link_libraries(run_image PRIVATE samples_common)
 set_target_properties(run_image PROPERTIES
+    CUDA_STANDARD            20
+    CUDA_ARCHITECTURES       native
     RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
 )

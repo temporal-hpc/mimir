@@ -1,24 +1,9 @@
-#include <mimir/validation.hpp>
+#include "mimir/validation.hpp"
 
 #include <cstring> // strcmp
 
 namespace mimir::validation
 {
-
-// Converts Vulkan message severity flags into a string for logging
-const char* getVulkanSeverityString(VkDebugUtilsMessageSeverityFlagBitsEXT flag)
-{
-    switch (flag)
-    {
-#define STR(r) case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ ## r ## _BIT_EXT: return #r
-        STR(VERBOSE);
-        STR(INFO);
-        STR(WARNING);
-        STR(ERROR);
-#undef STR
-        default: return "UNKNOWN";
-    }
-}
 
 // Converts Vulkan message type flags into a string for logging
 const char* getVulkanMessageType(VkDebugUtilsMessageTypeFlagsEXT type)
@@ -44,9 +29,16 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data,
     [[maybe_unused]] void *p_user_data)
 {
-    auto severity = getVulkanSeverityString(msg_severity);
-    auto type = getVulkanMessageType(msg_type);
-    fprintf(stderr, "[%s] %s: %s\n", severity, type, p_callback_data->pMessage);
+    auto t = getVulkanMessageType(msg_type);
+    auto msg = p_callback_data->pMessage;
+    switch (msg_severity)
+    {
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: { spdlog::trace("{}: {}", t, msg); break; }
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:    { spdlog::info("{}: {}", t, msg); break; }
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: { spdlog::warn("{}: {}", t, msg); break; }
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:   { spdlog::error("{}: {}", t, msg); break; }
+        default: { spdlog::critical("{}: {}", t, msg); break; }
+    }
     return VK_FALSE;
 }
 
@@ -90,16 +82,10 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
     VkDebugUtilsMessengerEXT *p_debug_messenger)
 {
     // Lookup address of debug messenger extension function
-    auto func = (PFN_vkCreateDebugUtilsMessengerEXT)
+    auto vkCreateDebugUtilsMessenger = (PFN_vkCreateDebugUtilsMessengerEXT)
         vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-    if (func != nullptr)
-    {
-        return func(instance, p_create_info, p_allocator, p_debug_messenger);
-    }
-    else // Function could not be loaded
-    {
-        return VK_ERROR_EXTENSION_NOT_PRESENT;
-    }
+    if (vkCreateDebugUtilsMessenger == nullptr) { return VK_ERROR_EXTENSION_NOT_PRESENT; }
+    return vkCreateDebugUtilsMessenger(instance, p_create_info, p_allocator, p_debug_messenger);
 }
 
 void DestroyDebugUtilsMessengerEXT(VkInstance instance,
@@ -143,7 +129,7 @@ bool checkValidationLayerSupport()
     std::vector<VkLayerProperties> available_layers(layer_count);
     vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
 
-    // Check if all of the validation layers are available
+    // Check if all of the enumerated validation layers are available
     for (const auto layerName : layers)
     {
         bool layer_found = false;
@@ -155,10 +141,7 @@ bool checkValidationLayerSupport()
                 break;
             }
         }
-        if (!layer_found)
-        {
-            return false;
-        }
+        if (!layer_found) { return false; }
     }
     return true;
 }

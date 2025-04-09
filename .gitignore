@@ -2,4 +2,6 @@ build
 .clangd
 .cache
 .vscode
-imgui.ini
+*.ini
+*.dat
+safeprimes_base32.txt

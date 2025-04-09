@@ -1,11 +1,39 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h" // stbi_load
-#include "helper_math.h"
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
+
+#include <iostream>
+
+// Vector operations copied from 'helper_math.h' at cuda-samples
+
+inline __host__ __device__ float4 make_float4(float s)
+{
+    return make_float4(s, s, s, s);
+}
+
+inline __host__ __device__ float4 operator*(float4 a, float b)
+{
+    return make_float4(a.x * b, a.y * b, a.z * b,  a.w * b);
+}
+
+inline __host__ __device__ void operator+=(float4 &a, float4 b)
+{
+    a.x += b.x;
+    a.y += b.y;
+    a.z += b.z;
+    a.w += b.w;
+}
+
+inline __host__ __device__ void operator-=(float4 &a, float4 b)
+{
+    a.x -= b.x;
+    a.y -= b.y;
+    a.z -= b.z;
+    a.w -= b.w;
+}
 
 // convert floating point rgba color to 32-bit integer
 __device__ unsigned int rgbaFloatToInt(float4 rgba)
@@ -52,9 +80,7 @@ __global__ void d_boxfilter_rgba_x(cudaSurfaceObject_t* dstSurfMipMapArray,
                 float4 t = make_float4(0.0f);
                 for (int x = -filter_radius; x <= filter_radius; x++)
                 {
-                    t += tex2DLod<float4>(textureMipMapInput,
-                        x * px, y * py, (float)mipLevelIdx
-                    );
+                    t += tex2DLod<float4>(textureMipMapInput, x * px, y * py, (float)mipLevelIdx);
                 }
 
                 unsigned int dataB = rgbaFloatToInt(t * scale);
@@ -192,62 +218,66 @@ int main(int argc, char *argv[])
     }
     printf("Loaded '%s', '%d'x'%d pixels \n", filepath.c_str(), img_width, img_height);
 
-    int width = 1920, height = 1080;
-    MimirEngine engine;
-    engine.init(width, height);
+    ViewerOptions options;
+    options.window.size = {1920,1080}; // Starting window size
+    options.present     = { .mode = PresentMode::VSync };
+    InstanceHandle instance = nullptr;
+    createInstance(options, &instance);
 
-    // TODO: Unused, should be a texture handle
-    uchar4 *d_image = nullptr;
+    cudaMipmappedArray_t mipmap_array = nullptr;
+    cudaChannelFormatDesc cuda_format{
+        .x = 8, .y = 8, .z = 8, .w = 8,
+        .f = cudaChannelFormatKindUnsigned,
+    };
+    auto cuda_extent = make_cudaExtent(img_width, img_height, 0);
+    AllocHandle mipmap;
+    allocMipmap(instance, &mipmap_array, &cuda_format, cuda_extent, mip_levels, &mipmap);
+    TextureDescription tex{
+        .source = mipmap,
+        .format = FormatDescription::make<uchar4>(),
+        .extent = Layout::make(img_width, img_height, 1),
+        .levels = static_cast<unsigned int>(mip_levels),
+    };
+    copyTextureData(instance, tex, img_data, sizeof(char4) * img_width * img_height);
 
-    MemoryParams m;
-    m.layout           = DataLayout::Layout2D;
-    m.element_count    = {(uint)img_width, (uint)img_height, 1};
-    m.component_type   = ComponentType::Char;
-    m.channel_count    = 4;
-    m.resource_type    = ResourceType::Texture;
-    auto image = engine.createBuffer((void**)&d_image, m);
-    engine.loadTexture(image, img_data);
-
-    ViewParams params;
-    params.element_count = img_width * img_height;
-    params.extent        = {(unsigned)img_width, (unsigned)img_height, 1};
-    params.data_domain   = DataDomain::Domain2D;
-    params.domain_type   = DomainType::Structured;
-    params.view_type     = ViewType::Image;
-    params.attributes[AttributeType::Color] = *image;
-    auto view = engine.createView(params);
-
-    cudaChannelFormatDesc format_desc;
-    format_desc.x = 8;
-    format_desc.y = 8;
-    format_desc.z = 8;
-    format_desc.w = 8;
-    format_desc.f = cudaChannelFormatKindUnsigned;
-    size_t image_width  = params.extent.x;
-    size_t image_height = params.extent.y;
-    auto cuda_extent = make_cudaExtent(image_width, image_height, 0);
+    ViewHandle view = nullptr;
+    ViewDescription desc{
+        .type   = ViewType::Image,
+        .domain = DomainType::Domain2D,
+        .attributes  = {
+            { AttributeType::Position, makeImageFrame(instance) },
+            { AttributeType::Color, {
+                .source = tex.source,
+                .size   = static_cast<unsigned int>(img_width * img_height),
+                .format = tex.format,
+            }}
+        },
+        .layout = Layout::make(img_width, img_height),
+    };
+    createView(instance, &desc, &view);
 
     cudaMipmappedArray_t cudaMipmappedImageArrayTemp = nullptr;
     checkCuda(cudaMallocMipmappedArray(
-        &cudaMipmappedImageArrayTemp, &format_desc, cuda_extent, mip_levels
+        &cudaMipmappedImageArrayTemp, &cuda_format, cuda_extent, mip_levels
     ));
     cudaMipmappedArray_t cudaMipmappedImageArrayOrig = nullptr;
     checkCuda(cudaMallocMipmappedArray(
-        &cudaMipmappedImageArrayOrig, &format_desc, cuda_extent, mip_levels
+        &cudaMipmappedImageArrayOrig, &cuda_format, cuda_extent, mip_levels
     ));
 
-    cudaResourceDesc res_desc{};
-    res_desc.resType = cudaResourceTypeMipmappedArray;
-    res_desc.res.mipmap.mipmap = cudaMipmappedImageArrayOrig;
+    cudaResourceDesc res_desc{
+        .resType = cudaResourceTypeMipmappedArray,
+        .res     = { .mipmap = { .mipmap = cudaMipmappedImageArrayOrig }},
+    };
 
-    cudaTextureDesc tex_desc{};
-    tex_desc.normalizedCoords    = true;
-    tex_desc.filterMode          = cudaFilterModeLinear;
-    tex_desc.mipmapFilterMode    = cudaFilterModeLinear;
-    tex_desc.addressMode[0]      = cudaAddressModeWrap;
-    tex_desc.addressMode[1]      = cudaAddressModeWrap;
-    tex_desc.maxMipmapLevelClamp = static_cast<float>(mip_levels - 1);
-    tex_desc.readMode            = cudaReadModeNormalizedFloat;
+    cudaTextureDesc tex_desc{
+        .addressMode         = { cudaAddressModeWrap },
+        .filterMode          = cudaFilterModeLinear,
+        .readMode            = cudaReadModeNormalizedFloat,
+        .normalizedCoords    = true,
+        .mipmapFilterMode    = cudaFilterModeLinear,
+        .maxMipmapLevelClamp = static_cast<float>(mip_levels - 1),
+    };
 
     cudaTextureObject_t tex_obj = 0;
     checkCuda(cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr));
@@ -258,7 +288,7 @@ int main(int argc, char *argv[])
         cudaArray_t mipLevelArray, mipLevelArrayTemp, mipLevelArrayOrig;
 
         checkCuda(cudaGetMipmappedArrayLevel(
-            &mipLevelArray, image->mipmap_array, level_idx
+            &mipLevelArray, mipmap_array, level_idx
         ));
         checkCuda(cudaGetMipmappedArrayLevel(
             &mipLevelArrayTemp, cudaMipmappedImageArrayTemp, level_idx
@@ -267,24 +297,26 @@ int main(int argc, char *argv[])
             &mipLevelArrayOrig, cudaMipmappedImageArrayOrig, level_idx
         ));
 
-        uint32_t width = (image_width >> level_idx) ? (image_width >> level_idx) : 1;
-        uint32_t height = (image_height >> level_idx) ? (image_height >> level_idx) : 1;
+        uint32_t width = (img_width >> level_idx) ? (img_width >> level_idx) : 1;
+        uint32_t height = (img_height >> level_idx) ? (img_height >> level_idx) : 1;
         checkCuda(cudaMemcpy2DArrayToArray(
             mipLevelArrayOrig, 0, 0, mipLevelArray, 0, 0,
             width * sizeof(uchar4), height, cudaMemcpyDeviceToDevice
         ));
 
-        cudaResourceDesc res_desc{};
-        res_desc.resType = cudaResourceTypeArray;
-        res_desc.res.array.array = mipLevelArray;
-        cudaSurfaceObject_t surf_obj;
+        cudaResourceDesc res_desc{
+            .resType = cudaResourceTypeArray,
+            .res     = { .array { .array = mipLevelArray } },
+        };
+        cudaSurfaceObject_t surf_obj = 0;
         checkCuda(cudaCreateSurfaceObject(&surf_obj, &res_desc));
         surf_obj_list.push_back(surf_obj);
 
-        cudaResourceDesc res_desc_temp{};
-        res_desc_temp.resType = cudaResourceTypeArray;
-        res_desc_temp.res.array.array = mipLevelArrayTemp;
-        cudaSurfaceObject_t surf_temp;
+        cudaResourceDesc res_desc_temp{
+            .resType = cudaResourceTypeArray,
+            .res     = { .array { .array = mipLevelArrayTemp } },
+        };
+        cudaSurfaceObject_t surf_temp = 0;
         checkCuda(cudaCreateSurfaceObject(&surf_temp, &res_desc_temp));
         surf_obj_list_temp.push_back(surf_temp);
     }
@@ -300,13 +332,14 @@ int main(int argc, char *argv[])
         sizeof(cudaSurfaceObject_t) * mip_levels, cudaMemcpyHostToDevice
     ));
 
-    engine.displayAsync();
-
     int nthreads = 128;
-    for (int i = 0; i < 999999; i++)
-    {
-        engine.prepareViews();
 
+    // instance does not run before starting display
+    assert(!isRunning(instance));
+    displayAsync(instance);
+    while (isRunning(instance))
+    {
+        prepareViews(instance);
         // Perform 2D box filter on image using CUDA
         d_boxfilter_rgba_x<<<img_height / nthreads, nthreads >>>(
             d_surf_list_temp, tex_obj, img_width, img_height, mip_levels, filter_radius
@@ -315,13 +348,13 @@ int main(int argc, char *argv[])
             d_surf_list, d_surf_list_temp, img_width, img_height, mip_levels, filter_radius
         );
         varySigma();
-
-        engine.updateViews();
+        updateViews(instance);
     }
 
     checkCuda(cudaDestroyTextureObject(tex_obj));
     checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayTemp));
     checkCuda(cudaFreeMipmappedArray(cudaMipmappedImageArrayOrig));
+    destroyInstance(instance);
 
     return EXIT_SUCCESS;
 }

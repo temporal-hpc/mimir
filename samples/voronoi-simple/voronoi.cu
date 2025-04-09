@@ -3,9 +3,8 @@
 #include <limits> // std::numeric_limits
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 constexpr float max_distance = std::numeric_limits<float>::max();
 
@@ -181,61 +180,48 @@ int main(int argc, char *argv[])
     if (argc >= 3) grid_size   = std::stoul(argv[2]);
     if (argc >= 4) iter_count  = std::stod(argv[3]);
 
-    float *d_vd_dists      = nullptr;
-    float4 *d_vd_colors    = nullptr;
-    float2 *d_coords       = nullptr;
-    float4 *d_grid[2]      = {nullptr, nullptr};
-    float3 *d_colors       = nullptr;
-    int2 extent            = {grid_size, grid_size};
-    curandState *d_states  = nullptr;
+    float *d_vd_dists     = nullptr;
+    float4 *d_vd_colors   = nullptr;
+    float2 *d_coords      = nullptr;
+    float4 *d_grid[2]     = {nullptr, nullptr};
+    float3 *d_colors      = nullptr;
+    int2 extent           = {grid_size, grid_size};
+    curandState *d_states = nullptr;
 
-    MimirEngine engine;
-    engine.init(1920, 1080);
+    InstanceHandle instance = nullptr;
+    createInstance(1920, 1080, &instance);
 
-    MemoryParams m1;
-    m1.layout          = DataLayout::Layout1D;
-    m1.element_count.x = point_count;
-    m1.component_type  = ComponentType::Float;
-    m1.channel_count   = 2;
-    m1.resource_type   = ResourceType::Buffer;
-    auto points = engine.createBuffer((void**)&d_coords, m1);
+    AllocHandle seeds, colors;
+    allocLinear(instance, (void**)&d_coords, sizeof(float2) * point_count, &seeds);
+    allocLinear(instance, (void**)&d_vd_colors, sizeof(float4) * extent.x * extent.y, &colors);
 
-    ViewParams p1;
-    p1.element_count = point_count;
-    p1.extent        = {(unsigned)extent.x, (unsigned)extent.y, 1};
-    p1.data_domain   = DataDomain::Domain2D;
-    p1.domain_type   = DomainType::Unstructured;
-    p1.view_type     = ViewType::Markers;
-    p1.attributes[AttributeType::Position] = *points;
-    p1.options.default_color = {0,0,1,1};
-    auto v1 = engine.createView(p1);
+    ViewHandle v1 = nullptr, v2 = nullptr;
+    ViewDescription desc;
+    desc.layout = Layout::make(point_count);
+    desc.domain = DomainType::Domain2D;
+    desc.type   = ViewType::Markers;
+    desc.attributes[AttributeType::Position] = {
+        .source = seeds,
+        .size   = point_count,
+        .format = FormatDescription::make<float2>(),
+    };
+    desc.default_size = 1.f;
+    // Move points closer to display them before the distance field and avoid z-fighting
+    desc.position     = {-6.f, -6.f, -0.001f};
+    desc.scale        = {0.1f, 0.1f, 0.1f};
+    createView(instance, &desc, &v1);
 
-    MemoryParams m2;
-    m2.layout         = DataLayout::Layout2D;
-    m2.element_count  = {(unsigned)extent.x, (unsigned)extent.y, 1};
-    m2.component_type = ComponentType::Float;
-    m2.channel_count  = 4;
-    m2.resource_type  = ResourceType::LinearTexture;
-    auto image = engine.createBuffer((void**)&d_vd_colors, m2);
-
-    ViewParams p2;
-    p2.element_count = extent.x * extent.y;
-    p2.data_domain   = DataDomain::Domain2D;
-    p2.domain_type   = DomainType::Structured;
-    p2.view_type     = ViewType::Image;
-    p2.attributes[AttributeType::Color] = *image;
-    auto v2 = engine.createView(p2);
-
-    //cudaMalloc((void**)&d_coords, sizeof(float2) * point_count);
-    //cudaMalloc((void**)&d_vd_colors, sizeof(float) * extent.x * extent.y);*/
-
-    /*params.element_count = extent.x * extent.y;
-    params.component_type     = ComponentType::Float;
-    params.channel_count = 1;
-    params.resource_type = ResourceType::Buffer;
-    params.domain_type   = DomainType::Structured;
-    params.element_type  = ElementType::Image;
-    engine.createView((void**)&d_vd_dists, params);*/
+    desc.layout = Layout::make(extent.x, extent.y);
+    desc.type = ViewType::Voxels;
+    desc.attributes[AttributeType::Position] = makeStructuredGrid(instance, desc.layout);
+    desc.attributes[AttributeType::Color] = {
+        .source = colors,
+        .size   = (uint)(extent.x * extent.y),
+        .format = FormatDescription::make<float4>(),
+    };
+    desc.default_size = 100.f;
+    desc.position.z   = 0.f;
+    createView(instance, &desc, &v2);
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
     checkCuda(cudaMalloc(&d_colors, sizeof(float3) * point_count));
@@ -253,6 +239,7 @@ int main(int argc, char *argv[])
     initJumpFlood(d_grid[1], d_coords, point_count, extent);
 
     // Start rendering loop
+    setCameraPosition(instance, {0.f, 0.f, -10.f});
     auto timestep_function = [&]
     {
         dim3 threads{128};
@@ -263,7 +250,7 @@ int main(int argc, char *argv[])
         initJumpFlood(d_grid[1], d_coords, point_count, extent);
         jumpFlood(d_vd_dists, d_vd_colors, d_grid, d_colors, extent);
     };
-    engine.display(timestep_function, iter_count);
+    display(instance, timestep_function, iter_count);
 
     checkCuda(cudaDeviceSynchronize());
     checkCuda(cudaFree(d_grid[0]));

@@ -1,100 +1,32 @@
-#include "internal/gui.hpp"
+#include <mimir/mimir.hpp>
+#include "mimir/gui.hpp"
+#include "mimir/api.hpp"
+#include "mimir/framelimit.hpp"
+#include "mimir/camera.hpp"
 
 #include <imgui.h>
-#include <ImGuiFileDialog.h>
-#include <fmt/core.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/fmt.h>
 
-#include <array> // std::array
+#include <limits> // std::numeric_limits
 
-namespace mimir
+namespace mimir::gui
 {
 
-static std::array<ViewType, 4> kAllViewTypes = {
-    ViewType::Markers,
-    ViewType::Edges,
-    ViewType::Voxels,
-    ViewType::Image
-};
-static std::array<DomainType, 2> kAllDomains = {
-    DomainType::Structured,
-    DomainType::Unstructured
-};
-/*
-static std::array<ResourceType, 4> kAllResources = {
-    ResourceType::Buffer,
-    ResourceType::IndexBuffer,
-    ResourceType::Texture,
-    ResourceType::LinearTexture
-};
-static std::array<ComponentType, 7> kAllComponentTypes = {
-    ComponentType::Int,
-    ComponentType::Long,
-    ComponentType::Short,
-    ComponentType::Char,
-    ComponentType::Float,
-    ComponentType::Double,
-    ComponentType::Half
-};*/
-
-struct AllResources
+std::string formatLayout(Layout layout)
 {
-    static bool ItemGetter(void* data, int n, const char** out_str)
+    int dim_count = (layout.x > 1) + (layout.y > 1) + (layout.z > 1);
+    switch (dim_count)
     {
-        *out_str = getResourceType(((ResourceType*)data)[n]);
-        return true;
-    }
-};
-struct AllDomains
-{
-    static bool ItemGetter(void* data, int n, const char** out_str)
-    {
-        *out_str = getDomainType(((DomainType*)data)[n]);
-        return true;
-    }
-};
-struct AllViewTypes
-{
-    static bool ItemGetter(void* data, int n, const char** out_str)
-    {
-        *out_str = getViewType(((ViewType*)data)[n]);
-        return true;
-    }
-};
-struct AllComponentTypes
-{
-    static bool ItemGetter(void* data, int n, const char** out_str)
-    {
-        *out_str = getComponentType(((ComponentType*)data)[n]);
-        return true;
-    }
-};
-
-std::string getExtent(uint3 extent, DataDomain domain)
-{
-    switch (domain)
-    {
-        case DataDomain::Domain2D:
-        {
-            return fmt::format("({},{})", extent.x, extent.y);
-        }
-        case DataDomain::Domain3D:
-        {
-            return fmt::format("({},{},{})", extent.x, extent.y, extent.z);
-        }
-        default: return "unknown";
+        case 3: { return fmt::format("({},{},{})", layout.x, layout.y, layout.z); }
+        case 2: { return fmt::format("({},{})", layout.x, layout.y); }
+        case 1: default: { return fmt::format("{}", layout.x, layout.y); }
     }
 }
 
-void addTableRow(const std::string& key, const std::string& value)
-{
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s", key.c_str());
-    ImGui::TableSetColumnIndex(1);
-    ImGui::Text("%s", value.c_str());
-}
-
+// Helper for adding a GUI table row showing a combo box for setting values at runtime
 bool addTableRowCombo(const std::string& key, int* current_item,
     bool(*items_getter)(void* data, int idx, const char** out_text),
     void* data, int items_count)
@@ -107,60 +39,201 @@ bool addTableRowCombo(const std::string& key, int* current_item,
     return ImGui::Combo(key.c_str(), current_item, items_getter, data, items_count);
 }
 
-void addViewObjectGui(InteropView *view_ptr, int uid)
+// Helper for adding a GUI table row showing static info
+void addTableRow(const std::string& key, const std::string& value)
+{
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", key.c_str());
+    ImGui::TableSetColumnIndex(1);
+    ImGui::Text("%s", value.c_str());
+}
+
+void addTableRowOptions(ViewType type, ViewOptions options)
+{
+    switch (type)
+    {
+        case ViewType::Markers:
+        {
+            auto marker = std::get<MarkerOptions>(options);
+            addTableRow("Shape", getMarkerShape(marker.shape));
+            break;
+        }
+        case ViewType::Edges:
+        {
+            auto mesh = std::get<MeshOptions>(options);
+            addTableRow("Periodic", mesh.periodic? "yes" : "no");
+            break;
+        }
+        // Don't know / don't care
+        default: { return; }
+    }
+}
+
+void addViewHandleGUI(View *view_ptr, int uid)
 {
     ImGui::PushID(view_ptr);
-    auto& params = view_ptr->params;
-    //bool node_open = ImGui::TreeNode("Object", "%s_%u", "View", uid);
+    auto& desc = view_ptr->desc;
     bool node_open = ImGui::CollapsingHeader("", ImGuiTreeNodeFlags_AllowItemOverlap);
     ImGui::SameLine(); ImGui::Text("%s #%u", "View", uid);
-    ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &params.options.visible);
+    ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &desc.visible);
     if (node_open)
     {
-        bool type_check = ImGui::Combo("View type", (int*)&params.view_type,
-            &AllViewTypes::ItemGetter, kAllViewTypes.data(), kAllViewTypes.size()
+        ImGui::ColorEdit4("Element color", &desc.default_color.x);
+        const float f32_zero = 0.f;
+        const float f32_max  = 10000.f;
+        ImGui::DragScalar("Element size", ImGuiDataType_Float, &desc.default_size,
+            0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
         );
-        if (type_check) printf("View %d: switched view type to %s\n", uid, getViewType(params.view_type));
-        bool dom_check = ImGui::Combo("Domain type", (int*)&params.domain_type,
-            &AllDomains::ItemGetter, kAllDomains.data(), kAllDomains.size()
+        ImGui::DragScalar("Line width", ImGuiDataType_Float, &desc.linewidth,
+            0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
         );
-        if (dom_check) printf("View %d: switched domain type to %s\n", uid, getDomainType(params.domain_type));
-        ImGui::SliderFloat("Element size (px)", &params.options.default_size, 1.f, 100.f);
-        ImGui::ColorEdit4("Element color", (float*)&params.options.default_color);
-        ImGui::SliderFloat("depth", &params.options.depth, 0.f, 1.f);
-        if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+        ImGui::DragScalar("Antialias", ImGuiDataType_Float, &desc.antialias,
+            0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
+        );
+        // ImGui::SliderFloat("depth", &desc.options.depth, 0.f, 1.f);
+
+        // if (desc.offsets.size() > 0)
+        // {
+        //     int min_scenario = 0;
+        //     int max_scenario = desc.offsets.size() - 1;
+        //     ImGui::SliderScalar("scenario", ImGuiDataType_S32, &desc.options.scenario_index, &min_scenario, &max_scenario);
+        // }
+
+        bool in_pos = ImGui::InputFloat3("Position", &desc.position.x, "%.3f");
+        bool in_rot = ImGui::InputFloat3("Rotation", &desc.rotation.x, "%.3f");
+        bool in_scale = ImGui::InputFloat3("Scale", &desc.scale.x, "%.3f");
+
+        if (in_pos)   { translateView(view_ptr, desc.position); }
+        if (in_rot)   { rotateView(view_ptr, desc.rotation); }
+        if (in_scale) { scaleView(view_ptr, desc.scale); }
+
+        ImGuiTableFlags table_flags = ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable;
+        if (ImGui::BeginTable("split", 2, table_flags))
         {
-            addTableRow("Data domain", getDataDomain(params.data_domain));
-            addTableRow("Data extent", getExtent(params.extent, params.data_domain));
+            addTableRow("Type",   getViewType(desc.type));
+            addTableRow("Domain", getDomainType(desc.domain));
+            addTableRow("Layout", formatLayout(desc.layout));
+            addTableRow("Style",  getShapeStyle(desc.style));
+            addTableRowOptions(desc.type, desc.options);
             ImGui::EndTable();
         }
-        for (const auto &[attr, memory] : params.attributes)
+        for (const auto &[type, attr] : desc.attributes)
         {
-            if (ImGui::BeginTable("split", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable))
+            if (ImGui::BeginTable("split", 2, table_flags))
             {
-                auto& info = memory.params;
-                //addTableRow("Element count", std::to_string(info.element_count));
-                addTableRow("Attribute type", getAttributeType(attr));
-                addTableRow("Resource type", getResourceType(info.resource_type));
-                addTableRow("Data type", getComponentType(info.component_type));
-                addTableRow("Channel count", std::to_string(info.channel_count));
-                addTableRow("Data layout", getDataLayout(info.layout));
-
-                /*bool res_check = addTableRowCombo("Resource type", (int*)&info.resource_type,
-                    &AllResources::ItemGetter, kAllResources.data(), kAllResources.size()
-                );
-                if (res_check) printf("View %d: switched resource type to %s\n", uid, getResourceType(info.resource_type));
-                bool data_check = addTableRowCombo("Data type", (int*)&info.component_type,
-                    &AllComponentTypes::ItemGetter, kAllComponentTypes.data(), kAllComponentTypes.size()
-                );
-                if (data_check) printf("View %d: switched data type to %s\n", uid, getComponentType(info.component_type));*/
-
+                addTableRow("Element count",  std::to_string(attr.size));
+                addTableRow("Attribute type", getAttributeType(type));
+                addTableRow("Data type",      getDataType(attr.format));
+                addTableRow("Channel count",  std::to_string(attr.format.components));
                 ImGui::EndTable();
             }
         }
-        //ImGui::TreePop();
     }
     ImGui::PopID();
 }
 
-} // namespace mimir
+void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
+    const std::function<void(void)>& callback)
+{
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    if (opts.show_demo_window) { ImGui::ShowDemoWindow(); }
+    if (opts.show_metrics) { ImGui::ShowMetricsWindow(); }
+
+    if (opts.show_panel)
+    {
+        ImGui::Begin("Scene parameters");
+        //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
+        ImGui::ColorEdit3("Clear color", (float*)&opts.background_color);
+
+        bool cam_pos = ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f");
+        bool cam_rot = ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f");
+
+        if (cam_pos) { cam.setPosition(cam.position); }
+        if (cam_rot) { cam.setRotation(cam.rotation); }
+
+        const float f32_zero = 0.f;
+        const float f32_max  = 360.f;
+        bool set_fov = ImGui::DragScalar("FOV", ImGuiDataType_Float, &cam.fov,
+            0.005f, &f32_zero, &f32_max, "%.3f"
+        );
+        bool set_znear = ImGui::InputFloat("Near plane", &cam.near_clip);
+        bool set_zfar = ImGui::InputFloat("Far plane", &cam.far_clip);
+        if (set_fov || set_znear || set_zfar)
+        {
+            float aspect = (float)opts.window.size.x / (float)opts.window.size.y;
+            cam.setPerspective(cam.fov, aspect, cam.near_clip, cam.far_clip);
+        }
+
+        // Use a separate flag for choosing whether to enable the FPS limit target value
+        // This avoids the unpleasant feeling of going from 0 (no FPS limit)
+        // to 1 (the lowest value) in a single step
+        auto& op = opts.present;
+        ImGui::Checkbox("Enable FPS limit", &op.enable_fps_limit);
+        ImGui::BeginDisabled(!opts.present.enable_fps_limit);
+        ImGuiSliderFlags slider_flags = ImGuiSliderFlags_AlwaysClamp;
+        if (ImGui::SliderInt("FPS target", &op.target_fps, 1, 240, "%d%", slider_flags))
+        {
+            op.target_frame_time = getTargetFrameTime(op.enable_fps_limit, op.target_fps);
+        }
+        ImGui::EndDisabled();
+
+        // Add tabs for showing view parameters
+        for (size_t i = 0; i < views.size(); ++i) { addViewHandleGUI(views[i], i); }
+        ImGui::End();
+        callback(); // Display user-provided addons
+    }
+
+    ImGui::Render();
+}
+
+void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescriptorPool pool,
+    VkRenderPass pass, VulkanQueue queue, const GlfwContext& win_ctx)
+{
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForVulkan(win_ctx.window, true);
+
+    ImGui_ImplVulkan_InitInfo info{
+        .Instance                    = instance,
+        .PhysicalDevice              = ph_dev,
+        .Device                      = device,
+        .QueueFamily                 = queue.family_index,
+        .Queue                       = queue.queue,
+        .DescriptorPool              = pool,
+        .RenderPass                  = pass,
+        .MinImageCount               = 3, // TODO: Check if this is true
+        .ImageCount                  = 3,
+        .MSAASamples                 = VK_SAMPLE_COUNT_1_BIT,
+        .PipelineCache               = nullptr,
+        .Subpass                     = 0,
+        .DescriptorPoolSize          = 0,
+        .UseDynamicRendering         = false,
+        .PipelineRenderingCreateInfo = {},
+        .Allocator                   = nullptr,
+        .CheckVkResultFn             = nullptr,
+        .MinAllocationSize           = 0,
+    };
+    ImGui_ImplVulkan_Init(&info);
+}
+
+void render(VkCommandBuffer cmd)
+{
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+}
+
+void handleResize(uint32_t image_count)
+{
+    ImGui_ImplVulkan_SetMinImageCount(image_count);
+}
+
+void shutdown()
+{
+    ImGui_ImplVulkan_Shutdown();
+}
+
+} // namespace mimir::gui

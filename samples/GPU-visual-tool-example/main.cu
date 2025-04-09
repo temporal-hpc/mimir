@@ -7,9 +7,8 @@
 #include <thread> // std::thread
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 #define VEL 0.1
 #define BSIZE 256
@@ -74,52 +73,55 @@ int main(int argc, char *argv[]) {
     //CUDA_CALL(cudaMalloc((void **)&dPoints, n * sizeof(float2)));
     CUDA_CALL(cudaMalloc((void **)&dStates, n * sizeof(curandState)));
 
-    int width = 900, height = 900;
-    MimirEngine engine;
-
     // [VULKAN] I) CREAR UNA VENTANA VULKAN
     // FLIB_crearVentanaAsync(WIDTH, HEIGHT, ...)
     // [OTRA OPCION] FLIB_crearVentanaSync(WIDTH, HEIGHT, ...)
     // En este momento, la ventana podria aparecer (en negro, sin datos aun)
-    engine.init(width, height);
+    InstanceHandle instance = nullptr;
+    createInstance(900, 900, &instance);
 
     // [VULKAN] II) "PASAR LOS DATOS AL VISUALIZADOR"
     // FLIB_linkData(&dPoints);
     // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
     // En este momento, la ventana podria verse con el contenido de 'dPoints'
-    MemoryParams mem;
-    mem.layout          = DataLayout::Layout1D;
-    mem.element_count.x = n;
-    mem.component_type  = ComponentType::Float;
-    mem.channel_count   = 2;
-    mem.resource_type   = ResourceType::Buffer;
-    auto pointsmem = engine.createBuffer((void**)&dPoints, mem);
+    AllocHandle points;
+    allocLinear(instance, (void**)&dPoints, sizeof(float2) * n, &points);
 
-    ViewParams params;
-    params.element_count = n;
-    params.data_domain   = DataDomain::Domain2D;
-    params.domain_type   = DomainType::Unstructured;
-    params.view_type     = ViewType::Markers;
-    params.attributes[AttributeType::Position] = *pointsmem;
-    params.options.default_size = .1f;
-    engine.createView(params);
+    ViewHandle view = nullptr;
+    ViewDescription desc
+    {
+        .type   = ViewType::Markers,
+        .domain = DomainType::Domain2D,
+        .attributes = {
+            { AttributeType::Position, {
+                .source = points,
+                .size   = static_cast<unsigned int>(n),
+                .format = FormatDescription::make<float2>(),
+            }}
+        },
+        .layout       = Layout::make(n),
+        .default_size = .01f,
+        .linewidth    = .01f,
+        .position     = {-0.5, -0.5, 0.f}
+    };
+    createView(instance, &desc, &view);
 
     /* SIMULATION */
     kernel_init<<<g, b>>>(n, seed, dPoints, dStates);
     cudaDeviceSynchronize();
 
-    engine.displayAsync();
+    displayAsync(instance);
 
     for(int i = 0; i < steps; i++) {
         // simulation step (SI FUESE VULKAN-ASYNC, entonces cada modificacion en
         // 'dPoints' se ve refleada inmediatamente en la ventana async)
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        engine.prepareViews();
+        prepareViews(instance);
 
         kernel_random_movement<<<g, b>>>(n, dPoints, dStates);
         cudaDeviceSynchronize();
         // [OPCIONAL, SI FUESE 'SYNC'] franciscoLIB_updateViews(&dPoints);
-        engine.updateViews();
+        updateViews(instance);
 
         #ifdef DEBUG
             printf("[DEBUG] simulation step %i:\n", i);
@@ -140,6 +142,7 @@ int main(int argc, char *argv[]) {
     /* Cleanup */
     CUDA_CALL(cudaFree(dStates));
     CUDA_CALL(cudaFree(dPoints));
+    destroyInstance(instance);
     free(hPoints);
 
     return EXIT_SUCCESS;

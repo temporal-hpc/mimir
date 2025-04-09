@@ -3,9 +3,8 @@
 #include <string> // std::stoul
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 __global__
 void initSystem(double2 *coords, double *sizes, size_t point_count,
@@ -48,10 +47,10 @@ void integrate2d(double2 *coords, size_t point_count, curandState *states, int2 
 
 int main(int argc, char *argv[])
 {
-    size_t point_count    = 100;
-    size_t iter_count     = 10000;
+    unsigned point_count  = 100;
+    unsigned iter_count   = 10000;
     double2 *d_coords     = nullptr;
-    double *d_sizes        = nullptr;
+    double *d_sizes       = nullptr;
     curandState *d_states = nullptr;
     int2 extent           = {200, 200};
     unsigned block_size   = 256;
@@ -59,72 +58,70 @@ int main(int argc, char *argv[])
     unsigned seed         = 123456;
 
     if (argc >= 2) point_count = std::stoul(argv[1]);
-    if (argc >= 3) iter_count = std::stoul(argv[2]);
-    try
+    if (argc >= 3) iter_count  = std::stoul(argv[2]);
+
+    // Initialize instance
+    ViewerOptions options;
+    options.window.size  = {1920,1080}; // Starting window size
+    options.present.mode = PresentMode::Immediate;
+
+    InstanceHandle instance = nullptr;
+    createInstance(options, &instance);
+
+    AllocHandle points, sizes;
+    allocLinear(instance, (void**)&d_coords, sizeof(double2) * point_count, &points);
+    allocLinear(instance, (void**)&d_sizes, sizeof(double) * point_count, &sizes);
+
+    ViewHandle view = nullptr;
+    ViewDescription desc{
+        .type   = ViewType::Markers,
+        .options     = MarkerOptions{
+            .shape     = MarkerOptions::Shape::Disc,
+        },
+        .domain = DomainType::Domain2D,
+        .attributes  = {
+            { AttributeType::Position, {
+                .source = points,
+                .size   = point_count,
+                .format = FormatDescription::make<double2>(),
+            }},
+            // { AttributeType::Size, {
+            //     .source     = sizes,
+            //     .size       = point_count,
+            //     .format     = FormatDescription::make<double>(),
+            // }},
+        },
+        .layout = Layout::make(point_count),
+        .style  = ShapeStyle::Filled,
+        .default_size = 10.f,
+        .position = {-10.f, -10.f, 0.f},
+        .scale    = { 0.1f, 0.1f, 0.1f },
+    };
+    createView(instance, &desc, &view);
+
+    // Cannot make CUDA calls that use the target device memory before
+    // registering it on the instance
+    //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
+    checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
+    initSystem<<<grid_size, block_size>>>(
+        d_coords, d_sizes, point_count, d_states, extent, seed
+    );
+    checkCuda(cudaDeviceSynchronize());
+
+    // Set up the cuda code that updates the view buffer as a lambda function
+    auto cuda_call = [&]
     {
-        // Initialize engine
-        ViewerOptions options;
-        options.window_size = {1920,1080}; // Starting window size
-        options.present = PresentOptions::VSync;
-        MimirEngine engine;
-        engine.init(options);
-
-        MemoryParams m;
-        m.layout          = DataLayout::Layout1D;
-        m.element_count.x = point_count;
-        m.component_type  = ComponentType::Double;
-        m.channel_count   = 2;
-        m.resource_type   = ResourceType::Buffer;
-        auto points = engine.createBuffer((void**)&d_coords, m);
-
-        m.component_type  = ComponentType::Double;
-        m.channel_count   = 1;
-        auto sizes = engine.createBuffer((void**)&d_sizes, m);
-
-        ViewParams params;
-        params.element_count = point_count;
-        params.extent        = {200, 200, 1};
-        params.data_domain   = DataDomain::Domain2D;
-        params.domain_type   = DomainType::Unstructured;
-        params.view_type     = ViewType::Markers;
-        params.options.default_size = 20.f;
-        /*params.options.external_shaders = {
-            {"shaders/marker_vertexMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-            {"shaders/marker_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
-            {"shaders/marker_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-        };*/
-        params.attributes[AttributeType::Position] = *points;
-        params.attributes[AttributeType::Size] = *sizes;
-        engine.createView(params);
-
-        // Cannot make CUDA calls that use the target device memory before
-        // registering it on the engine
-        //checkCuda(cudaMalloc(&d_coords, sizeof(double2) * point_count));
-        checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
-        initSystem<<<grid_size, block_size>>>(
-            d_coords, d_sizes, point_count, d_states, extent, seed
-        );
+        integrate2d<<< grid_size, block_size >>>(d_coords, point_count, d_states, extent);
         checkCuda(cudaDeviceSynchronize());
-
-        // Set up the cuda code that updates the view buffer as a lambda function
-        auto cuda_call = [&]
-        {
-            integrate2d<<< grid_size, block_size >>>(
-                d_coords, point_count, d_states, extent
-            );
-            checkCuda(cudaDeviceSynchronize());
-        };
-        // Start rendering loop with the above function
-        engine.display(cuda_call, iter_count);
-    }
-    catch (const std::exception& e)
-    {
-        std::cerr << e.what() << std::endl;
-    }
+    };
+    // Start rendering loop with the above function
+    setCameraPosition(instance, {0.f, 0.f, -20.f});
+    display(instance, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
     checkCuda(cudaFree(d_sizes));
+    destroyInstance(instance);
 
     return EXIT_SUCCESS;
 }

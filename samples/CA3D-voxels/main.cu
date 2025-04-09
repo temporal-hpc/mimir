@@ -13,9 +13,8 @@
 #include "openmp3D.h"
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 int main(int argc, char **argv){
     if(argc != 8){
@@ -24,7 +23,7 @@ int main(int argc, char **argv){
     }
     const char *map[2] = {"CPU", "GPU"};
     // args
-    long n       = atoi(argv[1]);
+    long n      = atoi(argv[1]);
     int nt      = atoi(argv[2]);
     int B       = atoi(argv[3]);
     int seed    = atoi(argv[4]);
@@ -58,48 +57,53 @@ int main(int argc, char **argv){
     init_prob(n, original, seed, prob);
 
     int width = 1920, height = 1080;
-    MimirEngine engine;
-    engine.init(width, height);
+    InstanceHandle instance = nullptr;
+    createInstance(width, height, &instance);
 
-    MemoryParams mp;
-    mp.layout         = DataLayout::Layout3D;
-    mp.element_count  = {(uint)n, (uint)n, (uint)n};
-    mp.component_type = ComponentType::Int;
-    mp.channel_count  = 1;
-    mp.resource_type  = ResourceType::Buffer;
-    //mp.resource_type  = ResourceType::LinearTexture;
-    auto m1 = engine.createBuffer((void**)&d1, mp);
-    auto m2 = engine.createBuffer((void**)&d2, mp);
+    AllocHandle ping, pong, colormap;
+    allocLinear(instance, (void**)&d1, sizeof(int) * n*n*n, &ping);
+    allocLinear(instance, (void**)&d2, sizeof(int) * n*n*n, &pong);
 
-    ViewParams params;
-    params.element_count = n * n * n;
-    params.extent        = {(unsigned)n, (unsigned)n, (unsigned)n};
-    params.data_domain   = DataDomain::Domain3D;
-    params.domain_type   = DomainType::Structured;
-    params.view_type     = ViewType::Voxels;
-    //params.view_type     = ViewType::Image;
-    params.attributes[AttributeType::Color] = *m1;
-    params.options.default_size = 5.f;
-    /*params.options.external_shaders = {
-        {"shaders/voxel_vertexImplicitMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-        {"shaders/voxel_geometryMain.spv", VK_SHADER_STAGE_GEOMETRY_BIT},
-        {"shaders/voxel_fragmentMain.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };*/
-    /*params.options.external_shaders = {
-        {"shaders/texture_vertex3dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-        {"shaders/texture_frag3d_Float1.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };*/
-    auto v1 = engine.createView(params);
+    float4 *d_colors = nullptr;
+    float4 h_colors[2] = { {1,1,1,0.5}, {0,0,1,1} };
+    unsigned int num_colors = std::size(h_colors);
+    auto color_bytes = sizeof(float4) * num_colors;
+    allocLinear(instance, (void**)&d_colors, color_bytes, &colormap);
+    gpuErrchk(cudaMemcpy(d_colors, h_colors, color_bytes, cudaMemcpyHostToDevice));
 
-    params.attributes[AttributeType::Color] = *m2;
-    params.options.visible = false;
-    auto v2 = engine.createView(params);
+    auto grid_layout = Layout::make(n, n, n);
+    uint32_t index_count = n * n * n;
+    ViewHandle v1 = nullptr, v2 = nullptr;
+    ViewDescription desc{
+        .type   = ViewType::Voxels,
+        .domain = DomainType::Domain3D,
+        .attributes  = {
+            { AttributeType::Position, makeStructuredGrid(instance, grid_layout) },
+            { AttributeType::Color, {
+                .source   = colormap,
+                .size     = num_colors,
+                .format   = FormatDescription::make<float4>(),
+                .indexing = {
+                    .source     = ping,
+                    .size       = index_count,
+                    .index_size = sizeof(int),
+                }
+            }}
+        },
+        .layout       = grid_layout,
+        .default_size = 10.f,
+    };
+    createView(instance, &desc, &v1);
+
+    desc.attributes[AttributeType::Color].indexing.source = pong;
+    desc.visible = false;
+    createView(instance, &desc, &v2);
 
     // TODO CAMBIAR A 2D
     gpuErrchk(cudaMemcpy(d1, original, sizeof(int)*n*n*n, cudaMemcpyHostToDevice));
     printf("done: %f secs\n", omp_get_wtime() - t1);
 
-    engine.displayAsync();
+    displayAsync(instance);
 
     // ejecucion
     print_cube(n, original, "INPUT");
@@ -120,16 +124,16 @@ int main(int argc, char **argv){
             cudaEventRecord(start);
 
             // llamada al kernel
-            engine.prepareViews();
+            prepareViews(instance);
 
             kernel_CA3D<<<grid, block>>>(n, d1, d2);
             gpuErrchk( cudaPeekAtLastError() );
             gpuErrchk( cudaDeviceSynchronize() );
 
-            v1->toggleVisibility();
-            v2->toggleVisibility();
+            toggleVisibility(v1);
+            toggleVisibility(v2);
 
-            engine.updateViews();
+            updateViews(instance);
 
             // tiempo y print
             cudaEventRecord(stop);
@@ -164,4 +168,5 @@ int main(int argc, char **argv){
         }
     }
     printf("Finished running all steps\n");
+    destroyInstance(instance);
 }

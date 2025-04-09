@@ -1,203 +1,240 @@
-#include <mimir/mimir.hpp>
-#include <mimir/validation.hpp>
-#include <mimir/engine/vk_framebuffer.hpp>
-#include <mimir/engine/vk_swapchain.hpp>
+#include "mimir/engine.hpp"
+#include "mimir/mimir.hpp"
 
-#include "internal/camera.hpp"
-#include "internal/framelimit.hpp"
-#include "internal/gui.hpp"
-#include "internal/vk_pipeline.hpp"
-#include "internal/vk_properties.hpp"
-#include "internal/window.hpp"
+#include "mimir/api.hpp"
+#include "mimir/framelimit.hpp"
+#include "mimir/gui.hpp"
+#include "mimir/resources.hpp"
+#include "mimir/validation.hpp"
+#include "mimir/shader_types.hpp"
 
-#include <dlfcn.h> // dladdr
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_vulkan.h>
+#include <iostream>
 #include <chrono> // std::chrono
-#include <filesystem> // std::filesystem
+#include <set> // std::set
 
 namespace mimir
 {
 
-void setColor(float *vk_color, float4 color)
+VkPresentModeKHR getDesiredPresentMode(PresentMode opts)
 {
-    vk_color[0] = color.x;
-    vk_color[1] = color.y;
-    vk_color[2] = color.z;
-    vk_color[3] = color.w;
-}
-
-glm::vec4 getColor(float4 color)
-{
-    glm::vec4 colorvec;
-    colorvec.x = color.x;
-    colorvec.y = color.y;
-    colorvec.z = color.z;
-    colorvec.w = color.w;
-    return colorvec;
-}
-
-// Setup the shader path so that the library can actually load them
-// Hack-ish, but works for now
-std::string getDefaultShaderPath()
-{
-    // If shaders are installed in library path, set working directory there
-    Dl_info dl_info;
-    dladdr((void*)getDefaultShaderPath, &dl_info);
-    auto lib_pathname = dl_info.dli_fname;
-    if (lib_pathname != nullptr)
+    switch (opts)
     {
-        std::filesystem::path lib_path(lib_pathname);
-        return lib_path.parent_path().string();
-    }
-    else // Use executable path as working dir
-    {
-        auto exe_folder = std::filesystem::read_symlink("/proc/self/exe").remove_filename();
-        return exe_folder;
+        case PresentMode::Immediate:       return VK_PRESENT_MODE_IMMEDIATE_KHR;
+        case PresentMode::VSync:           return VK_PRESENT_MODE_FIFO_KHR;
+        case PresentMode::TripleBuffering: return VK_PRESENT_MODE_MAILBOX_KHR;
+        default:                           return VK_PRESENT_MODE_IMMEDIATE_KHR;
     }
 }
 
-MimirEngine::MimirEngine():
-    camera{ std::make_unique<Camera>() },
-    shader_path{ getDefaultShaderPath() }
-{}
+uint32_t getAlignedSize(size_t original_size, size_t min_alignment)
+{
+	// Calculate required alignment based on minimum device offset alignment
+	size_t aligned_size = original_size;
+	if (min_alignment > 0)
+    {
+		aligned_size = (aligned_size + min_alignment - 1) & ~(min_alignment - 1);
+	}
+	return aligned_size;
+}
 
-MimirEngine::~MimirEngine()
+// Creates a camera initialized with sensible defaults
+Camera defaultCamera(int width, int height)
+{
+    auto camera = Camera::make();
+    camera.type           = Camera::CameraType::LookAt;
+    camera.rotation_speed = 0.5f;
+    camera.setPosition(glm::vec3(0.f, 0.f, -2.85f));
+    camera.setRotation(glm::vec3(0.f, 0.f, 0.f));
+    camera.setPerspective(70.f, (float)width / (float)height, 10000.f, 0.1f);
+    return camera;
+}
+
+MimirInstance MimirInstance::make(ViewerOptions opts)
+{
+    MimirInstance engine{
+        .options           = opts,
+        .instance          = VK_NULL_HANDLE,
+        .physical_device   = {},
+        .graphics          = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
+        .present           = { .family_index = ~0u, .queue = VK_NULL_HANDLE },
+        .device            = VK_NULL_HANDLE,
+        .command_pool      = VK_NULL_HANDLE,
+        .render_pass       = VK_NULL_HANDLE,
+        .descriptor_layout = VK_NULL_HANDLE,
+        .pipeline_layout   = VK_NULL_HANDLE,
+        .descriptor_pool   = VK_NULL_HANDLE,
+        .surface           = VK_NULL_HANDLE,
+        .swapchain         = {},
+        .pipeline_builder  = {},
+        .framebuffers      = {},
+        .command_buffers   = { VK_NULL_HANDLE },
+        .descriptor_sets   = { VK_NULL_HANDLE },
+        .gui_callback      = []() { return; },
+        .depth_image       = VK_NULL_HANDLE,
+        .depth_memory      = VK_NULL_HANDLE,
+        .depth_view        = VK_NULL_HANDLE,
+        .sync_data         = { SyncData{
+            .frame_fence = VK_NULL_HANDLE,
+            .image_acquired = VK_NULL_HANDLE,
+            .render_complete = VK_NULL_HANDLE
+        } },
+        .interop           = {
+            .timeline_value = 0,
+            .vk_semaphore   = VK_NULL_HANDLE,
+            .cuda_semaphore = nullptr,
+            .cuda_stream    = 0,
+        },
+        .render_timeline   = 0,
+        .running           = false,
+        .compute_active    = false,
+        .rendering_thread  = {},
+        .uniform_buffers   = {},
+        .views             = {},
+        .window_context    = {},
+        .camera            = {},
+        .deletors          = {},
+        .graphics_monitor  = {},
+        .compute_monitor   = {},
+    };
+
+#ifdef NDEBUG
+    spdlog::set_level(spdlog::level::off);
+#else
+    spdlog::set_level(spdlog::level::trace);
+#endif
+    spdlog::set_pattern("[%H:%M:%S] [%l] %v");
+
+    engine.options.present.target_frame_time = getTargetFrameTime(
+        engine.options.present.enable_fps_limit, engine.options.present.target_fps
+    );
+
+    auto width  = engine.options.window.size.x;
+    auto height = engine.options.window.size.y;
+    engine.window_context = GlfwContext::make(width, height, engine.options.window.title.c_str(), &engine);
+    engine.deletors.context.add([&] { engine.window_context.clean(); });
+    engine.camera = defaultCamera(width, height);
+
+    engine.initVulkan();
+
+    return engine;
+}
+
+MimirInstance MimirInstance::make(int width, int height)
+{
+    ViewerOptions opts;
+    opts.window.size = {width, height};
+    return MimirInstance::make(opts);
+}
+
+void MimirInstance::deinit()
 {
     if (rendering_thread.joinable())
     {
         rendering_thread.join();
     }
-    vkDeviceWaitIdle(dev.logical_device);
-
-    if (interop->cuda_stream != nullptr)
+    if (interop.cuda_stream != nullptr)
     {
-        validation::checkCuda(cudaStreamSynchronize(interop->cuda_stream));
+        validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
     }
 
-    cleanupSwapchain();
-    ImGui_ImplVulkan_Shutdown();
+    vkDeviceWaitIdle(device);
+    cleanupGraphics();
+    gui::shutdown();
+    window_context.exit();
+    deletors.views.flush();
+    deletors.context.flush();
 }
 
-void MimirEngine::init(ViewerOptions opts)
+void MimirInstance::exit()
 {
-    options = opts;
-    max_fps = options.present == PresentOptions::VSync? 60 : 300;
-    target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
-
-    auto width  = options.window_size.x;
-    auto height = options.window_size.y;
-    window_context = std::make_unique<GlfwContext>();
-    window_context->init(width, height, options.window_title.c_str(), this);
-    deletors.context.add([=,this] {
-        window_context->clean();
-    });
-
-    initVulkan();
-
-    camera->type = Camera::CameraType::LookAt;
-    //camera->flipY = true;
-    camera->setPosition(glm::vec3(0.f, 0.f, -2.85f)); //(glm::vec3(0.f, 0.f, -3.75f));
-    camera->setRotation(glm::vec3(0.f, 0.f, 0.f)); //(glm::vec3(15.f, 0.f, 0.f));
-    camera->setRotationSpeed(0.5f);
-    camera->setPerspective(60.f, (float)width / (float)height, 0.1f, 256.f);
+    window_context.exit();
 }
 
-void MimirEngine::init(int width, int height)
-{
-    ViewerOptions opts;
-    opts.window_size = {width, height};
-    init(opts);
-}
-
-void MimirEngine::exit()
-{
-    window_context->exit();
-}
-
-void MimirEngine::prepare()
+void MimirInstance::prepare()
 {
     initUniformBuffers();
-    createGraphicsPipelines();
+    createViewPipelines();
     updateDescriptorSets();
-    updateLinearTextures();
 }
 
-void MimirEngine::displayAsync()
+void MimirInstance::displayAsync()
 {
     prepare();
     running = true;
-    rendering_thread = std::thread([this]()
+    rendering_thread = std::thread([&,this]()
     {
-        while(!window_context->shouldClose())
+        while(!window_context.shouldClose())
         {
-            window_context->processEvents();
-            drawGui();
+            window_context.processEvents();
+            gui::draw(camera, options, views, gui_callback);
             renderFrame();
         }
         running = false;
-        vkDeviceWaitIdle(dev.logical_device);
+        vkDeviceWaitIdle(device);
     });
 }
 
-void MimirEngine::prepareViews()
+void MimirInstance::prepareViews()
 {
-    if (options.enable_sync && running)
+    if (options.present.enable_sync && running)
     {
-        kernel_working = true;
+        compute_active = true;
         waitKernelStart();
-        perf.startCuda();
+        compute_monitor.startWatch();
     }
 }
 
-void MimirEngine::waitKernelStart()
+void MimirInstance::waitKernelStart()
 {
+    static uint64_t wait_value = 1;
     cudaExternalSemaphoreWaitParams wait_params{};
     wait_params.flags = 0;
-    wait_params.params.fence.value = render_timeline+1;
-    //printf("kernel waits for render %llu\n", wait_params.params.fence.value);
+    wait_params.params.fence.value = wait_value;
+    //spdlog::trace("kernel waits for render {}", wait_params.params.fence.value);
 
     // Wait for Vulkan to complete its work
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
-        &interop->cuda_semaphore, &wait_params, 1, interop->cuda_stream)
+        &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
     );
-    updateLinearTextures();
+    wait_value += 2;
 }
 
-void MimirEngine::updateViews()
+void MimirInstance::updateViews()
 {
-    if (options.enable_sync && running)
+    if (options.present.enable_sync && running)
     {
-        perf.endCuda();
+        compute_monitor.stopWatch();
         signalKernelFinish();
-        kernel_working = false;
+        compute_active = false;
     }
 }
 
-void MimirEngine::signalKernelFinish()
+void MimirInstance::signalKernelFinish()
 {
-    interop->timeline_value++;
+    static uint64_t signal_value = 2;
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
-    signal_params.params.fence.value = interop->timeline_value;
-    //printf("kernel signals iteration %llu\n", signal_params.params.fence.value);
+    signal_params.params.fence.value = signal_value;
+    //spdlog::trace("kernel signals iteration {}", signal_params.params.fence.value);
 
     // Signal Vulkan to continue with the updated buffers
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
-        &interop->cuda_semaphore, &signal_params, 1, interop->cuda_stream)
+        &interop.cuda_semaphore, &signal_params, 1, interop.cuda_stream)
     );
+    signal_value += 2;
 }
 
-void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
+void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();
+
     running = true;
-    kernel_working = true;
+    compute_active = true;
     size_t iter_idx = 0;
-    while(!window_context->shouldClose())
+    while(!window_context.shouldClose())
     {
-        window_context->processEvents();
-        drawGui();
+        window_context.processEvents();
+        gui::draw(camera, options, views, gui_callback);
         renderFrame();
 
         if (running) waitKernelStart();
@@ -208,122 +245,477 @@ void MimirEngine::display(std::function<void(void)> func, size_t iter_count)
         }
         if (running) signalKernelFinish();
     }
-    kernel_working = false;
+    compute_active = false;
     running = false;
-    vkDeviceWaitIdle(dev.logical_device);
+    vkDeviceWaitIdle(device);
 }
 
-void MimirEngine::updateLinearTextures()
+uint32_t getVertexRate(ViewType type)
 {
-    for (auto& view : views)
+    switch (type)
     {
-        // TODO: Reimplement this ugly loop
-        if (view->params.view_type == ViewType::Image)
+        case ViewType::Edges: { return 3; } // AKA TriangleMesh
+        case ViewType::Boxes: { return 2; }
+        default: return 1;
+    }
+}
+
+constexpr VkIndexType getIndexBufferType(int bytesize)
+{
+    switch (bytesize)
+    {
+        case 2: return VK_INDEX_TYPE_UINT16;
+        case 4: return VK_INDEX_TYPE_UINT32;
+        // TODO: Add VK_INDEX_TYPE_UINT8_EXT for char and VK_INDEX_TYPE_NONE_KHR for default
+        default: return VK_INDEX_TYPE_NONE_KHR;
+    }
+}
+
+void initGridCoords(float3 *data, Layout size, float3 start)
+{
+    auto slice_size = size.x * size.y;
+    for (uint32_t z = 0; z < size.z; ++z)
+    {
+        auto rz = start.z + static_cast<float>(z);
+        for (uint32_t y = 0; y < size.y; ++y)
         {
-            for (auto &[attr, memory] : view->params.attributes)
+            auto ry = start.y + static_cast<float>(y);
+            for (uint32_t x = 0; x < size.x; ++x)
             {
-                if (memory.params.resource_type == ResourceType::LinearTexture)
-                {
-                    dev.updateLinearTexture(memory);
-                }
+                auto rx = start.x + static_cast<float>(x);
+                data[slice_size * z + size.x * y + x] = float3{rx, ry, rz};
             }
         }
     }
 }
 
-InteropMemory *MimirEngine::createBuffer(void **dev_ptr, MemoryParams params)
+AttributeDescription MimirInstance::makeStructuredGrid(Layout size, float3 start)
 {
-    auto mem_handle = new InteropMemory();
-    mem_handle->params = params;
-    deletors.views.add([=,this]{ delete mem_handle; });
+    assert(size.x > 0 || size.y > 0 || size.z > 0);
+    auto memsize = sizeof(float3) * size.x * size.y * size.z;
 
-    switch (params.resource_type)
+    // Create test buffer for querying the desired memory properties
+    auto domain_buffer = createBuffer(device, memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    VkMemoryRequirements memreq{};
+    vkGetBufferMemoryRequirements(device, domain_buffer, &memreq);
+
+    auto available = physical_device.memory.memoryProperties;
+    auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto vk_memory = allocateMemory(device, available, memreq, flags);
+    validation::checkVulkan(vkBindBufferMemory(device, domain_buffer, vk_memory, 0));
+    float3 *data = nullptr;
+    vkMapMemory(device, vk_memory, 0, memsize, 0, (void**)&data);
+    initGridCoords(data, size, start);
+    vkUnmapMemory(device, vk_memory);
+    auto grid_alloc = new LinearAlloc({memreq.size, vk_memory, nullptr});
+    deletors.context.add([=,this]{ delete grid_alloc; });
+
+    // Add deletors to queue for later cleanup
+    deletors.views.add([=,this]{
+        spdlog::trace("Free structured domain memory");
+        vkFreeMemory(device, vk_memory, nullptr);
+        vkDestroyBuffer(device, domain_buffer, nullptr);
+    });
+
+    return AttributeDescription{
+        .source   = grid_alloc,
+        .size     = size.x * size.y * size.z,
+        .format   = FormatDescription::make<float3>(),
+        .indexing = {},
+    };
+}
+
+AttributeDescription MimirInstance::makeImageDomain()
+{
+    const std::vector<Vertex> vertices{
+        { {  1.f,  1.f, 0.f }, { 1.f, 1.f } },
+        { { -1.f,  1.f, 0.f }, { 0.f, 1.f } },
+        { { -1.f, -1.f, 0.f }, { 0.f, 0.f } },
+        { {  1.f, -1.f, 0.f }, { 1.f, 0.f } }
+    };
+    // Indices for a single uv-view quad made from two triangles
+    const std::vector<uint16_t> indices{ 0, 1, 2, 2, 3, 0 };//, 4, 5, 6, 6, 7, 4 };
+
+    uint32_t vert_memsize = sizeof(Vertex) * vertices.size();
+    uint32_t ids_memsize = sizeof(uint16_t) * indices.size();
+
+    auto vbo = createBuffer(device, vert_memsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    VkMemoryRequirements memreq{};
+    vkGetBufferMemoryRequirements(device, vbo, &memreq);
+    // Allocate memory and bind it to buffers
+    auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto available = physical_device.memory.memoryProperties;
+    auto vbo_mem = allocateMemory(device, available, memreq, flags);
+    validation::checkVulkan(vkBindBufferMemory(device, vbo, vbo_mem, 0));
+    auto vbo_alloc = new LinearAlloc({memreq.size, vbo_mem, nullptr});
+
+    auto ibo = createBuffer(device, ids_memsize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    vkGetBufferMemoryRequirements(device, ibo, &memreq);
+    // Allocate memory and bind it to buffers
+    flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto ibo_mem = allocateMemory(device, available, memreq, flags);
+    validation::checkVulkan(vkBindBufferMemory(device, ibo, ibo_mem, 0));
+    auto ibo_alloc = new LinearAlloc({memreq.size, ibo_mem, nullptr});
+
+    // Init image quad coords and indices
+    char *vert_data = nullptr;
+    vkMapMemory(device, vbo_mem, 0, vert_memsize, 0, (void**)&vert_data);
+    std::memcpy(vert_data, vertices.data(), vert_memsize);
+    vkUnmapMemory(device, vbo_mem);
+
+    char *ids_data = nullptr;
+    vkMapMemory(device, ibo_mem, 0, ids_memsize, 0, (void**)&ids_data);
+    std::memcpy(ids_data, indices.data(), ids_memsize);
+    vkUnmapMemory(device, ibo_mem);
+
+    deletors.views.add([=,this]{
+        vkFreeMemory(device, vbo_mem, nullptr);
+        vkDestroyBuffer(device, vbo, nullptr);
+        vkFreeMemory(device, ibo_mem, nullptr);
+        vkDestroyBuffer(device, ibo, nullptr);
+    });
+
+    return AttributeDescription{
+        .source   = vbo_alloc,
+        .size     = (uint32_t)vertices.size(),
+        .format   = FormatDescription::make<float3>(),
+        .indexing = {
+            .source     = ibo_alloc,
+            .size       = (uint32_t)indices.size(),
+            .index_size = sizeof(uint16_t),
+        }
+    };
+}
+
+LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
+{
+    assert(size > 0);
+
+    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    // Create temporary buffer for querying the desired memory properties
+    VkExternalMemoryBufferCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    auto query_buf = createBuffer(device, size, usage, &extmem_info);
+    VkMemoryRequirements memreq{};
+    vkGetBufferMemoryRequirements(device, query_buf, &memreq);
+
+    // Allocate external device memory
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    auto available = physical_device.memory.memoryProperties;
+    auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
+    // The real allocated amount is determined by the memory requirements structure
+    spdlog::debug("Allocated {} bytes for interop ({} requested)", memreq.size, size);
+
+    // Export and map the external memory to CUDA
+    auto cuda_extmem = interop::importCudaExternalMemory(vk_memory, memreq.size, device);
+
+    // Add deletors to queue for later cleanup
+    deletors.views.add([=,this]{
+        spdlog::trace("Free interop memory");
+        validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
+        vkFreeMemory(device, vk_memory, nullptr);
+    });
+    vkDestroyBuffer(device, query_buf, nullptr);
+
+    LinearAlloc alloc{
+        .size        = memreq.size,
+        .vk_mem      = vk_memory,
+        .cuda_extmem = cuda_extmem
+    };
+    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
+    validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+        dev_ptr, alloc.cuda_extmem, &buffer_desc)
+    );
+    auto alloc_ptr = new LinearAlloc(alloc);
+    deletors.context.add([=,this]{ delete alloc_ptr; });
+    return alloc_ptr;
+}
+
+FormatDescription getFormatFromCuda(const cudaChannelFormatDesc *desc)
+{
+    // Convert format kind from CUDA enum to library enum class
+    FormatKind kind;
+    switch (desc->f)
     {
-        case ResourceType::Texture:
+        case cudaChannelFormatKindSigned:   { kind = FormatKind::Signed; break; }
+        case cudaChannelFormatKindUnsigned: { kind = FormatKind::Unsigned; break; }
+        case cudaChannelFormatKindFloat: default: { kind = FormatKind::Float; break; }
+    }
+    // Get channel size in bits, assuming that all channels are the same (for now)
+    int size = desc->x / 8;
+    // A channel exists if its size is greater than zero
+    int components = (desc->x > 0) + (desc->y > 0) + (desc->z > 0) + (desc->w > 0);
+    return { .kind = kind, .size = size, .components = components };
+}
+
+VkExtent3D getExtentFromCuda(cudaExtent extent)
+{
+    return VkExtent3D
+    {
+        .width  = extent.width  > 0? (uint32_t)extent.width  : 1,
+        .height = extent.height > 0? (uint32_t)extent.height : 1,
+        .depth  = extent.depth  > 0? (uint32_t)extent.depth  : 1,
+    };
+}
+
+OpaqueAlloc *MimirInstance::allocMipmap(cudaMipmappedArray_t *dev_arr,
+    const cudaChannelFormatDesc *desc, cudaExtent extent, unsigned int num_levels)
+{
+    auto format = getFormatFromCuda(desc);
+    ImageParams img_params{
+        .type   = getImageType(Layout::make(extent.width, extent.height, extent.depth)),
+        .format = getVulkanFormat(format),
+        .extent = getExtentFromCuda(extent),
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage  = VK_IMAGE_USAGE_SAMPLED_BIT,
+        .levels = num_levels,
+    };
+    // Create temporary image for querying the desired memory properties
+    VkExternalMemoryImageCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+    auto query_img = createImage(device, physical_device.handle, img_params, &extmem_info);
+    VkMemoryRequirements memreq{};
+    vkGetImageMemoryRequirements(device, query_img, &memreq);
+
+    // Allocate external device memory
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    auto available = physical_device.memory.memoryProperties;
+    auto memflags  = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
+
+    // Export and map the external memory to CUDA
+    auto cuda_extmem = interop::importCudaExternalMemory(vk_memory, memreq.size, device);
+
+    // Add deletors to queue for later cleanup
+    deletors.views.add([=,this]{
+        spdlog::trace("Free interop mipmapped image");
+        validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
+        vkFreeMemory(device, vk_memory, nullptr);
+    });
+    vkDestroyImage(device, query_img, nullptr);
+
+    auto alloc = OpaqueAlloc{memreq.size, vk_memory, cuda_extmem};
+    cudaExternalMemoryMipmappedArrayDesc array_desc{
+        .offset     = 0,
+        .formatDesc = *desc,
+        .extent     = extent,
+        .flags      = 0,
+        .numLevels  = num_levels,
+    };
+    validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
+        dev_arr, cuda_extmem, &array_desc)
+    );
+
+    auto alloc_ptr = new OpaqueAlloc(alloc);
+    deletors.context.add([=,this]{ delete alloc_ptr; });
+    return alloc_ptr;
+}
+
+VkBuffer MimirInstance::createAttributeBuffer(VkDeviceSize memsize,
+    VkBufferUsageFlags usage, VkDeviceMemory memory)
+{
+    // Create and bind buffer
+    VkExternalMemoryBufferCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+    };
+    auto attr_buffer = createBuffer(device, memsize, usage, &extmem_info);
+    deletors.views.add([=,this]{ vkDestroyBuffer(device, attr_buffer, nullptr); });
+    validation::checkVulkan(vkBindBufferMemory(device, attr_buffer, memory, 0));
+    return attr_buffer;
+}
+
+// TODO: Implement as use descriptive enum instead of bool
+// TODO: Add more validations
+bool validateViewDescription(ViewDescription *desc)
+{
+    bool has_elements = desc->layout.getTotalCount() > 0;
+    bool has_position_attr = false;
+    for (auto &[type, attr] : desc->attributes)
+    {
+        has_position_attr |= type == AttributeType::Position;
+    }
+    return has_elements && has_position_attr;
+}
+
+uint32_t getDrawCount(ViewDescription *desc)
+{
+    auto& pos_attr = desc->attributes[AttributeType::Position];
+    return hasIndexing(pos_attr)? pos_attr.indexing.size : pos_attr.size;
+}
+
+ViewOptions initOptions(ViewType type) {
+    ViewOptions options;
+    switch (type)
+    {
+        // Initialize option to known defaults for the matching view type
+        case ViewType::Markers: { options = MarkerOptions::defaults(); break; }
+        case ViewType::Edges:   { options = MeshOptions::defaults(); break; }
+        // Default: don't know (or care) about options
+        default:                { break; }
+    }
+    return options;
+}
+
+View *MimirInstance::createView(ViewDescription *desc)
+{
+    if (!validateViewDescription(desc))
+    {
+        spdlog::error("Invalid view");
+        return nullptr;
+    }
+
+    View view{
+        .pipeline    = VK_NULL_HANDLE,
+        .draw_count  = getDrawCount(desc),
+        .vb_count    = 0,
+        .vbo         = {VK_NULL_HANDLE},
+        .offsets     = {0},
+        .use_ibo     = false,
+        .ibo         = VK_NULL_HANDLE,
+        .index_type  = VK_INDEX_TYPE_NONE_KHR,
+        .tex_count   = 0,
+        .textures    = {},
+        .ssbo_count  = 0,
+        .storage     = {VK_NULL_HANDLE},
+        .translation = glm::mat4(1.f),
+        .rotation    = glm::mat4(1.f),
+        .scale       = glm::mat4(1.f),
+        .desc        = *desc,
+    };
+
+    // If no option value is set (the variant is default-initialized to std::monostate)
+    if (view.desc.options.index() == 0)
+    {
+        // Generate default options for the current view type
+        view.desc.options = initOptions(view.desc.type);
+    }
+
+    translateView(&view, desc->position);
+    rotateView(&view, desc->rotation);
+    scaleView(&view, desc->scale);
+
+    // Create attribute buffers
+    for (auto &[type, attr] : desc->attributes)
+    {
+        spdlog::trace("Processing {} attribute", getAttributeType(type));
+        if (type == AttributeType::Color && desc->type == ViewType::Image)
         {
-            dev.initMemoryImage(*mem_handle);
+            ImageParams params{
+                .type   = getImageType(desc->layout),
+                .format = getVulkanFormat(attr.format),
+                .extent = getVulkanExtent(desc->layout),
+                .tiling = getImageTiling(attr.source),
+                .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                .levels = 1,
+            };
+            VkExternalMemoryImageCreateInfo extmem_info{
+                .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+                .pNext       = nullptr,
+                .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+            };
+            auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
+            vkBindImageMemory(device, teximg, getMemoryVulkan(attr.source), 0);
+
+            Texture tex{
+                .image    = teximg,
+                .img_view = createImageView(device, tex.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
+                .sampler  = createSampler(device, VK_FILTER_LINEAR, false),
+                .format   = params.format,
+                .extent   = params.extent,
+            };
+
+            transitionImageLayout(tex.image,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            );
+
             deletors.views.add([=,this]{
-                vkDestroyImage(dev.logical_device, mem_handle->image, nullptr);
-                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
-                vkFreeMemory(dev.logical_device, mem_handle->image_memory, nullptr);
-                vkDestroyImageView(dev.logical_device, mem_handle->vk_view, nullptr);
-                validation::checkCuda(cudaFreeMipmappedArray(mem_handle->mipmap_array));
-                vkDestroySampler(dev.logical_device, mem_handle->vk_sampler, nullptr);
+                spdlog::trace("Destroying texture");
+                vkDestroyImageView(device, tex.img_view, nullptr);
+                vkDestroyImage(device, tex.image, nullptr);
+                vkDestroySampler(device, tex.sampler, nullptr);
             });
-            break;
+
+            view.textures[view.tex_count++] = tex;
         }
-        case ResourceType::LinearTexture:
+        // Handle image quad vertex buffer size
+        else if (type == AttributeType::Position && desc->type == ViewType::Image)
         {
-            dev.initMemoryImageLinear(*mem_handle);
-            deletors.views.add([=,this]{
-                vkDestroyImage(dev.logical_device, mem_handle->image, nullptr);
-                vkFreeMemory(dev.logical_device, mem_handle->image_memory, nullptr);
-                vkDestroyImageView(dev.logical_device, mem_handle->vk_view, nullptr);
-                vkDestroySampler(dev.logical_device, mem_handle->vk_sampler, nullptr);
-                vkDestroyBuffer(dev.logical_device, mem_handle->data_buffer, nullptr);
-                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
-                vkFreeMemory(dev.logical_device, mem_handle->memory, nullptr);
-            });
-            break;
+            VkDeviceSize vb_size = sizeof(Vertex) * attr.size;
+            VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
+            // TODO: Get if there is still space remaining (or maybe do it in validation)
+            view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+            view.vb_count++;
         }
-        default:
+        // Map source to a vertex buffer when accessing its elements directly
+        // Source is always mapped this way for position attributes
+        else if (type == AttributeType::Position || !hasIndexing(attr))
         {
-            dev.initMemoryBuffer(*mem_handle);
-            deletors.views.add([=,this]{
-                vkDestroyBuffer(dev.logical_device, mem_handle->data_buffer, nullptr);
-                validation::checkCuda(cudaDestroyExternalMemory(mem_handle->cuda_extmem));
-                vkFreeMemory(dev.logical_device, mem_handle->memory, nullptr);
-            });
+            VkDeviceSize vb_size = attr.format.getSize() * attr.size; // sizeof(Vertex) * attr.size;
+            spdlog::trace("Position vertex buffer created for {} bytes ({} elements)",
+                vb_size, getSourceSize(attr.source)
+            );
+            VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
+            // TODO: Get if there is still space remaining (or maybe do it in validation)
+            view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+            view.vb_count++;
+        }
+        // If a non-position attribute uses indirect mapping, its source is mapped to a storage buffer
+        else
+        {
+            VkDeviceSize sb_size = attr.format.getSize() * attr.size;
+            spdlog::trace("Position storage buffer created for {} bytes ({} elements)",
+                sb_size, getSourceSize(attr.source)
+            );
+            VkBufferUsageFlags sb_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            VkDeviceMemory sb_mem = getMemoryVulkan(attr.source);
+            view.storage[view.ssbo_count++] = createAttributeBuffer(sb_size, sb_usage, sb_mem);
+        }
+
+        // If there is no indirect source access, the attribute is now fully processed
+        if (!hasIndexing(attr)) { continue; }
+
+        // Create indirect buffers as index buffer for position attributes,
+        // and as vertex buffers for all other attributes
+        VkDeviceMemory memory = getMemoryVulkan(attr.indexing.source);
+        VkDeviceSize memsize = attr.indexing.index_size * attr.indexing.size;
+        spdlog::trace("Attribute buffer created for {} bytes", memsize);
+        if (type == AttributeType::Position)
+        {
+            VkBufferUsageFlags ib_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            view.ibo = createAttributeBuffer(memsize, ib_usage, memory);
+            view.index_type = getIndexBufferType(attr.indexing.index_size);
+            view.use_ibo = true;
+        }
+        else
+        {
+            VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            view.vbo[view.vb_count++] = createAttributeBuffer(memsize, vb_usage, memory);
         }
     }
 
-    *dev_ptr = mem_handle->cuda_ptr;
-    allocations.push_back(mem_handle);
-    return allocations.back();
-}
-
-InteropView *MimirEngine::createView(ViewParams params)
-{
-    auto view_handle = new InteropView();
-    view_handle->params = params;
-    deletors.views.add([=,this]{ delete view_handle; });
-
-    if (params.view_type == ViewType::Image)
-    {
-        dev.initViewImage(*view_handle);
-        deletors.views.add([=,this]{
-            vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
-            vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
-        });
-    }
-    else
-    {
-        dev.initViewBuffer(*view_handle);
-        deletors.views.add([=,this]{
-            vkDestroyBuffer(dev.logical_device, view_handle->aux_buffer, nullptr);
-            vkFreeMemory(dev.logical_device, view_handle->aux_memory, nullptr);
-        });
-    }
-
-    views.push_back(view_handle);
-    return views.back();
-}
-
-void MimirEngine::loadTexture(InteropMemory *interop, void *data)
-{
-    dev.loadTexture(interop, data);
-}
-
-void MimirEngine::drawGui()
-{
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    if (show_demo_window) { ImGui::ShowDemoWindow(); }
-    if (options.show_metrics) { ImGui::ShowMetricsWindow(); }
-    displayEngineGUI(); // Display the builtin GUI
-    gui_callback(); // Display user-provided addons
-    ImGui::Render();
+    auto handle = new View(view);
+    deletors.views.add([=,this]{ delete handle; });
+    views.push_back(handle);
+    return handle;
 }
 
 VkDescriptorSetLayoutBinding descriptorLayoutBinding(
@@ -338,37 +730,77 @@ VkDescriptorSetLayoutBinding descriptorLayoutBinding(
     };
 }
 
-void MimirEngine::listExtensions()
-{
-    uint32_t ext_count = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
-    std::vector<VkExtensionProperties> available(ext_count);
-    vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, available.data());
-
-    printf("Available extensions:\n");
-    for (const auto& extension : available)
-    {
-        printf("  %s\n", extension.extensionName);
-    }
-}
-
-void MimirEngine::initVulkan()
+void MimirInstance::initVulkan()
 {
     createInstance();
-    swap = std::make_unique<VulkanSwapchain>();
-    window_context->createSurface(instance, &swap->surface);
+    window_context.createSurface(instance, &surface);
     deletors.context.add([=,this](){
-        vkDestroySurfaceKHR(instance, swap->surface, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
     });
-    pickPhysicalDevice();
-    dev.initLogicalDevice(swap->surface);
+    physical_device = pickPhysicalDevice(instance, surface);
+
+    findQueueFamilies(physical_device.handle, surface, graphics.family_index, present.family_index);
+    std::set unique_queue_families{ graphics.family_index, present.family_index };
+    std::vector<uint32_t> queue_families(unique_queue_families.begin(), unique_queue_families.end());
+    device = createLogicalDevice(physical_device.handle, queue_families);
+    vkGetDeviceQueue(device, graphics.family_index, 0, &graphics.queue);
+    vkGetDeviceQueue(device, present.family_index, 0, &present.queue);
+
+    command_pool = createCommandPool(device, graphics.family_index,
+        VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+    );
+
     deletors.context.add([=,this](){
-        vkDestroyCommandPool(dev.logical_device, dev.command_pool, nullptr);
-        vkDestroyDevice(dev.logical_device, nullptr);
+        vkDestroyCommandPool(device, command_pool, nullptr);
+        vkDestroyDevice(device, nullptr);
     });
 
+    // Create VMA handle
+    /*
+    auto memtypes = physical_device.memory.memoryProperties.memoryTypes;
+    auto memtype_count = physical_device.memory.memoryProperties.memoryTypeCount;
+    std::vector<VkExternalMemoryHandleTypeFlagsKHR> external_memtypes(memtype_count, 0);
+    for (uint32_t i = 0; i < memtype_count; ++i)
+    {
+        auto memtype = memtypes[i];
+        if (memtype.propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        {
+            external_memtypes[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+        }
+    }
+
+    VmaAllocatorCreateInfo allocator_info{
+        .flags                          = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT,
+        .physicalDevice                 = physical_device.handle,
+        .device                         = device,
+        .preferredLargeHeapBlockSize    = 0,
+        .pAllocationCallbacks           = nullptr,
+        .pDeviceMemoryCallbacks         = nullptr,
+        .pHeapSizeLimit                 = nullptr,
+        .pVulkanFunctions               = nullptr,
+        .instance                       = instance,
+        .vulkanApiVersion               = VK_API_VERSION_1_2,
+        .pTypeExternalMemoryHandleTypes = external_memtypes.data(),
+    };
+    validation::checkVulkan(vmaCreateAllocator(&allocator_info, &allocator));
+    deletors.context.add([=,this](){ vmaDestroyAllocator(allocator); });
+
+    // Create VMA pool for external (interop) memory allocations
+    VmaPoolCreateInfo pool_info{
+        .memoryTypeIndex        = 0, // TODO
+        .flags                  = 0,
+        .blockSize              = 0,
+        .minBlockCount          = 0,
+        .maxBlockCount          = 0,
+        .priority               = 0.f, // Ignored
+        .minAllocationAlignment = 0,
+        .pMemoryAllocateNext    = nullptr,
+    };
+    validation::checkVulkan(vmaCreatePool(allocator, &pool_info, &interop_pool));
+    deletors.context.add([=,this](){ vmaDestroyPool(allocator, interop_pool); });
+*/
     // Create descriptor pool
-    descriptor_pool = dev.createDescriptorPool({
+    std::vector<VkDescriptorPoolSize> pool_sizes{
         { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
         { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
@@ -380,49 +812,45 @@ void MimirEngine::initVulkan()
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
         { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-    });
+    };
+    descriptor_pool = createDescriptorPool(device, pool_sizes);
 
     // Create descriptor set and pipeline layouts
+    VkShaderStageFlags all_stages =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     std::vector<VkDescriptorSetLayoutBinding> layout_bindings{
-        descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
-        ),
-        descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
-        ),
-        descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
-        ),
-        descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            VK_SHADER_STAGE_FRAGMENT_BIT
-        ),
-        descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER,
-            VK_SHADER_STAGE_FRAGMENT_BIT
-        )
+        descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, all_stages),
+        descriptorLayoutBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, all_stages),
+        descriptorLayoutBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, all_stages),
+        descriptorLayoutBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT),
+        descriptorLayoutBinding(4, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+        descriptorLayoutBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, all_stages)
     };
-    descriptor_layout = dev.createDescriptorSetLayout(layout_bindings);
-    pipeline_layout = dev.createPipelineLayout(descriptor_layout);
+    descriptor_layout = createDescriptorSetLayout(device, layout_bindings);
+    pipeline_layout = createPipelineLayout(device, descriptor_layout);
 
     deletors.context.add([=,this]{
-        vkDestroyDescriptorPool(dev.logical_device, descriptor_pool, nullptr);
-        vkDestroyDescriptorSetLayout(dev.logical_device, descriptor_layout, nullptr);
-        vkDestroyPipelineLayout(dev.logical_device, pipeline_layout, nullptr);
+        vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
+        vkDestroyDescriptorSetLayout(device, descriptor_layout, nullptr);
+        vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
     });
 
-    initSwapchain();
-    initImgui(); // After command pool and render pass are created
+    initGraphics();
     createSyncObjects();
-
-    descriptor_sets = dev.createDescriptorSets(
-        descriptor_pool, descriptor_layout, swap->image_count
+    // After command pool and render pass are created
+    gui::init(instance, physical_device.handle, device,
+        descriptor_pool, render_pass, graphics, window_context
+    );
+    descriptor_sets = createDescriptorSets(device,
+        descriptor_pool, descriptor_layout, swapchain.image_count
     );
 }
 
-void MimirEngine::createInstance()
+void MimirInstance::createInstance()
 {
     if (validation::enable_layers && !validation::checkValidationLayerSupport())
     {
-        throw std::runtime_error("validation layers requested, but not supported");
+        spdlog::error("validation layers requested, but not supported");
     }
 
     VkApplicationInfo app_info{
@@ -436,7 +864,7 @@ void MimirEngine::createInstance()
     };
 
     // List additional required validation layers
-    auto extensions = window_context->getRequiredExtensions();
+    auto extensions = GlfwContext::getRequiredExtensions();
     if (validation::enable_layers)
     {
         // Enable debugging message extension
@@ -467,9 +895,7 @@ void MimirEngine::createInstance()
         instance_info.ppEnabledLayerNames = validation::layers.data();
     }
     validation::checkVulkan(vkCreateInstance(&instance_info, nullptr, &instance));
-    deletors.context.add([=,this]{
-        vkDestroyInstance(instance, nullptr);
-    });
+    deletors.context.add([=,this]{ vkDestroyInstance(instance, nullptr); });
 
     if (validation::enable_layers)
     {
@@ -483,234 +909,128 @@ void MimirEngine::createInstance()
     }
 }
 
-void MimirEngine::pickPhysicalDevice()
-{
-    int cuda_dev_count = 0;
-    validation::checkCuda(cudaGetDeviceCount(&cuda_dev_count));
-    if (cuda_dev_count == 0)
-    {
-        throw std::runtime_error("could not find devices supporting CUDA");
-    }
-
-    auto all_devices = getDevices(instance);
-    printf("Enumerating CUDA devices:\n");
-    for (int dev_id = 0; dev_id < cuda_dev_count; ++dev_id)
-    {
-        cudaDeviceProp dev_prop;
-        cudaGetDeviceProperties(&dev_prop, dev_id);
-        printf("* ID: %d\n  Name: %s\n  Capability: %d.%d\n",
-            dev_id, dev_prop.name, dev_prop.major, dev_prop.minor
-        );
-    }
-    printf("Enumerating Vulkan devices:\n");
-    for (const auto& dev : all_devices)
-    {
-        auto props = dev.general.properties;
-        printf("* ID: %u\n  Name: %s\n", props.deviceID, props.deviceName);
-    }
-
-    int curr_device = 0, prohibited_count = 0;
-    while (curr_device < cuda_dev_count)
-    {
-        cudaDeviceProp dev_prop;
-        cudaGetDeviceProperties(&dev_prop, curr_device);
-        if (dev_prop.computeMode == cudaComputeModeProhibited)
-        {
-            prohibited_count++;
-            curr_device++;
-            continue;
-        }
-        for (const auto& device : all_devices)
-        {
-            auto matching = memcmp((void*)&dev_prop.uuid, device.id_props.deviceUUID, VK_UUID_SIZE) == 0;
-            if (matching && props::isDeviceSuitable(device.handle, swap->surface))
-            {
-                validation::checkCuda(cudaSetDevice(curr_device));
-                dev.physical_device = device;
-                printf("Selected CUDA-Vulkan device %d: %s\n\n",
-                    curr_device, device.general.properties.deviceName
-                );
-                break;
-            }
-        }
-        curr_device++;
-    }
-
-    if (prohibited_count == cuda_dev_count)
-    {
-        throw std::runtime_error("No CUDA-Vulkan interop device was found");
-    }
-}
-
-void MimirEngine::initImgui()
-{
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForVulkan(window_context->window, true);
-
-    ImGui_ImplVulkan_InitInfo info{
-        .Instance        = instance,
-        .PhysicalDevice  = dev.physical_device.handle,
-        .Device          = dev.logical_device,
-        .QueueFamily     = dev.graphics.family_index,
-        .Queue           = dev.graphics.queue,
-        .DescriptorPool  = descriptor_pool,
-        .RenderPass      = render_pass,
-        .MinImageCount   = 3, // TODO: Check if this is true
-        .ImageCount      = 3,
-        .MSAASamples     = VK_SAMPLE_COUNT_1_BIT,
-        .PipelineCache   = nullptr,
-        .Subpass         = 0,
-        .UseDynamicRendering = false,
-        .PipelineRenderingCreateInfo = {},
-        .Allocator         = nullptr,
-        .CheckVkResultFn   = nullptr,
-        .MinAllocationSize = 0,
-    };
-    ImGui_ImplVulkan_Init(&info);
-}
-
-void MimirEngine::createSyncObjects()
+void MimirInstance::createSyncObjects()
 {
     //images_inflight.resize(swap->image_count, VK_NULL_HANDLE);
     for (auto& sync : sync_data)
     {
-        sync.frame_fence = dev.createFence(VK_FENCE_CREATE_SIGNALED_BIT);
-        sync.image_acquired = dev.createSemaphore();
-        sync.render_complete = dev.createSemaphore();
+        sync.frame_fence = createFence(device, VK_FENCE_CREATE_SIGNALED_BIT);
+        sync.image_acquired = createSemaphore(device);
+        sync.render_complete = createSemaphore(device);
         deletors.context.add([=,this]{
-            vkDestroyFence(dev.logical_device, sync.frame_fence, nullptr);
-            vkDestroySemaphore(dev.logical_device, sync.image_acquired, nullptr);
-            vkDestroySemaphore(dev.logical_device, sync.render_complete, nullptr);
+            vkDestroyFence(device, sync.frame_fence, nullptr);
+            vkDestroySemaphore(device, sync.image_acquired, nullptr);
+            vkDestroySemaphore(device, sync.render_complete, nullptr);
         });
     }
-    interop = std::make_unique<InteropBarrier>(dev.createInteropBarrier());
+    interop = interop::Barrier::make(device);
     deletors.context.add([=,this]{
-        validation::checkCuda(cudaDestroyExternalSemaphore(interop->cuda_semaphore));
-        vkDestroySemaphore(dev.logical_device, interop->vk_semaphore, nullptr);
+        validation::checkCuda(cudaDestroyExternalSemaphore(interop.cuda_semaphore));
+        vkDestroySemaphore(device, interop.vk_semaphore, nullptr);
     });
 }
 
-void MimirEngine::cleanupSwapchain()
+void MimirInstance::cleanupGraphics()
 {
-    vkDeviceWaitIdle(dev.logical_device);
-    /*vkFreeCommandBuffers(dev.logical_device, dev.command_pool,
-        command_buffers.size(), command_buffers.data()
-    );*/
-    deletors.swapchain.flush();
-    fbs.clear();
+    vkDeviceWaitIdle(device);
+    //vkFreeCommandBuffers(device, command_pool, command_buffers.size(), command_buffers.data());
+    deletors.graphics.flush();
 }
 
-void MimirEngine::initSwapchain()
+void MimirInstance::initGraphics()
 {
-    int w, h;
-    window_context->getFramebufferSize(w, h);
-    uint32_t width = w;
-    uint32_t height = h;
-    std::vector queue_indices{dev.graphics.family_index, dev.present.family_index};
-    swap->create(width, height, options.present, queue_indices, dev.physical_device.handle, dev.logical_device);
-    render_pass = createRenderPass();
-    command_buffers = dev.createCommandBuffers(swap->image_count);
-    query_pool = dev.createQueryPool(2 * command_buffers.size());
-    deletors.swapchain.add([=,this]{
-        vkDestroyRenderPass(dev.logical_device, render_pass, nullptr);
-        vkDestroySwapchainKHR(dev.logical_device, swap->swapchain, nullptr);
-        vkDestroyQueryPool(dev.logical_device, query_pool, nullptr);
+    // Initialize swapchain
+    int width, height;
+    window_context.getFramebufferSize(width, height);
+    auto present_mode = getDesiredPresentMode(options.present.mode);
+    std::vector queue_indices{graphics.family_index, present.family_index};
+    swapchain = Swapchain::make(device, physical_device.handle,
+        surface, width, height, present_mode, queue_indices
+    );
+
+    // Create one command buffer per swapchain image
+    command_buffers = createCommandBuffers(device, command_pool, swapchain.image_count);
+
+    // Initialize metrics monitoring
+    auto timestamp_period = physical_device.general.properties.limits.timestampPeriod;
+    graphics_monitor = metrics::GraphicsMonitor::make(device, 2 * command_buffers.size(), timestamp_period, 240);
+    compute_monitor = metrics::ComputeMonitor::make(0);
+
+    deletors.graphics.add([=,this]{
+        vkDestroySwapchainKHR(device, swapchain.current, nullptr);
+        vkDestroyQueryPool(device, graphics_monitor.query_pool, nullptr);
+        cudaEventDestroy(compute_monitor.start);
+        cudaEventDestroy(compute_monitor.stop);
     });
 
-    auto images = swap->createImages(dev.logical_device);
-
-    auto depth_format = findDepthFormat();
-    VkImageCreateInfo depth_img_info{
-        .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .pNext       = nullptr,
-        .flags       = 0,
-        .imageType   = VK_IMAGE_TYPE_2D,
-        .format      = depth_format,
-        .extent      = { width, height, 1 },
-        .mipLevels   = 1,
-        .arrayLayers = 1,
-        .samples     = VK_SAMPLE_COUNT_1_BIT,
-        .tiling      = VK_IMAGE_TILING_OPTIMAL,
-        .usage       = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .queueFamilyIndexCount = 0,
-        .pQueueFamilyIndices   = nullptr,
-        .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
+    // Create depth image and image view
+    ImageParams depth_params{
+        .type   = VK_IMAGE_TYPE_2D,
+        .format = VK_FORMAT_D32_SFLOAT,
+        .extent = { swapchain.extent.width, swapchain.extent.height, 1 },
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage  = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .levels = 1,
     };
-    validation::checkVulkan(
-        vkCreateImage(dev.logical_device, &depth_img_info, nullptr, &depth_image)
-    );
+    depth_image = createImage(device, physical_device.handle, depth_params);
 
-    VkMemoryRequirements mem_req;
-    vkGetImageMemoryRequirements(dev.logical_device, depth_image, &mem_req);
-    VkMemoryAllocateInfo alloc_info{
-        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext = nullptr,
-        .allocationSize = mem_req.size,
-        .memoryTypeIndex = dev.physical_device.findMemoryType(
-            mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-        ),
+    auto available = physical_device.memory.memoryProperties;
+    VkMemoryRequirements mem_req{};
+    vkGetImageMemoryRequirements(device, depth_image, &mem_req);
+    depth_memory = allocateMemory(device, available, mem_req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    validation::checkVulkan(vkBindImageMemory(device, depth_image, depth_memory, 0));
+    depth_view = createImageView(device, depth_image, depth_params, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    // Create render pass with color and depth attachments
+    VkAttachmentDescription color{
+        .flags          = 0,
+        .format         = swapchain.format,
+        .samples        = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
     };
-    validation::checkVulkan(
-        vkAllocateMemory(dev.logical_device, &alloc_info, nullptr, &depth_memory)
-    );
-    vkBindImageMemory(dev.logical_device, depth_image, depth_memory, 0);
-
-    VkImageViewCreateInfo depth_view_info{
-        .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-        .pNext    = nullptr,
-        .flags    = 0,
-        .image    = depth_image,
-        .viewType = VK_IMAGE_VIEW_TYPE_2D,
-        .format   = depth_format,
-        // Default mapping of all color channels
-        .components = VkComponentMapping{
-            .r = VK_COMPONENT_SWIZZLE_R,
-            .g = VK_COMPONENT_SWIZZLE_G,
-            .b = VK_COMPONENT_SWIZZLE_B,
-            .a = VK_COMPONENT_SWIZZLE_A,
-        },
-        // Describe image purpose and which part of it should be accesssed
-        .subresourceRange = VkImageSubresourceRange{
-            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
-            .baseMipLevel   = 0,
-            .levelCount     = 1,
-            .baseArrayLayer = 0,
-            .layerCount     = 1,
-        }
+    VkAttachmentDescription depth{
+        .flags          = 0, // Can be VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT
+        .format         = depth_params.format,
+        .samples        = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
-    validation::checkVulkan(
-        vkCreateImageView(dev.logical_device, &depth_view_info, nullptr, &depth_view)
-    );
+    render_pass = createRenderPass(device, color, depth);
 
-    deletors.swapchain.add([=,this]{
-        vkDestroyImageView(dev.logical_device, depth_view, nullptr);
-        vkDestroyImage(dev.logical_device, depth_image, nullptr);
-        vkFreeMemory(dev.logical_device, depth_memory, nullptr);
+    deletors.graphics.add([=,this]{
+        vkDestroyImageView(device, depth_view, nullptr);
+        vkDestroyImage(device, depth_image, nullptr);
+        vkFreeMemory(device, depth_memory, nullptr);
+        vkDestroyRenderPass(device, render_pass, nullptr);
     });
 
-    fbs.resize(swap->image_count);
-    for (size_t i = 0; i < swap->image_count; ++i)
+    framebuffers = Framebuffer::make(device, render_pass, swapchain, depth_view);
+    for (uint32_t i = 0; i < swapchain.image_count; ++i)
     {
-        // Create a basic image view to be used as color target
-        fbs[i].addAttachment(dev.logical_device, images[i], swap->color_format);
-        fbs[i].create(dev.logical_device, render_pass, swap->extent, depth_view);
-        deletors.swapchain.add([=,this]{
-            vkDestroyImageView(dev.logical_device, fbs[i].attachments[0].view, nullptr);
-            vkDestroyFramebuffer(dev.logical_device, fbs[i].framebuffer, nullptr);
+        deletors.graphics.add([=,this]{
+            vkDestroyImageView(device, framebuffers.image_views[i], nullptr);
+            vkDestroyFramebuffer(device, framebuffers.handles[i], nullptr);
         });
     }
 }
 
-void MimirEngine::recreateSwapchain()
+void MimirInstance::recreateGraphics()
 {
-    cleanupSwapchain();
-    initSwapchain();
-    createGraphicsPipelines();
+    cleanupGraphics();
+    initGraphics();
+    createViewPipelines();
 }
 
-void MimirEngine::updateDescriptorSets()
+void MimirInstance::updateDescriptorSets()
 {
     for (size_t i = 0; i < descriptor_sets.size(); ++i)
     {
@@ -756,105 +1076,142 @@ void MimirEngine::updateDescriptorSets()
 
         for (const auto& view : views)
         {
-            for (const auto &[attr, memory] : view->params.attributes)
+            for (uint32_t k = 0; k < view->tex_count; ++k)
             {
-                // TODO: Use increasing binding indices for additional texture memory
-                if (memory.params.resource_type == ResourceType::Texture ||
-                    memory.params.resource_type == ResourceType::LinearTexture)
-                {
-                    VkDescriptorImageInfo img_info{
-                        .sampler     = memory.vk_sampler,
-                        .imageView   = memory.vk_view,
-                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    };
-                    VkWriteDescriptorSet write_img{
-                        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        .pNext            = nullptr,
-                        .dstSet           = descriptor_sets[i],
-                        .dstBinding       = 3,
-                        .dstArrayElement  = 0,
-                        .descriptorCount  = 1,
-                        .descriptorType   = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                        .pImageInfo       = &img_info,
-                        .pBufferInfo      = nullptr,
-                        .pTexelBufferView = nullptr,
-                    };
-                    updates.push_back(write_img);
+                auto tex = view->textures[k];
 
-                    VkDescriptorImageInfo samp_info{
-                        .sampler     = memory.vk_sampler,
-                        .imageView   = memory.vk_view,
-                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    };
-                    write_img.dstBinding     = 4;
-                    write_img.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
-                    write_img.pImageInfo     = &samp_info;
-                    updates.push_back(write_img);
-                }
+                VkDescriptorImageInfo img_info{
+                    .sampler     = tex.sampler,
+                    .imageView   = tex.img_view,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                };
+                VkWriteDescriptorSet write_img{
+                    .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .pNext            = nullptr,
+                    .dstSet           = descriptor_sets[i],
+                    .dstBinding       = 3,
+                    .dstArrayElement  = 0,
+                    .descriptorCount  = 1,
+                    .descriptorType   = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                    .pImageInfo       = &img_info,
+                    .pBufferInfo      = nullptr,
+                    .pTexelBufferView = nullptr,
+                };
+                updates.push_back(write_img);
+
+                VkDescriptorImageInfo samp_info{
+                    .sampler     = tex.sampler,
+                    .imageView   = tex.img_view,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                };
+                write_img.dstBinding     = 4;
+                write_img.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+                write_img.pImageInfo     = &samp_info;
+                updates.push_back(write_img);
+            }
+            for (uint32_t k = 0; k < view->ssbo_count; ++k)
+            {
+                auto ssbo = view->storage[k];
+
+                VkDescriptorBufferInfo ssbo_info{
+                    .buffer = ssbo,
+                    .offset = 0,
+                    .range  = VK_WHOLE_SIZE,
+                };
+                write_buf.dstBinding     = 5;
+                write_buf.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write_buf.pBufferInfo    = &ssbo_info;
+                updates.push_back(write_buf);
             }
         }
-        vkUpdateDescriptorSets(dev.logical_device, updates.size(), updates.data(), 0, nullptr);
+        vkUpdateDescriptorSets(device, updates.size(), updates.data(), 0, nullptr);
     }
 }
 
-void MimirEngine::waitTimelineHost()
+void MimirInstance::waitTimelineHost()
 {
     VkSemaphoreWaitInfo wait_info{
         .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
         .pNext          = nullptr,
         .flags          = 0,
         .semaphoreCount = 1,
-        .pSemaphores    = &interop->vk_semaphore,
-        .pValues        = &interop->timeline_value,
+        .pSemaphores    = &interop.vk_semaphore,
+        .pValues        = &interop.timeline_value,
     };
-    vkWaitSemaphores(dev.logical_device, &wait_info, frame_timeout);
+    validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
 }
 
-void MimirEngine::renderFrame()
+void MimirInstance::renderFrame()
 {
+    // Get frame index from the inflight frames array
     auto frame_idx = render_timeline % MAX_FRAMES_IN_FLIGHT;
-    //printf("frame %lu waits for %lu and signals %lu\n", render_timeline, interop->timeline_value, render_timeline+1);
 
-    // Wait for frame fence and reset it after waiting
+    // Retrieve synchronization data for frame i
     auto frame_sync = sync_data[frame_idx];
     auto fence = frame_sync.frame_fence;
-    validation::checkVulkan(vkWaitForFences(dev.logical_device, 1, &fence, VK_TRUE, frame_timeout));
-    validation::checkVulkan(vkResetFences(dev.logical_device, 1, &fence));
 
-    static chrono_tp start_time = std::chrono::high_resolution_clock::now();
-    chrono_tp current_time = std::chrono::high_resolution_clock::now();
-    if (render_timeline == 0)
+    // Wait for fence of frame i to end, then immediately reset it for further use
+    validation::checkVulkan(vkWaitForFences(device, 1, &fence, VK_TRUE, frame_timeout));
+    validation::checkVulkan(vkResetFences(device, 1, &fence));
+
+    // Start measuring frame time
+    graphics_monitor.startFrameWatch();
+
+    static uint64_t wait_value = 0;
+    static uint64_t signal_value = 1;
+
+    bool advance_timeline = false;
+    std::vector<VkSemaphore> waits           = {frame_sync.image_acquired};
+    std::vector<VkPipelineStageFlags> stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    std::vector<VkSemaphore> signals         = {frame_sync.render_complete};
+    std::vector<uint64_t> wait_values        = {0};
+    std::vector<uint64_t> signal_values      = {0};
+
+    if (compute_active && options.present.enable_sync)
     {
-        last_time = start_time;
+        VkSemaphoreWaitInfo wait_info{
+            .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+            .pNext          = nullptr,
+            .flags          = 0,
+            .semaphoreCount = 1,
+            .pSemaphores    = &interop.vk_semaphore,
+            .pValues        = &wait_value,
+        };
+        validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
+
+        waits.push_back(interop.vk_semaphore);
+        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        signals.push_back(interop.vk_semaphore);
+        wait_values.push_back(interop.timeline_value);
+        signal_values.push_back(signal_value);
+        advance_timeline = true;
     }
-    float frame_time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - last_time).count();
 
-    //waitTimelineHost();
-
-    // Acquire image from swap chain, signaling to the image_ready semaphore
-    // when the image is ready for use
+    // Acquire image from swap chain, signaling to the semaphore when it is ready for use
     uint32_t image_idx;
-    auto result = vkAcquireNextImageKHR(dev.logical_device, swap->swapchain,
+    auto result = vkAcquireNextImageKHR(device, swapchain.current,
         frame_timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
     );
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
-        recreateSwapchain();
+        recreateGraphics();
     }
     else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
     {
-        throw std::runtime_error("Failed to acquire swapchain image");
+        spdlog::error("Failed to acquire swapchain image");
+        return;
     }
 
-    /*if (images_inflight[image_idx] != VK_NULL_HANDLE)
-    {
-        vkWaitForFences(dev.logical_device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
-    }
-    images_inflight[image_idx] = frame.render_fence;
+    // if (images_inflight[image_idx] != VK_NULL_HANDLE)
+    // {
+    //     vkWaitForFences(device, 1, &images_inflight[image_idx], VK_TRUE, timeout);
+    // }
+    // images_inflight[image_idx] = frame.render_fence;
+
     if (render_timeline > MAX_FRAMES_IN_FLIGHT)
     {
-        total_pipeline_time += getRenderTimeResults(frame_idx);
-    }*/
+        graphics_monitor.getRenderTimeResults(device, frame_idx);
+    }
 
     // Retrieve a command buffer and start recording to it
     auto cmd = command_buffers[frame_idx];
@@ -866,19 +1223,19 @@ void MimirEngine::renderFrame()
         .pInheritanceInfo = nullptr,
     };
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &cmd_info));
+    graphics_monitor.startRenderWatch(device, cmd, frame_idx);
 
-    //vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, frame_idx * 2);
-
+    // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
-    setColor(clear_values[0].color.float32, bg_color);
-    clear_values[1].depthStencil = {1.f, 0};
+    std::memcpy(clear_values[0].color.float32, &options.background_color.x, sizeof(options.background_color));
+    clear_values[1].depthStencil = { .depth = 0.f, .stencil = 0 };
 
     VkRenderPassBeginInfo render_pass_info{
         .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .pNext           = nullptr,
         .renderPass      = render_pass,
-        .framebuffer     = fbs[image_idx].framebuffer,
-        .renderArea      = { {0, 0}, swap->extent },
+        .framebuffer     = framebuffers.handles[image_idx],
+        .renderArea      = { {0, 0}, swapchain.extent },
         .clearValueCount = (uint32_t)clear_values.size(),
         .pClearValues    = clear_values.data(),
     };
@@ -887,34 +1244,26 @@ void MimirEngine::renderFrame()
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
     drawElements(frame_idx);
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-
-    // End of render pass and timestamp query
+    gui::render(cmd);
     vkCmdEndRenderPass(cmd);
-    //vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, frame_idx * 2 + 1);
 
+    graphics_monitor.stopRenderWatch(cmd, frame_idx);
     // Finalize command buffer recording, so it can be executed
     validation::checkVulkan(vkEndCommandBuffer(cmd));
 
     updateUniformBuffers(frame_idx);
     render_timeline++;
+    if (advance_timeline)
+    {
+        wait_value += 2;
+        signal_value += 2;
+    }
 
     // Fill submit waits & signals info
-    std::vector<VkSemaphore> waits           = {frame_sync.image_acquired};
-    std::vector<VkPipelineStageFlags> stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    std::vector<VkSemaphore> signals         = {frame_sync.render_complete};
-    std::vector<uint64_t> wait_values        = {0};
-    std::vector<uint64_t> signal_values      = {0};
-    VkTimelineSemaphoreSubmitInfo *extra     = nullptr;
+    VkTimelineSemaphoreSubmitInfo *extra = nullptr;
     VkTimelineSemaphoreSubmitInfo timeline_info{};
-    if (kernel_working && options.enable_sync)
+    if (running && options.present.enable_sync)
     {
-        waits.push_back(interop->vk_semaphore);
-        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        signals.push_back(interop->vk_semaphore);
-        wait_values.push_back(interop->timeline_value);
-        signal_values.push_back(render_timeline+1);
-
         timeline_info = VkTimelineSemaphoreSubmitInfo{
             .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
             .pNext = nullptr,
@@ -939,7 +1288,7 @@ void MimirEngine::renderFrame()
     };
 
     // Execute command buffer using image as attachment in framebuffer
-    validation::checkVulkan(vkQueueSubmit(dev.graphics.queue, 1, &submit_info, fence));
+    validation::checkVulkan(vkQueueSubmit(graphics.queue, 1, &submit_info, fence));
 
     // Return image result back to swapchain for presentation on screen
     VkPresentInfoKHR present_info{
@@ -948,37 +1297,27 @@ void MimirEngine::renderFrame()
         .waitSemaphoreCount = 1,
         .pWaitSemaphores    = &frame_sync.render_complete,
         .swapchainCount     = 1,
-        .pSwapchains        = &swap->swapchain,
+        .pSwapchains        = &swapchain.current,
         .pImageIndices      = &image_idx,
         .pResults           = nullptr,
     };
-    result = vkQueuePresentKHR(dev.present.queue, &present_info);
+    result = vkQueuePresentKHR(present.queue, &present_info);
     // Resize should be done after presentation to ensure semaphore consistency
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || should_resize)
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || window_context.resize_requested)
     {
-        recreateSwapchain();
-        should_resize = false;
+        recreateGraphics();
+        window_context.resize_requested = false;
     }
 
     // Limit frame if it was configured
-    if (options.enable_fps_limit) frameStall(target_frame_time);
-
-    total_frame_count++;
-    total_graphics_time += frame_time;
-    frame_times[render_timeline % frame_times.size()] = frame_time;
-    last_time = current_time;
-
-    /*if (options.report_period > 0 && frame_time > options.report_period)
-    {
-        printf("Report at %d seconds:\n", options.report_period);
-        showMetrics();
-        last_time = current_time;
-    }*/
+    if (options.present.enable_fps_limit) { frameStall(options.present.target_frame_time); }
+    graphics_monitor.stopFrameWatch();
+    //spdlog::trace("frame {} finished", render_timeline-1);
 }
 
-void MimirEngine::drawElements(uint32_t image_idx)
+void MimirInstance::drawElements(uint32_t image_idx)
 {
-    auto min_alignment = dev.physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -987,220 +1326,95 @@ void MimirEngine::drawElements(uint32_t image_idx)
     auto cmd = command_buffers[image_idx];
     for (uint32_t i = 0; i < views.size(); ++i)
     {
+        // Do not draw anything if visibility is turned off
+        if (!views[i]->desc.visible) { continue; }
         auto& view = views[i];
-        if (!view->params.options.visible) continue;
+
+        // Bind descriptor set and pipeline
         std::vector<uint32_t> offsets = {
             i * size_ubo,
             i * size_ubo + size_mvp + size_view,
             i * size_ubo + size_mvp
         };
-        // NOTE: Second parameter can be also used to bind a compute pipeline
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
+        vkCmdBindVertexBuffers(cmd, 0, view->vb_count, view->vbo, view->offsets);
 
-        vkCmdBindVertexBuffers(cmd, 0, view->vert_buffers.size(),
-            view->vert_buffers.data(), view->buffer_offsets.data()
-        );
-
-        switch (view->params.view_type)
+        if (view->use_ibo) // Index buffer exists, bind it and perform indexed draw
         {
-            case ViewType::Markers:
-            case ViewType::Voxels:
-            {
-                vkCmdDraw(cmd, view->params.element_count, 1, 0, 0);
-                break;
-            }
-            case ViewType::Edges:
-            {
-                vkCmdBindIndexBuffer(cmd, view->idx_buffer, 0, view->idx_type);
-                vkCmdDrawIndexed(cmd, 3 * view->params.element_count, 1, 0, 0, 0);
-                break;
-            }
-            case ViewType::Image:
-            {
-                vkCmdBindIndexBuffer(cmd, view->aux_buffer, view->index_offset, view->idx_type);
-                vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-                break;
-            }
-            default: break;
+            vkCmdBindIndexBuffer(cmd, view->ibo, 0, view->index_type);
+            vkCmdDrawIndexed(cmd, view->draw_count, 1, 0, 0, 0);
+        }
+        else // Perform regular draw with bound vertex buffers
+        {
+            // Instanced rendering is not currently supported
+            uint32_t instance_count = 1;
+            uint32_t first_vertex = 0;
+            // uint32_t scenario_count = view->params.offsets.size();
+            // uint32_t scenario_idx = view->params.options.scenario_index;
+            // if (scenario_idx < scenario_count)
+            // {
+            //     vertex_count = view->params.sizes[scenario_idx];
+            //     first_vertex = view->params.offsets[scenario_idx];
+            // }
+            vkCmdDraw(cmd, view->draw_count, instance_count, first_vertex, 0);
         }
     }
 }
 
-bool MimirEngine::hasStencil(VkFormat format)
+void MimirInstance::createViewPipelines(/*std::span<std::shared_ptr<InteropView>> views*/)
 {
-    return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
-}
+    auto start = std::chrono::steady_clock::now();
 
-VkFormat MimirEngine::findDepthFormat()
-{
-    return dev.findSupportedImageFormat(
-        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-        VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
-    );
-}
-
-VkRenderPass MimirEngine::createRenderPass()
-{
-    VkAttachmentDescription color{
-        .flags          = 0,
-        .format         = swap->color_format,
-        .samples        = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-    };
-    VkAttachmentDescription depth{
-        .flags          = 0, // Can be VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT
-        .format         = findDepthFormat(),
-        .samples        = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    };
-    std::array<VkAttachmentDescription, 2> attachments{ color, depth };
-
-    VkAttachmentReference color_ref{
-        .attachment = 0,
-        .layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    };
-    VkAttachmentReference depth_ref{
-        .attachment = 1,
-        .layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    };
-    VkSubpassDescription subpass{
-        .flags                   = 0, // Specify subpass usage
-        .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .inputAttachmentCount    = 0,
-        .pInputAttachments       = nullptr,
-        .colorAttachmentCount    = 1,
-        .pColorAttachments       = &color_ref,
-        .pResolveAttachments     = nullptr,
-        .pDepthStencilAttachment = &depth_ref,
-        .preserveAttachmentCount = 0,
-        .pPreserveAttachments    = nullptr,
-    };
-
-    // Specify memory and execution dependencies between subpasses
-    VkPipelineStageFlags stage_mask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    VkAccessFlags access_mask =
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    VkSubpassDependency dependency{
-        .srcSubpass      = VK_SUBPASS_EXTERNAL,
-        .dstSubpass      = 0,
-        .srcStageMask    = stage_mask,
-        .dstStageMask    = stage_mask,
-        .srcAccessMask   = 0, // TODO: Change to VK_ACCESS_NONE in 1.3
-        .dstAccessMask   = access_mask,
-        .dependencyFlags = 0,
-    };
-
-    VkRenderPassCreateInfo pass_info{
-        .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .pNext           = nullptr,
-        .flags           = 0, // Can be VK_RENDER_PASS_CREATE_TRANSFORM_BIT_QCOM
-        .attachmentCount = (uint32_t)attachments.size(),
-        .pAttachments    = attachments.data(),
-        .subpassCount    = 1,
-        .pSubpasses      = &subpass,
-        .dependencyCount = 1,
-        .pDependencies   = &dependency,
-    };
-
-    //printf("render pass attachment count: %lu\n", attachments.size());
-    VkRenderPass render_pass = VK_NULL_HANDLE;
-    validation::checkVulkan(
-        vkCreateRenderPass(dev.logical_device, &pass_info, nullptr, &render_pass)
-    );
-    return render_pass;
-}
-
-void MimirEngine::createGraphicsPipelines()
-{
-    //auto start = std::chrono::steady_clock::now();
-    auto orig_path = std::filesystem::current_path();
-    std::filesystem::current_path(shader_path);
-
-    PipelineBuilder builder(pipeline_layout, swap->extent);
-
-    // Iterate through views, generating the corresponding pipelines
-    // TODO: This does not allow adding views at runtime
+    pipeline_builder = PipelineBuilder::make(pipeline_layout, swapchain.extent);
     for (auto& view : views)
     {
-        builder.addPipeline(view->params, dev.logical_device);
+        pipeline_builder.addPipeline(view->desc, device);
     }
-    auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
-    //printf("%lu pipeline(s) created\n", pipelines.size());
+    auto pipelines = pipeline_builder.createPipelines(device, render_pass);
     for (size_t i = 0; i < pipelines.size(); ++i)
     {
-        views[i]->pipeline = pipelines[i];
-        deletors.swapchain.add([=,this]{
-            vkDestroyPipeline(dev.logical_device, views[i]->pipeline, nullptr);
-        });
+        auto& view = views[i];
+        view->pipeline = pipelines[i];
+        deletors.graphics.add([=,this]{ vkDestroyPipeline(device, view->pipeline, nullptr); });
     }
 
-    // Restore original working directory
-    std::filesystem::current_path(orig_path);
-    //auto end = std::chrono::steady_clock::now();
-    //auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    //printf("Creation time for all pipelines: %lu ms\n", elapsed);
+    auto end = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    spdlog::trace("Created {} pipeline object(s) in {} ms", pipelines.size(), elapsed);
 }
 
-void MimirEngine::rebuildPipeline(InteropView& view)
+void MimirInstance::initUniformBuffers()
 {
-    auto orig_path = std::filesystem::current_path();
-    std::filesystem::current_path(shader_path);
-
-    PipelineBuilder builder(pipeline_layout, swap->extent);
-    builder.addPipeline(view.params, dev.logical_device);
-    auto pipelines = builder.createPipelines(dev.logical_device, render_pass);
-    // Destroy the old view pipeline and assign the new one
-    vkDestroyPipeline(dev.logical_device, view.pipeline, nullptr);
-    view.pipeline = pipelines[0];
-
-    std::filesystem::current_path(orig_path);
-}
-
-void MimirEngine::initUniformBuffers()
-{
-    auto min_alignment = dev.physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
     auto size_ubo = (size_mvp + size_view + size_scene) * views.size();
 
-    uniform_buffers.resize(swap->image_count);
+    uniform_buffers.resize(swapchain.image_count);
+    auto available = physical_device.memory.memoryProperties;
     for (auto& ubo : uniform_buffers)
     {
-        ubo.buffer = dev.createBuffer(size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-        VkMemoryRequirements memreq;
-        vkGetBufferMemoryRequirements(dev.logical_device, ubo.buffer, &memreq);
+        ubo.buffer = createBuffer(device, size_ubo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        VkMemoryRequirements memreq{};
+        vkGetBufferMemoryRequirements(device, ubo.buffer, &memreq);
         auto mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        ubo.memory = dev.allocateMemory(memreq, mem_usage);
-        vkBindBufferMemory(dev.logical_device, ubo.buffer, ubo.memory, 0);
+        ubo.memory = allocateMemory(device, available, memreq, mem_usage);
+        validation::checkVulkan(vkBindBufferMemory(device, ubo.buffer, ubo.memory, 0));
         deletors.context.add([=,this]{
-            vkDestroyBuffer(dev.logical_device, ubo.buffer, nullptr);
-            vkFreeMemory(dev.logical_device, ubo.memory, nullptr);
+            vkDestroyBuffer(device, ubo.buffer, nullptr);
+            vkFreeMemory(device, ubo.memory, nullptr);
         });
     }
 }
 
 // Update uniform buffers for view at index [view_idx] for frame [image_idx]
-void MimirEngine::updateUniformBuffers(uint32_t image_idx)
+void MimirInstance::updateUniformBuffers(uint32_t image_idx)
 {
-    auto min_alignment = dev.physical_device.general.properties.limits.minUniformBufferOffsetAlignment;
+    auto min_alignment = physical_device.getUboOffsetAlignment();
     auto size_mvp = getAlignedSize(sizeof(ModelViewProjection), min_alignment);
     auto size_view = getAlignedSize(sizeof(ViewUniforms), min_alignment);
     auto size_scene = getAlignedSize(sizeof(SceneUniforms), min_alignment);
@@ -1212,85 +1426,39 @@ void MimirEngine::updateUniformBuffers(uint32_t image_idx)
         auto& view = views[view_idx];
 
         ModelViewProjection mvp{
-            .model = glm::mat4(1.f),
-            .view  = camera->matrices.view,
-            .proj  = camera->matrices.perspective,
+            .model = view->translation * view->rotation * view->scale,
+            .view  = camera.matrices.view,
+            .proj  = camera.matrices.perspective,
+            .all   = mvp.proj * mvp.view * mvp.model,
         };
 
+        auto color = view->desc.default_color;
         ViewUniforms vu{
-            .color         = getColor(view->params.options.default_color),
-            .size          = view->params.options.default_size,
-            .depth         = view->params.options.depth,
-            .element_count = view->params.options.custom_val,
+            .color     = glm::vec4(color.x, color.y, color.z, color.w),
+            .size      = view->desc.default_size,
+            .linewidth = view->desc.linewidth,
+            .antialias = view->desc.antialias,
         };
 
-        auto extent = view->params.extent;
+        auto bg = options.background_color;
+        auto extent = view->desc.layout;
         SceneUniforms su{
-            .bg_color    = getColor(bg_color),
-            .extent      = glm::ivec3{extent.x, extent.y, extent.z},
-            .resolution  = glm::ivec2{options.window_size.x, options.window_size.y},
-            .camera_pos  = camera->position,
-            .light_pos   = glm::vec3(0,0,0),
-            .light_color = glm::vec4(0,0,0,0),
+            .background_color = glm::vec4(bg.x, bg.y, bg.z, bg.w),
+            .extent           = glm::ivec3{extent.x, extent.y, extent.z},
+            .resolution       = glm::ivec2{options.window.size.x, options.window.size.y},
+            .camera_pos       = camera.position,
+            .light_pos        = glm::vec3(0,0,0),
+            .light_color      = glm::vec4(0,0,0,0),
         };
 
         char *data = nullptr;
         auto offset = size_ubo * view_idx;
-        vkMapMemory(dev.logical_device, memory, offset, size_ubo, 0, (void**)&data);
+        validation::checkVulkan(vkMapMemory(device, memory, offset, size_ubo, 0, (void**)&data));
         std::memcpy(data, &mvp, sizeof(mvp));
         std::memcpy(data + size_mvp, &vu, sizeof(vu));
         std::memcpy(data + size_mvp + size_view, &su, sizeof(su));
-        vkUnmapMemory(dev.logical_device, memory);
+        vkUnmapMemory(device, memory);
     }
-}
-
-double MimirEngine::getRenderTimeResults(uint32_t cmd_idx)
-{
-    auto timestamp_period = dev.physical_device.general.properties.limits.timestampPeriod;
-    const double seconds_per_tick = static_cast<double>(timestamp_period) / 1e9;
-
-    uint64_t buffer[2];
-    validation::checkVulkan(vkGetQueryPoolResults(dev.logical_device, query_pool,
-        2 * cmd_idx, 2, 2 * sizeof(uint64_t), buffer, sizeof(uint64_t),
-        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT)
-    );
-    vkResetQueryPool(dev.logical_device, query_pool, cmd_idx * 2, 2);
-    // TODO: apply time &= timestamp_mask;
-    return static_cast<double>(buffer[1] - buffer[0]) * seconds_per_tick;
-}
-
-void MimirEngine::setBackgroundColor(float4 color)
-{
-    bg_color = color;
-}
-
-void MimirEngine::displayEngineGUI()
-{
-    ImGui::Begin("Scene parameters");
-    //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
-    ImGui::ColorEdit3("Clear color", (float*)&bg_color);
-    ImGui::InputFloat3("Camera position", &camera->position.x, "%.3f");
-    ImGui::InputFloat3("Camera rotation", &camera->rotation.x, "%.3f");
-
-    // Use a separate flag for choosing whether to enable the FPS limit target value
-    // This avoids the unpleasant feeling of going from 0 (no FPS limit)
-    // to 1 (the lowest value) in a single step
-    if (ImGui::Checkbox("Enable FPS limit", &options.enable_fps_limit))
-    {
-        target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
-    }
-    if (!options.enable_fps_limit) ImGui::BeginDisabled(true);
-    if (ImGui::SliderInt("FPS target", &options.target_fps, 1, max_fps, "%d%", ImGuiSliderFlags_AlwaysClamp))
-    {
-        target_frame_time = getTargetFrameTime(options.enable_fps_limit, options.target_fps);
-    }
-    if (!options.enable_fps_limit) ImGui::EndDisabled();
-
-    for (size_t i = 0; i < views.size(); ++i)
-    {
-        addViewObjectGui(views[i], i);
-    }
-    ImGui::End();
 }
 
 struct ConvertedMemory
@@ -1312,52 +1480,299 @@ ConvertedMemory formatMemory(uint64_t memsize)
     return converted;
 }
 
-void MimirEngine::showMetrics()
+std::string readMemoryHeapFlags(VkMemoryHeapFlags flags)
 {
-    int w, h;
-    window_context->getFramebufferSize(w, h);
-    std::string label;
-    if (w == 0 && h == 0) label = "None";
-    else if (w == 1920 && h == 1080) label = "FHD";
-    else if (w == 2560 && h == 1440) label = "QHD";
-    else if (w == 3840 && h == 2160) label = "UHD";
-
-    auto frame_sample_size = std::min(frame_times.size(), total_frame_count);
-    float total_frame_time = 0;
-    for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
-    auto framerate = frame_times.size() / total_frame_time;
-
-    auto stats = dev.physical_device.getMemoryStats();
-    auto gpu_usage  = formatMemory(stats.usage);
-    auto gpu_budget = formatMemory(stats.budget);
-
-    printf("%s,%d,%f,%f,%lf,%f,%f,%f,", label.c_str(), options.target_fps,
-        framerate,perf.total_compute_time,total_pipeline_time,
-        total_graphics_time,gpu_usage.data,gpu_budget.data
-    );
-
-    //auto fps = ImGui::GetIO().Framerate; printf("\nFPS %f\n", fps);
-    //getTimeResults();
-    /*printf("Framebuffer size: %dx%d\n", w, h);
-    printf("Average frame rate over 120 frames: %.2f FPS\n", framerate);
-
-    dev.updateMemoryProperties();
-    auto gpu_usage = dev.formatMemory(dev.props.gpu_usage);
-    printf("GPU memory usage: %.2f %s\n", gpu_usage.data, gpu_usage.units.c_str());
-    auto gpu_budget = dev.formatMemory(dev.props.gpu_budget);
-    printf("GPU memory budget: %.2f %s\n", gpu_budget.data, gpu_budget.units.c_str());
-    //this->exit();
-
-    auto props = dev.budget_properties;
-    for (int i = 0; i < static_cast<int>(dev.props.heap_count); ++i)
+    switch (flags)
     {
-        auto heap_usage = dev.formatMemory(props.heapUsage[i]);
-        printf("Heap %d usage: %.2f %s\n", i, heap_usage.data, heap_usage.units.c_str());
-        auto heap_budget = dev.formatMemory(props.heapBudget[i]);
-        printf("Heap %d budget: %.2f %s\n", i, heap_budget.data, heap_budget.units.c_str());
-        auto heap_flags = dev.memory_properties2.memoryProperties.memoryHeaps[i].flags;
-        printf("Heap %d flags: %s\n", i, dev.readMemoryHeapFlags(heap_flags).c_str());
-    }*/
+        case VK_MEMORY_HEAP_DEVICE_LOCAL_BIT: return "Device local bit";
+        case VK_MEMORY_HEAP_MULTI_INSTANCE_BIT: return "Multiple instance bit";
+        default: return "Host local heap memory";
+    }
+    return "";
+}
+
+PerformanceMetrics MimirInstance::getMetrics()
+{
+    // Update memory usage stats
+    auto memory = physical_device.getMemoryStats();
+
+    return PerformanceMetrics{
+        .frame_rate = graphics_monitor.getFramerate(),
+        .times = {
+            .compute  = compute_monitor.total_compute_time,
+            .graphics = graphics_monitor.total_graphics_time,
+            .pipeline = (float)graphics_monitor.total_pipeline_time,
+        },
+        .devmem = {
+            .usage  = formatMemory(memory.usage).data,
+            .budget = formatMemory(memory.budget).data,
+        }
+    };
+}
+
+void MimirInstance::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
+{
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    auto alloc_info = VkCommandBufferAllocateInfo{
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext              = nullptr,
+        .commandPool        = command_pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+    validation::checkVulkan(vkAllocateCommandBuffers(device, &alloc_info, &cmd));
+
+    // Begin command buffer recording with a only-one-use buffer
+    VkCommandBufferBeginInfo cmd_info{
+        .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext            = nullptr,
+        .flags            = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        .pInheritanceInfo = nullptr,
+    };
+    validation::checkVulkan(vkBeginCommandBuffer(cmd, &cmd_info));
+    function(cmd);
+    validation::checkVulkan(vkEndCommandBuffer(cmd));
+
+    VkSubmitInfo submit_info{
+        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext                = nullptr,
+        .waitSemaphoreCount   = 0,
+        .pWaitSemaphores      = nullptr,
+        .pWaitDstStageMask    = nullptr,
+        .commandBufferCount   = 1,
+        .pCommandBuffers      = &cmd,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores    = nullptr,
+    };
+    auto queue = graphics.queue;
+    validation::checkVulkan(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
+    validation::checkVulkan(vkQueueWaitIdle(queue));
+    vkFreeCommandBuffers(device, command_pool, 1, &cmd);
+}
+
+void MimirInstance::loadTexture(TextureDescription desc, void *data, size_t memsize)
+{
+    ImageParams params{
+        .type   = getImageType(desc.extent),
+        .format = getVulkanFormat(desc.format),
+        .extent = getVulkanExtent(desc.extent),
+        .tiling = getImageTiling(desc.source),
+        .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .levels = desc.levels,
+    };
+    VkExternalMemoryImageCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+    auto image = createImage(device, physical_device.handle, params, &extmem_info);
+    validation::checkVulkan(vkBindImageMemory(device, image, getMemoryVulkan(desc.source), 0));
+
+    // Create staging buffer to copy image data
+    VkDeviceSize staging_size = getSourceSize(desc.source);
+    auto staging_buffer = createBuffer(device, staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    auto available = physical_device.memory.memoryProperties;
+    VkMemoryRequirements staging_req{};
+    vkGetBufferMemoryRequirements(device, staging_buffer, &staging_req);
+    auto staging_memory = allocateMemory(device, available, staging_req,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    vkBindBufferMemory(device, staging_buffer, staging_memory, 0);
+
+    char *mapped = nullptr;
+    validation::checkVulkan(vkMapMemory(device, staging_memory, 0, memsize, 0, (void**)&mapped));
+    memcpy(mapped, data, static_cast<size_t>(memsize));
+    vkUnmapMemory(device, staging_memory);
+
+    transitionImageLayout(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copyBufferToTexture(staging_buffer, image, params.extent);
+
+    generateMipmaps(image, params.format, params.extent.width, params.extent.height, desc.levels);
+    validation::checkCuda(cudaDeviceSynchronize());
+
+    vkDestroyBuffer(device, staging_buffer, nullptr);
+    vkFreeMemory(device, staging_memory, nullptr);
+    vkDestroyImage(device, image, nullptr);
+}
+
+void MimirInstance::copyBufferToTexture(VkBuffer buffer, VkImage image, VkExtent3D extent)
+{
+    VkImageSubresourceLayers subres{
+        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .mipLevel       = 0,
+        .baseArrayLayer = 0,
+        .layerCount     = 1
+    };
+    VkBufferImageCopy region{
+        .bufferOffset      = 0,
+        .bufferRowLength   = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource  = subres,
+        .imageOffset       = {0, 0, 0},
+        .imageExtent       = extent
+    };
+    immediateSubmit([=](VkCommandBuffer cmd)
+    {
+        auto layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        vkCmdCopyBufferToImage(cmd, buffer, image, layout, 1, &region);
+    });
+}
+
+void MimirInstance::generateMipmaps(VkImage image, VkFormat format,
+    int img_width, int img_height, int mip_levels)
+{
+    auto props = getImageFormatProperties(physical_device.handle, format);
+    auto blit_support = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    if (!(props.optimalTilingFeatures & blit_support))
+    {
+        spdlog::error("texture image format does not support linear blitting!");
+    }
+
+    immediateSubmit([=](VkCommandBuffer cmd)
+    {
+        VkImageMemoryBarrier barrier{
+            .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext               = nullptr,
+            .srcAccessMask       = 0,
+            .dstAccessMask       = 0,
+            .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image               = image,
+            .subresourceRange = VkImageSubresourceRange{
+                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel   = 0,
+                .levelCount     = 1,
+                .baseArrayLayer = 0,
+                .layerCount     = 1,
+            }
+        };
+
+        int32_t mip_width  = img_width;
+        int32_t mip_height = img_height;
+
+        for (uint32_t i = 1; i < static_cast<uint32_t>(mip_levels); i++)
+        {
+            barrier.subresourceRange.baseMipLevel = i - 1;
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                                nullptr, 1, &barrier);
+
+            int32_t mip_x = mip_width > 1 ? mip_width / 2 : 1;
+            int32_t mip_y = mip_height > 1 ? mip_height / 2 : 1;
+            VkImageBlit blit{
+                .srcSubresource = VkImageSubresourceLayers{
+                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel       = i - 1,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1,
+                },
+                .srcOffsets = { {0, 0, 0}, {mip_width, mip_height, 1} },
+                .dstSubresource = VkImageSubresourceLayers{
+                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel       = i,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1,
+                },
+                .dstOffsets = { {0, 0, 0}, {mip_x, mip_y, 1} },
+            };
+
+            vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                            VK_FILTER_LINEAR);
+
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                                0, nullptr, 1, &barrier);
+
+            if (mip_width > 1) mip_width /= 2;
+            if (mip_height > 1) mip_height /= 2;
+        }
+
+        barrier.subresourceRange.baseMipLevel = mip_levels - 1;
+        barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+            0, nullptr, 1, &barrier
+        );
+    });
+}
+
+void MimirInstance::transitionImageLayout(VkImage image,
+    VkImageLayout old_layout, VkImageLayout new_layout)
+{
+    VkImageMemoryBarrier barrier{};
+    barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout           = old_layout;
+    barrier.newLayout           = new_layout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image               = image;
+    barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel   = 0;
+    barrier.subresourceRange.levelCount     = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount     = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = 0;
+
+    VkPipelineStageFlags src_stage, dst_stage;
+    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED)
+    {
+        barrier.srcAccessMask = 0;
+        src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        src_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else
+    {
+        spdlog::error("unsupported layout transition");
+        return;
+    }
+
+    if (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else
+    {
+        spdlog::error("unsupported layout transition");
+        return;
+    }
+
+    immediateSubmit([=](VkCommandBuffer cmd)
+    {
+        vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    });
 }
 
 } // namespace mimir

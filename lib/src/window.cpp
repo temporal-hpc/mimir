@@ -1,105 +1,159 @@
-#include "internal/window.hpp"
+#include "mimir/window.hpp"
 
 #include <imgui.h>
 
-#include <mimir/mimir.hpp>
-#include <mimir/validation.hpp>
-#include "internal/camera.hpp"
+#include "mimir/engine.hpp"
+#include "mimir/camera.hpp"
+#include "mimir/validation.hpp"
+
+namespace mimir::validation
+{
+
+// Converts GLFW result codes into strings
+const char *getGlfwErrorString(int code)
+{
+    switch (code)
+    {
+#define STR(r) case GLFW_ ##r: return #r
+        STR(NOT_INITIALIZED);
+        STR(NO_CURRENT_CONTEXT);
+        STR(INVALID_ENUM);
+        STR(INVALID_VALUE);
+        STR(OUT_OF_MEMORY);
+        STR(API_UNAVAILABLE);
+        STR(VERSION_UNAVAILABLE);
+        STR(PLATFORM_ERROR);
+        STR(FORMAT_UNAVAILABLE);
+#undef STR
+        default: return "UNKNOWN_ERROR";
+    }
+}
+
+constexpr int checkGlfw(int code, std::source_location src = std::source_location::current())
+{
+    if (code != GLFW_TRUE)
+    {
+        spdlog::error("GLFW assertion: {} in function {} at {}({})",
+            getGlfwErrorString(code), src.function_name(), src.file_name(), src.line()
+        );
+    }
+    return code;
+}
+
+} // namespace mimir::validation
 
 namespace mimir
 {
 
-MimirEngine *getHandler(GLFWwindow *window)
+// Helper to retrieve engine pointer from handle associated to GLFW window object
+MimirInstance *getHandler(GLFWwindow *window)
 {
-    return reinterpret_cast<MimirEngine*>(glfwGetWindowUserPointer(window));
+    return reinterpret_cast<MimirInstance*>(glfwGetWindowUserPointer(window));
 }
 
 // Translates GLFW mouse movement into Viewer flags for detecting camera movement
 void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
 {
     auto app = getHandler(window);
-    auto dx = app->mouse_pos.x - static_cast<float>(xpos);
-    auto dy = app->mouse_pos.y - static_cast<float>(ypos);
+    auto& ctx = app->window_context;
 
-    if (app->mouse_buttons.left)
+    // Compute displacements from previously registered position
+    auto new_x = static_cast<float>(xpos);
+    auto dx = ctx.mouse_pos.x - new_x;
+    auto new_y = static_cast<float>(ypos);
+    auto dy = ctx.mouse_pos.y - new_y;
+
+    if (ctx.mouse_buttons.left) // Rotation
     {
-        auto rot = app->camera->rotation_speed;
-        app->camera->rotate(glm::vec3(dy * rot, -dx * rot, 0.f));
-        app->view_updated = true;
+        auto speed = app->camera.rotation_speed;
+        app->camera.rotate(glm::vec3(dy * speed, -dx * speed, 0.f));
     }
-    if (app->mouse_buttons.right)
+    if (ctx.mouse_buttons.right) // Zoom
     {
-        app->camera->translate(glm::vec3(0.f, 0.f, dy * .005f));
+        app->camera.translate(glm::vec3(0.f, 0.f, dy * .005f));
     }
-    if (app->mouse_buttons.middle)
+    if (ctx.mouse_buttons.middle) // Translation
     {
-        app->camera->translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
+        app->camera.translate(glm::vec3(-dx * 0.01f, -dy * 0.01f, 0.f));
     }
-    app->mouse_pos = make_float2(xpos, ypos);
+    // Update last registered mouse position
+    ctx.mouse_pos = { .x = new_x, .y = new_y };
+}
+
+// Helper to transform button events (pressed, released) into flags (true only if pressed)
+bool handleMouseButton(int button, int action, int b)
+{
+    auto pressed  = (button == b && action == GLFW_PRESS);
+    auto released = (button == b && action == GLFW_RELEASE);
+    return pressed && !released;
 }
 
 // Translates GLFW mouse actions into Viewer flags for detecting camera actions
 void mouseButtonCallback(GLFWwindow *window, int button, int action,[[maybe_unused]] int mods)
 {
     auto app = getHandler(window);
-    // Perform action only if GUI does not want to use mouse input
-    // (if not hovering over a menu item)
-    if (!ImGui::GetIO().WantCaptureMouse)
-    {
-        if (action == GLFW_PRESS)
-        {
-            if (button == GLFW_MOUSE_BUTTON_MIDDLE) app->mouse_buttons.middle = true;
-            else if (button == GLFW_MOUSE_BUTTON_LEFT) app->mouse_buttons.left = true;
-            else if (button == GLFW_MOUSE_BUTTON_RIGHT) app->mouse_buttons.right = true;
-        }
-        else if (action == GLFW_RELEASE)
-        {
-            if (button == GLFW_MOUSE_BUTTON_MIDDLE) app->mouse_buttons.middle = false;
-            else if (button == GLFW_MOUSE_BUTTON_LEFT) app->mouse_buttons.left = false;
-            else if (button == GLFW_MOUSE_BUTTON_RIGHT) app->mouse_buttons.right = false;
-        }
-    }
+    auto& ctx = app->window_context;
+
+    // Perform action only if GUI does not want mouse input (e.g. not hovering over a menu item)
+    if (ImGui::GetIO().WantCaptureMouse) { return; }
+    ctx.mouse_buttons = {
+        .left   = handleMouseButton(button, action, GLFW_MOUSE_BUTTON_LEFT),
+        .right  = handleMouseButton(button, action, GLFW_MOUSE_BUTTON_RIGHT),
+        .middle = handleMouseButton(button, action, GLFW_MOUSE_BUTTON_MIDDLE),
+    };
 }
 
 void framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[maybe_unused]] int height)
 {
     auto app = getHandler(window);
-    app->should_resize = true;
+    app->window_context.resize_requested = true;
 }
 
 void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int action, int mods)
 {
     auto app = getHandler(window);
+    // Toggle info panel
+    if (key == GLFW_KEY_G && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
+    {
+        app->options.show_panel = !app->options.show_panel;
+    }
     // Toggle demo window
     if (key == GLFW_KEY_D && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
-        app->show_demo_window = !app->show_demo_window;
+        app->options.show_demo_window = !app->options.show_demo_window;
     }
     // Toggle metrics windows
     if (key == GLFW_KEY_M && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
         app->options.show_metrics = !app->options.show_metrics;
     }
+    // Trigger exit (useful when window is undecorated)
+    if (key == GLFW_KEY_Q && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
+    {
+        glfwSetWindowShouldClose(window, GL_TRUE);
+        glfwPollEvents();
+    }
 }
 
 void windowCloseCallback(GLFWwindow *window)
 {
-    //printf("Handling window close\n");
+    spdlog::trace("Triggering window close callback");
     auto engine = getHandler(window);
-    engine->running = false;
     engine->signalKernelFinish();
 }
 
-void GlfwContext::init(int width, int height, const char* title, void *engine)
+GlfwContext GlfwContext::make(int width, int height, const char* title, void *engine)
 {
     // Initialize GLFW context and window
-    glfwInit();
+    validation::checkGlfw(glfwInit());
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+    //glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    window = glfwCreateWindow(width, height, title, nullptr, nullptr);
-    //glfwSetWindowSize(window, width, height);
+
+    auto window = glfwCreateWindow(width, height, title, nullptr, nullptr);
+    //glfwSetWindowSize(ctx.window, width, height);
 
     // Set GLFW action callbacks
     glfwSetWindowUserPointer(window, engine);
@@ -108,6 +162,13 @@ void GlfwContext::init(int width, int height, const char* title, void *engine)
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetKeyCallback(window, keyCallback);
     glfwSetWindowCloseCallback(window, windowCloseCallback);
+
+    return {
+        .window           = window,
+        .mouse_pos        = { .x = 0.f, .y = 0.f },
+        .mouse_buttons    = { .left = false, .right = false, .middle = false },
+        .resize_requested = false,
+    };
 }
 
 void GlfwContext::clean()

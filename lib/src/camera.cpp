@@ -1,72 +1,63 @@
-#include "internal/camera.hpp"
+#include "mimir/camera.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace mimir
 {
 
+Camera Camera::make()
+{
+    return Camera{
+        .type           = CameraType::LookAt,
+        .position       = glm::vec3(),
+        .rotation       = glm::vec3(),
+        .rotation_speed = 1.f,
+        .movement_speed = 1.f,
+        .fov            = 0.f,
+        .near_clip      = 0.f,
+        .far_clip       = 0.f,
+        .matrices       = { .perspective = glm::mat4(), .view = glm::mat4() }
+    };
+}
+
 void Camera::updateViewMatrix()
 {
     glm::mat4 rotmat(1.f);
-    auto flip = flip_y? -1.f : 1.f;
-    rotmat = glm::rotate(rotmat, glm::radians(rotation.x * flip), glm::vec3(1.f, 0.f, 0.f));
+    rotmat = glm::rotate(rotmat, glm::radians(rotation.x), glm::vec3(1.f, 0.f, 0.f));
     rotmat = glm::rotate(rotmat, glm::radians(rotation.y), glm::vec3(0.f, 1.f, 0.f));
     rotmat = glm::rotate(rotmat, glm::radians(rotation.z), glm::vec3(0.f, 0.f, 1.f));
 
     glm::vec3 translation = position;
-    if (flip_y)
-    {
-        translation.y *= -1.f;
-    }
     glm::mat4 transmat = glm::translate(glm::mat4(1.f), translation);
-
-    if (type == CameraType::FirstPerson)
-    {
-        matrices.view = rotmat * transmat;
-    }
-    else
-    {
-        matrices.view = transmat * rotmat;
-    }
-    view_pos = glm::vec4(position, 0.f) * glm::vec4(-1.f, 1.f, -1.f, 1.f);
-    updated = true;
+    matrices.view = (type == CameraType::FirstPerson)? rotmat * transmat : transmat * rotmat;
 }
 
-bool Camera::moving()
+glm::mat4x4 perspective(float vertical_fov, float aspect_ratio, float near, float far)
 {
-    return keys.left || keys.right || keys.up || keys.down;
-}
+    float fov_rad = vertical_fov * glm::pi<float>() / 180.f;
+    float focal_length = 1.f / std::tan(fov_rad / 2.f);
 
-float Camera::getNearClip()
-{
-    return z_near;
-}
+    float x = focal_length / aspect_ratio;
+    float y = -focal_length;
+    float A = near / (far - near);
+    float B = far * A;
 
-float Camera::getFarClip()
-{
-    return z_far;
+    glm::mat4x4 projection({
+        x,   0.f,  0.f, 0.f,
+        0.f,   y,  0.f, 0.f,
+        0.f, 0.f,    A,   B,
+        0.f, 0.f, -1.f, 0.f,
+    });
+    return glm::transpose(projection);
 }
 
 void Camera::setPerspective(float fov, float aspect, float znear, float zfar)
 {
-    this->fov    = fov;
-    this->z_near = znear;
-    this->z_far  = zfar;
+    this->fov       = fov;
+    this->near_clip = znear;
+    this->far_clip  = zfar;
 
-    matrices.perspective = glm::perspective(glm::radians(fov), aspect, z_near, z_far);
-    if (flip_y)
-    {
-        matrices.perspective[1][1] *= -1.f;
-    }
-}
-
-void Camera::updateAspectRatio(float aspect)
-{
-    matrices.perspective = glm::perspective(glm::radians(fov), aspect, z_near, z_far);
-    if (flip_y)
-    {
-        matrices.perspective[1][1] *= -1.f;
-    }
+    matrices.perspective = perspective(fov, aspect, znear, zfar);
 }
 
 void Camera::setPosition(glm::vec3 position)
@@ -87,26 +78,10 @@ void Camera::rotate(glm::vec3 delta)
     updateViewMatrix();
 }
 
-void Camera::setTranslation(glm::vec3 translation)
-{
-    this->position = translation;
-    updateViewMatrix();
-}
-
 void Camera::translate(glm::vec3 delta)
 {
     this->position += delta;
     updateViewMatrix();
-}
-
-void Camera::setRotationSpeed(float rot_speed)
-{
-    this->rotation_speed = rot_speed;
-}
-
-void Camera::setMovementSpeed(float mov_speed)
-{
-    this->movement_speed = mov_speed;
 }
 
 } // namespace mimir

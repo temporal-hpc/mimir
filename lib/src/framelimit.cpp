@@ -1,7 +1,7 @@
-#include "internal/framelimit.hpp"
+#include "mimir/framelimit.hpp"
 
 #include <time.h> // timespec
-#include <cstdint> // int64_t
+#include <chrono> // std::chrono::nanoseconds
 
 namespace mimir
 {
@@ -45,7 +45,7 @@ int frameSleep(uint64_t sleep_time)
     return nanosleep(&ts, nullptr);
 }
 
-void frameStall(unsigned target_rate)
+void frameStall(int64_t target_rate)
 {
     static int64_t old_time = 0;
     static int64_t overhead = 0;
@@ -62,9 +62,9 @@ void frameStall(unsigned target_rate)
     old_time = getNanotime();
 }
 
-int getTargetFrameTime(bool enable, int target_fps)
+int64_t getTargetFrameTime(bool enable, int target_fps)
 {
-    return (enable && target_fps > 0)? 1000000000 / target_fps : 0;
+    return (enable && target_fps > 0)? int64_t(1000000000.0 / target_fps) : 0;
 }
 
 } // namespace mimir

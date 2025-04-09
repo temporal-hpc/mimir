@@ -2,9 +2,8 @@
 #include "stb/stb_image.h" // stbi_load
 
 #include <mimir/mimir.hpp>
-#include <mimir/validation.hpp> // checkCuda
+#include "validation.hpp" // checkCuda
 using namespace mimir;
-using namespace mimir::validation; // checkCuda
 
 int main(int argc, char *argv[])
 {
@@ -28,35 +27,36 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    MimirEngine engine;
-    engine.init(1920, 1080);
+    InstanceHandle instance = nullptr;
+    createInstance(1920, 1080, &instance);
 
-    MemoryParams m;
-    m.layout         = DataLayout::Layout2D;
-    m.element_count  = {(uint)width, (uint)height, 1};
-    m.component_type = ComponentType::Char;
-    m.channel_count  = 4;
-    m.resource_type  = ResourceType::LinearTexture;
-    auto pixels = engine.createBuffer((void**)&d_pixels, m);
+    AllocHandle pixels;
+    allocLinear(instance, (void**)&d_pixels, sizeof(char4) * width * height, &pixels);
 
-    ViewParams params;
-    params.element_count = width * height;
-    params.data_domain   = DataDomain::Domain2D;
-    params.domain_type   = DomainType::Structured;
-    params.view_type     = ViewType::Image;
-    params.attributes[AttributeType::Color] = *pixels;
-    /*params.options.external_shaders = {
-        {"shaders/texture_vertex2dMain.spv", VK_SHADER_STAGE_VERTEX_BIT},
-        {"shaders/texture_frag2d_Float4.spv", VK_SHADER_STAGE_FRAGMENT_BIT}
-    };*/
-    engine.createView(params);
+    ViewHandle view = nullptr;
+    ViewDescription desc{
+        .type   = ViewType::Image,
+        .domain = DomainType::Domain2D,
+        .attributes  = {
+            {AttributeType::Position, makeImageFrame(instance)},
+            {AttributeType::Color, AttributeDescription{
+                .source = pixels,
+                .size   = static_cast<unsigned int>(width * height),
+                .format = FormatDescription::make<char4>(),
+            }}
+        },
+        .layout       = Layout::make(width, height),
+        .default_size = 1.f,
+    };
+    createView(instance, &desc, &view);
 
     auto tex_size = sizeof(uchar4) * width * height;
     checkCuda(cudaMemcpy(d_pixels, h_pixels, tex_size, cudaMemcpyHostToDevice));
     stbi_image_free(h_pixels);
 
-    engine.displayAsync();
+    displayAsync(instance);
     checkCuda(cudaFree(d_pixels));
+    destroyInstance(instance);
 
     return EXIT_SUCCESS;
 }

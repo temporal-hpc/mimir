@@ -6,7 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 //										//
 //	Copyright � 2011 Cristobal A. Navarro.					//
-//										//	
+//										//
 //	This file is part of tiuque.						//
 //	tiuque is free software: you can redistribute it and/or modify		//
 //	it under the terms of the GNU General Public License as published by	//
@@ -29,7 +29,7 @@
 class Application
 {
     private:
-        mimir::MimirEngine engine;
+        mimir::InstanceHandle instance;
         Mesh* myMesh;
         bool toggle_solid;
         bool toggle_wireframe = true;

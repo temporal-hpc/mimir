@@ -26,11 +26,11 @@ void main()
 {
     float primitive_size = 10.f;
     vec4 primitive_color = vec4(0,0,0,1);
-    vec4 bg_color = vec4(.5,.5,.5,1);
-    
+    vec4 background_color = vec4(.5,.5,.5,1);
+
     vec2 p = 2 * point_uv - 1;
     float dist = disc(p * point_size, 10.f);
-    
-    FragColor = filled(dist, 1.f, 1.f, primitive_color, bg_color);
+
+    FragColor = filled(dist, 1.f, 1.f, primitive_color, background_color);
     gl_FragDepth = 1 - FragColor.w;
 }
