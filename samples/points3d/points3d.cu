@@ -99,8 +99,6 @@ int main(int argc, char *argv[])
     bool enable_sync         = true;
     bool use_interop         = true;
 
-    //printf("%d %d %d\n", sm_count, max_block_count, grid_size);
-
     // Parse parameters from command line
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
     if (argc >= 4) point_count  = std::stoul(argv[3]);
@@ -109,11 +107,6 @@ int main(int argc, char *argv[])
     if (argc >= 7) target_fps   = std::stoi(argv[6]);
     if (argc >= 8) enable_sync  = static_cast<bool>(std::stoi(argv[7]));
     if (argc >= 9) use_interop  = static_cast<bool>(std::stoi(argv[8]));
-
-    // Determine execution mode for benchmarking and write CSV column names
-    std::string mode;
-    if (width == 0 && height == 0) mode = use_interop? "interop" : "cudaMalloc";
-    else mode = enable_sync? "sync" : "desync";
 
     bool display = true;
     if (width == 0 || height == 0)
@@ -174,28 +167,59 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
         if (display) updateViews(instance);
     }
-    printf("%s,%u,", mode.c_str(), point_count);
-    getMetrics(instance);
+
+    auto metrics = getMetrics(instance);
 
     // Nvml memory report
-    {
-        nvmlMemory_v2_t meminfo;
-        meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
-        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
+    nvmlMemory_v2_t meminfo;
+    meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+    nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
 
-        constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
-        double freemem = meminfo.free / gigabyte;
-        double reserved = meminfo.reserved / gigabyte;
-        double totalmem = meminfo.total / gigabyte;
-        double usedmem = meminfo.used / gigabyte;
-        printf("%lf,%lf,", freemem, usedmem);
-    }
+    constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
+    double nvml_free = meminfo.free / gigabyte;
+    double nvml_reserved = meminfo.reserved / gigabyte;
+    double nvml_total = meminfo.total / gigabyte;
+    double nvml_used = meminfo.used / gigabyte;
 
-    GPUPowerEnd();
+    auto gpu = GPUPowerEnd();
 
+    exit(instance);
     destroyInstance(instance);
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
+
+    // Determine execution mode for benchmarking and write CSV column names
+    std::string mode;
+    if (width == 0 && height == 0)
+    {
+        mode = display? "mimir" : "none";
+    }
+    else { mode = enable_sync? "sync" : "desync"; }
+
+    std::string resolution = "None";
+    if      (width == 1920 && height == 1080) { resolution = "FHD"; }
+    else if (width == 2560 && height == 1440) { resolution = "QHD"; }
+    else if (width == 3840 && height == 2160) { resolution = "UHD"; }
+
+    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+        mode.c_str(),
+        resolution.c_str(),
+        point_count,
+        target_fps,
+        metrics.frame_rate,
+        metrics.times.compute,
+        metrics.times.pipeline,
+        metrics.times.graphics,
+        metrics.devmem.usage,
+        metrics.devmem.budget,
+        gpu.average_power,
+        gpu.total_energy,
+        gpu.total_time,
+        nvml_free,
+        nvml_reserved,
+        nvml_total,
+        nvml_used
+    );
 
     return EXIT_SUCCESS;
 }

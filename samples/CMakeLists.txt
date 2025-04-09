@@ -9,13 +9,17 @@ add_subdirectory(structured)
 add_subdirectory(mesh3d)
 add_subdirectory(image)
 add_subdirectory(CA3D-voxels)
+# Experiments
 add_subdirectory(nbody)
+add_subdirectory(points3d)
+add_subdirectory(points3dcpu)
+add_subdirectory(pointsgl)
+#add_subdirectory(pointspcl)
 # Basic samples
 add_subdirectory(GPU-visual-tool-example)
 add_subdirectory(edgeflip)
 add_subdirectory(voronoi-simple)
 add_subdirectory(texture_cudaarray)
-add_subdirectory(points3d)
 # Advanced samples
 add_subdirectory(colloids)
 add_subdirectory(potts)
