@@ -17,7 +17,7 @@ __global__ void initRng(curandState *states, unsigned int rng_count, unsigned in
 }
 
 // Init starting positions
-__global__ void initPos(float *coords, size_t point_count, curandState *rng, uint3 extent)
+__global__ void initPos(float *coords, size_t point_count, curandState *rng)
 {
     auto points = reinterpret_cast<float3*>(coords);
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -25,15 +25,15 @@ __global__ void initPos(float *coords, size_t point_count, curandState *rng, uin
     auto state = rng[tidx];
     for (int i = tidx; i < point_count; i += stride)
     {
-        auto rx = extent.x * curand_uniform(&state);
-        auto ry = extent.y * curand_uniform(&state);
-        auto rz = extent.z * curand_uniform(&state);
+        auto rx = curand_uniform(&state);
+        auto ry = curand_uniform(&state);
+        auto rz = curand_uniform(&state);
         points[i] = {rx, ry, rz};
     }
     rng[tidx] = state;
 }
 
-__global__ void integrate3d(float *coords, size_t point_count, curandState *rng, uint3 extent)
+__global__ void integrate3d(float *coords, size_t point_count, curandState *rng)
 {
     auto points = reinterpret_cast<float3*>(coords);
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -45,17 +45,17 @@ __global__ void integrate3d(float *coords, size_t point_count, curandState *rng,
         auto p = points[i];
 
         // Generate random displacements with device RNG state
-        p.x += curand_normal(&local_state);
-        p.y += curand_normal(&local_state);
-        p.z += curand_normal(&local_state);
+        p.x += 0.1 * curand_normal(&local_state);
+        p.y += 0.1 * curand_normal(&local_state);
+        p.z += 0.1 * curand_normal(&local_state);
 
         // Correct positions to bounds
-        if (p.x > extent.x) p.x = extent.x;
-        if (p.x < 0) p.x = 0;
-        if (p.y > extent.x) p.y = extent.y;
-        if (p.y < 0) p.y = 0;
-        if (p.z > extent.z) p.z = extent.z;
-        if (p.z < 0) p.z = 0;
+        if (p.x > 1.f) p.x = 1.f;
+        if (p.x < 0.f) p.x = 0.f;
+        if (p.y > 1.f) p.y = 1.f;
+        if (p.y < 0.f) p.y = 0.f;
+        if (p.z > 1.f) p.z = 1.f;
+        if (p.z < 0.f) p.z = 0.f;
 
         // Write updated position
         points[i] = p;
@@ -87,7 +87,6 @@ int main(int argc, char *argv[])
 
     // Experiment constants
     const unsigned int seed = 12345u;
-    const uint3 extent      = {200, 200, 200};
 
     // Default experiment parameters
     int width                = 1920;
@@ -143,19 +142,21 @@ int main(int argc, char *argv[])
             .format = FormatDescription::make<float3>(),
         };
         desc.default_size = 0.1f;
-        desc.scale = { 0.01f, 0.01f, 0.01f };
+        desc.linewidth = 0.f;
+        desc.scale = {5.f, 5.f, 5.f};
+        desc.position = {-3.5f, -2.5f, -5.f};
+        desc.rotation = {0.f, 45.f, 0.f};
         createView(instance, &desc, &view);
     }
     else // Run the simulation without display
     {
         checkCuda(cudaMalloc((void**)&d_coords, sizeof(float3) * point_count));
     }
-    setCameraPosition(instance, {-2.f, -2.f, -7.f});
 
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * rng_state_count));
     initRng<<<grid_size, block_size>>>(d_states, rng_state_count, seed);
     checkCuda(cudaDeviceSynchronize());
-    initPos<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
+    initPos<<<grid_size, block_size>>>(d_coords, point_count, d_states);
     checkCuda(cudaDeviceSynchronize());
 
     GPUPowerBegin("gpu", 100);
@@ -163,7 +164,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < iter_count && isRunning(instance); ++i)
     {
         if (display) prepareViews(instance);
-        integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
+        integrate3d<<<grid_size, block_size>>>(d_coords, point_count, d_states);
         checkCuda(cudaDeviceSynchronize());
         if (display) updateViews(instance);
     }
