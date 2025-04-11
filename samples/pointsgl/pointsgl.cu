@@ -45,44 +45,58 @@ constexpr void checkCuda(cudaError_t code, bool panic = true,
     }
 }
 
-__global__ void initSystem(float *coords, size_t point_count,
-    curandState *global_states, uint3 extent, unsigned seed)
+// Init RNG states
+__global__ void initRng(curandState *states, unsigned int rng_count, unsigned int seed)
 {
-    auto points = reinterpret_cast<float3*>(coords);
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (tidx < point_count)
-    {
-        auto local_state = global_states[tidx];
-        curand_init(seed, tidx, 0, &local_state);
-        auto rx = extent.x * curand_uniform(&local_state);
-        auto ry = extent.y * curand_uniform(&local_state);
-        auto rz = extent.z * curand_uniform(&local_state);
-        points[tidx] = {rx, ry, rz};
-        global_states[tidx] = local_state;
-    }
+    curand_init(seed, tidx, 0, &states[tidx]);
 }
 
-__global__ void integrate3d(float *coords, size_t point_count,
-    curandState *global_states, uint3 extent)
+// Init starting positions
+__global__ void initPos(float *coords, size_t point_count, curandState *rng, uint3 extent)
 {
     auto points = reinterpret_cast<float3*>(coords);
     auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (tidx < point_count)
+    auto stride = gridDim.x * blockDim.x;
+    auto state = rng[tidx];
+    for (int i = tidx; i < point_count; i += stride)
     {
-        auto local_state = global_states[tidx];
-        auto p = points[tidx];
-        p.x += curand_normal(&local_state);
-        if (p.x > extent.x) p.x = extent.x;
-        if (p.x < 0) p.x = 0;
-        p.y += curand_normal(&local_state);
-        if (p.y > extent.x) p.y = extent.y;
-        if (p.y < 0) p.y = 0;
-        p.z += curand_normal(&local_state);
-        if (p.z > extent.z) p.z = extent.z;
-        if (p.z < 0) p.z = 0;
-        points[tidx] = p;
-        global_states[tidx] = local_state;
+        auto rx = extent.x * curand_uniform(&state);
+        auto ry = extent.y * curand_uniform(&state);
+        auto rz = extent.z * curand_uniform(&state);
+        points[i] = {rx, ry, rz};
     }
+    rng[tidx] = state;
+}
+
+__global__ void integrate3d(float *coords, size_t point_count, curandState *rng, uint3 extent)
+{
+    auto points = reinterpret_cast<float3*>(coords);
+    auto tidx = blockDim.x * blockIdx.x + threadIdx.x;
+    auto stride = gridDim.x * blockDim.x;
+    auto local_state = rng[tidx];
+    for (int i = tidx; i < point_count; i += stride)
+    {
+        // Read current position
+        auto p = points[i];
+
+        // Generate random displacements with device RNG state
+        p.x += 0.1 * curand_normal(&local_state);
+        p.y += 0.1 * curand_normal(&local_state);
+        p.z += 0.1 * curand_normal(&local_state);
+
+        // Correct positions to bounds
+        if (p.x > extent.x) p.x = extent.x;
+        if (p.x < 0.f) p.x = 0.f;
+        if (p.y > extent.y) p.y = extent.z;
+        if (p.y < 0.f) p.y = 0.f;
+        if (p.z > extent.z) p.z = extent.z;
+        if (p.z < 0.f) p.z = 0.f;
+
+        // Write updated position
+        points[i] = p;
+    }
+    rng[tidx] = local_state;
 }
 
 GLuint loadShader(const std::string& shader_path, GLenum shader_type)
@@ -129,7 +143,6 @@ int main(int argc, char *argv[])
 
     float *d_coords       = nullptr;
     curandState *d_states = nullptr;
-    unsigned block_size   = 256;
     unsigned seed         = 123456;
     uint3 extent          = {200, 200, 200};
 
@@ -141,6 +154,26 @@ int main(int argc, char *argv[])
     if (argc >= 3) { width = std::stoi(argv[1]); height = std::stoi(argv[2]); }
     if (argc >= 4) point_count = std::stoul(argv[3]);
     if (argc >= 5) iter_count = std::stoi(argv[4]);
+
+    // Set manually CUDA device to 0; change if needed
+    const int device_id = 0;
+    checkCuda(cudaSetDevice(device_id));
+
+    // Retrieve number of streaming multiprocessors (SMs)
+    int sm_count = -1;
+    checkCuda(cudaDeviceGetAttribute(&sm_count, cudaDevAttrMultiProcessorCount, device_id));
+
+    // Retrieve max number of threads per SM
+    int max_sm_thread_count = -1;
+    checkCuda(cudaDeviceGetAttribute(
+        &max_sm_thread_count, cudaDevAttrMaxThreadsPerMultiProcessor, device_id)
+    );
+
+    // Determine kernel parameters from previous values
+    const unsigned int block_size = 256;
+    const int max_block_count = max_sm_thread_count / block_size;
+    const int rng_state_count = max_block_count * sm_count * block_size;
+    const int grid_size = (rng_state_count + block_size - 1) / block_size;
 
     GLFWwindow *window = nullptr;
     // Here we would call engine.init(options);
@@ -226,9 +259,10 @@ int main(int argc, char *argv[])
     size_t buffer_size;
     checkCuda(cudaGraphicsResourceGetMappedPointer((void**)&d_coords, &buffer_size, vbo_res));
 
-    checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
-    unsigned grid_size = (point_count + block_size - 1) / block_size;
-    initSystem<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent, seed);
+    checkCuda(cudaMalloc(&d_states, sizeof(curandState) * rng_state_count));
+    initRng<<<grid_size, block_size>>>(d_states, rng_state_count, seed);
+    checkCuda(cudaDeviceSynchronize());
+    initPos<<<grid_size, block_size>>>(d_coords, point_count, d_states, extent);
     checkCuda(cudaDeviceSynchronize());
     checkCuda(cudaGraphicsUnmapResources(1, &vbo_res));
 
@@ -309,8 +343,7 @@ int main(int argc, char *argv[])
     else if (width == 2560 && height == 1440) { resolution = "QHD"; }
     else if (width == 3840 && height == 2160) { resolution = "UHD"; }
 
-    printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f\n",
-        "OpenGL",
+    printf("OpenGL,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f\n",
         resolution.c_str(),
         point_count,
         framerate,

@@ -149,7 +149,7 @@ GlfwContext GlfwContext::make(int width, int height, const char* title, void *en
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
-    //glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     auto window = glfwCreateWindow(width, height, title, nullptr, nullptr);

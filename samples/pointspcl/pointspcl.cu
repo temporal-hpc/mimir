@@ -74,11 +74,10 @@ int main(int argc, char *argv[])
     uint3 extent          = {200, 200, 200};
 
     // Default values for this program
-    size_t point_count = 100;
+    unsigned int point_count = 100;
     int iter_count = 10000;
     if (argc >= 2) point_count = std::stoul(argv[1]);
     if (argc >= 3) iter_count = std::stoi(argv[2]);
-    printf("pcl,%lu,", point_count);
 
     checkCuda(cudaMalloc((void**)&d_coords, sizeof(float4) * point_count));
     checkCuda(cudaMalloc(&d_states, sizeof(curandState) * point_count));
@@ -87,7 +86,7 @@ int main(int argc, char *argv[])
     checkCuda(cudaDeviceSynchronize());
 
     // Initialize point cloud structure on host memory
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>()); 
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
     //pcl::PointCloud<pcl::PointXYZ> cloud;
     cloud->width = point_count;
     cloud->height = 1;
@@ -98,7 +97,7 @@ int main(int argc, char *argv[])
     );
 
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer ("3D Viewer", true));
-    viewer->setBackgroundColor (0.5, 0.5, 0.5);
+    viewer->setBackgroundColor (0.0, 0.0, 0.0);
     viewer->addPointCloud<pcl::PointXYZ> (cloud, "points3d");
     viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "points3d");
     viewer->addCoordinateSystem (1.0);
@@ -153,30 +152,40 @@ int main(int argc, char *argv[])
             auto framerate = frame_times.size() / total_frame_time;
 
             // Nvml memory report
-            {
-                nvmlMemory_v2_t meminfo;
-                meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
-                nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
-                
-                constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
-                double freemem = meminfo.free / gigabyte;
-                double reserved = meminfo.reserved / gigabyte;
-                double totalmem = meminfo.total / gigabyte;
-                double usedmem = meminfo.used / gigabyte;
-                printf("%f,%lf,%lf,", framerate, freemem, usedmem);
-            }
+            nvmlMemory_v2_t meminfo;
+            meminfo.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+            nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
 
-            GPUPowerEnd();
+            constexpr double gigabyte = 1024.0 * 1024.0 * 1024.0;
+            double nvml_free = meminfo.free / gigabyte;
+            double nvml_reserved = meminfo.reserved / gigabyte;
+            double nvml_total = meminfo.total / gigabyte;
+            double nvml_used = meminfo.used / gigabyte;
+
+            auto gpu = GPUPowerEnd();
+
             checkCuda(cudaFree(d_states));
             checkCuda(cudaFree(d_coords));
+
+            printf("PCL,FHD,%d,%f,%f,%f,%f,%f,%f,%f,%f\n",
+                point_count,
+                framerate,
+                gpu.average_power,
+                gpu.total_energy,
+                gpu.total_time,
+                nvml_free,
+                nvml_reserved,
+                nvml_total,
+                nvml_used
+            );
 
             // Flush output before segmentation fault
             std::flush(std::cout);
 
             viewer->close(); // This causes segfault :(
         }
-        /*std::vector<pcl::visualization::Camera> cam; 
-        viewer->getCameras(cam); 
+        /*std::vector<pcl::visualization::Camera> cam;
+        viewer->getCameras(cam);
         printf("pos:   %f %f %f\nview:  %f %f %f\nfocal: %f %f %f\n",
             cam[0].pos[0], cam[0].pos[1], cam[0].pos[2],
             cam[0].view[0], cam[0].view[1], cam[0].view[2],

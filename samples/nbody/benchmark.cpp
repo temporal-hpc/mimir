@@ -1,5 +1,6 @@
 #include <random>
 #include <string> // std::stoul
+#include <iostream>
 
 #include "benchmark.hpp"
 #include "nbody_gpu.cuh"
@@ -382,6 +383,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     {
         for (int i = 0; i < input.iter_count && isRunning(instance); ++i)
         {
+            std::cin.get();
             if (input.display) { prepareViews(instance); }
 
             integrateNbodySystem(device, current_read, params.time_step,
