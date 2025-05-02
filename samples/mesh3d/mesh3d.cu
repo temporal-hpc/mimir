@@ -10,7 +10,7 @@ using namespace mimir;
 
 float varyAngle(float& deg)
 {
-    deg += .1f;
+    deg += 1.f;
     if (deg > 360.f) { deg = 0.f; }
     float rad = deg * (std::numbers::pi_v<float> / 180.f);
     return std::sin(rad);
@@ -24,9 +24,9 @@ __global__ void breatheKernel(float3 *vertices, float3 *normals, uint32_t vertex
     {
         auto v = vertices[i];
         auto n = normals[i];
-        v.x += 0.001f * sign * n.x;
-        v.y += 0.001f * sign * n.y;
-        v.z += 0.001f * sign * n.z;
+        v.x += 0.01f * sign * n.x;
+        v.y += 0.01f * sign * n.y;
+        v.z += 0.01f * sign * n.z;
         vertices[i] = v;
     }
 }
@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
         .size   = vertex_count,
         .format = FormatDescription::make<float3>(),
     };
-    desc.default_size = 1.f;
+    desc.default_size = 0.1f;
     desc.linewidth    = 0.f;
     createView(instance, &desc, &v1);
 

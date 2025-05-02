@@ -3,27 +3,14 @@ target_compile_features(samples_common INTERFACE cxx_std_20)
 target_include_directories(samples_common SYSTEM INTERFACE include)
 target_link_libraries(samples_common INTERFACE mimir)
 
-# Essential samples
+# samples
 add_subdirectory(unstructured)
 add_subdirectory(structured)
 add_subdirectory(mesh3d)
-add_subdirectory(image)
-add_subdirectory(CA3D-voxels)
-# Experiments
 add_subdirectory(nbody)
-add_subdirectory(points3d)
-add_subdirectory(points3dcpu)
-add_subdirectory(pointsgl)
-#add_subdirectory(pointspcl)
-# Basic samples
-add_subdirectory(GPU-visual-tool-example)
-add_subdirectory(edgeflip)
-add_subdirectory(voronoi-simple)
 add_subdirectory(texture_cudaarray)
-# Advanced samples
 add_subdirectory(colloids)
 add_subdirectory(potts)
-add_subdirectory(voronoi2)
 # Utilities
 add_subdirectory(powermon)
 
@@ -34,5 +21,14 @@ add_custom_target(copy_shaders ALL
         ${PROJECT_BINARY_DIR}/samples/shaders/
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
     COMMENT "Copying shaders..."
+    VERBATIM
+)
+
+add_custom_target(copy_assets ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${PROJECT_SOURCE_DIR}/samples/assets
+        ${PROJECT_BINARY_DIR}/samples/assets/
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    COMMENT "Copying assets..."
     VERBATIM
 )

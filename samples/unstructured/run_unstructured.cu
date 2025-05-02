@@ -85,11 +85,6 @@ int main(int argc, char *argv[])
                 .size   = point_count,
                 .format = FormatDescription::make<double2>(),
             }},
-            // { AttributeType::Size, {
-            //     .source     = sizes,
-            //     .size       = point_count,
-            //     .format     = FormatDescription::make<double>(),
-            // }},
         },
         .layout = Layout::make(point_count),
         .style  = ShapeStyle::Filled,

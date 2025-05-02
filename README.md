@@ -99,15 +99,16 @@ synchronization and load balancing between rendering and compute work.
 ## Running samples
 
 A successful build generates sample programs that link to the compiled library.
-From the source root, samples are placed in `build/samples/<sample_name>`.
+From the source root, samples are placed in `build/samples/<sample_name>`
+(it is recommended to run the executables from this path so that additional assets).
+Example input files for executables that require them (image and mesh viewer)
+are included in the `build/samples/assets` folder.
 The library currently provides the following samples:
 
 * `run_unstructured`: Displays a 2D brownian moving point cloud with various point sizes.
 * `run_structured`: As above, but executing and a Jump Flood Algorithm (JFA) CUDA kernel to compute
 a Distance Transform (DT) over a regular structured grid, using point positions as JFA seeds.
-* `run_image [path_to_image]`: Simple image viewer for visualizing RGBA image formats. No CUDA
-kernel is executed in here.
-* `run_texture [path_to_image]`: As above, but executes a box filter with periodically varying
+* `run_texture [path_to_image]`: Simple image viewer and box filter with periodically varying
 radii over the loaded image. Kernel code was ported from the CUDA-Vulkan interop sample program
 [vulkanImageCUDA](https://github.com/NVIDIA/cuda-samples/tree/master/Samples/5_Domain_Specific/vulkanImageCUDA).
 * `run_mesh [path_to_obj]`: Triangle mesh loader and viewer that uses
@@ -116,11 +117,14 @@ Smooth per-vertex normals are calculated for the loaded mesh and copied to devic
 along with vertex position and triangle vertex indices.
 After that, a CUDA kernel deforms the mesh repeatedly along the normal directions for each vertex,
 displaying the results in real time after each kernel call.
-* `points3d`: As the unstructured sample, but over 3D space.
-* `points3dcpy`: As `points3d`, but performing computation in host with OpenMP and transferring
-iteration results to device before displaying each time step.
-* `run_automata3d`: Demonstrates the mapping of double buffered algorithms using a ping-pong scheme
-to display the evolution of a 3D cellular automata. Press enter to advance the simulation.
+* `potts3`: Potts model visualization, based on code by Ferrero et al. (2012). Original source
+is available [here](https://github.com/ezeferrero/Potts-Model-on-GPUs)
+* `run_colloids [params]`: Visualization of a 2D colloidal particle system with excluded volumes.
+The following parameters are recommended (paste as arguments to the run_colloids executable):
+    - 4096 0.79 0.01 0.7 1 1 0.3 1 -1
+    - 4096 0.52 0.01 0.5 1 1 0.5 -1 -2
+    - 4096 0.0873 0.01 0.5 1 1 0.5 -1 -4
+* `run_nbody`: Gravitational N-body simulation, based on code from the [CUDA samples repository](https://github.com/NVIDIA/cuda-samples/tree/master/Samples/5_Domain_Specific/nbody), replacing the OpenGL backend with Mìmir.
 
 ## Current features
 

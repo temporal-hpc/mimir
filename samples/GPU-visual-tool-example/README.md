@@ -1,1 +1,0 @@
-# GPU-visual-tool-example

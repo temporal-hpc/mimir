@@ -199,7 +199,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     vp.domain = DomainType::Domain2D;
     vp.type   = ViewType::Markers;
 	vp.scale  = {0.1f, 0.1f, 0.1f};
-	vp.position  = {-10.f, -10.f, 0.f};
+	vp.position  = {0.f, 0.f, 0.f};
 	vp.linewidth = 0.f;
     vp.attributes[AttributeType::Position] =
 	{
@@ -224,11 +224,6 @@ void ParticleSystemDelaunay::loadOnDevice()
     vp.attributes[AttributeType::Position].source = interop[current_write];
     createView(instance, &vp, &particle_views[current_write]);
 
-    // Velocities view
-    //vp.options.visible = true;
-    //vp.attributes[AttributeType::Position] = *interop[2];
-    //instance.createView(vp);
-
     // Edges
     allocLinear(instance, (void**)&devicedata_.triangles, sizeof(int3) * delaunay_.num_triangles, &interop[4]);
 
@@ -240,7 +235,7 @@ void ParticleSystemDelaunay::loadOnDevice()
     vpe.domain = DomainType::Domain2D;
     vpe.type   = ViewType::Edges;
 	vpe.scale  = {0.1f, 0.1f, 0.1f};
-	vpe.position  = {-10.f, -10.f, 0.f};
+	vpe.position  = {0.f, 0.f, 0.001f};
 	vpe.linewidth = 0.f;
     vpe.attributes[AttributeType::Position] =
 	{
@@ -319,7 +314,7 @@ void ParticleSystemDelaunay::loadOnDevice()
 	setCameraPosition(instance, {0.f, 0.f, -15.f});
     displayAsync(instance);
 
-	printf("Waiting for key press...\n");
+	printf("Press ENTER to start the simulation...\n");
     std::cin.get(); // For recording
 }
 
