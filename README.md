@@ -96,6 +96,12 @@ Under this mode, CUDA calls manipulating interop-mapped memory must be enclosed 
 the `prepareViews` and `updateViews` function calls respectively. This ensures proper
 synchronization and load balancing between rendering and compute work.
 
+### Controls
+
+The following key bindings are available for a Mìmir window:
+* `Ctrl-G`: Toggle control panel
+* `Ctrl-Q`: Close window
+
 ## Running samples
 
 A successful build generates sample programs that link to the compiled library.
