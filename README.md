@@ -14,6 +14,9 @@ Mìmir downloads additional dependencies via the CMake `FetchContent` command:
 * [GLFW](https://github.com/glfw/glfw)
 * [GLM](https://github.com/g-truc/glm)
 
+The CMake script will attempt to download and build GLFW from source, which requires
+[additional dependencies](https://www.glfw.org/docs/latest/compile.html#compile_deps_wayland).
+
 ## Building
 
 Building from source requires a `C++20` host compiler, `CUDA SDK >= 10.0` and `cmake >= 3.24`.

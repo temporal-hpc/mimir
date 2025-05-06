@@ -1,2 +1,0 @@
-add_subdirectory(particlesystem)
-add_subdirectory(run_delaunay)
