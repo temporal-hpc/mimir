@@ -3,7 +3,7 @@
 #include <limits> // std::numeric_limits
 
 #include <mimir/mimir.hpp>
-#include "validation.hpp" // checkCuda
+#include "check_cuda.hpp" // checkCuda
 using namespace mimir;
 
 constexpr float max_distance = std::numeric_limits<float>::max();

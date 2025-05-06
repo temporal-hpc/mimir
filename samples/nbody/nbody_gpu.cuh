@@ -1,4 +1,4 @@
-#include "validation.hpp" // checkCuda
+#include "check_cuda.hpp" // checkCuda
 
 enum class NBodyConfig { Random, Shell, Expand };
 

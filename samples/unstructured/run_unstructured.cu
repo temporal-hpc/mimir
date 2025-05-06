@@ -3,7 +3,7 @@
 #include <string> // std::stoul
 
 #include <mimir/mimir.hpp>
-#include "validation.hpp" // checkCuda
+#include "check_cuda.hpp" // checkCuda
 using namespace mimir;
 
 __global__

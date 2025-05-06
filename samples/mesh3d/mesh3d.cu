@@ -4,7 +4,7 @@
 #include <iostream> // std::cin
 
 #include <mimir/mimir.hpp>
-#include "validation.hpp" // checkCuda
+#include "check_cuda.hpp" // checkCuda
 #include "mesh_obj.hpp"
 using namespace mimir;
 
