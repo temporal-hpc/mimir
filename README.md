@@ -1,6 +1,10 @@
 # Mìmir
 Library for interactive real-time visualization of CUDA code with Vulkan
 
+The source code contained here is a modified version for article submission.
+For the original version, check the [Mìmir repository](https://github.com/temporal-hpc/mimir).
+This package was generated and tested on Linux Mint 21.3, with kernel version 5.15.0-139.
+
 ## Dependencies
 
 ### Platforms
@@ -14,8 +18,11 @@ Mìmir downloads additional dependencies via the CMake `FetchContent` command:
 * [GLFW](https://github.com/glfw/glfw)
 * [GLM](https://github.com/g-truc/glm)
 
-The CMake script will attempt to download and build GLFW from source, which requires
-[additional dependencies](https://www.glfw.org/docs/latest/compile.html#compile_deps_wayland).
+The CMake script will attempt to download and build GLFW from source, which requires having
+[additional dependencies](https://www.glfw.org/docs/latest/compile.html#compile_deps_wayland)
+installed in the system. This library also uses the
+[Vulkan validation layers](https://github.com/KhronosGroup/Vulkan-ValidationLayers),
+which may be needed to install separately for some Linux distributions.
 
 ## Building
 
