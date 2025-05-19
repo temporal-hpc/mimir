@@ -1,4 +1,21 @@
 # Mìmir
+
+<p align="center">
+  <img alt="Colloids mesh" src="./img/colloids_mesh.png" width="30%">
+&nbsp; &nbsp;
+  <img alt="Colloids" src="./img/colloids.png" width="30%">
+&nbsp; &nbsp;
+  <img alt="Brain mesh" src="./img/mesh_brain.png" width="30%">
+</p>
+<p align="center">
+  <img alt="Gravitational N-Body" src="./img/nbody_grav.png" width="30%">
+&nbsp; &nbsp;
+  <img alt="Potts model" src="./img/potts_perspective.png" width="30%">
+&nbsp; &nbsp;
+  <img alt="Voronoi diagram" src="./img/voronoi_manhattan.png" width="30%">
+</p>
+
+
 Library for interactive real-time visualization of CUDA code with Vulkan.
 Tested on Linux Mint 21.3, with kernel version 5.15.0-139 (more releases coming soon).
 
