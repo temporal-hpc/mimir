@@ -1,4 +1,35 @@
-include(FetchContent)
+set(CPM_DOWNLOAD_VERSION 0.42.0)
+if(CPM_SOURCE_CACHE)
+    set(CPM_DOWNLOAD_LOCATION "${CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+elseif(DEFINED ENV{CPM_SOURCE_CACHE})
+    set(CPM_DOWNLOAD_LOCATION "$ENV{CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+else()
+    set(CPM_DOWNLOAD_LOCATION "${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+endif()
+
+if(NOT (EXISTS ${CPM_DOWNLOAD_LOCATION}))
+    message(STATUS "Downloading CPM.cmake to ${CPM_DOWNLOAD_LOCATION}")
+    file(DOWNLOAD
+        https://github.com/TheLartians/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake
+        ${CPM_DOWNLOAD_LOCATION}
+    )
+endif()
+include(${CPM_DOWNLOAD_LOCATION})
+
+# GLFW windowing lib
+CPMAddPackage(URI "gh:glfw/glfw#3.4"
+    OPTIONS "GLFW_BUILD_EXAMPLES OFF" "GLFW_BUILD_TESTS OFF" "GLFW_BUILD_DOCS OFF" "GLFW_BUILD_WAYLAND OFF" # Do not include Wayland support in GLFW
+)
+
+# GLM shader math lib
+CPMAddPackage(URI "gh:g-truc/glm#1.0.1"
+    OPTIONS "GLM_ENABLE_CXX_20 ON"
+)
+
+# spdlog logging lib
+CPMAddPackage(URI "gh:gabime/spdlog#v1.15.1"
+    OPTIONS "GLM_ENABLE_CXX_20 ON"
+)
 
 # Slang shader lib
 if(MIMIR_BUILD_SLANG)
@@ -34,39 +65,8 @@ else()
     )
 endif()
 
-# GLFW windowing lib
-set(GLFW_BUILD_EXAMPLES OFF)
-set(GLFW_BUILD_TESTS    OFF)
-set(GLFW_BUILD_DOCS     OFF)
-set(GLFW_BUILD_WAYLAND  OFF) # Do not include Wayland support in GLFW
-FetchContent_Declare(glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        7b6aead9fb88b3623e3b3725ebb42670cbe4c579 # 3.4
-    GIT_SHALLOW    ON
-    FIND_PACKAGE_ARGS
-)
-
-# GLM shader math lib
-option(GLM_ENABLE_CXX_20 ON)
-FetchContent_Declare(glm
-    GIT_REPOSITORY https://github.com/g-truc/glm.git
-    GIT_TAG        0af55ccecd98d4e5a8d1fad7de25ba429d60e863 # 1.0.1
-    GIT_SHALLOW    ON
-    FIND_PACKAGE_ARGS
-)
-
-# spdlog logging lib
-FetchContent_Declare(spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        f355b3d58f7067eee1706ff3c801c2361011f3d5 # v1.15.1
-    GIT_SHALLOW    ON
-    FIND_PACKAGE_ARGS
-)
-
-# Download and generate the targets provided by the above contents
-FetchContent_MakeAvailable(glfw glm spdlog)
-
 # Imgui Graphical interface lib
+include(FetchContent)
 FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
     GIT_TAG        dbb5eeaadffb6a3ba6a60de1290312e5802dba5a # v1.91.8
