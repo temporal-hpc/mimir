@@ -33,21 +33,14 @@ struct VoxelData
 [maxvertexcount(4)]
 void geometryMain2D(point VertexData input[1], inout TriangleStream<VoxelData> stream)
 {
-    float4x4 model_view = mul(mvp.model, mvp.view);
-    float4 center = mul(input[0].center, model_view);
-    // In orthographic projection we have to fix our origin (center),
-    // because every ray has the same direction
-    if (mvp.proj[3][3] == 1)
-    {
-        center = float4(0, 0, -1, 1);
-    }
+    float3 center = input[0].center.xyz;
 
     // Compute offsets for block (voxel) vertices
-    float3 vox_size = float3(view.default_size) / scene.extent;
-    float4 offsets[3] = {
-        model_view[0] * vox_size.x,
-        model_view[1] * vox_size.y,
-        model_view[2] * vox_size.z
+    float3 sz = float3(view.default_size);
+    float3 offsets[3] = {
+        float3(sz.x, 0, 0),
+        float3(0, sz.y, 0),
+        float3(0, 0, sz.z)
     };
 
     VoxelData output;
@@ -55,27 +48,16 @@ void geometryMain2D(point VertexData input[1], inout TriangleStream<VoxelData> s
     float4 unit = float4(0);
     int k = 2;
     unit[k] = 1;
-    float4 normal = mul(unit, model_view);
-    output.normal = normal.xyz;
-    float4 face_offset;
-    float4 vertex_offsets[4];
-    float4 dx = offsets[(k + 2) % 3];
-    float4 dy = offsets[(k + 1) % 3];
-    float2 texcoords[4];
-    if (dot(-center.xyz, normal.xyz) > 0)
-    {
-        texcoords = {{0,0}, {0,1}, {1,0}, {1,1}};
-        vertex_offsets = {(-dx-dy), (-dx+dy), (+dx-dy), (+dx+dy)};
-    }
-    else
-    {
-        texcoords = {{0,0}, {1,0}, {0,1}, {1,1}};
-        vertex_offsets = {(-dx-dy), (+dx-dy), (-dx+dy), (+dx+dy)};
-    }
+    // float4 normal = mul(unit, model_view);
+    // output.normal = normal.xyz;
+    float3 dx = offsets[(k + 2) % 3];
+    float3 dy = offsets[(k + 1) % 3];
+    float3 vertices[4]  = {(-dx-dy), (-dx+dy), (+dx-dy), (+dx+dy)};
+    float2 texcoords[4] = { { 0, 0 }, { 0, 1 }, { 1, 0 }, { 1, 1 } };
     for (int i = 0; i < 4; ++i)
     {
-        float4 v = center + vertex_offsets[i];
-        output.pos = mul(v, mvp.proj);
+        float3 v = center + vertices[i];
+        output.pos = mul(float4(v, 1.0), mvp.all);
         output.uv = texcoords[i];
         stream.Append(output);
     }
@@ -85,37 +67,29 @@ void geometryMain2D(point VertexData input[1], inout TriangleStream<VoxelData> s
 [maxvertexcount(12)]
 void geometryMain3D(point VertexData input[1], inout TriangleStream<VoxelData> stream)
 {
-    float4x4 model_view = mul(mvp.model, mvp.view);
-    float4 center = mul(input[0].center, model_view);
-    // In orthographic projection we have to fix our origin (center),
-    // because every ray has the same direction
-    if (mvp.proj[3][3] == 1)
-    {
-        center = float4(0, 0, -1, 1);
-    }
+    float3 center = input[0].center.xyz;
 
     // Compute offsets for block (voxel) vertices
-    float3 vox_size = .001 * float3(view.default_size);
-    float4 offsets[3] = {
-        model_view[0] * vox_size.x,
-        model_view[1] * vox_size.y,
-        model_view[2] * vox_size.z
+    float3 sz = float3(view.default_size);
+    float3 offsets[3] = {
+        float3(sz.x, 0, 0),
+        float3(0, sz.y, 0),
+        float3(0, 0, sz.z)
     };
 
     VoxelData output;
     output.color = input[0].color;
     for (int k = 0; k < 3; ++k)
     {
-        float4 unit = float4(0);
+        float3 unit = float3(0);
         unit[k] = 1;
-        float4 normal = mul(unit, model_view);
-        output.normal = normal.xyz;
-        float4 face_offset;
-        float4 vertex_offsets[4];
-        float4 dx = offsets[(k + 2) % 3];
-        float4 dy = offsets[(k + 1) % 3];
+        output.normal = unit;
+        float3 face_offset;
+        float3 vertex_offsets[4];
+        float3 dx = offsets[(k + 2) % 3];
+        float3 dy = offsets[(k + 1) % 3];
         float2 texcoords[4];
-        if (dot(-center.xyz, normal.xyz) > 0)
+        if (dot(-center.xyz, output.normal) > 0)
         {
             face_offset = offsets[k];
             texcoords = {{0,0}, {0,1}, {1,0}, {1,1}};
@@ -129,8 +103,8 @@ void geometryMain3D(point VertexData input[1], inout TriangleStream<VoxelData> s
         }
         for (int i = 0; i < 4; ++i)
         {
-            float4 v = center + face_offset + vertex_offsets[i];
-            output.pos = mul(v, mvp.proj);
+            float3 v = center + face_offset + vertex_offsets[i];
+            output.pos = mul(float4(v, 1.0), mvp.all);
             output.uv = texcoords[i];
             stream.Append(output);
         }

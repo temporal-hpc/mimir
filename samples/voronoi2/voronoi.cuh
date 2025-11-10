@@ -1255,7 +1255,7 @@ void itersJFA(Setup setup){
     int iter_copy = setup.iters;
 
     displayAsync(setup.instance);
-    std::cin.get();
+    //std::cin.get();
 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);

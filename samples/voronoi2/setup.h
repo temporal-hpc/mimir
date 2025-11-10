@@ -158,7 +158,7 @@ void allocate_arrays(Setup *setup){
         .size   = n * n,
         .format = FormatDescription::make<float4>(),
     };
-    desc_grid.default_size = 1.f;
+    desc_grid.default_size = .5f;
     createView(setup->instance, &desc_grid, &v1);
 
     desc_grid.attributes[AttributeType::Color] = {
@@ -191,7 +191,8 @@ void allocate_arrays(Setup *setup){
     desc_seeds.default_size = n / 100.f;
     //desc_seeds.default_color = {0,0,1,1};
 
-    createView(setup->instance, &desc_seeds, &v4);
+    //createView(setup->instance, &desc_seeds, &v4);
+    setCameraPosition(setup->instance, {-50.f, -50.f, -200.f});
 
     setup->v_diagram = (int*)malloc(setup->N*setup->N*sizeof(int));
     setup->backup_v_diagram = (int*)malloc(setup->N*setup->N*sizeof(int));

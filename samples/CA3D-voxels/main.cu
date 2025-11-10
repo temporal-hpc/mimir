@@ -59,6 +59,7 @@ int main(int argc, char **argv){
     int width = 1920, height = 1080;
     InstanceHandle instance = nullptr;
     createInstance(width, height, &instance);
+    setCameraPosition(instance, {-50.f, -50.f, -200.f});
 
     AllocHandle ping, pong, colormap;
     allocLinear(instance, (void**)&d1, sizeof(int) * n*n*n, &ping);
@@ -91,7 +92,7 @@ int main(int argc, char **argv){
             }}
         },
         .layout       = grid_layout,
-        .default_size = 10.f,
+        .default_size = .5f,
     };
     createView(instance, &desc, &v1);
 
