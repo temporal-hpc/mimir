@@ -12,6 +12,8 @@ struct ModelViewProjection
     glm::mat4 view;
     glm::mat4 proj;
     glm::mat4 all;
+    glm::mat4 inv_model;
+    glm::mat4 inv_view;
 };
 
 struct ViewUniforms
@@ -29,7 +31,10 @@ struct SceneUniforms
     alignas(8)  glm::ivec2 resolution;
     alignas(16) glm::vec3 camera_pos;
     alignas(16) glm::vec3 light_pos;
-    alignas(16) glm::vec4 light_color;
+    alignas(16) glm::vec3 light_color;
+    alignas(16) glm::vec3 specular_color;
+    alignas(4) float specular_power;
+    alignas(4) float ambient_strength;
 };
 
 struct Vertex {

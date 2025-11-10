@@ -87,6 +87,12 @@ struct ViewerOptions
 
     // Background color for the current engine instance.
     float4 background_color = {.5f, .5f, .5f, 1.f};
+
+    float3 light_pos = { 0.f, 0.f, -1.f };
+    float3 light_color = { .5f, .5f, .5f };
+    float3 specular_color = { 1.f, 1.f, 1.f };
+    float specular_power = 32.f;
+    float ambient_strength = .05f;
 };
 
 } // namespace mimir

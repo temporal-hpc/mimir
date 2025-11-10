@@ -21,9 +21,10 @@ struct Marker2D : IMarkerGeometry
     MarkerOffsets getVertexOffsets(float size)
     {
         MarkerOffsets out;
-        out.dx = mvp.all[0] / 2.0 * size;
-        out.dy = mvp.all[1] / 2.0 * size;
-        out.dz = mvp.all[2] / 2.0 * size;
+        float4x4 mat = mvp.all / 2.0 * size;
+        out.dx = mat[0];
+        out.dy = mat[1];
+        out.dz = mat[2];
         return out;
     }
 };
@@ -33,9 +34,10 @@ struct Marker3D : IMarkerGeometry
     MarkerOffsets getVertexOffsets(float size)
     {
         MarkerOffsets out;
-        out.dx = float4(size / 2, 0, 0, 0);
-        out.dy = float4(0, size / 2, 0, 0);
-        out.dz = float4(0, 0, size / 2, 0);
+        float4x4 mat = mul(mvp.model, mvp.proj) / 2.0 * size;
+        out.dx = mat[0];
+        out.dy = mat[1];
+        out.dz = mat[2];
         return out;
     }
 };

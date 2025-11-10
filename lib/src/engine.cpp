@@ -45,7 +45,7 @@ Camera defaultCamera(int width, int height)
     camera.rotation_speed = 0.5f;
     camera.setPosition(glm::vec3(0.f, 0.f, -2.85f));
     camera.setRotation(glm::vec3(0.f, 0.f, 0.f));
-    camera.setPerspective(70.f, (float)width / (float)height, 10000.f, 0.1f);
+    camera.setPerspective(70.f, (float)width / (float)height, 0.1f, 10000.f);
     return camera;
 }
 
@@ -1430,6 +1430,8 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
             .view  = camera.matrices.view,
             .proj  = camera.matrices.perspective,
             .all   = mvp.proj * mvp.view * mvp.model,
+            .inv_model = glm::inverse(mvp.model),
+            .inv_view  = glm::inverse(mvp.view),
         };
 
         auto color = view->desc.default_color;
@@ -1442,13 +1444,19 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
 
         auto bg = options.background_color;
         auto extent = view->desc.layout;
+        auto lp = options.light_pos;
+        auto lc = options.light_color;
+        auto sc = options.specular_color;
         SceneUniforms su{
             .background_color = glm::vec4(bg.x, bg.y, bg.z, bg.w),
             .extent           = glm::ivec3{extent.x, extent.y, extent.z},
             .resolution       = glm::ivec2{options.window.size.x, options.window.size.y},
             .camera_pos       = camera.position,
-            .light_pos        = glm::vec3(0,0,0),
-            .light_color      = glm::vec4(0,0,0,0),
+            .light_pos        = glm::vec3(lp.x, lp.y, lp.z),
+            .light_color      = glm::vec3{lc.x, lc.y, lc.z},
+            .specular_color   = glm::vec3{sc.x, sc.y, sc.z},
+            .specular_power   = options.specular_power,
+            .ambient_strength = options.ambient_strength,
         };
 
         char *data = nullptr;

@@ -4,6 +4,8 @@ struct ModelViewProjection
     float4x4 view;
     float4x4 proj;
     float4x4 all;
+    float4x4 inv_model;
+    float4x4 inv_view;
 };
 
 struct SceneParams
@@ -13,7 +15,10 @@ struct SceneParams
     int2 resolution;
     float3 camera_pos;
     float3 light_pos;
-    float4 light_color;
+    float3 light_color;
+    float3 specular_color;
+    float specular_power;
+    float ambient_strength;
 };
 
 struct ViewParams

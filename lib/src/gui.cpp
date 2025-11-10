@@ -147,6 +147,13 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
     if (opts.show_panel)
     {
         ImGui::Begin("Scene parameters");
+
+        ImGui::InputFloat3("Light position", (float*)&opts.light_pos, "%.3f");
+        ImGui::ColorEdit3("Light color", (float*)&opts.light_color);
+        ImGui::ColorEdit3("Specular color", (float*)&opts.specular_color);
+        ImGui::InputFloat("Specular power", &opts.specular_power);
+        ImGui::InputFloat("Ambient strength", &opts.ambient_strength);
+
         //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
         ImGui::ColorEdit3("Clear color", (float*)&opts.background_color);
 
