@@ -159,6 +159,7 @@ void allocate_arrays(Setup *setup){
         .format = FormatDescription::make<float4>(),
     };
     desc_grid.default_size = .5f;
+    desc_grid.scale = {.1f, .1f, .1f};
     createView(setup->instance, &desc_grid, &v1);
 
     desc_grid.attributes[AttributeType::Color] = {
