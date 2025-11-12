@@ -71,10 +71,10 @@ void addTableRowOptions(ViewType type, ViewOptions options)
     }
 }
 
-void addViewHandleGUI(View *view_ptr, int uid)
+void addViewGUI(View *handle, int uid)
 {
-    ImGui::PushID(view_ptr);
-    auto& desc = view_ptr->desc;
+    ImGui::PushID(handle);
+    auto& desc = handle->desc;
     bool node_open = ImGui::CollapsingHeader("", ImGuiTreeNodeFlags_AllowItemOverlap);
     ImGui::SameLine(); ImGui::Text("%s #%u", "View", uid);
     ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &desc.visible);
@@ -92,22 +92,14 @@ void addViewHandleGUI(View *view_ptr, int uid)
         ImGui::DragScalar("Antialias", ImGuiDataType_Float, &desc.antialias,
             0.005f, &f32_zero, &f32_max, "%f", ImGuiSliderFlags_Logarithmic
         );
-        // ImGui::SliderFloat("depth", &desc.options.depth, 0.f, 1.f);
 
-        // if (desc.offsets.size() > 0)
-        // {
-        //     int min_scenario = 0;
-        //     int max_scenario = desc.offsets.size() - 1;
-        //     ImGui::SliderScalar("scenario", ImGuiDataType_S32, &desc.options.scenario_index, &min_scenario, &max_scenario);
-        // }
+        bool view_translated = ImGui::InputFloat3("Position", &desc.position.x, "%.3f");
+        bool view_rotated    = ImGui::InputFloat3("Rotation", &desc.rotation.x, "%.3f");
+        bool view_scaled     = ImGui::InputFloat3("Scale", &desc.scale.x, "%.3f");
 
-        bool in_pos = ImGui::InputFloat3("Position", &desc.position.x, "%.3f");
-        bool in_rot = ImGui::InputFloat3("Rotation", &desc.rotation.x, "%.3f");
-        bool in_scale = ImGui::InputFloat3("Scale", &desc.scale.x, "%.3f");
-
-        if (in_pos)   { translateView(view_ptr, desc.position); }
-        if (in_rot)   { rotateView(view_ptr, desc.rotation); }
-        if (in_scale) { scaleView(view_ptr, desc.scale); }
+        if (view_translated) { translateView(handle, desc.position); }
+        if (view_rotated)    { rotateView(handle, desc.rotation); }
+        if (view_scaled)     { scaleView(handle, desc.scale); }
 
         ImGuiTableFlags table_flags = ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable;
         if (ImGui::BeginTable("split", 2, table_flags))
@@ -148,29 +140,29 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
     {
         ImGui::Begin("Scene parameters");
 
-        ImGui::InputFloat3("Light position", (float*)&opts.light_pos, "%.3f");
-        ImGui::ColorEdit3("Light color", (float*)&opts.light_color);
-        ImGui::ColorEdit3("Specular color", (float*)&opts.specular_color);
-        ImGui::InputFloat("Specular power", &opts.specular_power);
+        ImGui::InputFloat3("Light position",  (float*)&opts.light_pos, "%.3f");
+        ImGui::ColorEdit3("Light color",      (float*)&opts.light_color);
+        ImGui::ColorEdit3("Specular color",   (float*)&opts.specular_color);
+        ImGui::InputFloat("Specular power",   &opts.specular_power);
         ImGui::InputFloat("Ambient strength", &opts.ambient_strength);
 
         //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
         ImGui::ColorEdit3("Clear color", (float*)&opts.background_color);
 
-        bool cam_pos = ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f");
-        bool cam_rot = ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f");
+        bool camera_moved = ImGui::InputFloat3("Camera position", &cam.position.x, "%.3f");
+        if (camera_moved) { cam.setPosition(cam.position); }
 
-        if (cam_pos) { cam.setPosition(cam.position); }
-        if (cam_rot) { cam.setRotation(cam.rotation); }
+        bool camera_rotated = ImGui::InputFloat3("Camera rotation", &cam.rotation.x, "%.3f");
+        if (camera_rotated) { cam.setRotation(cam.rotation); }
 
         const float f32_zero = 0.f;
         const float f32_max  = 360.f;
-        bool set_fov = ImGui::DragScalar("FOV", ImGuiDataType_Float, &cam.fov,
-            0.005f, &f32_zero, &f32_max, "%.3f"
+        bool fov_changed = ImGui::DragScalar(
+            "FOV", ImGuiDataType_Float, &cam.fov, 0.005f, &f32_zero, &f32_max, "%.3f"
         );
-        bool set_znear = ImGui::InputFloat("Near plane", &cam.near_clip);
-        bool set_zfar = ImGui::InputFloat("Far plane", &cam.far_clip);
-        if (set_fov || set_znear || set_zfar)
+        bool znear_changed = ImGui::InputFloat("Near plane", &cam.near_clip);
+        bool zfar_changed  = ImGui::InputFloat("Far plane", &cam.far_clip);
+        if (fov_changed || znear_changed || zfar_changed)
         {
             float aspect = (float)opts.window.size.x / (float)opts.window.size.y;
             cam.setPerspective(cam.fov, aspect, cam.near_clip, cam.far_clip);
@@ -190,7 +182,7 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
         ImGui::EndDisabled();
 
         // Add tabs for showing view parameters
-        for (size_t i = 0; i < views.size(); ++i) { addViewHandleGUI(views[i], i); }
+        for (size_t i = 0; i < views.size(); ++i) { addViewGUI(views[i], i); }
         ImGui::End();
         callback(); // Display user-provided addons
     }
