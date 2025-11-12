@@ -78,7 +78,7 @@ int main(int argc, char *argv[])
         .options     = MarkerOptions{
             .shape     = MarkerOptions::Shape::Disc,
         },
-        .domain = DomainType::Domain2D,
+        .domain = DomainType::Domain3D,
         .attributes  = {
             { AttributeType::Position, {
                 .source = points,

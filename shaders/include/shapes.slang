@@ -4,41 +4,25 @@ import uniforms;
 static const float SQRT_2 = 1.4142135623730951;
 static const float PI = 3.14159265358979323846264;
 
-struct MarkerOffsets
-{
-    float4 dx;
-    float4 dy;
-    float4 dz;
-};
-
 interface IMarkerGeometry
 {
-    MarkerOffsets getVertexOffsets(float size);
+    float4 getVertex(float4 offset);
 };
 
 struct Marker2D : IMarkerGeometry
 {
-    MarkerOffsets getVertexOffsets(float size)
+    float4 getVertex(float4 offset)
     {
-        MarkerOffsets out;
-        float4x4 mat = mvp.all / 2.0 * size;
-        out.dx = mat[0];
-        out.dy = mat[1];
-        out.dz = mat[2];
-        return out;
+        float4 offset_model = mul(offset, mvp.model);
+        return mul(offset_model, mvp.view);
     }
 };
 
 struct Marker3D : IMarkerGeometry
 {
-    MarkerOffsets getVertexOffsets(float size)
+    float4 getVertex(float4 offset)
     {
-        MarkerOffsets out;
-        float4x4 mat = mul(mvp.model, mvp.proj) / 2.0 * size;
-        out.dx = mat[0];
-        out.dy = mat[1];
-        out.dz = mat[2];
-        return out;
+        return mul(offset, mvp.model);
     }
 };
 
