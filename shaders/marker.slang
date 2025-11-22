@@ -7,6 +7,8 @@ import styles; // IStyle
 import shapes; // IShape
 import rotation; // IRotation
 
+static const float BOX_CORRECTION = 2.5;
+
 struct VertexOutput
 {
     float4 center : POSITION;
@@ -29,7 +31,7 @@ struct GeometryOutput
 struct FragmentOutput
 {
     float4 color : SV_Target;
-    //float depth  : SV_Depth;
+    float depth  : SV_Depth;
 };
 
 [shader("vertex")]
@@ -59,9 +61,7 @@ void geometryMain<G: IMarkerGeometry>(
     float4 pivot_view = mul(pivot_world, mvp.view);
 
     float sz = input[0].size;
-    float4 offsets[4] = { { -sz, -sz }, { -sz, +sz }, { +sz, -sz }, { +sz, +sz } };
     float2 mapping[4] = { { -1, -1 }, { -1, +1 }, { +1, -1 }, { +1, +1 } };
-    float2 uv[4] = { { 0, 0 }, { 0, 1 }, { 1, 0 }, { 1, 1 } };
     G geometry;
 
     GeometryOutput output;
@@ -71,11 +71,12 @@ void geometryMain<G: IMarkerGeometry>(
     // Add point coordinates
     for (int i = 0; i < 4; ++i)
     {
-        float4 vertex = pivot_view + geometry.getVertex(offsets[i]);
+        float4 offset = float4(mapping[i], 0, 0) * sz;
+        float4 vertex = pivot_view + geometry.getVertex(offset) * BOX_CORRECTION;
         output.pos = mul(vertex, mvp.proj);
-        output.uv = uv[i];
+        output.uv = mapping[i] + float2(1.0);
         output.pivot = pivot_view.xyz;
-        output.mapping = mapping[i];
+        output.mapping = mapping[i] * BOX_CORRECTION;
         stream.Append(output);
     }
 }
@@ -83,25 +84,31 @@ void geometryMain<G: IMarkerGeometry>(
 [shader("fragment")]
 FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
 {
-    // float2 p = input.uv - float2(0.5);
-    // float2 r = input.rotation;
-    // p = float2(r.x * p.x - r.y * p.y, r.y * p.x + r.x * p.y);
-    // M shape;
-    // float distance = shape.apply(p * getMarkerSizePx(input.size), input.size);
-    // S style;
-    // float4 color = style.apply(distance, view.linewidth, view.antialias, input.color, scene.background_color);
-
     float4 ambient_intensity = { 0.2, 0.2, 0.2, 1.0 };
     float light_attenuation = 1.0 / (25.0 * 25.0);
 
-    float4 diffuse_color = { 0.4, 0.4, 0.4, 1.0 };
+    float4 diffuse_color = view.default_color;
     float4 specular_color = float4(scene.specular_color, 1);
     float specular_shininess = 0.3;
 
-    float lensqr = dot(input.mapping, input.mapping);
-    if (lensqr > 1.0) { discard; }
-    float3 camera_space_normal = float3(input.mapping, sqrt(1.0 - lensqr));
-    float3 camera_space_pos = (camera_space_normal * input.size) + input.pivot;
+    float3 camera_space_sphere_pos = input.pivot;
+    float sphere_radius = input.size;
+    float3 camera_space_plane_pos = float3(input.mapping * sphere_radius, 0.0) + camera_space_sphere_pos;
+    float3 ray_dir = normalize(camera_space_plane_pos);
+
+    float B = 2.0 * dot(ray_dir, -camera_space_sphere_pos);
+    float C = dot(camera_space_sphere_pos, camera_space_sphere_pos) - (sphere_radius * sphere_radius);
+
+    float det = (B * B) - (4 * C);
+    if (det < 0.0) { discard; }
+
+    float sqrt_det = sqrt(det);
+    float pos_t = (-B + sqrt_det) / 2.0;
+    float neg_t = (-B - sqrt_det) / 2.0;
+
+    float intersect_t = min(pos_t, neg_t);
+    float3 camera_space_pos = ray_dir * intersect_t;
+    float3 camera_space_normal = normalize(camera_space_pos - camera_space_sphere_pos);
 
     float4 light_pos = mul(float4(scene.light_pos, 0), mvp.model);
     float3 light_dir = mul(light_pos, mvp.view).xyz;
@@ -122,12 +129,11 @@ FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
     lighting += diffuse_color * light_intensity * cos_ang_incidence;
     lighting += specular_color * light_intensity * gaussian_term;
 
+    float4 clip_pos = mul(float4(camera_space_pos, 1.0), mvp.proj);
+    float ndc_depth = clip_pos.z / clip_pos.w;
+
     FragmentOutput out;
     out.color = lighting;
+    out.depth = ndc_depth;
     return out;
-}
-
-float getMarkerSizePx(float size)
-{
-    return SQRT_2 * size + 2 * (view.linewidth + 1.5 * view.antialias);
 }
