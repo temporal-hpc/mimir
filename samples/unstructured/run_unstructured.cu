@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
         },
         .layout = Layout::make(point_count),
         .style  = ShapeStyle::Filled,
-        .default_size = 10.f,
+        .default_size = 5.f,
         .position = {-10.f, -10.f, 0.f},
         .scale    = { 0.1f, 0.1f, 0.1f },
     };

@@ -9,28 +9,11 @@ struct PositionTemplate<T, let N:int> : IPosition
 
     float4 getPosition()
     {
-        float4 pos = {0,0,0,1};
+        float4 pos = { 0, 0, 0, 1 };
         [unroll]
-        for (int i = 0; i < N; ++i)
-        {
-            pos[i] = reinterpret<float>(data[i]);
-        }
-        pos.w = 1;
-        return pos;
-    }
-};
-
-struct PositionTemplateLarge<T, let N:int> : IPosition
-{
-    vector<T,N> data : POSITION;
-
-    float4 getPosition()
-    {
-        float4 pos = {0,0,0,1};
-        [unroll]
-        for (int i = 0; i < N; ++i)
-        {
-            pos[i] = float(reinterpret<double>(data[i]));
+        for (int i = 0; i < N; ++i) {
+            if (sizeof(T) <= sizeof(float)) { pos[i] = reinterpret<float>(data[i]); }
+            else { pos[i] = float(reinterpret<double>(data[i])); }
         }
         pos.w = 1;
         return pos;
@@ -49,6 +32,6 @@ typedef PositionTemplate<int,2> PositionInt2;
 typedef PositionTemplate<int,3> PositionInt3;
 typedef PositionTemplate<int,4> PositionInt4;
 
-typedef PositionTemplateLarge<double,2> PositionDouble2;
-typedef PositionTemplateLarge<double,3> PositionDouble3;
-typedef PositionTemplateLarge<double,4> PositionDouble4;
+typedef PositionTemplate<double,2> PositionDouble2;
+typedef PositionTemplate<double,3> PositionDouble3;
+typedef PositionTemplate<double,4> PositionDouble4;

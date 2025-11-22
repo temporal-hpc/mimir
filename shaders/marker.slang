@@ -57,9 +57,7 @@ void geometryMain<G: IMarkerGeometry>(
     point VertexOutput input[1],
     inout TriangleStream<GeometryOutput> stream)
 {
-    float4 pivot_world = mul(input[0].center, mvp.model);
-    float4 pivot_view = mul(pivot_world, mvp.view);
-
+    float4 pivot = mul(mul(input[0].center, mvp.model), mvp.view);
     float sz = input[0].size;
     float2 mapping[4] = { { -1, -1 }, { -1, +1 }, { +1, -1 }, { +1, +1 } };
     G geometry;
@@ -72,18 +70,39 @@ void geometryMain<G: IMarkerGeometry>(
     for (int i = 0; i < 4; ++i)
     {
         float4 offset = float4(mapping[i], 0, 0) * sz;
-        float4 vertex = pivot_view + geometry.getVertex(offset) * BOX_CORRECTION;
+        float4 vertex = pivot + geometry.getVertex(offset) * BOX_CORRECTION;
         output.pos = mul(vertex, mvp.proj);
         output.uv = mapping[i] + float2(1.0);
-        output.pivot = pivot_view.xyz;
+        output.pivot = pivot.xyz;
         output.mapping = mapping[i] * BOX_CORRECTION;
         stream.Append(output);
     }
 }
 
-[shader("fragment")]
-FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
+float sphIntersect(float3 ro, float3 rd, float4 sph)
 {
+    float3 oc = ro - sph.xyz;
+    float b = dot(oc, rd);
+    float c = dot(oc, oc) - sph.w * sph.w;
+    float h = b * b - c;
+    float rh = (h < 0) ? -1.0 : -b - sqrt(h);
+    clip(rh);
+    return rh;
+}
+
+float sphIntersect2(float3 ro, float3 rd, float4 sph)
+{
+    float B = 2.0 * dot(rd, -sph.xyz);
+    float C = dot(sph.xyz, sph.xyz) - (sph.w * sph.w);
+    float det = (B * B) - (4 * C);
+    if (det < 0.0) { discard; }
+    float sqrt_det = sqrt(det);
+    float pos_t = (-B + sqrt_det) / 2.0;
+    float neg_t = (-B - sqrt_det) / 2.0;
+    return min(pos_t, neg_t);
+}
+
+float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li) {
     float4 ambient_intensity = { 0.2, 0.2, 0.2, 1.0 };
     float light_attenuation = 1.0 / (25.0 * 25.0);
 
@@ -91,49 +110,50 @@ FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
     float4 specular_color = float4(scene.specular_color, 1);
     float specular_shininess = 0.3;
 
-    float3 camera_space_sphere_pos = input.pivot;
-    float sphere_radius = input.size;
-    float3 camera_space_plane_pos = float3(input.mapping * sphere_radius, 0.0) + camera_space_sphere_pos;
-    float3 ray_dir = normalize(camera_space_plane_pos);
-
-    float B = 2.0 * dot(ray_dir, -camera_space_sphere_pos);
-    float C = dot(camera_space_sphere_pos, camera_space_sphere_pos) - (sphere_radius * sphere_radius);
-
-    float det = (B * B) - (4 * C);
-    if (det < 0.0) { discard; }
-
-    float sqrt_det = sqrt(det);
-    float pos_t = (-B + sqrt_det) / 2.0;
-    float neg_t = (-B - sqrt_det) / 2.0;
-
-    float intersect_t = min(pos_t, neg_t);
-    float3 camera_space_pos = ray_dir * intersect_t;
-    float3 camera_space_normal = normalize(camera_space_pos - camera_space_sphere_pos);
-
-    float4 light_pos = mul(float4(scene.light_pos, 0), mvp.model);
-    float3 light_dir = mul(light_pos, mvp.view).xyz;
-    float4 light_intensity = float4(scene.light_color, 1);
-
-    float3 surface_normal = normalize(camera_space_normal);
-    float cos_ang_incidence = dot(surface_normal, light_dir);
+    float cos_ang_incidence = dot(normal, ld);
     cos_ang_incidence = cos_ang_incidence < 0.0001 ? 0.0 : cos_ang_incidence;
 
-    float3 view_direction = normalize(-camera_space_pos);
-    float3 half_angle = normalize(light_dir + view_direction);
-    float angle_normal_half = acos(dot(half_angle, surface_normal));
+    float3 view_dir = normalize(-pos);
+    float3 half_angle = normalize(ld + view_dir);
+    float angle_normal_half = acos(dot(half_angle, normal));
     float exponent = angle_normal_half / specular_shininess;
     exponent = -(exponent * exponent);
-    float gaussian_term = exp(exponent);
+    float gaussian_term = cos_ang_incidence != 0.0 ? exp(exponent) : 0.0;
 
     float4 lighting = diffuse_color * ambient_intensity;
-    lighting += diffuse_color * light_intensity * cos_ang_incidence;
-    lighting += specular_color * light_intensity * gaussian_term;
+    lighting += diffuse_color * li * cos_ang_incidence;
+    lighting += specular_color * li * gaussian_term;
+    return lighting;
+}
 
-    float4 clip_pos = mul(float4(camera_space_pos, 1.0), mvp.proj);
-    float ndc_depth = clip_pos.z / clip_pos.w;
+float4 computeLighting2(float3 pos, float3 normal, float3 ld, float4 li)
+{
+    float ndotl = saturate(dot(normal, ld));
+    float4 lighting = float4(scene.light_color * ndotl, 1.0);
+    return lighting;
+}
+
+[shader("fragment")]
+FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
+{
+    float3 ray_origin = float3(0);
+    float3 sphere_pos = input.pivot;
+    float sphere_radius = input.size;
+    float3 plane_pos = float3(input.mapping * sphere_radius, 0.0) + sphere_pos;
+    float3 ray_dir = normalize(plane_pos);
+    float ray_hit = sphIntersect(ray_origin, ray_dir, float4(sphere_pos, sphere_radius));
+
+    float3 pos = ray_dir * ray_hit;
+    float3 normal = normalize(pos - sphere_pos);
+
+    float3 light_dir = mul(mul(float4(scene.light_pos, 0), mvp.model), mvp.view).xyz;
+    float4 light_intensity = float4(scene.light_color, 1);
+    float4 lighting = computeLighting2(pos, normal, light_dir, light_intensity);
+
+    float4 clip_pos = mul(float4(pos, 1.0), mvp.proj);
 
     FragmentOutput out;
     out.color = lighting;
-    out.depth = ndc_depth;
+    out.depth = clip_pos.z / clip_pos.w;
     return out;
 }
