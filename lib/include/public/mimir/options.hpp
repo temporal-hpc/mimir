@@ -31,14 +31,23 @@ struct PerformanceMetrics
 // Window creation parameters
 struct WindowOptions
 {
-    // Window title when shown
+    // Window title when shown.
     std::string title = "Mimir";
     // Window size in (width, height) format.
-    int2 size         = { 800, 600 };
+    int2 size     = { 800, 600 };
+    // Whether to show/hide the upper window panel.
+    bool decorate = true;
+    // Whether to show/hide the display window.
+    bool visible  = true;
 
     static WindowOptions makeDefault()
     {
-        return WindowOptions{ .title = "Mimir", .size = { 800, 600 } };
+        return WindowOptions{
+            .title = "Mimir",
+            .size = { 800, 600 },
+            .decorate = true,
+            .visible = true
+        };
     }
 };
 

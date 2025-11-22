@@ -5,6 +5,8 @@
 
 #include <vector> // std::vector
 
+#include <mimir/options.hpp>
+
 namespace mimir
 {
 
@@ -22,7 +24,7 @@ struct GlfwContext
     void getFramebufferSize(int& w, int& h);
     void createSurface(VkInstance instance, void *surface);
 
-    static GlfwContext make(int width, int height, const char* title, void *engine);
+    static GlfwContext make(WindowOptions options, void *engine);
     static std::vector<const char*> getRequiredExtensions();
 };
 

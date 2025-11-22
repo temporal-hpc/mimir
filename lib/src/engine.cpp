@@ -110,7 +110,7 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
 
     auto width  = engine.options.window.size.x;
     auto height = engine.options.window.size.y;
-    engine.window_context = GlfwContext::make(width, height, engine.options.window.title.c_str(), &engine);
+    engine.window_context = GlfwContext::make(engine.options.window, &engine);
     engine.deletors.context.add([&] { engine.window_context.clean(); });
     engine.camera = defaultCamera(width, height);
 

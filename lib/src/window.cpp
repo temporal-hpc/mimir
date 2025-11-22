@@ -142,17 +142,19 @@ void windowCloseCallback(GLFWwindow *window)
     engine->signalKernelFinish();
 }
 
-GlfwContext GlfwContext::make(int width, int height, const char* title, void *engine)
+inline int bool2glfw(bool flag) { return flag? GLFW_TRUE : GLFW_FALSE; }
+
+GlfwContext GlfwContext::make(WindowOptions options, void *engine)
 {
     // Initialize GLFW context and window
     validation::checkGlfw(glfwInit());
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
-    //glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
-    //glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED, bool2glfw(options.decorate));
+    glfwWindowHint(GLFW_VISIBLE, bool2glfw(options.visible));
 
-    auto window = glfwCreateWindow(width, height, title, nullptr, nullptr);
+    auto window = glfwCreateWindow(options.size.x, options.size.y, options.title.c_str(), nullptr, nullptr);
     //glfwSetWindowSize(ctx.window, width, height);
 
     // Set GLFW action callbacks

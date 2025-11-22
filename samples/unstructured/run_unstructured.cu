@@ -62,8 +62,10 @@ int main(int argc, char *argv[])
 
     // Initialize instance
     ViewerOptions options;
-    options.window.size  = {1920,1080}; // Starting window size
+    options.window.size  = {1000,1000}; // Starting window size
+    options.window.decorate = false;
     options.present.mode = PresentMode::Immediate;
+    options.light_pos = { 5.f, 0.f, 0.f };
 
     InstanceHandle instance = nullptr;
     createInstance(options, &instance);

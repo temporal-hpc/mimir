@@ -121,6 +121,7 @@ int main(int argc, char *argv[])
         .enable_sync = enable_sync,
         .target_fps  = target_fps,
     };
+    options.light_pos = { 10.f, 0.f, 0.f };
     InstanceHandle instance = nullptr;
     createInstance(options, &instance);
 
@@ -184,7 +185,7 @@ int main(int argc, char *argv[])
 
     auto gpu = GPUPowerEnd();
 
-    exit(instance);
+    //exit(instance);
     destroyInstance(instance);
     checkCuda(cudaFree(d_states));
     checkCuda(cudaFree(d_coords));
