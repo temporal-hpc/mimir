@@ -1,6 +1,13 @@
 # Mìmir
 
 <p align="center">
+  <img alt="Points2D purple" src="./img/points2d_color.png" width="30%">
+&nbsp; &nbsp;
+  <img alt="Points2D" src="./img/points2d.png" width="30%">
+&nbsp; &nbsp;
+  <img alt="Points3D" src="./img/points3d.png" width="30%">
+</p>
+<p align="center">
   <img alt="Colloids mesh" src="./img/colloids_mesh.png" width="30%">
 &nbsp; &nbsp;
   <img alt="Colloids" src="./img/colloids.png" width="30%">
