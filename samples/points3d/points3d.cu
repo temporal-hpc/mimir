@@ -116,12 +116,13 @@ int main(int argc, char *argv[])
 
     ViewerOptions options;
     options.window.size = {width,height}; // Starting window size
+    options.window.decorate = false;
     options.present = {
         .mode        = present_mode,
         .enable_sync = enable_sync,
         .target_fps  = target_fps,
     };
-    options.light_pos = { 10.f, 0.f, 0.f };
+    options.light_pos = { 0.f, 0.f, 10.f };
     InstanceHandle instance = nullptr;
     createInstance(options, &instance);
 
@@ -142,12 +143,14 @@ int main(int argc, char *argv[])
             .size   = point_count,
             .format = FormatDescription::make<float3>(),
         };
-        desc.default_size = 0.1f;
+        desc.default_size = 0.01f;
         desc.linewidth = 0.f;
-        desc.scale = {5.f, 5.f, 5.f};
-        desc.position = {-3.5f, -2.5f, -5.f};
-        desc.rotation = {0.f, 45.f, 0.f};
+        desc.scale = {1.f, 1.f, 1.f};
+        desc.position = {0.f, 0.f, 0.f};
+        desc.rotation = {0.f, 0.f, 0.f};
         createView(instance, &desc, &view);
+
+        setCameraPosition(instance, {-.5f, -.5f, -3.f});
     }
     else // Run the simulation without display
     {

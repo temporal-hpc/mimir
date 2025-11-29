@@ -148,7 +148,7 @@ FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
 
     float3 light_dir = mul(mul(float4(scene.light_pos, 0), mvp.model), mvp.view).xyz;
     float4 light_intensity = float4(scene.light_color, 1);
-    float4 lighting = computeLighting2(pos, normal, light_dir, light_intensity);
+    float4 lighting = computeLighting(pos, normal, light_dir, light_intensity);
 
     float4 clip_pos = mul(float4(pos, 1.0), mvp.proj);
 

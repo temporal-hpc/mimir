@@ -45,7 +45,7 @@ Camera defaultCamera(int width, int height)
     camera.rotation_speed = 0.5f;
     camera.setPosition(glm::vec3(0.f, 0.f, -2.85f));
     camera.setRotation(glm::vec3(0.f, 0.f, 0.f));
-    camera.setPerspective(70.f, (float)width / (float)height, 0.1f, 10000.f);
+    camera.setPerspective(40.f, (float)width / (float)height, 0.1f, 10000.f);
     return camera;
 }
 

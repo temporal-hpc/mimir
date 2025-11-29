@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
         checkCuda(cudaDeviceSynchronize());
     };
     // Start rendering loop with the above function
-    setCameraPosition(instance, {0.f, 0.f, -20.f});
+    setCameraPosition(instance, {0.f, 0.f, -30.f});
     display(instance, cuda_call, iter_count);
 
     checkCuda(cudaFree(d_states));
