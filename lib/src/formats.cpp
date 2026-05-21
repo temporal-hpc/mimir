@@ -190,7 +190,7 @@ FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
     SPECIALIZE_VEC(float, 4);
     SPECIALIZE_VEC(double, 2);
     SPECIALIZE_VEC(double, 3);
-    SPECIALIZE_VEC(double, 4);
+    //SPECIALIZE_VEC(double, 4);
     SPECIALIZE_VEC(char, 2);
     SPECIALIZE_VEC(char, 3);
     SPECIALIZE_VEC(char, 4);
@@ -202,7 +202,7 @@ FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
     SPECIALIZE_VEC(int, 4);
     SPECIALIZE_VEC(long, 2);
     SPECIALIZE_VEC(long, 3);
-    SPECIALIZE_VEC(long, 4);
+    //SPECIALIZE_VEC(long, 4);
     SPECIALIZE_VEC(uchar, 2);
     SPECIALIZE_VEC(uchar, 3);
     SPECIALIZE_VEC(uchar, 4);
@@ -214,7 +214,7 @@ FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
     SPECIALIZE_VEC(uint, 4);
     SPECIALIZE_VEC(ulong, 2);
     SPECIALIZE_VEC(ulong, 3);
-    SPECIALIZE_VEC(ulong, 4);
+    //SPECIALIZE_VEC(ulong, 4);
 #undef SPECIALIZE_VEC
 
 // Cleanup definitions

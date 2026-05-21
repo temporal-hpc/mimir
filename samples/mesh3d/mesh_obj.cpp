@@ -7,6 +7,7 @@
 #include <glm/vec3.hpp>
 #include <glm/gtx/hash.hpp>
 
+#include <algorithm> // std::sort
 #include <unordered_map> // std::unordered_map
 
 struct vector3

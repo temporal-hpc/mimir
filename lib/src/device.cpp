@@ -246,12 +246,12 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
     {
         cudaDeviceProp dev_prop;
         cudaGetDeviceProperties(&dev_prop, curr_device);
-        if (dev_prop.computeMode == cudaComputeModeProhibited)
-        {
-            prohibited_count++;
-            curr_device++;
-            continue;
-        }
+        // if (dev_prop.computeMode == cudaComputeModeProhibited)
+        // {
+        //     prohibited_count++;
+        //     curr_device++;
+        //     continue;
+        // }
         for (const auto& device : all_devices)
         {
             auto uuid = device.id_props.deviceUUID;

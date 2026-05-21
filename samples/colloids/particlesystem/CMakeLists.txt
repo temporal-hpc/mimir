@@ -48,6 +48,4 @@ target_include_directories(libparticles PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include
 # library, and will be added to consumers' build paths.
 target_include_directories(libparticles PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
 
-# Include CGAL as an imported target
-find_package(CGAL REQUIRED COMPONENTS Core)
 target_link_libraries(libparticles mimir curand CGAL::CGAL)

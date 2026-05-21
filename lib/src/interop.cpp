@@ -55,10 +55,11 @@ cudaExternalMemory_t importCudaExternalMemory(
     validation::checkVulkan(vkGetMemoryFd(device, &fd_info, &fd));
 
     cudaExternalMemoryHandleDesc extmem_desc{
-        .type   = cudaExternalMemoryHandleTypeOpaqueFd,
-        .handle = {.fd = fd},
-        .size   = size,
-        .flags  = 0
+        .type     = cudaExternalMemoryHandleTypeOpaqueFd,
+        .handle   = {.fd = fd},
+        .size     = size,
+        .flags    = 0,
+        .reserved = {0},
     };
     validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
     return cuda_mem;
@@ -88,9 +89,10 @@ cudaExternalSemaphore_t importCudaExternalSemaphore(
     validation::checkVulkan(vkGetSemaphoreFd(device, &fd_info, &fd));
 
     cudaExternalSemaphoreHandleDesc desc{
-        .type   = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd,
-        .handle = { .fd = fd },
-        .flags  = 0,
+        .type     = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd,
+        .handle   = { .fd = fd },
+        .flags    = 0,
+        .reserved = {0},
     };
 
     validation::checkCuda(cudaImportExternalSemaphore(&cuda_semaphore, &desc));
