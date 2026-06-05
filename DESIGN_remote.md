@@ -280,13 +280,18 @@ client/                     # mimir-client native app (decode + display + input)
 Each step is independently testable; the encoder and transport are introduced behind their
 interfaces so earlier, simpler implementations are drop-in-replaced.
 
-1. **Headless offscreen render.** `FrameSink` abstraction + `WindowSink` (no behavior change) +
-   `OffscreenSink`; headless device creation (no surface). Goal: render one frame into an
-   offscreen `VkImage` with no window, dump it to a PNG for verification.
-2. **Raw frame over a socket + minimal client.** `RawEncoder` + a trivial transport (even plain
-   TCP) + a bare `mimir-client` that blits received frames. Goal: end-to-end pixels on the
-   client and a camera-control round-trip working. Validates threading, the ring, and sync
-   before adding codec/transport complexity.
+1. **Headless offscreen render. [DONE]** Implemented as a `RenderMode::Headless` mode-branch
+   (not a virtual `FrameSink` yet — deferred to step 3/4 when the encoder needs a second present
+   path). Headless device creation (no surface), offscreen color-image ring, render-pass final
+   layout `TRANSFER_SRC`, `renderHeadless()` + `saveFrame()` (PPM). Verified: `run_headless`
+   renders a point cloud offscreen on GPU.
+2. **Raw frame over a socket + minimal client. [DONE]** Raw BGRA frames over TCP
+   (`lib/src/remote.cpp::serveRemote`), dependency-free wire protocol
+   (`mimir/remote_protocol.hpp`), control-receiver thread feeding the render loop, and a
+   standalone thin client (`run_remote_client`). Verified end to end: frames stream, and with
+   the sim paused a client camera-rotate changes the rendered view (~42% pixels differ). Server
+   sample `run_remote_server` streams a live brownian point cloud. (Client is headless/saves
+   PPM for now; a windowed blit client is the next increment.)
 3. **NVENC.** Replace `RawEncoder` with `NvencEncoder` (zero-copy via CUDA external memory).
    Client decodes with NVDEC/ffmpeg. Goal: bandwidth drops from gigabits to ~10–20 Mbps;
    interactive over a real link.
