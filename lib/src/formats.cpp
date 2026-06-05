@@ -185,6 +185,11 @@ FormatDescription::make<T>() { return buildFormat<T,1>(); }
 
 #define SPECIALIZE_VEC(T,N) template <> FormatDescription \
 FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
+// double4/long4/ulong4 (the unaligned 64-bit 4-wide vector types) are deprecated in CUDA 13 in
+// favor of the *_16a/*_32a variants, but they remain the public make<T>() key types, so keep
+// registering them and silence the deprecation just for these instantiations.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     SPECIALIZE_VEC(float, 2);
     SPECIALIZE_VEC(float, 3);
     SPECIALIZE_VEC(float, 4);
@@ -215,6 +220,7 @@ FormatDescription::make<T##N>() { return buildFormat<T,N>(); }
     SPECIALIZE_VEC(ulong, 2);
     SPECIALIZE_VEC(ulong, 3);
     SPECIALIZE_VEC(ulong, 4);
+#pragma GCC diagnostic pop
 #undef SPECIALIZE_VEC
 
 // Cleanup definitions

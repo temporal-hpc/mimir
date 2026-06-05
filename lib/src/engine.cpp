@@ -509,7 +509,7 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
         .vk_mem      = vk_memory,
         .cuda_extmem = cuda_extmem
     };
-    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0 };
+    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0, .reserved = {} };
     validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
         dev_ptr, alloc.cuda_extmem, &buffer_desc)
     );
@@ -595,6 +595,7 @@ OpaqueAlloc *MimirInstance::allocMipmap(cudaMipmappedArray_t *dev_arr,
         .extent     = extent,
         .flags      = 0,
         .numLevels  = num_levels,
+        .reserved   = {},
     };
     validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
         dev_arr, cuda_extmem, &array_desc)
