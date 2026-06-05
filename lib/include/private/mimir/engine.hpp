@@ -147,8 +147,14 @@ struct MimirInstance
     // Renders iter_count frames with no window, calling func before each frame
     // (e.g. to advance a simulation). The last frame can be read back with saveFrameToPpm().
     void renderHeadless(std::function<void(void)> func, size_t iter_count);
+    // Copies the most recently rendered offscreen frame into out (B8G8R8A8 bytes).
+    void readFrameBytes(std::vector<unsigned char>& out);
     // Writes the most recently rendered offscreen frame to a binary PPM (P6) file.
     void saveFrameToPpm(const char *path);
+    // Streams rendered frames over TCP to a single connected client and applies the
+    // control events it sends back (camera, pause). Renders headless; blocks until the
+    // client disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited).
+    void serveRemote(uint16_t port, std::function<void(void)> compute, size_t max_iters);
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 

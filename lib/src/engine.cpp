@@ -277,7 +277,7 @@ void MimirInstance::renderHeadless(std::function<void(void)> func, size_t iter_c
     vkDeviceWaitIdle(device);
 }
 
-void MimirInstance::saveFrameToPpm(const char *path)
+void MimirInstance::readFrameBytes(std::vector<unsigned char>& out)
 {
     auto width  = swapchain.extent.width;
     auto height = swapchain.extent.height;
@@ -312,6 +312,19 @@ void MimirInstance::saveFrameToPpm(const char *path)
 
     unsigned char *data = nullptr;
     validation::checkVulkan(vkMapMemory(device, memory, 0, memsize, 0, (void**)&data));
+    out.resize(static_cast<size_t>(memsize));
+    std::memcpy(out.data(), data, static_cast<size_t>(memsize));
+    vkUnmapMemory(device, memory);
+    vkDestroyBuffer(device, staging, nullptr);
+    vkFreeMemory(device, memory, nullptr);
+}
+
+void MimirInstance::saveFrameToPpm(const char *path)
+{
+    auto width  = swapchain.extent.width;
+    auto height = swapchain.extent.height;
+    std::vector<unsigned char> data;
+    readFrameBytes(data);
 
     // Write a binary PPM (P6), converting the B8G8R8A8 image to RGB
     std::ofstream file(path, std::ios::binary);
@@ -322,10 +335,6 @@ void MimirInstance::saveFrameToPpm(const char *path)
         file.put(static_cast<char>(data[i * 4 + 1])); // G
         file.put(static_cast<char>(data[i * 4 + 0])); // B
     }
-
-    vkUnmapMemory(device, memory);
-    vkDestroyBuffer(device, staging, nullptr);
-    vkFreeMemory(device, memory, nullptr);
     spdlog::info("Saved headless frame ({}x{}) to {}", width, height, path);
 }
 

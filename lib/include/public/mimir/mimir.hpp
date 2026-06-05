@@ -53,6 +53,14 @@ void renderHeadless(InstanceHandle engine, std::function<void(void)> func, size_
 // Writes the most recently rendered headless frame to a binary PPM (P6) image file.
 void saveFrame(InstanceHandle engine, const char *path);
 
+// Streams rendered frames over TCP to a single connected client and applies the control
+// events it sends back (camera, pause). Requires RenderMode::Headless. Blocks until the client
+// disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited). 'func' advances
+// the workload before each rendered frame (as in display()).
+void serveRemote(InstanceHandle engine, unsigned short port,
+    std::function<void(void)> func, size_t max_iters
+);
+
 // Starts a GPU interop critical section.
 // Code between this call and updateViews() is considered CUDA compute work,
 // so Vulkan cannot read interop-mapped data during this period.

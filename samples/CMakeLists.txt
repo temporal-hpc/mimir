@@ -5,6 +5,8 @@ target_link_libraries(samples_common INTERFACE mimir)
 
 # Essential samples
 add_subdirectory(headless)
+add_subdirectory(remote_server)
+add_subdirectory(remote_client)
 add_subdirectory(unstructured)
 add_subdirectory(structured)
 add_subdirectory(mesh3d)

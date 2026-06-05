@@ -106,6 +106,12 @@ void saveFrame(InstanceHandle engine, const char *path)
     engine->saveFrameToPpm(path);
 }
 
+void serveRemote(InstanceHandle engine, unsigned short port,
+    std::function<void(void)> func, size_t max_iters)
+{
+    engine->serveRemote(port, func, max_iters);
+}
+
 void prepareViews(InstanceHandle engine)
 {
     engine->prepareViews();

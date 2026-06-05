@@ -15,6 +15,7 @@ target_sources(mimir
         src/interop.cpp
         src/metrics.cpp
         src/pipeline.cpp
+        src/remote.cpp
         src/resources.cpp
         src/shader.cpp
         src/swapchain.cpp
@@ -28,6 +29,7 @@ target_sources(mimir
             include/public/mimir/mimir.hpp
             include/public/mimir/view.hpp
             include/public/mimir/options.hpp
+            include/public/mimir/remote_protocol.hpp
 )
 
 target_include_directories(mimir
