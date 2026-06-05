@@ -44,6 +44,15 @@ void display(InstanceHandle engine, std::function<void(void)> func, size_t iter_
 // by calling prepareViews and updateViews.
 void displayAsync(InstanceHandle engine);
 
+// Renders frames with no window (requires RenderMode::Headless). The function passed as
+// argument runs before each of the iter_count frames, e.g. to advance a simulation over
+// interop-mapped memory; it must synchronize its own CUDA work before returning.
+// The last rendered frame can be written to disk with saveFrame().
+void renderHeadless(InstanceHandle engine, std::function<void(void)> func, size_t iter_count);
+
+// Writes the most recently rendered headless frame to a binary PPM (P6) image file.
+void saveFrame(InstanceHandle engine, const char *path);
+
 // Starts a GPU interop critical section.
 // Code between this call and updateViews() is considered CUDA compute work,
 // so Vulkan cannot read interop-mapped data during this period.

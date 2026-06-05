@@ -35,15 +35,23 @@ struct PhysicalDevice
     };
 };
 
+// Selects a CUDA-Vulkan interop device. Pass VK_NULL_HANDLE as surface for headless
+// selection (no presentation/swapchain requirement).
 PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface);
-VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_families);
+VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_families,
+    bool headless = false
+);
 
 bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
     uint32_t& graphics_family, uint32_t& present_family
 );
 
-// Handle additional extensions required by CUDA interop
-std::vector<const char*> getRequiredDeviceExtensions();
+// Finds a graphics-capable queue family without requiring presentation support (headless).
+bool findGraphicsQueueFamily(VkPhysicalDevice dev, uint32_t& graphics_family);
+
+// Handle additional extensions required by CUDA interop.
+// The swapchain extension is only needed for on-screen presentation; omit it for headless.
+std::vector<const char*> getRequiredDeviceExtensions(bool include_swapchain = true);
 
 static_assert(std::is_default_constructible_v<PhysicalDevice>);
 static_assert(std::is_nothrow_default_constructible_v<PhysicalDevice>);

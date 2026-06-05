@@ -134,10 +134,31 @@ bool findQueueFamilies(VkPhysicalDevice dev, VkSurfaceKHR surface,
     return graphics_family != family_empty && present_family != family_empty;
 }
 
-std::vector<const char*> getRequiredDeviceExtensions()
+bool findGraphicsQueueFamily(VkPhysicalDevice dev, uint32_t& graphics_family)
 {
-    return std::vector<const char*>{
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    constexpr auto family_empty = ~0u;
+    uint32_t family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(dev, &family_count, nullptr);
+    std::vector<VkQueueFamilyProperties> families(family_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(dev, &family_count, families.data());
+
+    graphics_family = family_empty;
+    for (uint32_t i = 0; i < family_count; ++i)
+    {
+        auto family = families[i];
+        if (family.queueCount > 0 && family.queueFlags & VK_QUEUE_GRAPHICS_BIT
+            && family.timestampValidBits > 0)
+        {
+            graphics_family = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<const char*> getRequiredDeviceExtensions(bool include_swapchain)
+{
+    std::vector<const char*> extensions{
         VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
         VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
         VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
@@ -145,6 +166,11 @@ std::vector<const char*> getRequiredDeviceExtensions()
         VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
         VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
     };
+    if (include_swapchain)
+    {
+        extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    }
+    return extensions;
 }
 
 bool checkAllExtensionsSupported(VkPhysicalDevice dev, std::span<const char*> expected)
@@ -199,13 +225,24 @@ SwapchainSupportDetails getSwapchainProperties(VkPhysicalDevice dev, VkSurfaceKH
 
 bool isDeviceSuitable(VkPhysicalDevice dev, VkSurfaceKHR surface)
 {
+    // A null surface requests a headless device: no presentation or swapchain required.
+    bool headless = (surface == VK_NULL_HANDLE);
+
     uint32_t graphics_idx, present_idx;
-    auto has_queues          = findQueueFamilies(dev, surface, graphics_idx, present_idx);
-    auto device_extensions   = getRequiredDeviceExtensions();
+    auto has_queues = headless?
+        findGraphicsQueueFamily(dev, graphics_idx) :
+        findQueueFamilies(dev, surface, graphics_idx, present_idx);
+    auto device_extensions   = getRequiredDeviceExtensions(!headless);
     auto supports_extensions = checkAllExtensionsSupported(dev, device_extensions);
-    auto swapchain_support   = getSwapchainProperties(dev, surface);
-    auto swapchain_adequate  = !swapchain_support.formats.empty() &&
-                               !swapchain_support.present_modes.empty();
+
+    bool swapchain_adequate = true;
+    if (!headless)
+    {
+        auto swapchain_support = getSwapchainProperties(dev, surface);
+        swapchain_adequate = !swapchain_support.formats.empty() &&
+                             !swapchain_support.present_modes.empty();
+    }
+
     VkPhysicalDeviceFeatures supported_features;
     vkGetPhysicalDeviceFeatures(dev, &supported_features);
     return supports_extensions && swapchain_adequate && has_queues
@@ -246,7 +283,12 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
     {
         cudaDeviceProp dev_prop;
         cudaGetDeviceProperties(&dev_prop, curr_device);
-        if (dev_prop.computeMode == cudaComputeModeProhibited)
+        // CUDA 13 removed cudaDeviceProp::computeMode; query it as a device attribute instead.
+        int compute_mode = cudaComputeModeDefault;
+        validation::checkCuda(cudaDeviceGetAttribute(
+            &compute_mode, cudaDevAttrComputeMode, curr_device)
+        );
+        if (compute_mode == cudaComputeModeProhibited)
         {
             prohibited_count++;
             curr_device++;
@@ -275,7 +317,8 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
     return chosen_device;
 }
 
-VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_families)
+VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_families,
+    bool headless)
 {
     std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
     auto queue_priority = 1.f;
@@ -311,7 +354,7 @@ VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_fam
     vk11features.pNext = &vk12features;
     vk11features.storageInputOutput16 = VK_FALSE;
 
-    auto device_extensions = getRequiredDeviceExtensions();
+    auto device_extensions = getRequiredDeviceExtensions(!headless);
     VkDeviceCreateInfo create_info{
         .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext                   = &vk11features,

@@ -51,6 +51,12 @@ struct WindowOptions
     }
 };
 
+// Selects where rendered frames are sent.
+// Local    = on-screen window (default behavior).
+// Headless = offscreen render target, no window or surface (foundation for remote rendering).
+// Remote   = headless rendering streamed to a connected client (not yet implemented).
+enum class RenderMode { Local, Headless, Remote };
+
 enum class PresentMode { Immediate, TripleBuffering, VSync };
 
 struct PresentOptions
@@ -79,6 +85,9 @@ struct PresentOptions
 
 struct ViewerOptions
 {
+    // Selects on-screen (Local) vs offscreen/headless rendering for this instance.
+    RenderMode render_mode  = RenderMode::Local;
+
     // Options for the window associated to the engine instance.
     WindowOptions window    = WindowOptions::makeDefault();
 

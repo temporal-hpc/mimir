@@ -36,7 +36,15 @@ Framebuffer Framebuffer::make(VkDevice device, VkRenderPass render_pass,
     Swapchain swapchain, VkImageView depth_view)
 {
     auto images = swapchain.getImages(device);
+    return Framebuffer::make(device, render_pass, images,
+        swapchain.format, swapchain.extent, depth_view
+    );
+}
 
+Framebuffer Framebuffer::make(VkDevice device, VkRenderPass render_pass,
+    std::span<const VkImage> images, VkFormat format, VkExtent2D extent,
+    VkImageView depth_view)
+{
     Framebuffer fb{
         .handles =     {},
         .image_views = {},
@@ -46,7 +54,7 @@ Framebuffer Framebuffer::make(VkDevice device, VkRenderPass render_pass,
 
     for (const auto& image : images)
     {
-        auto info = attachmentViewInfo(image, swapchain.format);
+        auto info = attachmentViewInfo(image, format);
         VkImageView color_view = VK_NULL_HANDLE;
         validation::checkVulkan(vkCreateImageView(device, &info, nullptr, &color_view));
 
@@ -58,8 +66,8 @@ Framebuffer Framebuffer::make(VkDevice device, VkRenderPass render_pass,
             .renderPass      = render_pass,
             .attachmentCount = (uint32_t)attachments.size(),
             .pAttachments    = attachments.data(),
-            .width           = swapchain.extent.width,
-            .height          = swapchain.extent.height,
+            .width           = extent.width,
+            .height          = extent.height,
             .layers          = 1,
         };
         VkFramebuffer framebuffer = VK_NULL_HANDLE;

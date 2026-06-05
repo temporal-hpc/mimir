@@ -96,6 +96,16 @@ void displayAsync(InstanceHandle engine)
     engine->displayAsync();
 }
 
+void renderHeadless(InstanceHandle engine, std::function<void(void)> func, size_t iter_count)
+{
+    engine->renderHeadless(func, iter_count);
+}
+
+void saveFrame(InstanceHandle engine, const char *path)
+{
+    engine->saveFrameToPpm(path);
+}
+
 void prepareViews(InstanceHandle engine)
 {
     engine->prepareViews();

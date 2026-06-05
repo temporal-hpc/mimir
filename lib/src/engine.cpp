@@ -9,6 +9,8 @@
 #include "mimir/shader_types.hpp"
 
 #include <iostream>
+#include <fstream> // std::ofstream
+#include <algorithm> // std::max
 #include <chrono> // std::chrono
 #include <set> // std::set
 
@@ -73,6 +75,9 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
         .depth_image       = VK_NULL_HANDLE,
         .depth_memory      = VK_NULL_HANDLE,
         .depth_view        = VK_NULL_HANDLE,
+        .offscreen_images  = {},
+        .offscreen_memory  = {},
+        .last_image_idx    = 0,
         .sync_data         = { SyncData{
             .frame_fence = VK_NULL_HANDLE,
             .image_acquired = VK_NULL_HANDLE,
@@ -110,8 +115,12 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
 
     auto width  = engine.options.window.size.x;
     auto height = engine.options.window.size.y;
-    engine.window_context = GlfwContext::make(engine.options.window, &engine);
-    engine.deletors.context.add([&] { engine.window_context.clean(); });
+    // Headless instances render offscreen and create no window or surface.
+    if (engine.options.render_mode == RenderMode::Local)
+    {
+        engine.window_context = GlfwContext::make(engine.options.window, &engine);
+        engine.deletors.context.add([&] { engine.window_context.clean(); });
+    }
     engine.camera = defaultCamera(width, height);
 
     engine.initVulkan();
@@ -139,8 +148,11 @@ void MimirInstance::deinit()
 
     vkDeviceWaitIdle(device);
     cleanupGraphics();
-    gui::shutdown();
-    window_context.exit();
+    if (!isHeadless())
+    {
+        gui::shutdown();
+        window_context.exit();
+    }
     deletors.views.flush();
     deletors.context.flush();
 }
@@ -248,6 +260,73 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
     compute_active = false;
     running = false;
     vkDeviceWaitIdle(device);
+}
+
+void MimirInstance::renderHeadless(std::function<void(void)> func, size_t iter_count)
+{
+    prepare();
+    // 'running' is left false so renderFrame() skips the interop timeline handshake:
+    // here compute and rendering are serialized on the host (func is expected to
+    // synchronize its own CUDA work before returning).
+    auto frames = std::max<size_t>(iter_count, 1);
+    for (size_t i = 0; i < frames; ++i)
+    {
+        if (i < iter_count) { func(); }
+        renderFrame();
+    }
+    vkDeviceWaitIdle(device);
+}
+
+void MimirInstance::saveFrameToPpm(const char *path)
+{
+    auto width  = swapchain.extent.width;
+    auto height = swapchain.extent.height;
+    VkDeviceSize memsize = static_cast<VkDeviceSize>(width) * height * 4;
+
+    // Staging buffer to receive the rendered image (host-visible for readback)
+    auto staging = createBuffer(device, memsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    auto available = physical_device.memory.memoryProperties;
+    VkMemoryRequirements mem_req{};
+    vkGetBufferMemoryRequirements(device, staging, &mem_req);
+    auto memory = allocateMemory(device, available, mem_req,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    validation::checkVulkan(vkBindBufferMemory(device, staging, memory, 0));
+
+    // The offscreen image is already in TRANSFER_SRC layout (render pass final layout)
+    VkImage src = offscreen_images[last_image_idx];
+    immediateSubmit([=](VkCommandBuffer cmd)
+    {
+        VkBufferImageCopy region{
+            .bufferOffset      = 0,
+            .bufferRowLength   = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+            .imageOffset       = { 0, 0, 0 },
+            .imageExtent       = { width, height, 1 },
+        };
+        vkCmdCopyImageToBuffer(cmd, src,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region
+        );
+    });
+
+    unsigned char *data = nullptr;
+    validation::checkVulkan(vkMapMemory(device, memory, 0, memsize, 0, (void**)&data));
+
+    // Write a binary PPM (P6), converting the B8G8R8A8 image to RGB
+    std::ofstream file(path, std::ios::binary);
+    file << "P6\n" << width << " " << height << "\n255\n";
+    for (uint32_t i = 0; i < width * height; ++i)
+    {
+        file.put(static_cast<char>(data[i * 4 + 2])); // R
+        file.put(static_cast<char>(data[i * 4 + 1])); // G
+        file.put(static_cast<char>(data[i * 4 + 0])); // B
+    }
+
+    vkUnmapMemory(device, memory);
+    vkDestroyBuffer(device, staging, nullptr);
+    vkFreeMemory(device, memory, nullptr);
+    spdlog::info("Saved headless frame ({}x{}) to {}", width, height, path);
 }
 
 uint32_t getVertexRate(ViewType type)
@@ -733,16 +812,31 @@ VkDescriptorSetLayoutBinding descriptorLayoutBinding(
 void MimirInstance::initVulkan()
 {
     createInstance();
-    window_context.createSurface(instance, &surface);
-    deletors.context.add([=,this](){
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-    });
+    // In headless mode no surface is created; pickPhysicalDevice treats a null
+    // surface as a request for a headless (no-presentation) device.
+    if (!isHeadless())
+    {
+        window_context.createSurface(instance, &surface);
+        deletors.context.add([=,this](){
+            vkDestroySurfaceKHR(instance, surface, nullptr);
+        });
+    }
     physical_device = pickPhysicalDevice(instance, surface);
 
-    findQueueFamilies(physical_device.handle, surface, graphics.family_index, present.family_index);
+    if (isHeadless())
+    {
+        findGraphicsQueueFamily(physical_device.handle, graphics.family_index);
+        present.family_index = graphics.family_index;
+    }
+    else
+    {
+        findQueueFamilies(physical_device.handle, surface,
+            graphics.family_index, present.family_index
+        );
+    }
     std::set unique_queue_families{ graphics.family_index, present.family_index };
     std::vector<uint32_t> queue_families(unique_queue_families.begin(), unique_queue_families.end());
-    device = createLogicalDevice(physical_device.handle, queue_families);
+    device = createLogicalDevice(physical_device.handle, queue_families, isHeadless());
     vkGetDeviceQueue(device, graphics.family_index, 0, &graphics.queue);
     vkGetDeviceQueue(device, present.family_index, 0, &present.queue);
 
@@ -837,10 +931,14 @@ void MimirInstance::initVulkan()
 
     initGraphics();
     createSyncObjects();
-    // After command pool and render pass are created
-    gui::init(instance, physical_device.handle, device,
-        descriptor_pool, render_pass, graphics, window_context
-    );
+    // After command pool and render pass are created.
+    // The GUI uses the GLFW/window backend, so it is only initialized for on-screen instances.
+    if (!isHeadless())
+    {
+        gui::init(instance, physical_device.handle, device,
+            descriptor_pool, render_pass, graphics, window_context
+        );
+    }
     descriptor_sets = createDescriptorSets(device,
         descriptor_pool, descriptor_layout, swapchain.image_count
     );
@@ -863,8 +961,10 @@ void MimirInstance::createInstance()
         .apiVersion         = VK_API_VERSION_1_2,
     };
 
-    // List additional required validation layers
-    auto extensions = GlfwContext::getRequiredExtensions();
+    // List additional required validation layers.
+    // Headless instances need no window-system (surface) extensions.
+    auto extensions = isHeadless()?
+        std::vector<const char*>{} : GlfwContext::getRequiredExtensions();
     if (validation::enable_layers)
     {
         // Enable debugging message extension
@@ -939,16 +1039,26 @@ void MimirInstance::cleanupGraphics()
 
 void MimirInstance::initGraphics()
 {
-    // Initialize swapchain
+    // Determine render target size. Headless instances have no window to query,
+    // so the configured window size is used as the offscreen target extent.
     int width, height;
-    window_context.getFramebufferSize(width, height);
-    auto present_mode = getDesiredPresentMode(options.present.mode);
-    std::vector queue_indices{graphics.family_index, present.family_index};
-    swapchain = Swapchain::make(device, physical_device.handle,
-        surface, width, height, present_mode, queue_indices
-    );
+    if (isHeadless())
+    {
+        width  = options.window.size.x;
+        height = options.window.size.y;
+        createOffscreenTarget(width, height);
+    }
+    else
+    {
+        window_context.getFramebufferSize(width, height);
+        auto present_mode = getDesiredPresentMode(options.present.mode);
+        std::vector queue_indices{graphics.family_index, present.family_index};
+        swapchain = Swapchain::make(device, physical_device.handle,
+            surface, width, height, present_mode, queue_indices
+        );
+    }
 
-    // Create one command buffer per swapchain image
+    // Create one command buffer per swapchain/offscreen image
     command_buffers = createCommandBuffers(device, command_pool, swapchain.image_count);
 
     // Initialize metrics monitoring
@@ -957,7 +1067,7 @@ void MimirInstance::initGraphics()
     compute_monitor = metrics::ComputeMonitor::make(0);
 
     deletors.graphics.add([=,this]{
-        vkDestroySwapchainKHR(device, swapchain.current, nullptr);
+        if (!isHeadless()) { vkDestroySwapchainKHR(device, swapchain.current, nullptr); }
         vkDestroyQueryPool(device, graphics_monitor.query_pool, nullptr);
         cudaEventDestroy(compute_monitor.start);
         cudaEventDestroy(compute_monitor.stop);
@@ -991,7 +1101,9 @@ void MimirInstance::initGraphics()
         .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
         .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        // On-screen frames are presented; headless frames are copied out for readback/encoding.
+        .finalLayout    = isHeadless()?
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
     };
     VkAttachmentDescription depth{
         .flags          = 0, // Can be VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT
@@ -1013,7 +1125,17 @@ void MimirInstance::initGraphics()
         vkDestroyRenderPass(device, render_pass, nullptr);
     });
 
-    framebuffers = Framebuffer::make(device, render_pass, swapchain, depth_view);
+    if (isHeadless())
+    {
+        std::span<const VkImage> imgs{offscreen_images};
+        framebuffers = Framebuffer::make(device, render_pass, imgs,
+            swapchain.format, swapchain.extent, depth_view
+        );
+    }
+    else
+    {
+        framebuffers = Framebuffer::make(device, render_pass, swapchain, depth_view);
+    }
     for (uint32_t i = 0; i < swapchain.image_count; ++i)
     {
         deletors.graphics.add([=,this]{
@@ -1028,6 +1150,49 @@ void MimirInstance::recreateGraphics()
     cleanupGraphics();
     initGraphics();
     createViewPipelines();
+}
+
+void MimirInstance::createOffscreenTarget(int width, int height)
+{
+    // Reuse the Swapchain struct as the common render-target descriptor (format/extent/count)
+    // so the rest of the engine treats headless and on-screen targets uniformly.
+    swapchain.current     = VK_NULL_HANDLE;
+    swapchain.old         = VK_NULL_HANDLE;
+    swapchain.format      = VK_FORMAT_B8G8R8A8_UNORM;
+    swapchain.extent      = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
+    swapchain.image_count = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+    offscreen_images.clear();
+    offscreen_memory.clear();
+
+    auto available = physical_device.memory.memoryProperties;
+    for (uint32_t i = 0; i < swapchain.image_count; ++i)
+    {
+        ImageParams params{
+            .type   = VK_IMAGE_TYPE_2D,
+            .format = swapchain.format,
+            .extent = { swapchain.extent.width, swapchain.extent.height, 1 },
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            // Color attachment for rendering; transfer source for frame readback/encoding.
+            .usage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            .levels = 1,
+        };
+        auto image = createImage(device, physical_device.handle, params);
+        VkMemoryRequirements mem_req{};
+        vkGetImageMemoryRequirements(device, image, &mem_req);
+        auto memory = allocateMemory(device, available, mem_req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        validation::checkVulkan(vkBindImageMemory(device, image, memory, 0));
+        offscreen_images.push_back(image);
+        offscreen_memory.push_back(memory);
+    }
+
+    // Free with the graphics-lifetime deletors so recreateGraphics() rebuilds the target.
+    auto images = offscreen_images;
+    auto memories = offscreen_memory;
+    deletors.graphics.add([=,this]{
+        for (auto image : images)  { vkDestroyImage(device, image, nullptr); }
+        for (auto memory : memories) { vkFreeMemory(device, memory, nullptr); }
+    });
 }
 
 void MimirInstance::updateDescriptorSets()
@@ -1161,11 +1326,21 @@ void MimirInstance::renderFrame()
     static uint64_t signal_value = 1;
 
     bool advance_timeline = false;
-    std::vector<VkSemaphore> waits           = {frame_sync.image_acquired};
-    std::vector<VkPipelineStageFlags> stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    std::vector<VkSemaphore> signals         = {frame_sync.render_complete};
-    std::vector<uint64_t> wait_values        = {0};
-    std::vector<uint64_t> signal_values      = {0};
+    // On-screen frames synchronize with swapchain acquire/present through binary semaphores;
+    // headless frames have neither, relying on the frame fence (and the interop timeline).
+    std::vector<VkSemaphore> waits;
+    std::vector<VkPipelineStageFlags> stages;
+    std::vector<VkSemaphore> signals;
+    std::vector<uint64_t> wait_values;
+    std::vector<uint64_t> signal_values;
+    if (!isHeadless())
+    {
+        waits.push_back(frame_sync.image_acquired);
+        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        signals.push_back(frame_sync.render_complete);
+        wait_values.push_back(0);
+        signal_values.push_back(0);
+    }
 
     if (compute_active && options.present.enable_sync)
     {
@@ -1187,20 +1362,26 @@ void MimirInstance::renderFrame()
         advance_timeline = true;
     }
 
-    // Acquire image from swap chain, signaling to the semaphore when it is ready for use
-    uint32_t image_idx;
-    auto result = vkAcquireNextImageKHR(device, swapchain.current,
-        frame_timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
-    );
-    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    // Select the target image. On-screen mode acquires from the swapchain (signaling a
+    // semaphore when ready); headless mode renders directly into this frame's offscreen image.
+    uint32_t image_idx = static_cast<uint32_t>(frame_idx);
+    VkResult result = VK_SUCCESS;
+    if (!isHeadless())
     {
-        recreateGraphics();
+        result = vkAcquireNextImageKHR(device, swapchain.current,
+            frame_timeout, frame_sync.image_acquired, VK_NULL_HANDLE, &image_idx
+        );
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            recreateGraphics();
+        }
+        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+        {
+            spdlog::error("Failed to acquire swapchain image");
+            return;
+        }
     }
-    else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-    {
-        spdlog::error("Failed to acquire swapchain image");
-        return;
-    }
+    last_image_idx = image_idx;
 
     // if (images_inflight[image_idx] != VK_NULL_HANDLE)
     // {
@@ -1244,7 +1425,7 @@ void MimirInstance::renderFrame()
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
     drawElements(frame_idx);
-    gui::render(cmd);
+    if (!isHeadless()) { gui::render(cmd); }
     vkCmdEndRenderPass(cmd);
 
     graphics_monitor.stopRenderWatch(cmd, frame_idx);
@@ -1290,23 +1471,27 @@ void MimirInstance::renderFrame()
     // Execute command buffer using image as attachment in framebuffer
     validation::checkVulkan(vkQueueSubmit(graphics.queue, 1, &submit_info, fence));
 
-    // Return image result back to swapchain for presentation on screen
-    VkPresentInfoKHR present_info{
-        .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .pNext              = nullptr,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores    = &frame_sync.render_complete,
-        .swapchainCount     = 1,
-        .pSwapchains        = &swapchain.current,
-        .pImageIndices      = &image_idx,
-        .pResults           = nullptr,
-    };
-    result = vkQueuePresentKHR(present.queue, &present_info);
-    // Resize should be done after presentation to ensure semaphore consistency
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || window_context.resize_requested)
+    // Return image result back to swapchain for presentation on screen.
+    // Headless frames are not presented; they stay in TRANSFER_SRC layout for readback/encoding.
+    if (!isHeadless())
     {
-        recreateGraphics();
-        window_context.resize_requested = false;
+        VkPresentInfoKHR present_info{
+            .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .pNext              = nullptr,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores    = &frame_sync.render_complete,
+            .swapchainCount     = 1,
+            .pSwapchains        = &swapchain.current,
+            .pImageIndices      = &image_idx,
+            .pResults           = nullptr,
+        };
+        result = vkQueuePresentKHR(present.queue, &present_info);
+        // Resize should be done after presentation to ensure semaphore consistency
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || window_context.resize_requested)
+        {
+            recreateGraphics();
+            window_context.resize_requested = false;
+        }
     }
 
     // Limit frame if it was configured

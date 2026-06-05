@@ -82,6 +82,12 @@ struct MimirInstance
     VkDeviceMemory depth_memory;
     VkImageView depth_view;
 
+    // Offscreen color targets used in headless mode (in place of swapchain images).
+    std::vector<VkImage> offscreen_images;
+    std::vector<VkDeviceMemory> offscreen_memory;
+    // Index of the most recently rendered image (used to read back headless frames).
+    uint32_t last_image_idx;
+
     // Synchronization structures
     std::array<SyncData, MAX_FRAMES_IN_FLIGHT> sync_data;
     interop::Barrier interop;
@@ -135,6 +141,15 @@ struct MimirInstance
     void exit();
     PerformanceMetrics getMetrics();
 
+    // True when this instance renders offscreen with no window/surface.
+    bool isHeadless() const { return options.render_mode != RenderMode::Local; }
+
+    // Renders iter_count frames with no window, calling func before each frame
+    // (e.g. to advance a simulation). The last frame can be read back with saveFrameToPpm().
+    void renderHeadless(std::function<void(void)> func, size_t iter_count);
+    // Writes the most recently rendered offscreen frame to a binary PPM (P6) file.
+    void saveFrameToPpm(const char *path);
+
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 
     void initVulkan();
@@ -154,6 +169,8 @@ struct MimirInstance
     void initGraphics();
     void cleanupGraphics();
     void recreateGraphics();
+    // Creates the offscreen color image ring used in headless mode.
+    void createOffscreenTarget(int width, int height);
     void createViewPipelines();
     void initUniformBuffers();
     void updateUniformBuffers(uint32_t image_idx);

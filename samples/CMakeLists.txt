@@ -4,6 +4,7 @@ target_include_directories(samples_common SYSTEM INTERFACE include)
 target_link_libraries(samples_common INTERFACE mimir)
 
 # Essential samples
+add_subdirectory(headless)
 add_subdirectory(unstructured)
 add_subdirectory(structured)
 add_subdirectory(mesh3d)
@@ -12,8 +13,10 @@ add_subdirectory(CA3D-voxels)
 # Experiments
 add_subdirectory(nbody)
 add_subdirectory(points3d)
-add_subdirectory(points3dcpu)
-add_subdirectory(pointsgl)
+# These sample directories were removed but their entries were left behind; disabled so the
+# tree configures. Re-enable if the samples are restored.
+#add_subdirectory(points3dcpu)
+#add_subdirectory(pointsgl)
 #add_subdirectory(pointspcl)
 # Basic samples
 add_subdirectory(GPU-visual-tool-example)
