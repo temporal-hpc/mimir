@@ -56,9 +56,11 @@ void saveFrame(InstanceHandle engine, const char *path);
 // Streams rendered frames over TCP to a single connected client and applies the control
 // events it sends back (camera, pause). Requires RenderMode::Headless. Blocks until the client
 // disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited). 'func' advances
-// the workload before each rendered frame (as in display()).
+// the workload before each rendered frame (as in display()). When use_h264 is true and the
+// library was built with ffmpeg support, frames are H.264-encoded before sending; otherwise
+// raw frames are streamed. The client is told the actual codec in the Hello handshake.
 void serveRemote(InstanceHandle engine, unsigned short port,
-    std::function<void(void)> func, size_t max_iters
+    std::function<void(void)> func, size_t max_iters, bool use_h264 = false
 );
 
 // Starts a GPU interop critical section.

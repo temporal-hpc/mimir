@@ -154,7 +154,8 @@ struct MimirInstance
     // Streams rendered frames over TCP to a single connected client and applies the
     // control events it sends back (camera, pause). Renders headless; blocks until the
     // client disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited).
-    void serveRemote(uint16_t port, std::function<void(void)> compute, size_t max_iters);
+    void serveRemote(uint16_t port, std::function<void(void)> compute, size_t max_iters,
+        bool use_h264 = false);
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 

@@ -99,7 +99,14 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
     uint32_t w = hello.width, h = hello.height;
-    printf("connected: stream is %ux%u\n", w, h);
+    if (static_cast<Codec>(hello.codec) != Codec::RawBGRA)
+    {
+        fprintf(stderr, "server is streaming codec %u, but this client only decodes raw "
+            "frames; use run_remote_decode for H.264\n", hello.codec);
+        close(fd);
+        return EXIT_FAILURE;
+    }
+    printf("connected: stream is %ux%u (raw)\n", w, h);
 
     std::vector<unsigned char> frame;
     int count = 0;

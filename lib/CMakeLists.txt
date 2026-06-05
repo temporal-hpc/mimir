@@ -53,6 +53,24 @@ target_compile_options(mimir PRIVATE
     "$<$<CONFIG:Release>:-O3>"
 )
 
+# Optional H.264 encoding for remote streaming, via system ffmpeg/libav* (pkg-config).
+# When enabled and found, remote::Codec::H264 becomes available; otherwise serveRemote()
+# transparently falls back to raw frames.
+option(MIMIR_ENABLE_REMOTE "Enable H.264-encoded remote streaming (requires ffmpeg)" OFF)
+if(MIMIR_ENABLE_REMOTE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FFMPEG IMPORTED_TARGET
+        libavcodec libavutil libswscale
+    )
+    if(FFMPEG_FOUND)
+        target_compile_definitions(mimir PRIVATE MIMIR_HAVE_FFMPEG)
+        target_link_libraries(mimir PRIVATE PkgConfig::FFMPEG)
+        message(STATUS "mimir: H.264 remote streaming enabled (ffmpeg ${FFMPEG_libavcodec_VERSION})")
+    else()
+        message(WARNING "mimir: MIMIR_ENABLE_REMOTE set but ffmpeg not found; raw streaming only")
+    endif()
+endif()
+
 target_link_libraries(mimir
     PUBLIC
         Vulkan::Vulkan CUDA::cudart

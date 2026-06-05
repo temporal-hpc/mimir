@@ -12,8 +12,13 @@ namespace mimir::remote
 // Identifies a mimir remote stream in the Hello message ("MIMR").
 constexpr uint32_t PROTOCOL_MAGIC = 0x4D494D52;
 
-// Pixel layout of streamed frames. Matches the engine's offscreen target (B8G8R8A8_UNORM).
+// Pixel layout of raw streamed frames. Matches the engine's offscreen target (B8G8R8A8_UNORM).
 enum class PixelFormat : uint32_t { BGRA8 = 0 };
+
+// How each streamed frame payload is encoded.
+//   RawBGRA = width*height*4 uncompressed bytes (PixelFormat layout)
+//   H264    = one H.264 access unit (Annex B), decode to recover the frame
+enum class Codec : uint32_t { RawBGRA = 0, H264 = 1 };
 
 // Control event kinds sent client -> server. Mirror the local mouse interactions.
 enum class ControlKind : uint8_t
@@ -34,7 +39,8 @@ struct Hello
     uint32_t magic;  // PROTOCOL_MAGIC
     uint32_t width;
     uint32_t height;
-    uint32_t format; // PixelFormat
+    uint32_t format; // PixelFormat (pixel layout once decoded)
+    uint32_t codec;  // Codec (how each frame payload is encoded)
 };
 
 // Precedes each frame's pixel payload (width*height*4 bytes, PixelFormat layout).

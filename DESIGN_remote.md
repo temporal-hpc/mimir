@@ -292,9 +292,23 @@ interfaces so earlier, simpler implementations are drop-in-replaced.
    the sim paused a client camera-rotate changes the rendered view (~42% pixels differ). Server
    sample `run_remote_server` streams a live brownian point cloud. (Client is headless/saves
    PPM for now; a windowed blit client is the next increment.)
-3. **NVENC.** Replace `RawEncoder` with `NvencEncoder` (zero-copy via CUDA external memory).
-   Client decodes with NVDEC/ffmpeg. Goal: bandwidth drops from gigabits to ~10–20 Mbps;
-   interactive over a real link.
+
+   **[DONE]** Windowed blit client `run_remote_viewer` (GLFW + OpenGL, `glDrawPixels`,
+   left/right/middle-drag → rotate/zoom/pan, P pause, Q quit). Depends only on the wire
+   protocol + GLFW/GL (no mimir/CUDA/Vulkan link), modelling the thin native client.
+3. **H.264 encode. [DONE]** Frame payloads are H.264-encoded before sending, behind a
+   `remote::Codec` field in the `Hello` handshake (server advertises `RawBGRA` or `H264`, client
+   verifies). Implemented with ffmpeg/libav* (`H264Encoder` in `lib/src/remote.cpp`, guarded by
+   `MIMIR_HAVE_FFMPEG`): prefers the hardware `h264_nvenc` encoder, falls back to software
+   `libx264`; BGRA→YUV420P via libswscale; low-latency tuning per encoder. Gated by the
+   `MIMIR_ENABLE_REMOTE` CMake option (pkg-config `libavcodec/libavutil/libswscale`); when the
+   library is built without ffmpeg, `serveRemote(..., use_h264=true)` transparently falls back to
+   raw. Decoding client `run_remote_decode` (ffmpeg decode → BGRA → PPM). Verified end to end:
+   the encode→decode round-trip reconstructs the point cloud, the control round-trip still works
+   (sim paused, camera-rotate changes the view), and the stream is **~175–180× smaller** than raw
+   (≈20 KB vs 3600 KB per 1280×720 frame). The encode currently still uses the step-1 GPU→CPU
+   readback (`readFrameBytes`) before feeding libswscale; the zero-copy CUDA-external-memory path
+   into NVENC (avoiding readback) is a later optimisation.
 4. **QUIC transport.** Replace the bring-up socket with QUIC (TLS, congestion control, video +
    control streams). Goal: production transport; both direct-IP and SSH-tunnel deployments
    documented and tested.

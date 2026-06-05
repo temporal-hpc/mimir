@@ -4,7 +4,8 @@
 // connected client, applying the camera/pause control the client sends back. Pair with
 // run_remote_client.
 //
-// Run from build/samples/:  ./run_remote_server [port] [width] [height] [point_count]
+// Run from build/samples/:  ./run_remote_server [port] [width] [height] [point_count] [h264]
+// Pass a non-zero final argument to request H.264 encoding (needs a build with ffmpeg support).
 
 #include <curand_kernel.h>
 #include <string> // std::stoul
@@ -58,9 +59,11 @@ int main(int argc, char *argv[])
     int width                = 1280;
     int height               = 720;
     unsigned int point_count = 10000;
+    bool use_h264            = false;
     if (argc >= 2) port        = static_cast<unsigned short>(std::stoi(argv[1]));
     if (argc >= 4) { width = std::stoi(argv[2]); height = std::stoi(argv[3]); }
     if (argc >= 5) point_count = std::stoul(argv[4]);
+    if (argc >= 6) use_h264    = std::stoi(argv[5]) != 0;
 
     checkCuda(cudaSetDevice(0));
 
@@ -110,7 +113,7 @@ int main(int argc, char *argv[])
     serveRemote(instance, port, [&]{
         integrate<<<grid_size, block_size>>>(d_coords, point_count, d_states);
         checkCuda(cudaDeviceSynchronize());
-    }, 0);
+    }, 0, use_h264);
 
     destroyInstance(instance);
     checkCuda(cudaFree(d_states));

@@ -127,8 +127,15 @@ int main(int argc, char *argv[])
         fprintf(stderr, "invalid server hello\n");
         return EXIT_FAILURE;
     }
+    if (static_cast<Codec>(hello.codec) != Codec::RawBGRA)
+    {
+        fprintf(stderr, "server is streaming codec %u, but this viewer only decodes raw "
+            "frames; use run_remote_decode for H.264\n", hello.codec);
+        close(g_fd);
+        return EXIT_FAILURE;
+    }
     int w = static_cast<int>(hello.width), h = static_cast<int>(hello.height);
-    printf("connected: stream is %dx%d\n", w, h);
+    printf("connected: stream is %dx%d (raw)\n", w, h);
 
     // A background thread receives frames into a shared buffer so the UI stays responsive.
     std::mutex frame_mutex;
