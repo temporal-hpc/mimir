@@ -23,6 +23,7 @@ extern "C" {
 #include <unistd.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <string>
@@ -84,6 +85,9 @@ int main(int argc, char *argv[])
 {
     std::string host = (argc >= 2)? argv[1] : "127.0.0.1";
     std::string port = (argc >= 3)? argv[2] : "9000";
+    // Optional benchmark mode: receive N frames with the simulation left running (no pause/rotate
+    // script, no PPM saves), so the server measures encode latency on real, changing content.
+    int bench_frames = (argc >= 4)? std::atoi(argv[3]) : 0;
 
     addrinfo hints{};
     hints.ai_family   = AF_INET;
@@ -146,8 +150,17 @@ int main(int argc, char *argv[])
         total_encoded += header.size;
 
         // Scripted interaction, mirroring run_remote_client, to verify the control round-trip.
-        if (received == 3)  { printf("pausing simulation\n"); sendControl(fd, ControlKind::TogglePause); }
-        if (received == 7)  { printf("sending camera rotate\n"); sendControl(fd, ControlKind::CameraRotate, 150.f, 40.f); }
+        // Skipped in benchmark mode so the simulation keeps advancing (changing content).
+        if (bench_frames == 0)
+        {
+            if (received == 3)  { printf("pausing simulation\n"); sendControl(fd, ControlKind::TogglePause); }
+            if (received == 7)  { printf("sending camera rotate\n"); sendControl(fd, ControlKind::CameraRotate, 150.f, 40.f); }
+        }
+        else if (received >= bench_frames)
+        {
+            sendControl(fd, ControlKind::Quit);
+            done = true;
+        }
 
         packet->data = au.data();
         packet->size = static_cast<int>(au.size());
@@ -165,15 +178,18 @@ int main(int argc, char *argv[])
             sws_scale(sws, frame->data, frame->linesize, 0, frame->height, dst, dst_stride);
             decoded++;
 
-            if (decoded == 1)  { savePpm("decode_frame0.ppm", bgra.data(), w, h); }
-            if (decoded == 6)  { savePpm("decode_pre_rotate.ppm", bgra.data(), w, h); }
-            if (decoded == 15)
+            if (bench_frames == 0)
             {
-                savePpm("decode_post_rotate.ppm", bgra.data(), w, h);
-                printf("sending quit\n");
-                sendControl(fd, ControlKind::Quit);
-                done = true;
-                break;
+                if (decoded == 1)  { savePpm("decode_frame0.ppm", bgra.data(), w, h); }
+                if (decoded == 6)  { savePpm("decode_pre_rotate.ppm", bgra.data(), w, h); }
+                if (decoded == 15)
+                {
+                    savePpm("decode_post_rotate.ppm", bgra.data(), w, h);
+                    printf("sending quit\n");
+                    sendControl(fd, ControlKind::Quit);
+                    done = true;
+                    break;
+                }
             }
         }
     }

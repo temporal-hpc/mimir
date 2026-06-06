@@ -12,6 +12,9 @@
 #include "mimir/transport.hpp"
 #include "mimir/validation.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -64,7 +67,11 @@ struct H264Encoder
         if (!codec) { spdlog::error("remote: no H.264 encoder available"); return false; }
 
         // For NVENC, try to set up a CUDA hardware frames pool so we can feed on-GPU BGRA frames.
-        if (is_nvenc) { zero_copy = initCudaFrames(w, h); }
+        // MIMIR_FORCE_HOST_ENCODE forces the host readback path (for before/after benchmarking).
+        if (is_nvenc && std::getenv("MIMIR_FORCE_HOST_ENCODE") == nullptr)
+        {
+            zero_copy = initCudaFrames(w, h);
+        }
 
         ctx = avcodec_alloc_context3(codec);
         ctx->width       = w;
@@ -267,6 +274,14 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
 #ifdef MIMIR_HAVE_FFMPEG
     std::vector<unsigned char> encoded;
 #endif
+
+    // Per-frame "rendered image -> wire payload" latency (readback/convert/encode), for
+    // before/after benchmarking. The first few frames (lazy buffer/encoder init + IDR) are
+    // skipped as warmup.
+    constexpr size_t kWarmup = 5;
+    size_t produced_frames = 0, timed_count = 0;
+    double enc_sum_ms = 0.0, enc_min_ms = 1e30, enc_max_ms = 0.0;
+
     while (running && (max_iters == 0 || iter < max_iters))
     {
         // Drain pending control events and apply them to camera / pause state. The transport's
@@ -300,6 +315,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         const unsigned char *payload = nullptr;
         size_t payload_size = 0;
         bool produced = false;
+        const auto enc_t0 = std::chrono::steady_clock::now();
 
 #ifdef MIMIR_HAVE_FFMPEG
         // Zero-copy H.264: encode straight from the on-GPU frame, no host readback.
@@ -339,6 +355,16 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
 #endif
         }
 
+        const auto enc_t1 = std::chrono::steady_clock::now();
+        const double enc_ms = std::chrono::duration<double, std::milli>(enc_t1 - enc_t0).count();
+        if (produced_frames++ >= kWarmup)
+        {
+            enc_sum_ms += enc_ms;
+            enc_min_ms = std::min(enc_min_ms, enc_ms);
+            enc_max_ms = std::max(enc_max_ms, enc_ms);
+            ++timed_count;
+        }
+
         remote::FrameHeader header{ .size = static_cast<uint32_t>(payload_size) };
         if (!transport->sendVideo(&header, sizeof(header)) ||
             !transport->sendVideo(payload, payload_size))
@@ -347,6 +373,20 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         }
     }
 
+    if (timed_count > 0)
+    {
+#ifdef MIMIR_HAVE_FFMPEG
+        const char *path = (codec == remote::Codec::H264)
+            ? (encoder.zero_copy ? "H.264 zero-copy CUDA/NVENC" : "H.264 host readback+libswscale")
+            : "raw readback";
+#else
+        const char *path = "raw readback";
+#endif
+        spdlog::info("remote: frame production latency [{}] over {} frames: "
+            "mean {:.2f} ms, min {:.2f} ms, max {:.2f} ms",
+            path, timed_count, enc_sum_ms / static_cast<double>(timed_count),
+            enc_min_ms, enc_max_ms);
+    }
     spdlog::info("remote: client session ended after {} frames", iter);
 }
 
