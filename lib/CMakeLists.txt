@@ -73,6 +73,23 @@ if(MIMIR_ENABLE_REMOTE)
     endif()
 endif()
 
+# Optional QUIC transport for remote streaming, via system ngtcp2 + its OpenSSL crypto binding
+# (pkg-config). When enabled and found, remote::TransportKind::Quic becomes available; otherwise
+# serveRemote(..., Quic) reports the missing support and the caller can fall back to TCP.
+option(MIMIR_ENABLE_QUIC "Enable QUIC transport for remote streaming (requires ngtcp2)" OFF)
+if(MIMIR_ENABLE_QUIC)
+    find_package(PkgConfig REQUIRED)
+    find_package(OpenSSL REQUIRED)
+    pkg_check_modules(NGTCP2 IMPORTED_TARGET libngtcp2 libngtcp2_crypto_ossl)
+    if(NGTCP2_FOUND)
+        target_compile_definitions(mimir PRIVATE MIMIR_HAVE_QUIC)
+        target_link_libraries(mimir PRIVATE PkgConfig::NGTCP2 OpenSSL::SSL OpenSSL::Crypto)
+        message(STATUS "mimir: QUIC transport enabled (ngtcp2 ${NGTCP2_libngtcp2_VERSION})")
+    else()
+        message(WARNING "mimir: MIMIR_ENABLE_QUIC set but ngtcp2 not found; TCP transport only")
+    endif()
+endif()
+
 target_link_libraries(mimir
     PUBLIC
         Vulkan::Vulkan CUDA::cudart

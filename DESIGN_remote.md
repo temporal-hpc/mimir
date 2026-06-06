@@ -309,9 +309,28 @@ interfaces so earlier, simpler implementations are drop-in-replaced.
    (≈20 KB vs 3600 KB per 1280×720 frame). The encode currently still uses the step-1 GPU→CPU
    readback (`readFrameBytes`) before feeding libswscale; the zero-copy CUDA-external-memory path
    into NVENC (avoiding readback) is a later optimisation.
-4. **QUIC transport.** Replace the bring-up socket with QUIC (TLS, congestion control, video +
-   control streams). Goal: production transport; both direct-IP and SSH-tunnel deployments
-   documented and tested.
+4. **QUIC transport. [DONE]** Done in two parts:
+   - *4a — Transport seam.* Extracted `remote::Transport` (`lib/include/private/mimir/transport.hpp`):
+     a server-side abstraction with a reliable video channel (Hello + length-prefixed frames) and
+     a control channel (ControlMsg). The existing socket code became `TcpTransport`
+     (`lib/src/transport_tcp.cpp`); `serveRemote()` gained a `TransportKind` argument and is now
+     transport-agnostic. No behavior change on the TCP path.
+   - *4b — QUIC.* `QuicTransport` (`lib/src/transport_quic.cpp`) on **ngtcp2** + its OpenSSL
+     crypto binding (`ngtcp2_crypto_ossl`, for OpenSSL 3.5+ native QUIC TLS). UDP + TLS 1.3 +
+     congestion control; video on a server-initiated uni stream, control on a client-initiated
+     uni stream (same byte framing as TCP, since QUIC streams are reliable+ordered). A single I/O
+     thread owns the conn and runs the read/write/timer pump (poll + eventfd wakeups), so all
+     ngtcp2 calls stay single-threaded. Ephemeral self-signed cert (encryption without auth, like
+     a tunnel's first hop). Gated by the `MIMIR_ENABLE_QUIC` CMake option (pkg-config
+     `libngtcp2 libngtcp2_crypto_ossl`); without it, `serveRemote(..., Quic)` reports the missing
+     support so the caller can fall back to TCP. QUIC thin client `run_remote_quic`. Verified end
+     to end over loopback: full TLS handshake, H.264-over-QUIC streams 15 frames at ~180× smaller
+     than raw with the control round-trip intact, and raw-over-QUIC (3.6 MB frames) flows through
+     stream flow control correctly.
+
+   Still open from the original plan: client-side QUIC→TCP auto-fallback selection (the server
+   already speaks both; the bundled clients are per-transport), and the SSH-tunnel path is TCP by
+   construction (documented in §5, not separately re-tested here).
 5. **Polish.** Auth/handshake, resize handling, keyframe-on-join, reconnect, metrics surfaced
    to the client (reuse `getMetrics`, `mimir.hpp:111`), graceful disconnect.
 

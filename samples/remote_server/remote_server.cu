@@ -4,8 +4,9 @@
 // connected client, applying the camera/pause control the client sends back. Pair with
 // run_remote_client.
 //
-// Run from build/samples/:  ./run_remote_server [port] [width] [height] [point_count] [h264]
-// Pass a non-zero final argument to request H.264 encoding (needs a build with ffmpeg support).
+// Run from build/samples/:  ./run_remote_server [port] [width] [height] [point_count] [h264] [transport]
+//   h264:      pass 1 to request H.264 encoding (needs a build with ffmpeg support)
+//   transport: "tcp" (default) or "quic" (needs a build with -DMIMIR_ENABLE_QUIC=ON)
 
 #include <curand_kernel.h>
 #include <string> // std::stoul
@@ -60,10 +61,13 @@ int main(int argc, char *argv[])
     int height               = 720;
     unsigned int point_count = 10000;
     bool use_h264            = false;
+    remote::TransportKind transport = remote::TransportKind::Tcp;
     if (argc >= 2) port        = static_cast<unsigned short>(std::stoi(argv[1]));
     if (argc >= 4) { width = std::stoi(argv[2]); height = std::stoi(argv[3]); }
     if (argc >= 5) point_count = std::stoul(argv[4]);
     if (argc >= 6) use_h264    = std::stoi(argv[5]) != 0;
+    if (argc >= 7) transport   = (std::string(argv[6]) == "quic")?
+        remote::TransportKind::Quic : remote::TransportKind::Tcp;
 
     checkCuda(cudaSetDevice(0));
 
@@ -105,15 +109,18 @@ int main(int argc, char *argv[])
     createView(instance, &desc, &view);
     setCameraPosition(instance, {-.5f, -.5f, -3.f});
 
-    printf("Serving frames on port %u (%dx%d, %u points). Connect with run_remote_client.\n",
-        port, width, height, point_count);
+    const bool quic = (transport == remote::TransportKind::Quic);
+    printf("Serving frames on %s port %u (%dx%d, %u points, %s). Connect with %s.\n",
+        quic ? "UDP/QUIC" : "TCP", port, width, height, point_count,
+        use_h264 ? "H.264" : "raw",
+        quic ? "run_remote_quic" : "run_remote_client / run_remote_viewer / run_remote_decode");
 
     // Blocks until the client disconnects or sends Quit. The lambda advances the simulation
     // each (non-paused) frame over interop-mapped memory.
     serveRemote(instance, port, [&]{
         integrate<<<grid_size, block_size>>>(d_coords, point_count, d_states);
         checkCuda(cudaDeviceSynchronize());
-    }, 0, use_h264);
+    }, 0, use_h264, transport);
 
     destroyInstance(instance);
     checkCuda(cudaFree(d_states));
