@@ -318,6 +318,19 @@ interfaces so earlier, simpler implementations are drop-in-replaced.
    primary-context flags). Falls back to the host readback + libswscale path if CUDA/hw setup
    fails or the encoder is libx264. Verified the zero-copy path engages (log shows
    `(zero-copy CUDA/NVENC)`) and streams correctly over both TCP and QUIC.
+
+   *Benchmark* (RTX 3090 Ti, 20k-point cloud, mean per-frame "rendered image → H.264 bytes"
+   over ~296 frames, host path forced via `MIMIR_FORCE_HOST_ENCODE`):
+
+   | Resolution | Host (readback + libswscale) | Zero-copy (CUDA/NVENC) | Speedup |
+   |---|---|---|---|
+   | 1280×720  | 23.42 ms | **1.83 ms** | ~12.8× |
+   | 1920×1080 | 42.36 ms | **3.62 ms** | ~11.7× |
+
+   The host path was the bottleneck (CPU `libswscale` BGRA→YUV420P + GPU→host DMA), not NVENC;
+   zero-copy removes it and tightens variance (e.g. 720p: 1.4–2.1 ms vs 22.7–30.1 ms). Server
+   logs `frame production latency [...]` each session; `run_remote_decode <host> <port> <frames>`
+   runs benchmark mode (sim left live, no pause/rotate).
 4. **QUIC transport. [DONE]** Done in two parts:
    - *4a — Transport seam.* Extracted `remote::Transport` (`lib/include/private/mimir/transport.hpp`):
      a server-side abstraction with a reliable video channel (Hello + length-prefixed frames) and
