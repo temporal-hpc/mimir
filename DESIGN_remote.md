@@ -306,9 +306,18 @@ interfaces so earlier, simpler implementations are drop-in-replaced.
    raw. Decoding client `run_remote_decode` (ffmpeg decode → BGRA → PPM). Verified end to end:
    the encode→decode round-trip reconstructs the point cloud, the control round-trip still works
    (sim paused, camera-rotate changes the view), and the stream is **~175–180× smaller** than raw
-   (≈20 KB vs 3600 KB per 1280×720 frame). The encode currently still uses the step-1 GPU→CPU
-   readback (`readFrameBytes`) before feeding libswscale; the zero-copy CUDA-external-memory path
-   into NVENC (avoiding readback) is a later optimisation.
+   (≈20 KB vs 3600 KB per 1280×720 frame).
+
+   **Zero-copy NVENC [DONE]:** the H.264 path no longer reads pixels back to the host.
+   `MimirInstance::mapFrameToCuda()` copies the rendered offscreen image into a persistent
+   device-local Vulkan buffer exported to CUDA (the `allocLinear` OPAQUE_FD external-memory
+   mechanism), GPU→GPU; the encoder feeds NVENC an `AV_PIX_FMT_CUDA` frame (sw_format BGRA) via a
+   device→device `cudaMemcpy2D`, so NVENC does BGRA→NV12 and encodes entirely on the GPU with no
+   pixel data on the host. ffmpeg shares mimir's existing CUDA context (via `cuCtxGetCurrent` + a
+   hand-built `AVHWDeviceContext`; the `AV_CUDA_USE_PRIMARY_CONTEXT` flag clashes with mimir's
+   primary-context flags). Falls back to the host readback + libswscale path if CUDA/hw setup
+   fails or the encoder is libx264. Verified the zero-copy path engages (log shows
+   `(zero-copy CUDA/NVENC)`) and streams correctly over both TCP and QUIC.
 4. **QUIC transport. [DONE]** Done in two parts:
    - *4a — Transport seam.* Extracted `remote::Transport` (`lib/include/private/mimir/transport.hpp`):
      a server-side abstraction with a reliable video channel (Hello + length-prefixed frames) and
