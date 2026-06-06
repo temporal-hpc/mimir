@@ -20,6 +20,11 @@ enum class PixelFormat : uint32_t { BGRA8 = 0 };
 //   H264    = one H.264 access unit (Annex B), decode to recover the frame
 enum class Codec : uint32_t { RawBGRA = 0, H264 = 1 };
 
+// Which transport carries the session.
+//   Tcp  = single TCP connection (everywhere-works fallback, also the ssh -L tunnel path)
+//   Quic = QUIC over UDP (preferred for direct connections: TLS, congestion control, streams)
+enum class TransportKind : uint32_t { Tcp = 0, Quic = 1 };
+
 // Control event kinds sent client -> server. Mirror the local mouse interactions.
 enum class ControlKind : uint8_t
 {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mimir/options.hpp>
+#include <mimir/remote_protocol.hpp>
 #include <mimir/view.hpp>
 
 #include <cuda_runtime_api.h>
@@ -58,9 +59,12 @@ void saveFrame(InstanceHandle engine, const char *path);
 // disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited). 'func' advances
 // the workload before each rendered frame (as in display()). When use_h264 is true and the
 // library was built with ffmpeg support, frames are H.264-encoded before sending; otherwise
-// raw frames are streamed. The client is told the actual codec in the Hello handshake.
+// raw frames are streamed. The client is told the actual codec in the Hello handshake. 'kind'
+// selects the transport: TCP (default, works everywhere incl. ssh -L tunnels) or QUIC (UDP,
+// TLS + congestion control, for direct connections; requires a build with QUIC support).
 void serveRemote(InstanceHandle engine, unsigned short port,
-    std::function<void(void)> func, size_t max_iters, bool use_h264 = false
+    std::function<void(void)> func, size_t max_iters, bool use_h264 = false,
+    remote::TransportKind kind = remote::TransportKind::Tcp
 );
 
 // Starts a GPU interop critical section.

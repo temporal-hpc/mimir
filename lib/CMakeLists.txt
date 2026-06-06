@@ -16,6 +16,8 @@ target_sources(mimir
         src/metrics.cpp
         src/pipeline.cpp
         src/remote.cpp
+        src/transport_tcp.cpp
+        src/transport_quic.cpp
         src/resources.cpp
         src/shader.cpp
         src/swapchain.cpp

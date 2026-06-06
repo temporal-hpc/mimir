@@ -9,19 +9,10 @@
 
 #include "mimir/engine.hpp"
 #include "mimir/remote_protocol.hpp"
+#include "mimir/transport.hpp"
 #include "mimir/validation.hpp"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <atomic>
 #include <cstring>
-#include <deque>
-#include <mutex>
-#include <thread>
 #include <vector>
 
 #ifdef MIMIR_HAVE_FFMPEG
@@ -133,38 +124,10 @@ struct H264Encoder
 };
 #endif // MIMIR_HAVE_FFMPEG
 
-// Sends exactly len bytes, looping over partial writes. Returns false on error/disconnect.
-bool sendAll(int fd, const void *buf, size_t len)
-{
-    auto *p = static_cast<const char*>(buf);
-    size_t sent = 0;
-    while (sent < len)
-    {
-        auto n = send(fd, p + sent, len - sent, MSG_NOSIGNAL);
-        if (n <= 0) { return false; }
-        sent += static_cast<size_t>(n);
-    }
-    return true;
-}
-
-// Receives exactly len bytes. Returns false on error/disconnect.
-bool recvAll(int fd, void *buf, size_t len)
-{
-    auto *p = static_cast<char*>(buf);
-    size_t got = 0;
-    while (got < len)
-    {
-        auto n = recv(fd, p + got, len - got, 0);
-        if (n <= 0) { return false; }
-        got += static_cast<size_t>(n);
-    }
-    return true;
-}
-
 } // namespace
 
 void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute,
-    size_t max_iters, bool use_h264)
+    size_t max_iters, bool use_h264, remote::TransportKind kind)
 {
     prepare();
 
@@ -194,30 +157,12 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     }
 #endif
 
-    // Open a listening socket and wait for a single client to connect.
-    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (listen_fd < 0) { spdlog::error("remote: failed to create socket"); return; }
-    int yes = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-
-    sockaddr_in addr{};
-    addr.sin_family      = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port        = htons(port);
-    if (bind(listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
-    {
-        spdlog::error("remote: failed to bind port {}", port);
-        close(listen_fd);
-        return;
-    }
-    listen(listen_fd, 1);
-    spdlog::info("remote: waiting for a client on port {}", port);
-
-    int client = accept(listen_fd, nullptr, nullptr);
-    if (client < 0) { spdlog::error("remote: accept failed"); close(listen_fd); return; }
-    int one = 1;
-    setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)); // low latency
-    spdlog::info("remote: client connected");
+    // Wait for a single client to connect over the selected transport. The transport carries
+    // the video channel (Hello + frames) and surfaces the client's control messages; the loop
+    // below is identical regardless of whether it's TCP or QUIC underneath.
+    std::unique_ptr<remote::Transport> transport =
+        (kind == remote::TransportKind::Quic)? remote::listenQuic(port) : remote::listenTcp(port);
+    if (!transport) { return; }
 
     // Greet the client with the stream geometry.
     remote::Hello hello{
@@ -227,61 +172,41 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         .format = static_cast<uint32_t>(remote::PixelFormat::BGRA8),
         .codec  = static_cast<uint32_t>(codec),
     };
-    if (!sendAll(client, &hello, sizeof(hello)))
-    {
-        close(client); close(listen_fd); return;
-    }
-
-    // Control events are received on a background thread and applied on the render thread,
-    // so the camera is only ever touched by one thread.
-    std::atomic<bool> connected{true};
-    std::mutex queue_mutex;
-    std::deque<remote::ControlMsg> events;
-    std::thread receiver([&]
-    {
-        remote::ControlMsg msg{};
-        while (connected.load())
-        {
-            if (!recvAll(client, &msg, sizeof(msg))) { connected.store(false); break; }
-            if (static_cast<remote::ControlKind>(msg.kind) == remote::ControlKind::Quit)
-            {
-                connected.store(false); break;
-            }
-            std::lock_guard<std::mutex> lock(queue_mutex);
-            events.push_back(msg);
-        }
-    });
+    if (!transport->sendVideo(&hello, sizeof(hello))) { return; }
 
     bool paused = false;
+    bool running = true;
     size_t iter = 0;
     std::vector<unsigned char> frame;
+    std::vector<remote::ControlMsg> events;
 #ifdef MIMIR_HAVE_FFMPEG
     std::vector<unsigned char> encoded;
 #endif
-    while (connected.load() && (max_iters == 0 || iter < max_iters))
+    while (running && (max_iters == 0 || iter < max_iters))
     {
-        // Drain pending control events and apply them to camera / pause state.
+        // Drain pending control events and apply them to camera / pause state. The transport's
+        // receiver runs on its own thread; pollControl returns false once the client is gone.
+        events.clear();
+        if (!transport->pollControl(events)) { break; }
+        const auto speed = camera.rotation_speed;
+        for (const auto& ev : events)
         {
-            std::lock_guard<std::mutex> lock(queue_mutex);
-            while (!events.empty())
+            switch (static_cast<remote::ControlKind>(ev.kind))
             {
-                auto ev = events.front();
-                events.pop_front();
-                auto speed = camera.rotation_speed;
-                switch (static_cast<remote::ControlKind>(ev.kind))
-                {
-                    case remote::ControlKind::CameraRotate:
-                        camera.rotate(glm::vec3(ev.b * speed, -ev.a * speed, 0.f)); break;
-                    case remote::ControlKind::CameraZoom:
-                        camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f)); break;
-                    case remote::ControlKind::CameraPan:
-                        camera.translate(glm::vec3(-ev.a * 0.01f, -ev.b * 0.01f, 0.f)); break;
-                    case remote::ControlKind::TogglePause:
-                        paused = !paused; break;
-                    default: break;
-                }
+                case remote::ControlKind::CameraRotate:
+                    camera.rotate(glm::vec3(ev.b * speed, -ev.a * speed, 0.f)); break;
+                case remote::ControlKind::CameraZoom:
+                    camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f)); break;
+                case remote::ControlKind::CameraPan:
+                    camera.translate(glm::vec3(-ev.a * 0.01f, -ev.b * 0.01f, 0.f)); break;
+                case remote::ControlKind::TogglePause:
+                    paused = !paused; break;
+                case remote::ControlKind::Quit:
+                    running = false; break;
+                default: break;
             }
         }
+        if (!running) { break; }
 
         if (!paused) { compute(); iter++; }
         renderFrame();
@@ -297,7 +222,6 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             if (!encoder.encode(frame.data(), encoded))
             {
                 spdlog::error("remote: H.264 encode failed");
-                connected.store(false);
                 break;
             }
             // An access unit may be empty while the encoder buffers; skip sending in that case.
@@ -307,19 +231,13 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         }
 #endif
         remote::FrameHeader header{ .size = static_cast<uint32_t>(payload_size) };
-        if (!sendAll(client, &header, sizeof(header)) ||
-            !sendAll(client, payload, payload_size))
+        if (!transport->sendVideo(&header, sizeof(header)) ||
+            !transport->sendVideo(payload, payload_size))
         {
-            connected.store(false);
             break;
         }
     }
 
-    connected.store(false);
-    shutdown(client, SHUT_RDWR);
-    close(client);
-    close(listen_fd);
-    if (receiver.joinable()) { receiver.join(); }
     spdlog::info("remote: client session ended after {} frames", iter);
 }
 

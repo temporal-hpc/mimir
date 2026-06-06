@@ -8,6 +8,7 @@
 #include <vector> // std::vector
 
 #include <mimir/options.hpp>
+#include <mimir/remote_protocol.hpp>
 #include <mimir/view.hpp>
 
 #include "api.hpp"
@@ -155,7 +156,8 @@ struct MimirInstance
     // control events it sends back (camera, pause). Renders headless; blocks until the
     // client disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited).
     void serveRemote(uint16_t port, std::function<void(void)> compute, size_t max_iters,
-        bool use_h264 = false);
+        bool use_h264 = false,
+        remote::TransportKind kind = remote::TransportKind::Tcp);
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 
