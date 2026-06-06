@@ -89,6 +89,14 @@ struct MimirInstance
     // Index of the most recently rendered image (used to read back headless frames).
     uint32_t last_image_idx;
 
+    // Persistent device-local buffer (BGRA, packed) exported to CUDA, used by mapFrameToCuda()
+    // for zero-copy NVENC: the rendered image is copied here GPU->GPU and handed to the encoder
+    // as a CUDA device pointer, so pixels never touch host memory. Created lazily.
+    VkBuffer            frame_cuda_buf_    = VK_NULL_HANDLE;
+    VkDeviceMemory      frame_cuda_mem_    = VK_NULL_HANDLE;
+    cudaExternalMemory_t frame_cuda_extmem_ = nullptr;
+    void               *frame_cuda_ptr_    = nullptr;
+
     // Synchronization structures
     std::array<SyncData, MAX_FRAMES_IN_FLIGHT> sync_data;
     interop::Barrier interop;
@@ -150,6 +158,10 @@ struct MimirInstance
     void renderHeadless(std::function<void(void)> func, size_t iter_count);
     // Copies the most recently rendered offscreen frame into out (B8G8R8A8 bytes).
     void readFrameBytes(std::vector<unsigned char>& out);
+    // Copies the most recently rendered offscreen frame into a persistent CUDA-mapped device
+    // buffer (BGRA, packed, stride = width*4) entirely on the GPU and returns its CUDA device
+    // pointer (nullptr on failure). For zero-copy NVENC; the buffer is created on first use.
+    void *mapFrameToCuda();
     // Writes the most recently rendered offscreen frame to a binary PPM (P6) file.
     void saveFrameToPpm(const char *path);
     // Streams rendered frames over TCP to a single connected client and applies the

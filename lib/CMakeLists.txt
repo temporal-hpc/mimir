@@ -66,7 +66,9 @@ if(MIMIR_ENABLE_REMOTE)
     )
     if(FFMPEG_FOUND)
         target_compile_definitions(mimir PRIVATE MIMIR_HAVE_FFMPEG)
-        target_link_libraries(mimir PRIVATE PkgConfig::FFMPEG)
+        # CUDA::cuda_driver provides cuCtxGetCurrent for the zero-copy NVENC path (sharing
+        # mimir's CUDA context with ffmpeg's hardware frames).
+        target_link_libraries(mimir PRIVATE PkgConfig::FFMPEG CUDA::cuda_driver)
         message(STATUS "mimir: H.264 remote streaming enabled (ffmpeg ${FFMPEG_libavcodec_VERSION})")
     else()
         message(WARNING "mimir: MIMIR_ENABLE_REMOTE set but ffmpeg not found; raw streaming only")

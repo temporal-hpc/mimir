@@ -11,6 +11,8 @@
 #include <curand_kernel.h>
 #include <string> // std::stoul
 
+#include <spdlog/spdlog.h>
+
 #include <mimir/mimir.hpp>
 #include "validation.hpp" // checkCuda
 using namespace mimir;
@@ -82,6 +84,9 @@ int main(int argc, char *argv[])
     options.light_pos = { 0.f, 0.f, 10.f };
     InstanceHandle instance = nullptr;
     createInstance(options, &instance);
+    // createInstance silences logging in release builds; re-enable info so the server reports
+    // what the transport and encoder are doing (waiting/connected, codec, zero-copy, etc.).
+    spdlog::set_level(spdlog::level::info);
 
     float *d_coords       = nullptr;
     curandState *d_states = nullptr;

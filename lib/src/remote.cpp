@@ -16,8 +16,12 @@
 #include <vector>
 
 #ifdef MIMIR_HAVE_FFMPEG
+#include <cuda.h>         // cuCtxGetCurrent: share mimir's CUDA context with ffmpeg
+#include <cuda_runtime.h> // cudaMemcpy2D for the zero-copy NVENC path
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_cuda.h>
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
@@ -30,38 +34,49 @@ namespace
 {
 
 #ifdef MIMIR_HAVE_FFMPEG
-// Minimal H.264 encoder: BGRA -> YUV420P (libswscale) -> H.264 access units (libavcodec).
-// Prefers the hardware h264_nvenc encoder, falling back to software libx264.
+// H.264 encoder with two input paths:
+//   - zero-copy (preferred, h264_nvenc only): the rendered frame stays on the GPU. The caller
+//     supplies a CUDA device pointer to the BGRA pixels (from mapFrameToCuda); we copy them
+//     device->device into an AV_PIX_FMT_CUDA frame and NVENC does BGRA->NV12 + encode on-GPU.
+//     No pixel data ever touches host memory.
+//   - host fallback (libx264, or if CUDA setup fails): BGRA host bytes -> YUV420P via libswscale.
+// The encoder picks h264_nvenc, falling back to libx264.
 struct H264Encoder
 {
     AVCodecContext *ctx = nullptr;
-    SwsContext     *sws = nullptr;
-    AVFrame        *frame = nullptr;
+    SwsContext     *sws = nullptr;       // host path only
+    AVFrame        *frame = nullptr;     // host path: the YUV420P frame
     AVPacket       *packet = nullptr;
+    AVBufferRef    *hw_device = nullptr; // zero-copy path
+    AVBufferRef    *hw_frames = nullptr; // zero-copy path
     int width = 0, height = 0;
     int64_t pts = 0;
+    bool zero_copy = false;
 
     bool init(int w, int h, int fps, int bitrate_kbps)
     {
         width = w; height = h;
         const AVCodec *codec = avcodec_find_encoder_by_name("h264_nvenc");
         const char *name = "h264_nvenc";
-        if (!codec) { codec = avcodec_find_encoder_by_name("libx264"); name = "libx264"; }
-        if (!codec) { codec = avcodec_find_encoder(AV_CODEC_ID_H264); name = "h264"; }
+        bool is_nvenc = true;
+        if (!codec) { codec = avcodec_find_encoder_by_name("libx264"); name = "libx264"; is_nvenc = false; }
+        if (!codec) { codec = avcodec_find_encoder(AV_CODEC_ID_H264); name = "h264"; is_nvenc = false; }
         if (!codec) { spdlog::error("remote: no H.264 encoder available"); return false; }
+
+        // For NVENC, try to set up a CUDA hardware frames pool so we can feed on-GPU BGRA frames.
+        if (is_nvenc) { zero_copy = initCudaFrames(w, h); }
 
         ctx = avcodec_alloc_context3(codec);
         ctx->width       = w;
         ctx->height      = h;
         ctx->time_base   = AVRational{1, fps};
         ctx->framerate   = AVRational{fps, 1};
-        ctx->pix_fmt     = AV_PIX_FMT_YUV420P;
+        ctx->pix_fmt     = zero_copy ? AV_PIX_FMT_CUDA : AV_PIX_FMT_YUV420P;
         ctx->bit_rate    = static_cast<int64_t>(bitrate_kbps) * 1000;
         ctx->gop_size    = fps * 2;
         ctx->max_b_frames = 0;
-        // Low-latency options differ per encoder; set the ones each understands (the others
-        // would just log a warning). Interactive streaming wants no frame buffering.
-        const bool is_nvenc = std::strcmp(name, "h264_nvenc") == 0;
+        if (zero_copy) { ctx->hw_frames_ctx = av_buffer_ref(hw_frames); }
+        // Low-latency options differ per encoder; set the ones each understands.
         if (is_nvenc)
         {
             av_opt_set(ctx->priv_data, "tune", "ll", 0);       // nvenc: low latency
@@ -79,30 +94,60 @@ struct H264Encoder
             spdlog::error("remote: failed to open H.264 encoder");
             return false;
         }
-        frame = av_frame_alloc();
-        frame->format = ctx->pix_fmt;
-        frame->width  = w;
-        frame->height = h;
-        av_frame_get_buffer(frame, 0);
         packet = av_packet_alloc();
-        sws = sws_getContext(w, h, AV_PIX_FMT_BGRA, w, h, AV_PIX_FMT_YUV420P,
-            SWS_BILINEAR, nullptr, nullptr, nullptr
-        );
-        bool ok = sws && frame && packet;
-        if (ok) { spdlog::info("remote: H.264 encoder '{}' {}x{} @ {} kbps", name, w, h, bitrate_kbps); }
-        return ok;
+        if (!zero_copy)
+        {
+            // Host path: YUV420P frame fed by libswscale.
+            frame = av_frame_alloc();
+            frame->format = ctx->pix_fmt;
+            frame->width  = w;
+            frame->height = h;
+            av_frame_get_buffer(frame, 0);
+            sws = sws_getContext(w, h, AV_PIX_FMT_BGRA, w, h, AV_PIX_FMT_YUV420P,
+                SWS_BILINEAR, nullptr, nullptr, nullptr);
+            if (!sws || !frame) { return false; }
+        }
+        spdlog::info("remote: H.264 encoder '{}' {}x{} @ {} kbps ({})",
+            name, w, h, bitrate_kbps, zero_copy ? "zero-copy CUDA/NVENC" : "host readback");
+        return packet != nullptr;
     }
 
-    // Encodes one BGRA frame; appends the resulting H.264 access unit bytes to out.
-    bool encode(const unsigned char *bgra, std::vector<unsigned char>& out)
+    // Sets up a CUDA hwdevice + a BGRA frames pool, so NVENC can take on-GPU frames. Shares
+    // mimir's already-current CUDA context (rather than letting ffmpeg create/retain the primary
+    // context, which clashes with the flags mimir initialized it with). Returns false on any
+    // failure, in which case the caller falls back to the host readback path.
+    bool initCudaFrames(int w, int h)
     {
-        out.clear();
-        if (av_frame_make_writable(frame) < 0) { return false; }
-        const uint8_t *src[4] = { bgra, nullptr, nullptr, nullptr };
-        int stride[4] = { width * 4, 0, 0, 0 };
-        sws_scale(sws, src, stride, 0, height, frame->data, frame->linesize);
-        frame->pts = pts++;
-        if (avcodec_send_frame(ctx, frame) < 0) { return false; }
+        CUcontext cur = nullptr;
+        if (cuCtxGetCurrent(&cur) != CUDA_SUCCESS || cur == nullptr) { return false; }
+        hw_device = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_CUDA);
+        if (!hw_device) { return false; }
+        auto *dctx = reinterpret_cast<AVHWDeviceContext*>(hw_device->data);
+        auto *cudactx = reinterpret_cast<AVCUDADeviceContext*>(dctx->hwctx);
+        cudactx->cuda_ctx = cur;
+        if (av_hwdevice_ctx_init(hw_device) < 0)
+        {
+            av_buffer_unref(&hw_device);
+            return false;
+        }
+        hw_frames = av_hwframe_ctx_alloc(hw_device);
+        if (!hw_frames) { return false; }
+        auto *fctx = reinterpret_cast<AVHWFramesContext*>(hw_frames->data);
+        fctx->format    = AV_PIX_FMT_CUDA;
+        fctx->sw_format = AV_PIX_FMT_BGRA;   // NVENC converts BGRA->NV12 internally on-GPU
+        fctx->width     = w;
+        fctx->height    = h;
+        if (av_hwframe_ctx_init(hw_frames) < 0)
+        {
+            av_buffer_unref(&hw_frames);
+            return false;
+        }
+        return true;
+    }
+
+    // Drains encoded packets into out. Returns false on a fatal encoder error.
+    bool drain(std::vector<unsigned char>& out)
+    {
         for (;;)
         {
             int r = avcodec_receive_packet(ctx, packet);
@@ -114,12 +159,52 @@ struct H264Encoder
         return true;
     }
 
+    // Host path: encodes one BGRA host frame.
+    bool encode(const unsigned char *bgra, std::vector<unsigned char>& out)
+    {
+        out.clear();
+        if (av_frame_make_writable(frame) < 0) { return false; }
+        const uint8_t *src[4] = { bgra, nullptr, nullptr, nullptr };
+        int stride[4] = { width * 4, 0, 0, 0 };
+        sws_scale(sws, src, stride, 0, height, frame->data, frame->linesize);
+        frame->pts = pts++;
+        if (avcodec_send_frame(ctx, frame) < 0) { return false; }
+        return drain(out);
+    }
+
+    // Zero-copy path: encodes one BGRA frame already in CUDA device memory (packed, stride=w*4).
+    bool encodeCuda(const void *bgra_dev, std::vector<unsigned char>& out)
+    {
+        out.clear();
+        AVFrame *hwf = av_frame_alloc();
+        if (!hwf) { return false; }
+        if (av_hwframe_get_buffer(hw_frames, hwf, 0) < 0) { av_frame_free(&hwf); return false; }
+        // Device-to-device copy from the Vulkan-exported BGRA buffer into the NVENC input frame.
+        cudaError_t cerr = cudaMemcpy2D(hwf->data[0], static_cast<size_t>(hwf->linesize[0]),
+            bgra_dev, static_cast<size_t>(width) * 4,
+            static_cast<size_t>(width) * 4, static_cast<size_t>(height),
+            cudaMemcpyDeviceToDevice);
+        if (cerr != cudaSuccess)
+        {
+            spdlog::error("remote: cudaMemcpy2D into NVENC frame failed: {}", cudaGetErrorString(cerr));
+            av_frame_free(&hwf);
+            return false;
+        }
+        hwf->pts = pts++;
+        int r = avcodec_send_frame(ctx, hwf);
+        av_frame_free(&hwf);
+        if (r < 0) { return false; }
+        return drain(out);
+    }
+
     ~H264Encoder()
     {
-        if (sws)    { sws_freeContext(sws); }
-        if (frame)  { av_frame_free(&frame); }
-        if (packet) { av_packet_free(&packet); }
-        if (ctx)    { avcodec_free_context(&ctx); }
+        if (sws)       { sws_freeContext(sws); }
+        if (frame)     { av_frame_free(&frame); }
+        if (packet)    { av_packet_free(&packet); }
+        if (ctx)       { avcodec_free_context(&ctx); }
+        if (hw_frames) { av_buffer_unref(&hw_frames); }
+        if (hw_device) { av_buffer_unref(&hw_device); }
     }
 };
 #endif // MIMIR_HAVE_FFMPEG
@@ -212,24 +297,48 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         renderFrame();
         vkDeviceWaitIdle(device); // ensure the frame is finished before readback
 
-        readFrameBytes(frame);
+        const unsigned char *payload = nullptr;
+        size_t payload_size = 0;
+        bool produced = false;
 
-        const unsigned char *payload = frame.data();
-        size_t payload_size = frame.size();
 #ifdef MIMIR_HAVE_FFMPEG
-        if (codec == remote::Codec::H264)
+        // Zero-copy H.264: encode straight from the on-GPU frame, no host readback.
+        if (codec == remote::Codec::H264 && encoder.zero_copy)
         {
-            if (!encoder.encode(frame.data(), encoded))
+            void *cuda_bgra = mapFrameToCuda();
+            if (!cuda_bgra || !encoder.encodeCuda(cuda_bgra, encoded))
             {
-                spdlog::error("remote: H.264 encode failed");
+                spdlog::error("remote: H.264 zero-copy encode failed");
                 break;
             }
             // An access unit may be empty while the encoder buffers; skip sending in that case.
             if (encoded.empty()) { continue; }
             payload = encoded.data();
             payload_size = encoded.size();
+            produced = true;
         }
 #endif
+        // Host path: read the frame back, then either send raw or H.264-encode on the CPU.
+        if (!produced)
+        {
+            readFrameBytes(frame);
+            payload = frame.data();
+            payload_size = frame.size();
+#ifdef MIMIR_HAVE_FFMPEG
+            if (codec == remote::Codec::H264)
+            {
+                if (!encoder.encode(frame.data(), encoded))
+                {
+                    spdlog::error("remote: H.264 encode failed");
+                    break;
+                }
+                if (encoded.empty()) { continue; }
+                payload = encoded.data();
+                payload_size = encoded.size();
+            }
+#endif
+        }
+
         remote::FrameHeader header{ .size = static_cast<uint32_t>(payload_size) };
         if (!transport->sendVideo(&header, sizeof(header)) ||
             !transport->sendVideo(payload, payload_size))

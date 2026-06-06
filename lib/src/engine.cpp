@@ -147,6 +147,20 @@ void MimirInstance::deinit()
     }
 
     vkDeviceWaitIdle(device);
+
+    // Release the zero-copy NVENC frame buffer (CUDA mapping first, then Vulkan memory).
+    if (frame_cuda_extmem_ != nullptr)
+    {
+        validation::checkCuda(cudaDestroyExternalMemory(frame_cuda_extmem_));
+        frame_cuda_extmem_ = nullptr;
+    }
+    if (frame_cuda_buf_ != VK_NULL_HANDLE)
+    {
+        vkDestroyBuffer(device, frame_cuda_buf_, nullptr);
+        vkFreeMemory(device, frame_cuda_mem_, nullptr);
+        frame_cuda_buf_ = VK_NULL_HANDLE;
+    }
+
     cleanupGraphics();
     if (!isHeadless())
     {
@@ -317,6 +331,63 @@ void MimirInstance::readFrameBytes(std::vector<unsigned char>& out)
     vkUnmapMemory(device, memory);
     vkDestroyBuffer(device, staging, nullptr);
     vkFreeMemory(device, memory, nullptr);
+}
+
+void *MimirInstance::mapFrameToCuda()
+{
+    auto width  = swapchain.extent.width;
+    auto height = swapchain.extent.height;
+    VkDeviceSize memsize = static_cast<VkDeviceSize>(width) * height * 4;
+
+    // Lazily create a device-local buffer backed by CUDA-importable memory (same OPAQUE_FD
+    // export mechanism as allocLinear), then keep reusing it across frames.
+    if (frame_cuda_buf_ == VK_NULL_HANDLE)
+    {
+        VkExternalMemoryBufferCreateInfo extmem_info{
+            .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+            .pNext       = nullptr,
+            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+        };
+        frame_cuda_buf_ = createBuffer(device, memsize,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT, &extmem_info);
+        VkMemoryRequirements memreq{};
+        vkGetBufferMemoryRequirements(device, frame_cuda_buf_, &memreq);
+
+        VkExportMemoryAllocateInfoKHR export_info{
+            .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+            .pNext       = nullptr,
+            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+        };
+        auto available = physical_device.memory.memoryProperties;
+        frame_cuda_mem_ = allocateMemory(device, available, memreq,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &export_info);
+        validation::checkVulkan(vkBindBufferMemory(device, frame_cuda_buf_, frame_cuda_mem_, 0));
+
+        frame_cuda_extmem_ = interop::importCudaExternalMemory(frame_cuda_mem_, memreq.size, device);
+        cudaExternalMemoryBufferDesc buffer_desc{
+            .offset = 0, .size = memsize, .flags = 0, .reserved = {},
+        };
+        validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+            &frame_cuda_ptr_, frame_cuda_extmem_, &buffer_desc));
+    }
+
+    // Copy the rendered image (already in TRANSFER_SRC layout) into the CUDA-mapped buffer. This
+    // is a GPU->GPU copy; immediateSubmit blocks until it completes, so CUDA can read it after.
+    VkImage src = offscreen_images[last_image_idx];
+    immediateSubmit([=, this](VkCommandBuffer cmd)
+    {
+        VkBufferImageCopy region{
+            .bufferOffset      = 0,
+            .bufferRowLength   = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+            .imageOffset       = { 0, 0, 0 },
+            .imageExtent       = { width, height, 1 },
+        };
+        vkCmdCopyImageToBuffer(cmd, src,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frame_cuda_buf_, 1, &region);
+    });
+    return frame_cuda_ptr_;
 }
 
 void MimirInstance::saveFrameToPpm(const char *path)
