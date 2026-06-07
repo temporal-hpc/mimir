@@ -207,6 +207,7 @@ void on_frame(QuicClient *c, const uint8_t *payload, size_t len)
 
     if (c->received == 3)  { printf("pausing simulation\n"); send_ctrl(c, ControlKind::TogglePause); }
     if (c->received == 7)  { printf("sending camera rotate\n"); send_ctrl(c, ControlKind::CameraRotate, 150.f, 40.f); }
+    if (c->received == 9)  { printf("requesting resize to 960x540\n"); send_ctrl(c, ControlKind::Resize, 960.f, 540.f); }
 
     int w = static_cast<int>(c->hello.width), h = static_cast<int>(c->hello.height);
 
@@ -251,7 +252,8 @@ void on_frame(QuicClient *c, const uint8_t *payload, size_t len)
     }
 }
 
-// Handles one video-channel message (stats telemetry or a frame), shared by both transports.
+// Handles one video-channel message (telemetry, a geometry update, or a frame), shared by both
+// transports.
 void handle_message(QuicClient *c, uint32_t flags, const uint8_t *payload, size_t len)
 {
     if (flags & FRAME_STATS)
@@ -260,6 +262,20 @@ void handle_message(QuicClient *c, uint32_t flags, const uint8_t *payload, size_
         if (len >= sizeof(st)) { std::memcpy(&st, payload, sizeof(st)); }
         printf("[stats] %.1f fps, %u kbps, encode %.2f ms\n",
             st.fps_milli / 1000.0, st.kbps, st.encode_us / 1000.0);
+        return;
+    }
+    if (flags & FRAME_HELLO)
+    {
+        // Stream geometry changed (e.g. server resized): adopt the new dimensions and rebuild the
+        // decode buffers. The H.264 decoder adapts to the new SPS in the next IDR; the BGRA
+        // conversion context is rebuilt lazily from the decoded frame's dimensions.
+        if (len >= sizeof(Hello)) { std::memcpy(&c->hello, payload, sizeof(Hello)); }
+        int w = static_cast<int>(c->hello.width), h = static_cast<int>(c->hello.height);
+        c->bgra.assign(static_cast<size_t>(w) * h * 4, 0);
+        if (c->sws) { sws_freeContext(c->sws); c->sws = nullptr; }
+        // Flush decoder state so it cleanly re-syncs to the new resolution on the next IDR.
+        if (c->avctx) { avcodec_flush_buffers(c->avctx); }
+        printf("server resized stream to %dx%d\n", w, h);
         return;
     }
     on_frame(c, payload, len);
@@ -608,6 +624,7 @@ bool run_quic(QuicClient *c, const char *host, const char *port, const std::stri
 
 int main(int argc, char *argv[])
 {
+    setvbuf(stdout, nullptr, _IOLBF, 0); // line-buffered so progress is visible even if killed
     const char *host  = (argc >= 2) ? argv[1] : "127.0.0.1";
     const char *port  = (argc >= 3) ? argv[2] : "9000";
     const char *token = (argc >= 4) ? argv[3] : "";

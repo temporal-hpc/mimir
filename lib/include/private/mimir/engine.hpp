@@ -103,6 +103,10 @@ struct MimirInstance
     interop::Barrier interop;
 
     uint64_t render_timeline;
+    // render_timeline value when the graphics (and its metrics query pool) were last (re)built.
+    // Metrics results are only read once enough frames have accumulated since then, so a freshly
+    // rebuilt (empty) query pool isn't read with WAIT and blocked on after a resize.
+    uint64_t graphics_epoch = 0;
     bool running;
     bool compute_active;
     std::thread rendering_thread;
@@ -163,6 +167,9 @@ struct MimirInstance
     // buffer (BGRA, packed, stride = width*4) entirely on the GPU and returns its CUDA device
     // pointer (nullptr on failure). For zero-copy NVENC; the buffer is created on first use.
     void *mapFrameToCuda();
+    // Releases the zero-copy frame buffer so the next mapFrameToCuda() rebuilds it (e.g. after a
+    // resolution change).
+    void freeFrameCudaBuffer();
     // Writes the most recently rendered offscreen frame to a binary PPM (P6) file.
     void saveFrameToPpm(const char *path);
     // Streams rendered frames over TCP to a single connected client and applies the

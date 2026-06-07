@@ -48,6 +48,7 @@ enum FrameFlags : uint32_t
 {
     FRAME_KEYFRAME = 1u << 0, // the access unit is an IDR/keyframe (safe decode start point)
     FRAME_STATS    = 1u << 1, // payload is a Stats struct, not video (server->client telemetry)
+    FRAME_HELLO    = 1u << 2, // payload is a new Hello: stream geometry changed (e.g. resize)
 };
 
 #pragma pack(push, 1)

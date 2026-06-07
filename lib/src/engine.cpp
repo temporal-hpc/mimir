@@ -147,20 +147,7 @@ void MimirInstance::deinit()
     }
 
     vkDeviceWaitIdle(device);
-
-    // Release the zero-copy NVENC frame buffer (CUDA mapping first, then Vulkan memory).
-    if (frame_cuda_extmem_ != nullptr)
-    {
-        validation::checkCuda(cudaDestroyExternalMemory(frame_cuda_extmem_));
-        frame_cuda_extmem_ = nullptr;
-    }
-    if (frame_cuda_buf_ != VK_NULL_HANDLE)
-    {
-        vkDestroyBuffer(device, frame_cuda_buf_, nullptr);
-        vkFreeMemory(device, frame_cuda_mem_, nullptr);
-        frame_cuda_buf_ = VK_NULL_HANDLE;
-    }
-
+    freeFrameCudaBuffer();
     cleanupGraphics();
     if (!isHeadless())
     {
@@ -331,6 +318,24 @@ void MimirInstance::readFrameBytes(std::vector<unsigned char>& out)
     vkUnmapMemory(device, memory);
     vkDestroyBuffer(device, staging, nullptr);
     vkFreeMemory(device, memory, nullptr);
+}
+
+void MimirInstance::freeFrameCudaBuffer()
+{
+    // Release the zero-copy NVENC frame buffer (CUDA mapping first, then Vulkan memory). Safe to
+    // call when nothing was allocated; mapFrameToCuda() lazily recreates it at the current size.
+    if (frame_cuda_extmem_ != nullptr)
+    {
+        validation::checkCuda(cudaDestroyExternalMemory(frame_cuda_extmem_));
+        frame_cuda_extmem_ = nullptr;
+    }
+    if (frame_cuda_buf_ != VK_NULL_HANDLE)
+    {
+        vkDestroyBuffer(device, frame_cuda_buf_, nullptr);
+        vkFreeMemory(device, frame_cuda_mem_, nullptr);
+        frame_cuda_buf_ = VK_NULL_HANDLE;
+    }
+    frame_cuda_ptr_ = nullptr;
 }
 
 void *MimirInstance::mapFrameToCuda()
@@ -1120,6 +1125,10 @@ void MimirInstance::cleanupGraphics()
 
 void MimirInstance::initGraphics()
 {
+    // Mark a fresh metrics epoch: the query pool below starts empty, so renderFrame() must let a
+    // few frames accumulate before reading results with WAIT (otherwise it blocks after a resize).
+    graphics_epoch = render_timeline;
+
     // Determine render target size. Headless instances have no window to query,
     // so the configured window size is used as the offscreen target extent.
     int width, height;
@@ -1470,7 +1479,7 @@ void MimirInstance::renderFrame()
     // }
     // images_inflight[image_idx] = frame.render_fence;
 
-    if (render_timeline > MAX_FRAMES_IN_FLIGHT)
+    if (render_timeline - graphics_epoch > MAX_FRAMES_IN_FLIGHT)
     {
         graphics_monitor.getRenderTimeResults(device, frame_idx);
     }

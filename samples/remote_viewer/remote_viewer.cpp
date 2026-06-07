@@ -164,7 +164,7 @@ int main(int argc, char *argv[])
             if (!recvAll(g_fd, &header, sizeof(header))) { break; }
             buf.resize(header.size);
             if (!recvAll(g_fd, buf.data(), header.size)) { break; }
-            if (header.flags & FRAME_STATS) { continue; } // telemetry, not a frame
+            if (header.flags & (FRAME_STATS | FRAME_HELLO)) { continue; } // not a frame
             std::lock_guard<std::mutex> lock(frame_mutex);
             latest.swap(buf);
         }

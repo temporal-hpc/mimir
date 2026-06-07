@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
         if (!recvAll(fd, &header, sizeof(header))) { break; }
         frame.resize(header.size);
         if (!recvAll(fd, frame.data(), header.size)) { break; }
-        if (header.flags & FRAME_STATS) { continue; } // server telemetry, not a frame
+        if (header.flags & (FRAME_STATS | FRAME_HELLO)) { continue; } // not a frame
         count++;
 
         // Scripted interaction to verify the control round-trip:

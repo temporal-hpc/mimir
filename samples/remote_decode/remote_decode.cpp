@@ -168,6 +168,7 @@ int main(int argc, char *argv[])
                 st.fps_milli / 1000.0, st.kbps, st.encode_us / 1000.0);
             continue;
         }
+        if (header.flags & FRAME_HELLO) { continue; } // geometry change (this client is fixed-size)
         received++;
         total_encoded += header.size;
 

@@ -208,15 +208,28 @@ struct H264Encoder
         return drain(out);
     }
 
-    ~H264Encoder()
+    // Frees all ffmpeg state and resets to a fresh (re-initializable) condition.
+    void teardown()
     {
-        if (sws)       { sws_freeContext(sws); }
-        if (frame)     { av_frame_free(&frame); }
-        if (packet)    { av_packet_free(&packet); }
-        if (ctx)       { avcodec_free_context(&ctx); }
-        if (hw_frames) { av_buffer_unref(&hw_frames); }
-        if (hw_device) { av_buffer_unref(&hw_device); }
+        if (sws)       { sws_freeContext(sws); sws = nullptr; }
+        if (frame)     { av_frame_free(&frame); }       // nulls frame
+        if (packet)    { av_packet_free(&packet); }     // nulls packet
+        if (ctx)       { avcodec_free_context(&ctx); }  // nulls ctx
+        if (hw_frames) { av_buffer_unref(&hw_frames); } // nulls hw_frames
+        if (hw_device) { av_buffer_unref(&hw_device); } // nulls hw_device
+        zero_copy = false;
+        last_keyframe = false;
+        pts = 0;
     }
+
+    // Rebuilds the encoder for a new resolution (used on resize). Returns false on failure.
+    bool reinit(int w, int h, int fps, int bitrate_kbps)
+    {
+        teardown();
+        return init(w, h, fps, bitrate_kbps);
+    }
+
+    ~H264Encoder() { teardown(); }
 };
 #endif // MIMIR_HAVE_FFMPEG
 
@@ -240,8 +253,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                                                  : remote::listenTcp(port, token);
         if (!transport) { break; }
 
-        const uint32_t width  = swapchain.extent.width;
-        const uint32_t height = swapchain.extent.height;
+        uint32_t width  = swapchain.extent.width;
+        uint32_t height = swapchain.extent.height;
 
         // Decide the codec for this session. H.264 needs ffmpeg; otherwise stream raw.
         remote::Codec codec = remote::Codec::RawBGRA;
@@ -294,6 +307,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             events.clear();
             if (!transport->pollControl(events)) { client_gone = true; break; }
             bool quit = false;
+            bool want_resize = false;
+            int resize_w = 0, resize_h = 0;
             const auto speed = camera.rotation_speed;
             for (const auto& ev : events)
             {
@@ -309,10 +324,54 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         paused = !paused; break;
                     case remote::ControlKind::Quit:
                         quit = true; break;
+                    case remote::ControlKind::Resize:
+                        want_resize = true;
+                        resize_w = static_cast<int>(ev.a);
+                        resize_h = static_cast<int>(ev.b);
+                        break;
                     default: break;
                 }
             }
             if (quit) { break; }
+
+            // Apply a requested resolution change: rebuild the offscreen targets and encoder, then
+            // re-announce the geometry to the client via a framed Hello (FRAME_HELLO).
+            if (want_resize)
+            {
+                int nw = std::clamp(resize_w, 16, 7680) & ~1; // H.264 needs even dimensions
+                int nh = std::clamp(resize_h, 16, 7680) & ~1;
+                if (static_cast<uint32_t>(nw) != width || static_cast<uint32_t>(nh) != height)
+                {
+                    vkDeviceWaitIdle(device);
+                    options.window.size = { nw, nh };
+                    freeFrameCudaBuffer();
+                    recreateGraphics();
+                    width  = swapchain.extent.width;
+                    height = swapchain.extent.height;
+                    bool ok = true;
+#ifdef MIMIR_HAVE_FFMPEG
+                    if (codec == remote::Codec::H264)
+                    {
+                        ok = encoder.reinit(static_cast<int>(width), static_cast<int>(height), 60, 8000);
+                    }
+#endif
+                    remote::Hello rehello{
+                        .magic  = remote::PROTOCOL_MAGIC,
+                        .width  = width,
+                        .height = height,
+                        .format = static_cast<uint32_t>(remote::PixelFormat::BGRA8),
+                        .codec  = static_cast<uint32_t>(codec),
+                    };
+                    remote::FrameHeader hh{ .size = static_cast<uint32_t>(sizeof(rehello)),
+                        .flags = remote::FRAME_HELLO };
+                    if (!ok || !transport->sendVideo(&hh, sizeof(hh))
+                            || !transport->sendVideo(&rehello, sizeof(rehello)))
+                    {
+                        client_gone = true; break;
+                    }
+                    spdlog::info("remote: resized stream to {}x{}", width, height);
+                }
+            }
 
             if (!paused) { compute(); ++total_iter; }
             renderFrame();
