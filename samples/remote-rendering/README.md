@@ -13,6 +13,11 @@ Two binaries, built from this directory:
   control back. Depends only on the wire protocol + ngtcp2 + OpenSSL + ffmpeg + GLFW/OpenGL — **no
   mimir, CUDA, or Vulkan**, so it runs on a GPU-less laptop.
 
+`rr-client` is **workload-agnostic** — it knows nothing about the point-cloud server, so the *same*
+client views any mimir server built with `serveRemote()`. The build also installs this exact program
+as a standalone tool, **`mimir-client`** (top-level `client/`), so you can `cmake --install` it and
+run `mimir-client <host> <port>` against your own server without rebuilding the samples.
+
 ## What it renders
 
 A **3D Brownian-motion point cloud**: `point_count` particles start at random positions in the unit

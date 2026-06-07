@@ -198,6 +198,20 @@ For a quick local test, run both on one machine with `127.0.0.1`. Through an SSH
 `./rr-client 127.0.0.1 9000 "" tcp`. Without the feature flags the server still builds and streams
 raw frames over TCP.
 
+### Reusable viewer: `mimir-client`
+
+The client is **workload-agnostic** — it depends only on the wire protocol, not on what the server
+renders. The build also produces a standalone **`mimir-client`** (same program as the sample's
+`rr-client`) that `cmake --install` places on your `PATH`. So to build your own remote app you only
+write the **server** (`RenderMode::Headless` + `serveRemote(...)`) — then view it with the existing
+client, no client code of your own:
+```sh
+cmake --install build --prefix ~/.local   # installs lib + mimir-client
+mimir-client <server-ip> 9000              # views ANY mimir serveRemote() server
+```
+It exposes the controls common to every mimir scene (orbit / zoom / pan / pause). (Disable with
+`-DMIMIR_BUILD_CLIENT=OFF`.)
+
 ## Current features
 
 * Visualization of structured and non-structured data:

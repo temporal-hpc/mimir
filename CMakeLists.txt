@@ -4,6 +4,7 @@ project(mimir VERSION 0.1 LANGUAGES CXX CUDA)
 option(MIMIR_ENABLE_ASAN "Enable address sanitizer (ASAN)" OFF)
 option(MIMIR_BUILD_SLANG "Build slang library from source" OFF)
 option(MIMIR_BUILD_SAMPLES "Build sample Mimir programs" ON)
+option(MIMIR_BUILD_CLIENT "Build the installable mimir-client remote viewer" ON)
 
 # TODO: Should handle this in multi-platform style
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -23,6 +24,9 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(deps) # cmake/deps.cmake
 
 add_subdirectory(lib)
+if(MIMIR_BUILD_CLIENT)
+    add_subdirectory(client)
+endif()
 if(MIMIR_BUILD_SAMPLES)
     add_subdirectory(samples)
 endif()
