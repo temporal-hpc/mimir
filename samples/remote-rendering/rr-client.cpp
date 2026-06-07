@@ -128,11 +128,28 @@ struct Decoder
 
     void init()
     {
-        codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-        ctx   = avcodec_alloc_context3(codec);
-        avcodec_open2(ctx, codec, nullptr);
+        // Prefer NVDEC (h264_cuvid) when this client has it and it opens (NVIDIA GPU + driver);
+        // otherwise use the portable software decoder. Both decode the same standard H.264 stream
+        // NVENC produces and output frames we convert to BGRA with libswscale.
+        codec = avcodec_find_decoder_by_name("h264_cuvid");
+        if (codec)
+        {
+            ctx = avcodec_alloc_context3(codec);
+            if (avcodec_open2(ctx, codec, nullptr) != 0)
+            {
+                avcodec_free_context(&ctx); // no usable NVDEC; fall back
+                codec = nullptr;
+            }
+        }
+        if (!codec)
+        {
+            codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+            ctx   = avcodec_alloc_context3(codec);
+            avcodec_open2(ctx, codec, nullptr);
+        }
         pkt   = av_packet_alloc();
         frame = av_frame_alloc();
+        printf("rr-client: H.264 decoder = %s\n", codec ? codec->name : "(none)");
     }
     void set_geometry(const Hello& hello)
     {
