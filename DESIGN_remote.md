@@ -376,6 +376,24 @@ interfaces so earlier, simpler implementations are drop-in-replaced.
    TCP-only server; a mid-stream resize 1280×720→960×540 yields correctly-sized frames with the
    session uninterrupted.
 
+### Samples (final layout)
+
+The per-transport bring-up clients (`run_remote_client/_viewer/_decode/_quic`) named in the steps
+above were consolidated into a single sample directory, `samples/remote-rendering/`, built by one
+CMakeLists into two binaries:
+- **`rr-server`** — the headless GPU renderer/streamer (links mimir). Args:
+  `rr-server [port] [w] [h] [points] [h264] [tcp|quic] [token]`.
+- **`rr-client`** — the thin viewer (wire protocol + ngtcp2 + OpenSSL + ffmpeg + GLFW/GL; no
+  mimir/CUDA/Vulkan). Args: `rr-client [host] [port] [token] [auto|quic|tcp] [frames]`. Default is
+  an interactive, freely-resizable window that **stretches** the frame to fit (it never requests a
+  server-side resolution change); `frames > 0` runs a headless test that saves `rr-client.ppm`.
+  Decodes H.264 in software (a standard bitstream — no client GPU needed; swap to `h264_cuvid` for
+  NVDEC).
+
+Server-side live resize (the `Resize` control + `recreateGraphics`/`FRAME_HELLO` path) remains in
+the engine as a **dormant capability**: no bundled client requests it, by design (a remote viewer
+stretches rather than renegotiating resolution), but it is wired and tested.
+
 ## 9. Open questions / risks
 
 - ~~QUIC-over-SSH-tunnel~~ **(resolved):** keep a TCP fallback transport behind the same

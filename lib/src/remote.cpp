@@ -335,7 +335,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             if (quit) { break; }
 
             // Apply a requested resolution change: rebuild the offscreen targets and encoder, then
-            // re-announce the geometry to the client via a framed Hello (FRAME_HELLO).
+            // re-announce the geometry to the client via a framed Hello (FRAME_HELLO). This is a
+            // dormant capability: the bundled rr-client never sends Resize (a remote viewer
+            // stretches the frame to its window instead of renegotiating resolution), but the
+            // server-side path is wired and tested for clients that do want it.
             if (want_resize)
             {
                 int nw = std::clamp(resize_w, 16, 7680) & ~1; // H.264 needs even dimensions

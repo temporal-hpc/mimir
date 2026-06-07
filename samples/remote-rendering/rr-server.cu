@@ -1,14 +1,14 @@
-// Remote rendering server sample (step 2).
+// Remote rendering server (rr-server).
 //
-// Renders a live 3D point cloud headless (no window) and streams the raw frames over TCP to a
-// connected client, applying the camera/pause control the client sends back. Pair with
-// run_remote_client.
+// Renders a live 3D point cloud headless (no window) on the GPU, encodes it (H.264 via NVENC when
+// available, else raw), and streams it to one connected rr-client at a time over TCP or QUIC,
+// applying the camera/pause control the client sends back. Serves successive clients (reconnect).
 //
-// Run from build/samples/:  ./run_remote_server [port] [width] [height] [point_count] [h264] [transport] [token]
-//   h264:      pass 1 to request H.264 encoding (needs a build with ffmpeg support)
-//   transport: "tcp" (default) or "quic" (needs a build with -DMIMIR_ENABLE_QUIC=ON)
-//   token:     optional shared secret the client must present (empty = accept any client)
-// Serves one client at a time and waits for the next after each disconnects (reconnect).
+// Run from build/samples/:
+//   ./rr-server [port] [width] [height] [point_count] [h264] [transport] [token]
+//     h264:      pass 1 to H.264-encode (needs a build with ffmpeg; -DMIMIR_ENABLE_REMOTE=ON)
+//     transport: "tcp" (default, works everywhere incl. ssh -L) or "quic" (-DMIMIR_ENABLE_QUIC=ON)
+//     token:     optional shared secret the client must present (empty = accept any client)
 
 #include <curand_kernel.h>
 #include <string> // std::stoul
@@ -119,13 +119,11 @@ int main(int argc, char *argv[])
     setCameraPosition(instance, {-.5f, -.5f, -3.f});
 
     const bool quic = (transport == remote::TransportKind::Quic);
-    printf("Serving frames on %s port %u (%dx%d, %u points, %s). Connect with %s.\n",
-        quic ? "UDP/QUIC" : "TCP", port, width, height, point_count,
-        use_h264 ? "H.264" : "raw",
-        quic ? "run_remote_quic" : "run_remote_client / run_remote_viewer / run_remote_decode");
+    printf("rr-server: %s port %u (%dx%d, %u points, %s). Connect with rr-client.\n",
+        quic ? "UDP/QUIC" : "TCP", port, width, height, point_count, use_h264 ? "H.264" : "raw");
 
-    // Blocks until the client disconnects or sends Quit. The lambda advances the simulation
-    // each (non-paused) frame over interop-mapped memory.
+    // Blocks serving clients. The lambda advances the simulation each (non-paused) frame over
+    // interop-mapped memory.
     serveRemote(instance, port, [&]{
         integrate<<<grid_size, block_size>>>(d_coords, point_count, d_states);
         checkCuda(cudaDeviceSynchronize());
