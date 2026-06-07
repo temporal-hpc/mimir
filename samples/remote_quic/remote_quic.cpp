@@ -1,13 +1,15 @@
-// QUIC remote rendering client sample (step 4): a thin native client over QUIC.
+// Auto-fallback remote rendering client sample (step 4/5): a thin native client that prefers
+// QUIC and falls back to TCP.
 //
-// Connects to run_remote_server (started with --transport quic) over QUIC, receives the video
-// stream (Hello + frames) on a server-opened unidirectional stream, decodes H.264 (or accepts
-// raw), and sends control events back on a client-opened unidirectional stream. To stay
-// verifiable without a display it scripts the same interaction as run_remote_decode (pause, then
-// rotate), saves a few PPMs, and reports the received vs. decoded byte counts. Depends only on
-// the wire-protocol header + ngtcp2 + OpenSSL + ffmpeg (no mimir/CUDA/Vulkan).
+// Connects to run_remote_server, sends the auth handshake, receives the video stream (Hello +
+// framed messages: frames or Stats telemetry), decodes H.264 (or accepts raw), and sends control
+// events back. In auto mode it tries QUIC first (UDP+TLS+congestion control) and, if QUIC never
+// comes up (UDP blocked, handshake timeout — e.g. an ssh -L tunnel), transparently falls back to
+// TCP. To stay verifiable without a display it scripts an interaction (pause, then rotate), saves
+// a few PPMs, and prints stats. Depends only on the wire-protocol header + ngtcp2 + OpenSSL +
+// ffmpeg (no mimir/CUDA/Vulkan).
 //
-// Run from build/samples/:  ./run_remote_quic [host] [port]
+// Run from build/samples/:  ./run_remote_quic [host] [port] [token] [auto|quic|tcp]
 
 #include <mimir/remote_protocol.hpp>
 using namespace mimir::remote;
@@ -83,6 +85,10 @@ struct QuicClient
     bool quit = false;
     int64_t control_stream = -1;
 
+    // When >= 0 the session is running over the TCP fallback instead of QUIC; control is sent
+    // directly on this socket and video is read from it.
+    int tcp_fd = -1;
+
     // Video assembly.
     std::vector<uint8_t> vbuf;
     bool got_hello = false;
@@ -141,12 +147,42 @@ int recv_stream_data_cb(ngtcp2_conn *conn, uint32_t, int64_t stream_id, uint64_t
     return 0;
 }
 
-void queue_control(QuicClient *c, ControlKind kind, float a = 0.f, float b = 0.f)
+// Blocking send/recv of exactly len bytes (used by the TCP fallback path).
+bool tcpSendAll(int fd, const void *buf, size_t len)
+{
+    auto *p = static_cast<const char*>(buf);
+    for (size_t s = 0; s < len; )
+    {
+        ssize_t k = send(fd, p + s, len - s, MSG_NOSIGNAL);
+        if (k <= 0) { return false; }
+        s += static_cast<size_t>(k);
+    }
+    return true;
+}
+bool tcpRecvAll(int fd, void *buf, size_t len)
+{
+    auto *p = static_cast<char*>(buf);
+    for (size_t g = 0; g < len; )
+    {
+        ssize_t k = recv(fd, p + g, len - g, 0);
+        if (k <= 0) { return false; }
+        g += static_cast<size_t>(k);
+    }
+    return true;
+}
+
+// Sends a control event over whichever transport the session is using.
+void send_ctrl(QuicClient *c, ControlKind kind, float a = 0.f, float b = 0.f)
 {
     ControlMsg msg{};
     msg.kind = static_cast<uint8_t>(kind);
     msg.a = a;
     msg.b = b;
+    if (c->tcp_fd >= 0)
+    {
+        tcpSendAll(c->tcp_fd, &msg, sizeof(msg));
+        return;
+    }
     auto *p = reinterpret_cast<const uint8_t*>(&msg);
     c->ctrl_out.insert(c->ctrl_out.end(), p, p + sizeof(msg));
 }
@@ -169,21 +205,21 @@ void on_frame(QuicClient *c, const uint8_t *payload, size_t len)
     c->received++;
     c->total_encoded += len;
 
-    if (c->received == 3)  { printf("pausing simulation\n"); queue_control(c, ControlKind::TogglePause); }
-    if (c->received == 7)  { printf("sending camera rotate\n"); queue_control(c, ControlKind::CameraRotate, 150.f, 40.f); }
+    if (c->received == 3)  { printf("pausing simulation\n"); send_ctrl(c, ControlKind::TogglePause); }
+    if (c->received == 7)  { printf("sending camera rotate\n"); send_ctrl(c, ControlKind::CameraRotate, 150.f, 40.f); }
 
     int w = static_cast<int>(c->hello.width), h = static_cast<int>(c->hello.height);
 
     auto handle_decoded = [&](const unsigned char *bgra)
     {
         c->decoded++;
-        if (c->decoded == 1)  { savePpm("quic_frame0.ppm", bgra, w, h); }
-        if (c->decoded == 6)  { savePpm("quic_pre_rotate.ppm", bgra, w, h); }
+        if (c->decoded == 1)  { savePpm("auto_frame0.ppm", bgra, w, h); }
+        if (c->decoded == 6)  { savePpm("auto_pre_rotate.ppm", bgra, w, h); }
         if (c->decoded == 15)
         {
-            savePpm("quic_post_rotate.ppm", bgra, w, h);
+            savePpm("auto_post_rotate.ppm", bgra, w, h);
             printf("sending quit\n");
-            queue_control(c, ControlKind::Quit);
+            send_ctrl(c, ControlKind::Quit);
             c->quit = true;
         }
     };
@@ -215,7 +251,21 @@ void on_frame(QuicClient *c, const uint8_t *payload, size_t len)
     }
 }
 
-// Parses the video byte stream into the Hello header and length-prefixed frames.
+// Handles one video-channel message (stats telemetry or a frame), shared by both transports.
+void handle_message(QuicClient *c, uint32_t flags, const uint8_t *payload, size_t len)
+{
+    if (flags & FRAME_STATS)
+    {
+        Stats st{};
+        if (len >= sizeof(st)) { std::memcpy(&st, payload, sizeof(st)); }
+        printf("[stats] %.1f fps, %u kbps, encode %.2f ms\n",
+            st.fps_milli / 1000.0, st.kbps, st.encode_us / 1000.0);
+        return;
+    }
+    on_frame(c, payload, len);
+}
+
+// Parses the QUIC video byte stream into the Hello header and length-prefixed messages.
 void process_video(QuicClient *c)
 {
     size_t pos = 0;
@@ -233,7 +283,7 @@ void process_video(QuicClient *c)
         pos = sizeof(Hello);
         int w = static_cast<int>(c->hello.width), h = static_cast<int>(c->hello.height);
         c->bgra.assign(static_cast<size_t>(w) * h * 4, 0);
-        printf("connected: stream is %dx%d (%s)\n", w, h,
+        printf("connected over QUIC: stream is %dx%d (%s)\n", w, h,
             static_cast<Codec>(c->hello.codec) == Codec::H264 ? "H.264" : "raw");
     }
 
@@ -243,23 +293,61 @@ void process_video(QuicClient *c)
         FrameHeader fh{};
         std::memcpy(&fh, c->vbuf.data() + pos, sizeof(FrameHeader));
         if (c->vbuf.size() - pos - sizeof(FrameHeader) < fh.size) { break; }
-        const uint8_t *payload = c->vbuf.data() + pos + sizeof(FrameHeader);
-        if (fh.flags & FRAME_STATS)
-        {
-            Stats st{};
-            if (fh.size >= sizeof(st)) { std::memcpy(&st, payload, sizeof(st)); }
-            printf("[stats] %.1f fps, %u kbps, encode %.2f ms\n",
-                st.fps_milli / 1000.0, st.kbps, st.encode_us / 1000.0);
-        }
-        else
-        {
-            on_frame(c, payload, fh.size);
-        }
+        handle_message(c, fh.flags, c->vbuf.data() + pos + sizeof(FrameHeader), fh.size);
         pos += sizeof(FrameHeader) + fh.size;
         if (c->quit) { break; }
     }
     // Drop the consumed prefix.
     if (pos > 0) { c->vbuf.erase(c->vbuf.begin(), c->vbuf.begin() + static_cast<long>(pos)); }
+}
+
+// TCP fallback session: connect, authenticate, then receive Hello + framed messages, reusing the
+// same decoder and scripted control as the QUIC path. Returns true if it ran a session.
+bool run_tcp(QuicClient *c, const char *host, const char *port, const std::string& token)
+{
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo *res = nullptr;
+    if (getaddrinfo(host, port, &hints, &res) != 0) { return false; }
+    int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (fd < 0 || connect(fd, res->ai_addr, res->ai_addrlen) != 0)
+    {
+        if (fd >= 0) { close(fd); }
+        freeaddrinfo(res);
+        return false;
+    }
+    freeaddrinfo(res);
+    c->tcp_fd = fd;
+
+    AuthMsg auth{};
+    auth.magic = AUTH_MAGIC;
+    size_t tn = token.size() < TOKEN_MAX ? token.size() : static_cast<size_t>(TOKEN_MAX);
+    std::memcpy(auth.token, token.data(), tn);
+    if (!tcpSendAll(fd, &auth, sizeof(auth))) { close(fd); c->tcp_fd = -1; return false; }
+
+    if (!tcpRecvAll(fd, &c->hello, sizeof(c->hello)) || c->hello.magic != PROTOCOL_MAGIC)
+    {
+        fprintf(stderr, "TCP: invalid server hello (rejected? wrong token?)\n");
+        close(fd); c->tcp_fd = -1; return false;
+    }
+    int w = static_cast<int>(c->hello.width), h = static_cast<int>(c->hello.height);
+    c->bgra.assign(static_cast<size_t>(w) * h * 4, 0);
+    printf("connected over TCP: stream is %dx%d (%s)\n", w, h,
+        static_cast<Codec>(c->hello.codec) == Codec::H264 ? "H.264" : "raw");
+
+    std::vector<uint8_t> payload;
+    while (!c->quit)
+    {
+        FrameHeader fh{};
+        if (!tcpRecvAll(fd, &fh, sizeof(fh))) { break; }
+        payload.resize(fh.size);
+        if (fh.size && !tcpRecvAll(fd, payload.data(), fh.size)) { break; }
+        handle_message(c, fh.flags, payload.data(), fh.size);
+    }
+    close(fd);
+    c->tcp_fd = -1;
+    return true;
 }
 
 bool send_packet(QuicClient *c, const uint8_t *data, size_t len)
@@ -440,27 +528,80 @@ bool client_init(QuicClient *c, const char *host, const char *port)
         &cb, &settings, &params, nullptr, c);
     if (rv != 0) { fprintf(stderr, "client_new: %s\n", ngtcp2_strerror(rv)); return false; }
     ngtcp2_conn_set_tls_native_handle(c->conn, c->ossl_ctx);
+    return true;
+}
 
-    // H.264 decoder (used only if the server advertises H264 in Hello).
+// The H.264 decoder is shared by both transports, so it is set up once independently of QUIC.
+void init_decoder(QuicClient *c)
+{
     c->avcodec = avcodec_find_decoder(AV_CODEC_ID_H264);
     c->avctx   = avcodec_alloc_context3(c->avcodec);
     avcodec_open2(c->avctx, c->avcodec, nullptr);
     c->avpkt   = av_packet_alloc();
     c->avframe = av_frame_alloc();
-    return true;
 }
 
-void client_free(QuicClient *c)
+// Releases only the QUIC-specific resources (so the decoder can be reused on a TCP fallback).
+void free_quic(QuicClient *c)
+{
+    if (c->conn)     { ngtcp2_conn_del(c->conn); c->conn = nullptr; }
+    if (c->ossl_ctx) { ngtcp2_crypto_ossl_ctx_del(c->ossl_ctx); c->ossl_ctx = nullptr; }
+    if (c->ssl)      { SSL_set_app_data(c->ssl, nullptr); SSL_free(c->ssl); c->ssl = nullptr; }
+    if (c->ssl_ctx)  { SSL_CTX_free(c->ssl_ctx); c->ssl_ctx = nullptr; }
+    if (c->fd >= 0)  { close(c->fd); c->fd = -1; }
+}
+
+void free_decoder(QuicClient *c)
 {
     if (c->sws)     { sws_freeContext(c->sws); }
     if (c->avframe) { av_frame_free(&c->avframe); }
     if (c->avpkt)   { av_packet_free(&c->avpkt); }
     if (c->avctx)   { avcodec_free_context(&c->avctx); }
-    if (c->conn)    { ngtcp2_conn_del(c->conn); }
-    if (c->ossl_ctx){ ngtcp2_crypto_ossl_ctx_del(c->ossl_ctx); }
-    if (c->ssl)     { SSL_set_app_data(c->ssl, nullptr); SSL_free(c->ssl); }
-    if (c->ssl_ctx) { SSL_CTX_free(c->ssl_ctx); }
-    if (c->fd >= 0) { close(c->fd); }
+}
+
+// Runs a QUIC session: connect, authenticate, stream until done. Returns true if a stream was
+// established (so the caller need not fall back); false if QUIC never came up (UDP blocked,
+// handshake timed out, etc.).
+bool run_quic(QuicClient *c, const char *host, const char *port, const std::string& token)
+{
+    if (!client_init(c, host, port)) { return false; }
+    queue_auth(c, token);
+    if (!pump_write(c)) { free_quic(c); return false; }
+
+    const uint64_t t0 = now_ns();
+    while (!c->quit)
+    {
+        ngtcp2_tstamp expiry = ngtcp2_conn_get_expiry2(c->conn);
+        ngtcp2_tstamp now = now_ns();
+        int timeout = 200;
+        if (expiry != UINT64_MAX)
+        {
+            int e = (expiry <= now) ? 0 : static_cast<int>((expiry - now) / NGTCP2_MILLISECONDS);
+            if (e < timeout) { timeout = e; }
+        }
+        pollfd pfd{ c->fd, POLLIN, 0 };
+        int pr = poll(&pfd, 1, timeout);
+        if (pr < 0) { if (errno == EINTR) { continue; } break; }
+        if ((pfd.revents & POLLIN) && !pump_read(c)) { break; }
+        process_video(c);
+        if (ngtcp2_conn_get_expiry2(c->conn) <= now_ns())
+        {
+            if (ngtcp2_conn_handle_expiry(c->conn, now_ns()) != 0) { break; }
+        }
+        if (!pump_write(c)) { break; }
+
+        // If the handshake hasn't completed promptly, QUIC is likely blocked: give up and let
+        // the caller fall back to TCP.
+        if (!c->handshake_done && (now_ns() - t0) > 3ull * NGTCP2_SECONDS)
+        {
+            fprintf(stderr, "QUIC handshake timed out\n");
+            break;
+        }
+    }
+    for (int i = 0; i < 10; ++i) { pump_write(c); pump_read(c); } // flush final control (Quit)
+    bool established = c->got_hello;
+    free_quic(c);
+    return established;
 }
 
 } // namespace
@@ -470,42 +611,27 @@ int main(int argc, char *argv[])
     const char *host  = (argc >= 2) ? argv[1] : "127.0.0.1";
     const char *port  = (argc >= 3) ? argv[2] : "9000";
     const char *token = (argc >= 4) ? argv[3] : "";
-
-    ngtcp2_ccerr_default(&g_client.last_error);
-    if (!client_init(&g_client, host, port)) { return EXIT_FAILURE; }
+    std::string mode  = (argc >= 5) ? argv[4] : "auto"; // auto | quic | tcp
 
     QuicClient *c = &g_client;
-    // Queue the auth handshake so it's the first thing sent on the control stream; the server
-    // withholds the video stream until it validates this.
-    queue_auth(c, token);
-    if (!pump_write(c)) { client_free(c); return EXIT_FAILURE; }
+    ngtcp2_ccerr_default(&c->last_error);
+    init_decoder(c);
 
-    while (!c->quit)
+    // Transport selection: QUIC preferred (auto/quic); on QUIC failure, auto falls back to TCP
+    // (the path an ssh -L tunnel or UDP-hostile network needs).
+    if (mode == "tcp")
     {
-        ngtcp2_tstamp expiry = ngtcp2_conn_get_expiry2(c->conn);
-        ngtcp2_tstamp now = now_ns();
-        int timeout = -1;
-        if (expiry != UINT64_MAX)
-        {
-            timeout = (expiry <= now) ? 0 : static_cast<int>((expiry - now) / NGTCP2_MILLISECONDS);
-        }
-
-        pollfd pfd{ c->fd, POLLIN, 0 };
-        int pr = poll(&pfd, 1, timeout);
-        if (pr < 0) { if (errno == EINTR) { continue; } break; }
-        if ((pfd.revents & POLLIN) && !pump_read(c)) { break; }
-
-        process_video(c);
-
-        if (ngtcp2_conn_get_expiry2(c->conn) <= now_ns())
-        {
-            if (ngtcp2_conn_handle_expiry(c->conn, now_ns()) != 0) { break; }
-        }
-        if (!pump_write(c)) { break; }
+        run_tcp(c, host, port, token);
     }
-
-    // Best-effort flush of the final control bytes (including Quit) before closing.
-    for (int i = 0; i < 10; ++i) { pump_write(c); pump_read(c); }
+    else
+    {
+        bool established = run_quic(c, host, port, token);
+        if (!established && mode != "quic")
+        {
+            printf("QUIC unavailable; falling back to TCP\n");
+            run_tcp(c, host, port, token);
+        }
+    }
 
     const size_t raw_bytes = static_cast<size_t>(c->hello.width) * c->hello.height * 4
         * static_cast<size_t>(c->received);
@@ -520,6 +646,6 @@ int main(int argc, char *argv[])
     }
 
     int decoded = c->decoded;
-    client_free(c);
+    free_decoder(c);
     return (decoded > 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
