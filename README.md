@@ -82,6 +82,12 @@ This is slower and more error-prone compared to using the precompiled release,
 and historically was used only for debugging slang library calls.
 * `MIMIR_BUILD_SAMPLES` (default ON):
 Compiles sample programs that demonstrate various features provided by the library.
+* `MIMIR_ENABLE_REMOTE` (default OFF):
+Enables H.264 (NVENC) encoding for the remote-rendering server, via system ffmpeg. Without it the
+server streams uncompressed frames. See [Remote rendering](#remote-rendering).
+* `MIMIR_ENABLE_QUIC` (default OFF):
+Enables the QUIC transport (UDP + TLS) for remote rendering, via system ngtcp2. Without it the
+server is TCP-only. See [Remote rendering](#remote-rendering).
 
 ## Installing
 
@@ -163,6 +169,35 @@ The following parameters are recommended (paste as arguments to the run_colloids
     - 4096 0.0873 0.01 0.5 1 1 0.5 -1 -4
 * `run_nbody`: Gravitational N-body simulation, based on code from the [CUDA samples repository](https://github.com/NVIDIA/cuda-samples/tree/master/Samples/5_Domain_Specific/nbody), replacing the OpenGL backend with Mìmir.
 
+## Remote rendering
+
+Mìmir can render headless on a GPU server and stream the result to a thin native client over the
+network (H.264 over QUIC or TCP), with the client sending camera/pause interaction back — e.g. a
+laptop driving a visualization that runs on a remote GPU box. Full details, deployment notes (auth
+token, SSH tunnel), and controls are in
+[`samples/remote-rendering/README.md`](samples/remote-rendering/README.md).
+
+**Extra dependencies** (only for this feature): ffmpeg (H.264) and ngtcp2 + OpenSSL (QUIC). On
+Arch: `pacman -S ffmpeg libngtcp2 openssl`.
+
+**Configure** with the feature flags, then build the two binaries:
+```sh
+cmake -B build -DMIMIR_ENABLE_REMOTE=ON -DMIMIR_ENABLE_QUIC=ON
+cmake --build build -j
+```
+
+**Run** from `build/samples/` — server on the GPU box, client on the viewing machine:
+```sh
+# server: H.264 over QUIC, 1280x720, 50k points
+./rr-server 9000 1280 720 50000 1 quic
+# client: prefers QUIC, falls back to TCP automatically
+./rr-client <server-ip> 9000
+```
+For a quick local test, run both on one machine with `127.0.0.1`. Through an SSH tunnel
+(`ssh -L 9000:localhost:9000 user@host`) force TCP: `./rr-server 9000 1280 720 50000 1 tcp` and
+`./rr-client 127.0.0.1 9000 "" tcp`. Without the feature flags the server still builds and streams
+raw frames over TCP.
+
 ## Current features
 
 * Visualization of structured and non-structured data:
@@ -172,3 +207,4 @@ The following parameters are recommended (paste as arguments to the run_colloids
 * Synchronous and asynchronous (on separate thread) rendering
 * Camera manipulation
 * Model transformations (translation, rotation, scale) per view
+* Headless rendering and [remote rendering](#remote-rendering) (H.264 over QUIC/TCP to a thin client)
