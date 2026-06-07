@@ -106,7 +106,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<Transport> listenTcp(uint16_t port)
+std::unique_ptr<Transport> listenTcp(uint16_t port, const std::string& token)
 {
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0) { spdlog::error("remote(tcp): failed to create socket"); return nullptr; }
@@ -126,13 +126,29 @@ std::unique_ptr<Transport> listenTcp(uint16_t port)
     listen(listen_fd, 1);
     spdlog::info("remote(tcp): waiting for a client on port {}", port);
 
-    int client = accept(listen_fd, nullptr, nullptr);
-    if (client < 0) { spdlog::error("remote(tcp): accept failed"); close(listen_fd); return nullptr; }
-    int one = 1;
-    setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)); // low latency
-    spdlog::info("remote(tcp): client connected");
+    // Accept clients until one authenticates, rejecting bad ones without giving up the socket
+    // (so a wrong-token client can't end the server's reconnect loop). Only a real accept()
+    // failure is fatal.
+    for (;;)
+    {
+        int client = accept(listen_fd, nullptr, nullptr);
+        if (client < 0) { spdlog::error("remote(tcp): accept failed"); close(listen_fd); return nullptr; }
+        int one = 1;
+        setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)); // low latency
 
-    return std::make_unique<TcpTransport>(listen_fd, client);
+        // The client sends an AuthMsg as the very first control-channel bytes; validate before
+        // accepting the session so unauthorized clients never get a stream.
+        AuthMsg auth{};
+        if (!recvAll(client, &auth, sizeof(auth)) || !authOk(auth, token))
+        {
+            spdlog::warn("remote(tcp): client rejected (bad token or handshake)");
+            shutdown(client, SHUT_RDWR);
+            close(client);
+            continue; // keep listening for a valid client
+        }
+        spdlog::info("remote(tcp): client connected and authenticated");
+        return std::make_unique<TcpTransport>(listen_fd, client);
+    }
 }
 
 } // namespace mimir::remote

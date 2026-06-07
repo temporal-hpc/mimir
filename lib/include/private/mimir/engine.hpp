@@ -4,6 +4,7 @@
 #include <cuda_runtime_api.h>
 
 #include <functional> // std::function
+#include <string> // std::string
 #include <thread> // std::thread
 #include <vector> // std::vector
 
@@ -169,7 +170,8 @@ struct MimirInstance
     // client disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited).
     void serveRemote(uint16_t port, std::function<void(void)> compute, size_t max_iters,
         bool use_h264 = false,
-        remote::TransportKind kind = remote::TransportKind::Tcp);
+        remote::TransportKind kind = remote::TransportKind::Tcp,
+        std::string token = {});
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 

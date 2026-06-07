@@ -152,11 +152,13 @@ public:
 
     // Builds the connection from the client's first datagram and starts the I/O thread. Blocks
     // until the handshake completes (or fails / times out). Returns false on failure.
-    bool start(int fd, int wake_fd, const sockaddr_storage& remote, socklen_t remote_len,
+    bool start(int fd, int wake_fd, const std::string& token,
+        const sockaddr_storage& remote, socklen_t remote_len,
         const uint8_t *first_pkt, size_t first_len)
     {
         fd_ = fd;
         wake_fd_ = wake_fd;
+        token_ = token;
         remote_addr_ = remote;
         remote_addrlen_ = remote_len;
 
@@ -183,16 +185,27 @@ public:
 
         io_thread_ = std::thread([this]{ ioLoop(); });
 
-        // Wait for the TLS handshake to finish before declaring the transport ready.
+        // Wait for the TLS handshake AND the client's first control message (the AuthMsg) before
+        // declaring the transport ready, so unauthorized clients never get a stream.
         std::unique_lock<std::mutex> lock(handshake_mutex_);
         handshake_cv_.wait_for(lock, std::chrono::seconds(10),
-            [this]{ return handshake_done_.load() || !alive_.load(); });
+            [this]{ return (handshake_done_.load() && auth_done_.load()) || !alive_.load(); });
         if (!handshake_done_.load())
         {
             spdlog::error("remote(quic): handshake did not complete");
             return false;
         }
-        spdlog::info("remote(quic): handshake complete, client connected");
+        if (!auth_done_.load())
+        {
+            spdlog::error("remote(quic): client sent no auth message");
+            return false;
+        }
+        if (!auth_ok_.load())
+        {
+            spdlog::warn("remote(quic): client rejected (bad token)");
+            return false;
+        }
+        spdlog::info("remote(quic): handshake complete, client connected and authenticated");
         return true;
     }
 
@@ -244,10 +257,26 @@ private:
 
     int onControlBytes(int64_t stream_id, const uint8_t *data, size_t datalen)
     {
+        bool just_authed = false;
         {
             std::lock_guard<std::mutex> lock(in_mutex_);
             ctrl_buf_.insert(ctrl_buf_.end(), data, data + datalen);
-            // The control channel is a stream of fixed-size ControlMsg structs.
+
+            // The first control-channel message is the AuthMsg; consume and validate it before
+            // any ControlMsg parsing.
+            if (!auth_done_.load())
+            {
+                if (ctrl_buf_.size() < sizeof(AuthMsg)) { return passControlCredit(stream_id, datalen); }
+                AuthMsg auth{};
+                std::memcpy(&auth, ctrl_buf_.data(), sizeof(auth));
+                ctrl_buf_.erase(ctrl_buf_.begin(),
+                    ctrl_buf_.begin() + static_cast<long>(sizeof(AuthMsg)));
+                auth_ok_.store(authOk(auth, token_));
+                auth_done_.store(true);
+                just_authed = true;
+            }
+
+            // The rest of the control channel is a stream of fixed-size ControlMsg structs.
             while (ctrl_buf_.size() >= sizeof(ControlMsg))
             {
                 ControlMsg msg{};
@@ -257,7 +286,13 @@ private:
                 events_.push_back(msg);
             }
         }
-        // Return the consumed bytes to the flow-control window so the client can keep sending.
+        if (just_authed) { handshake_cv_.notify_all(); }
+        return passControlCredit(stream_id, datalen);
+    }
+
+    // Return consumed bytes to the flow-control window so the client can keep sending.
+    int passControlCredit(int64_t stream_id, size_t datalen)
+    {
         ngtcp2_conn_extend_max_stream_offset(conn_, stream_id, datalen);
         ngtcp2_conn_extend_max_offset(conn_, datalen);
         return 0;
@@ -506,9 +541,12 @@ private:
     ngtcp2_ccerr last_error_{};
 
     int64_t video_stream_ = -1;
+    std::string token_;                    // expected auth token (empty = accept any)
 
     std::atomic<bool> alive_{true};
     std::atomic<bool> handshake_done_{false};
+    std::atomic<bool> auth_done_{false};
+    std::atomic<bool> auth_ok_{false};
     std::mutex handshake_mutex_;
     std::condition_variable handshake_cv_;
 
@@ -525,60 +563,85 @@ private:
 
 } // namespace
 
-std::unique_ptr<Transport> listenQuic(uint16_t port)
+namespace
+{
+// Binds a fresh UDP socket to the given port (INADDR_ANY) with address/port reuse so a listener
+// and per-session connected socket can share it. Returns -1 on failure.
+int bindUdp(uint16_t port)
 {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) { spdlog::error("remote(quic): failed to create UDP socket"); return nullptr; }
+    if (fd < 0) { return -1; }
     int yes = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-
+    setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
     sockaddr_in addr{};
     addr.sin_family      = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port        = htons(port);
-    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
-    {
-        spdlog::error("remote(quic): failed to bind UDP port {}", port);
-        close(fd);
-        return nullptr;
-    }
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) { close(fd); return -1; }
+    return fd;
+}
+} // namespace
+
+std::unique_ptr<Transport> listenQuic(uint16_t port, const std::string& token)
+{
+    // A persistent unconnected "listener" socket waits for the next client's QUIC Initial and
+    // cheaply drops stray packets (e.g. retransmits from a just-rejected client are short-header
+    // 1-RTT packets, which decode_version_cid rejects) without spinning up a connection. Only the
+    // listener bind is fatal; failed/unauthorized clients just leave us waiting for the next.
+    int listen_fd = bindUdp(port);
+    if (listen_fd < 0) { spdlog::error("remote(quic): failed to bind UDP port {}", port); return nullptr; }
     spdlog::info("remote(quic): waiting for a client on UDP port {}", port);
 
-    // Peek the first client datagram to learn its address and initial CIDs.
-    uint8_t first[65536];
-    sockaddr_storage remote{};
-    socklen_t remote_len = sizeof(remote);
-    ssize_t n = recvfrom(fd, first, sizeof(first), 0,
-        reinterpret_cast<sockaddr*>(&remote), &remote_len);
-    if (n <= 0)
+    for (;;)
     {
-        spdlog::error("remote(quic): failed to receive client initial");
-        close(fd);
-        return nullptr;
-    }
+        uint8_t first[65536];
+        sockaddr_storage remote{};
+        socklen_t remote_len = sizeof(remote);
+        ssize_t n = recvfrom(listen_fd, first, sizeof(first), 0,
+            reinterpret_cast<sockaddr*>(&remote), &remote_len);
+        if (n <= 0) { continue; }
 
-    // Pin the socket to this one client; subsequent send/recv use the connected peer.
-    if (connect(fd, reinterpret_cast<sockaddr*>(&remote), remote_len) != 0)
-    {
-        spdlog::error("remote(quic): connect to client failed");
-        close(fd);
-        return nullptr;
-    }
+        // Only a genuine QUIC Initial starts a session; anything else (short-header 1-RTT or
+        // long-header Handshake retransmits from a just-rejected client, etc.) is dropped
+        // without cost, so a departing/unauthorized client can't make us churn connections.
+        ngtcp2_version_cid vc{};
+        if (ngtcp2_pkt_decode_version_cid(&vc, first, static_cast<size_t>(n), NGTCP2_MAX_CIDLEN) != 0)
+        {
+            continue;
+        }
+        ngtcp2_pkt_hd hd{};
+        if (ngtcp2_pkt_decode_hd_long(&hd, first, static_cast<size_t>(n)) < 0
+            || hd.type != NGTCP2_PKT_INITIAL)
+        {
+            continue;
+        }
 
-    int wake_fd = eventfd(0, EFD_NONBLOCK);
-    if (wake_fd < 0) { spdlog::error("remote(quic): eventfd failed"); close(fd); return nullptr; }
+        // Per-session socket on the same port, connected to this peer (so the kernel routes the
+        // peer's subsequent datagrams here, ahead of the wildcard listener).
+        int sfd = bindUdp(port);
+        if (sfd < 0) { spdlog::error("remote(quic): failed to create session socket"); continue; }
+        if (connect(sfd, reinterpret_cast<sockaddr*>(&remote), remote_len) != 0)
+        {
+            spdlog::error("remote(quic): connect to client failed"); close(sfd); continue;
+        }
+        int wake_fd = eventfd(0, EFD_NONBLOCK);
+        if (wake_fd < 0) { spdlog::error("remote(quic): eventfd failed"); close(sfd); continue; }
 
-    auto transport = std::make_unique<QuicTransport>();
-    if (!transport->start(fd, wake_fd, remote, remote_len, first, static_cast<size_t>(n)))
-    {
-        return nullptr; // transport dtor closes fd / wake_fd
+        auto transport = std::make_unique<QuicTransport>();
+        if (transport->start(sfd, wake_fd, token, remote, remote_len, first, static_cast<size_t>(n)))
+        {
+            close(listen_fd); // session owns sfd; the listener is no longer needed
+            return transport;
+        }
+        // Handshake/auth failed; transport dtor closed sfd/wake_fd. Keep waiting on the listener.
+        spdlog::warn("remote(quic): client setup/auth failed, waiting for the next");
     }
-    return transport;
 }
 
 #else // !MIMIR_HAVE_QUIC
 
-std::unique_ptr<Transport> listenQuic(uint16_t)
+std::unique_ptr<Transport> listenQuic(uint16_t, const std::string&)
 {
     spdlog::error("remote(quic): library built without QUIC support; "
         "rebuild with -DMIMIR_ENABLE_QUIC=ON (needs ngtcp2), or use the TCP transport");

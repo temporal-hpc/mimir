@@ -66,6 +66,16 @@ void sendControl(ControlKind kind, float a = 0.f, float b = 0.f)
     sendAll(g_fd, &msg, sizeof(msg));
 }
 
+// Sends the auth handshake (always first on the control channel; token may be empty).
+bool sendAuth(int fd, const std::string& token)
+{
+    AuthMsg a{};
+    a.magic = AUTH_MAGIC;
+    size_t n = token.size() < TOKEN_MAX ? token.size() : static_cast<size_t>(TOKEN_MAX);
+    std::memcpy(a.token, token.data(), n);
+    return sendAll(fd, &a, sizeof(a));
+}
+
 // Mouse drag state, mirrors the engine's local GLFW input mapping.
 struct Input { double last_x = 0, last_y = 0; bool left = false, right = false, middle = false; };
 Input g_input;
@@ -100,8 +110,9 @@ void keyCallback(GLFWwindow *win, int key, int, int action, int)
 
 int main(int argc, char *argv[])
 {
-    std::string host = (argc >= 2)? argv[1] : "127.0.0.1";
-    std::string port = (argc >= 3)? argv[2] : "9000";
+    std::string host  = (argc >= 2)? argv[1] : "127.0.0.1";
+    std::string port  = (argc >= 3)? argv[2] : "9000";
+    std::string token = (argc >= 4)? argv[3] : "";
 
     // Connect to the server.
     addrinfo hints{};
@@ -121,10 +132,13 @@ int main(int argc, char *argv[])
     }
     freeaddrinfo(res);
 
+    // The server reads our AuthMsg before sending anything, so send it first.
+    if (!sendAuth(g_fd, token)) { fprintf(stderr, "failed to send auth\n"); return EXIT_FAILURE; }
+
     Hello hello{};
     if (!recvAll(g_fd, &hello, sizeof(hello)) || hello.magic != PROTOCOL_MAGIC)
     {
-        fprintf(stderr, "invalid server hello\n");
+        fprintf(stderr, "invalid server hello (rejected? wrong token?)\n");
         return EXIT_FAILURE;
     }
     if (static_cast<Codec>(hello.codec) != Codec::RawBGRA)
@@ -150,6 +164,7 @@ int main(int argc, char *argv[])
             if (!recvAll(g_fd, &header, sizeof(header))) { break; }
             buf.resize(header.size);
             if (!recvAll(g_fd, buf.data(), header.size)) { break; }
+            if (header.flags & FRAME_STATS) { continue; } // telemetry, not a frame
             std::lock_guard<std::mutex> lock(frame_mutex);
             latest.swap(buf);
         }

@@ -108,9 +108,9 @@ void saveFrame(InstanceHandle engine, const char *path)
 
 void serveRemote(InstanceHandle engine, unsigned short port,
     std::function<void(void)> func, size_t max_iters, bool use_h264,
-    remote::TransportKind kind)
+    remote::TransportKind kind, const char *token)
 {
-    engine->serveRemote(port, func, max_iters, use_h264, kind);
+    engine->serveRemote(port, func, max_iters, use_h264, kind, token ? token : "");
 }
 
 void prepareViews(InstanceHandle engine)

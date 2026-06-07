@@ -61,10 +61,13 @@ void saveFrame(InstanceHandle engine, const char *path);
 // library was built with ffmpeg support, frames are H.264-encoded before sending; otherwise
 // raw frames are streamed. The client is told the actual codec in the Hello handshake. 'kind'
 // selects the transport: TCP (default, works everywhere incl. ssh -L tunnels) or QUIC (UDP,
-// TLS + congestion control, for direct connections; requires a build with QUIC support).
+// TLS + congestion control, for direct connections; requires a build with QUIC support). 'token'
+// is an optional shared secret the client must present (empty = accept any client). Serves one
+// client at a time and loops to accept the next after each disconnects (reconnect).
 void serveRemote(InstanceHandle engine, unsigned short port,
     std::function<void(void)> func, size_t max_iters, bool use_h264 = false,
-    remote::TransportKind kind = remote::TransportKind::Tcp
+    remote::TransportKind kind = remote::TransportKind::Tcp,
+    const char *token = ""
 );
 
 // Starts a GPU interop critical section.

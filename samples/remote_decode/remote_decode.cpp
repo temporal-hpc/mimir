@@ -65,6 +65,16 @@ void sendControl(int fd, ControlKind kind, float a = 0.f, float b = 0.f)
     sendAll(fd, &msg, sizeof(msg));
 }
 
+// Sends the auth handshake (always first on the control channel; token may be empty).
+bool sendAuth(int fd, const std::string& token)
+{
+    AuthMsg a{};
+    a.magic = AUTH_MAGIC;
+    size_t n = token.size() < TOKEN_MAX ? token.size() : static_cast<size_t>(TOKEN_MAX);
+    std::memcpy(a.token, token.data(), n);
+    return sendAll(fd, &a, sizeof(a));
+}
+
 // Saves a decoded BGRA buffer (already top-row-first) as a binary PPM.
 void savePpm(const std::string& path, const unsigned char *bgra, int w, int h)
 {
@@ -83,11 +93,12 @@ void savePpm(const std::string& path, const unsigned char *bgra, int w, int h)
 
 int main(int argc, char *argv[])
 {
-    std::string host = (argc >= 2)? argv[1] : "127.0.0.1";
-    std::string port = (argc >= 3)? argv[2] : "9000";
+    std::string host  = (argc >= 2)? argv[1] : "127.0.0.1";
+    std::string port  = (argc >= 3)? argv[2] : "9000";
+    std::string token = (argc >= 4)? argv[3] : "";
     // Optional benchmark mode: receive N frames with the simulation left running (no pause/rotate
     // script, no PPM saves), so the server measures encode latency on real, changing content.
-    int bench_frames = (argc >= 4)? std::atoi(argv[3]) : 0;
+    int bench_frames  = (argc >= 5)? std::atoi(argv[4]) : 0;
 
     addrinfo hints{};
     hints.ai_family   = AF_INET;
@@ -106,10 +117,13 @@ int main(int argc, char *argv[])
     }
     freeaddrinfo(res);
 
+    // The server reads our AuthMsg before sending anything, so send it first.
+    if (!sendAuth(fd, token)) { fprintf(stderr, "failed to send auth\n"); return EXIT_FAILURE; }
+
     Hello hello{};
     if (!recvAll(fd, &hello, sizeof(hello)) || hello.magic != PROTOCOL_MAGIC)
     {
-        fprintf(stderr, "invalid server hello\n");
+        fprintf(stderr, "invalid server hello (rejected? wrong token?)\n");
         return EXIT_FAILURE;
     }
     int w = static_cast<int>(hello.width), h = static_cast<int>(hello.height);
@@ -146,6 +160,14 @@ int main(int argc, char *argv[])
         if (!recvAll(fd, &header, sizeof(header))) { break; }
         au.resize(header.size);
         if (!recvAll(fd, au.data(), header.size)) { break; }
+        if (header.flags & FRAME_STATS)
+        {
+            Stats st{};
+            if (au.size() >= sizeof(st)) { std::memcpy(&st, au.data(), sizeof(st)); }
+            printf("[stats] %.1f fps, %u kbps, encode %.2f ms\n",
+                st.fps_milli / 1000.0, st.kbps, st.encode_us / 1000.0);
+            continue;
+        }
         received++;
         total_encoded += header.size;
 

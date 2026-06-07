@@ -152,14 +152,18 @@ struct H264Encoder
         return true;
     }
 
+    bool last_keyframe = false; // whether the most recent encode produced an IDR/keyframe AU
+
     // Drains encoded packets into out. Returns false on a fatal encoder error.
     bool drain(std::vector<unsigned char>& out)
     {
+        last_keyframe = false;
         for (;;)
         {
             int r = avcodec_receive_packet(ctx, packet);
             if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) { break; }
             if (r < 0) { return false; }
+            if (packet->flags & AV_PKT_FLAG_KEY) { last_keyframe = true; }
             out.insert(out.end(), packet->data, packet->data + packet->size);
             av_packet_unref(packet);
         }
@@ -219,175 +223,206 @@ struct H264Encoder
 } // namespace
 
 void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute,
-    size_t max_iters, bool use_h264, remote::TransportKind kind)
+    size_t max_iters, bool use_h264, remote::TransportKind kind, std::string token)
 {
     prepare();
 
-    const uint32_t width  = swapchain.extent.width;
-    const uint32_t height = swapchain.extent.height;
+    size_t total_iter = 0;
+    bool stop = false;
 
-    // Decide the codec. H.264 is only available when built with ffmpeg; otherwise fall back
-    // to raw frames so the stream still works (the client is told which codec via Hello).
-    remote::Codec codec = remote::Codec::RawBGRA;
-#ifdef MIMIR_HAVE_FFMPEG
-    H264Encoder encoder;
-    if (use_h264)
+    // Reconnect loop: serve one client at a time, then wait for the next. A fresh transport and
+    // encoder are built per session, so a newly-joined client always starts on a clean IDR
+    // (keyframe-on-join). listen* blocks for a client; nullptr means a fatal socket/bind error.
+    while (!stop)
     {
-        if (encoder.init(static_cast<int>(width), static_cast<int>(height), 60, 8000))
+        std::unique_ptr<remote::Transport> transport =
+            (kind == remote::TransportKind::Quic)? remote::listenQuic(port, token)
+                                                 : remote::listenTcp(port, token);
+        if (!transport) { break; }
+
+        const uint32_t width  = swapchain.extent.width;
+        const uint32_t height = swapchain.extent.height;
+
+        // Decide the codec for this session. H.264 needs ffmpeg; otherwise stream raw.
+        remote::Codec codec = remote::Codec::RawBGRA;
+#ifdef MIMIR_HAVE_FFMPEG
+        H264Encoder encoder;
+        if (use_h264)
         {
-            codec = remote::Codec::H264;
+            if (encoder.init(static_cast<int>(width), static_cast<int>(height), 60, 8000))
+            {
+                codec = remote::Codec::H264;
+            }
+            else { spdlog::warn("remote: H.264 encoder unavailable, falling back to raw frames"); }
         }
-        else
-        {
-            spdlog::warn("remote: H.264 encoder unavailable, falling back to raw frames");
-        }
-    }
 #else
-    if (use_h264)
-    {
-        spdlog::warn("remote: built without ffmpeg, falling back to raw frames");
-    }
+        if (use_h264) { spdlog::warn("remote: built without ffmpeg, falling back to raw frames"); }
 #endif
 
-    // Wait for a single client to connect over the selected transport. The transport carries
-    // the video channel (Hello + frames) and surfaces the client's control messages; the loop
-    // below is identical regardless of whether it's TCP or QUIC underneath.
-    std::unique_ptr<remote::Transport> transport =
-        (kind == remote::TransportKind::Quic)? remote::listenQuic(port) : remote::listenTcp(port);
-    if (!transport) { return; }
+        // Greet the client with the stream geometry.
+        remote::Hello hello{
+            .magic  = remote::PROTOCOL_MAGIC,
+            .width  = width,
+            .height = height,
+            .format = static_cast<uint32_t>(remote::PixelFormat::BGRA8),
+            .codec  = static_cast<uint32_t>(codec),
+        };
+        if (!transport->sendVideo(&hello, sizeof(hello))) { continue; } // client vanished; re-listen
 
-    // Greet the client with the stream geometry.
-    remote::Hello hello{
-        .magic  = remote::PROTOCOL_MAGIC,
-        .width  = width,
-        .height = height,
-        .format = static_cast<uint32_t>(remote::PixelFormat::BGRA8),
-        .codec  = static_cast<uint32_t>(codec),
-    };
-    if (!transport->sendVideo(&hello, sizeof(hello))) { return; }
-
-    bool paused = false;
-    bool running = true;
-    size_t iter = 0;
-    std::vector<unsigned char> frame;
-    std::vector<remote::ControlMsg> events;
+        bool paused = false;
+        bool client_gone = false;
+        std::vector<unsigned char> frame;
+        std::vector<remote::ControlMsg> events;
 #ifdef MIMIR_HAVE_FFMPEG
-    std::vector<unsigned char> encoded;
+        std::vector<unsigned char> encoded;
 #endif
+        // Per-frame production latency (for benchmarking); first frames skipped as warmup.
+        constexpr size_t kWarmup = 5;
+        size_t produced_frames = 0, timed_count = 0;
+        double enc_sum_ms = 0.0, enc_min_ms = 1e30, enc_max_ms = 0.0;
 
-    // Per-frame "rendered image -> wire payload" latency (readback/convert/encode), for
-    // before/after benchmarking. The first few frames (lazy buffer/encoder init + IDR) are
-    // skipped as warmup.
-    constexpr size_t kWarmup = 5;
-    size_t produced_frames = 0, timed_count = 0;
-    double enc_sum_ms = 0.0, enc_min_ms = 1e30, enc_max_ms = 0.0;
+        // Telemetry window: a Stats message is sent to the client roughly once per second.
+        auto win_start = std::chrono::steady_clock::now();
+        size_t win_frames = 0, win_bytes = 0, session_frames = 0;
+        double win_enc_us = 0.0;
 
-    while (running && (max_iters == 0 || iter < max_iters))
-    {
-        // Drain pending control events and apply them to camera / pause state. The transport's
-        // receiver runs on its own thread; pollControl returns false once the client is gone.
-        events.clear();
-        if (!transport->pollControl(events)) { break; }
-        const auto speed = camera.rotation_speed;
-        for (const auto& ev : events)
+        while (true)
         {
-            switch (static_cast<remote::ControlKind>(ev.kind))
-            {
-                case remote::ControlKind::CameraRotate:
-                    camera.rotate(glm::vec3(ev.b * speed, -ev.a * speed, 0.f)); break;
-                case remote::ControlKind::CameraZoom:
-                    camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f)); break;
-                case remote::ControlKind::CameraPan:
-                    camera.translate(glm::vec3(-ev.a * 0.01f, -ev.b * 0.01f, 0.f)); break;
-                case remote::ControlKind::TogglePause:
-                    paused = !paused; break;
-                case remote::ControlKind::Quit:
-                    running = false; break;
-                default: break;
-            }
-        }
-        if (!running) { break; }
+            if (max_iters != 0 && total_iter >= max_iters) { stop = true; break; }
 
-        if (!paused) { compute(); iter++; }
-        renderFrame();
-        vkDeviceWaitIdle(device); // ensure the frame is finished before readback
-
-        const unsigned char *payload = nullptr;
-        size_t payload_size = 0;
-        bool produced = false;
-        const auto enc_t0 = std::chrono::steady_clock::now();
-
-#ifdef MIMIR_HAVE_FFMPEG
-        // Zero-copy H.264: encode straight from the on-GPU frame, no host readback.
-        if (codec == remote::Codec::H264 && encoder.zero_copy)
-        {
-            void *cuda_bgra = mapFrameToCuda();
-            if (!cuda_bgra || !encoder.encodeCuda(cuda_bgra, encoded))
+            // Drain control events; pollControl returns false once the client is gone.
+            events.clear();
+            if (!transport->pollControl(events)) { client_gone = true; break; }
+            bool quit = false;
+            const auto speed = camera.rotation_speed;
+            for (const auto& ev : events)
             {
-                spdlog::error("remote: H.264 zero-copy encode failed");
-                break;
-            }
-            // An access unit may be empty while the encoder buffers; skip sending in that case.
-            if (encoded.empty()) { continue; }
-            payload = encoded.data();
-            payload_size = encoded.size();
-            produced = true;
-        }
-#endif
-        // Host path: read the frame back, then either send raw or H.264-encode on the CPU.
-        if (!produced)
-        {
-            readFrameBytes(frame);
-            payload = frame.data();
-            payload_size = frame.size();
-#ifdef MIMIR_HAVE_FFMPEG
-            if (codec == remote::Codec::H264)
-            {
-                if (!encoder.encode(frame.data(), encoded))
+                switch (static_cast<remote::ControlKind>(ev.kind))
                 {
-                    spdlog::error("remote: H.264 encode failed");
-                    break;
+                    case remote::ControlKind::CameraRotate:
+                        camera.rotate(glm::vec3(ev.b * speed, -ev.a * speed, 0.f)); break;
+                    case remote::ControlKind::CameraZoom:
+                        camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f)); break;
+                    case remote::ControlKind::CameraPan:
+                        camera.translate(glm::vec3(-ev.a * 0.01f, -ev.b * 0.01f, 0.f)); break;
+                    case remote::ControlKind::TogglePause:
+                        paused = !paused; break;
+                    case remote::ControlKind::Quit:
+                        quit = true; break;
+                    default: break;
                 }
-                if (encoded.empty()) { continue; }
+            }
+            if (quit) { break; }
+
+            if (!paused) { compute(); ++total_iter; }
+            renderFrame();
+            vkDeviceWaitIdle(device); // ensure the frame is finished before readback
+
+            const unsigned char *payload = nullptr;
+            size_t payload_size = 0;
+            bool produced = false;
+            uint32_t flags = 0;
+            const auto enc_t0 = std::chrono::steady_clock::now();
+
+#ifdef MIMIR_HAVE_FFMPEG
+            // Zero-copy H.264: encode straight from the on-GPU frame, no host readback.
+            if (codec == remote::Codec::H264 && encoder.zero_copy)
+            {
+                void *cuda_bgra = mapFrameToCuda();
+                if (!cuda_bgra || !encoder.encodeCuda(cuda_bgra, encoded))
+                {
+                    spdlog::error("remote: H.264 zero-copy encode failed");
+                    client_gone = true; break;
+                }
+                if (encoded.empty()) { continue; } // buffered; nothing to send this frame
                 payload = encoded.data();
                 payload_size = encoded.size();
+                if (encoder.last_keyframe) { flags |= remote::FRAME_KEYFRAME; }
+                produced = true;
             }
 #endif
-        }
-
-        const auto enc_t1 = std::chrono::steady_clock::now();
-        const double enc_ms = std::chrono::duration<double, std::milli>(enc_t1 - enc_t0).count();
-        if (produced_frames++ >= kWarmup)
-        {
-            enc_sum_ms += enc_ms;
-            enc_min_ms = std::min(enc_min_ms, enc_ms);
-            enc_max_ms = std::max(enc_max_ms, enc_ms);
-            ++timed_count;
-        }
-
-        remote::FrameHeader header{ .size = static_cast<uint32_t>(payload_size) };
-        if (!transport->sendVideo(&header, sizeof(header)) ||
-            !transport->sendVideo(payload, payload_size))
-        {
-            break;
-        }
-    }
-
-    if (timed_count > 0)
-    {
+            // Host path: read the frame back, then either send raw or H.264-encode on the CPU.
+            if (!produced)
+            {
+                readFrameBytes(frame);
+                payload = frame.data();
+                payload_size = frame.size();
+                flags |= remote::FRAME_KEYFRAME; // raw frames are self-contained
 #ifdef MIMIR_HAVE_FFMPEG
-        const char *path = (codec == remote::Codec::H264)
-            ? (encoder.zero_copy ? "H.264 zero-copy CUDA/NVENC" : "H.264 host readback+libswscale")
-            : "raw readback";
-#else
-        const char *path = "raw readback";
+                if (codec == remote::Codec::H264)
+                {
+                    if (!encoder.encode(frame.data(), encoded))
+                    {
+                        spdlog::error("remote: H.264 encode failed");
+                        client_gone = true; break;
+                    }
+                    if (encoded.empty()) { continue; }
+                    payload = encoded.data();
+                    payload_size = encoded.size();
+                    flags = encoder.last_keyframe ? remote::FRAME_KEYFRAME : 0u;
+                }
 #endif
-        spdlog::info("remote: frame production latency [{}] over {} frames: "
-            "mean {:.2f} ms, min {:.2f} ms, max {:.2f} ms",
-            path, timed_count, enc_sum_ms / static_cast<double>(timed_count),
-            enc_min_ms, enc_max_ms);
+            }
+
+            const auto enc_t1 = std::chrono::steady_clock::now();
+            const double enc_ms = std::chrono::duration<double, std::milli>(enc_t1 - enc_t0).count();
+            if (produced_frames++ >= kWarmup)
+            {
+                enc_sum_ms += enc_ms;
+                enc_min_ms = std::min(enc_min_ms, enc_ms);
+                enc_max_ms = std::max(enc_max_ms, enc_ms);
+                ++timed_count;
+            }
+
+            remote::FrameHeader header{ .size = static_cast<uint32_t>(payload_size), .flags = flags };
+            if (!transport->sendVideo(&header, sizeof(header)) ||
+                !transport->sendVideo(payload, payload_size))
+            {
+                client_gone = true; break;
+            }
+
+            // Telemetry: once per second, report fps / bitrate / mean encode time to the client.
+            ++win_frames; ++session_frames;
+            win_bytes += payload_size;
+            win_enc_us += enc_ms * 1000.0;
+            const auto now = std::chrono::steady_clock::now();
+            const double elapsed = std::chrono::duration<double>(now - win_start).count();
+            if (elapsed >= 1.0)
+            {
+                remote::Stats st{
+                    .frames    = static_cast<uint32_t>(session_frames),
+                    .fps_milli = static_cast<uint32_t>(static_cast<double>(win_frames) / elapsed * 1000.0),
+                    .kbps      = static_cast<uint32_t>(static_cast<double>(win_bytes) * 8.0 / 1000.0 / elapsed),
+                    .encode_us = static_cast<uint32_t>(win_enc_us / static_cast<double>(win_frames)),
+                };
+                remote::FrameHeader sh{ .size = static_cast<uint32_t>(sizeof(st)),
+                    .flags = remote::FRAME_STATS };
+                if (!transport->sendVideo(&sh, sizeof(sh)) || !transport->sendVideo(&st, sizeof(st)))
+                {
+                    client_gone = true; break;
+                }
+                win_start = now; win_frames = 0; win_bytes = 0; win_enc_us = 0.0;
+            }
+        }
+
+        if (timed_count > 0)
+        {
+#ifdef MIMIR_HAVE_FFMPEG
+            const char *path = (codec == remote::Codec::H264)
+                ? (encoder.zero_copy ? "H.264 zero-copy CUDA/NVENC" : "H.264 host readback+libswscale")
+                : "raw readback";
+#else
+            const char *path = "raw readback";
+#endif
+            spdlog::info("remote: frame production latency [{}] over {} frames: "
+                "mean {:.2f} ms, min {:.2f} ms, max {:.2f} ms",
+                path, timed_count, enc_sum_ms / static_cast<double>(timed_count),
+                enc_min_ms, enc_max_ms);
+        }
+        spdlog::info("remote: client session ended after {} frames ({})",
+            session_frames, client_gone ? "disconnected" : "client quit");
+        // Loop back to listen for the next client (reconnect), unless max_iters stopped us.
     }
-    spdlog::info("remote: client session ended after {} frames", iter);
 }
 
 } // namespace mimir

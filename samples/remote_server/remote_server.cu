@@ -4,9 +4,11 @@
 // connected client, applying the camera/pause control the client sends back. Pair with
 // run_remote_client.
 //
-// Run from build/samples/:  ./run_remote_server [port] [width] [height] [point_count] [h264] [transport]
+// Run from build/samples/:  ./run_remote_server [port] [width] [height] [point_count] [h264] [transport] [token]
 //   h264:      pass 1 to request H.264 encoding (needs a build with ffmpeg support)
 //   transport: "tcp" (default) or "quic" (needs a build with -DMIMIR_ENABLE_QUIC=ON)
+//   token:     optional shared secret the client must present (empty = accept any client)
+// Serves one client at a time and waits for the next after each disconnects (reconnect).
 
 #include <curand_kernel.h>
 #include <string> // std::stoul
@@ -64,12 +66,14 @@ int main(int argc, char *argv[])
     unsigned int point_count = 10000;
     bool use_h264            = false;
     remote::TransportKind transport = remote::TransportKind::Tcp;
+    std::string token        = "";
     if (argc >= 2) port        = static_cast<unsigned short>(std::stoi(argv[1]));
     if (argc >= 4) { width = std::stoi(argv[2]); height = std::stoi(argv[3]); }
     if (argc >= 5) point_count = std::stoul(argv[4]);
     if (argc >= 6) use_h264    = std::stoi(argv[5]) != 0;
     if (argc >= 7) transport   = (std::string(argv[6]) == "quic")?
         remote::TransportKind::Quic : remote::TransportKind::Tcp;
+    if (argc >= 8) token       = argv[7];
 
     checkCuda(cudaSetDevice(0));
 
@@ -125,7 +129,7 @@ int main(int argc, char *argv[])
     serveRemote(instance, port, [&]{
         integrate<<<grid_size, block_size>>>(d_coords, point_count, d_states);
         checkCuda(cudaDeviceSynchronize());
-    }, 0, use_h264, transport);
+    }, 0, use_h264, transport, token.c_str());
 
     destroyInstance(instance);
     checkCuda(cudaFree(d_states));

@@ -15,11 +15,22 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace mimir::remote
 {
+
+// Validates a client's AuthMsg against the server's expected token. An empty expected token
+// accepts any client (encryption-without-authentication, as on a tunnel's first hop).
+inline bool authOk(const AuthMsg& msg, const std::string& token)
+{
+    if (msg.magic != AUTH_MAGIC) { return false; }
+    if (token.empty()) { return true; }
+    return std::strncmp(msg.token, token.c_str(), TOKEN_MAX) == 0;
+}
 
 struct Transport
 {
@@ -33,12 +44,14 @@ struct Transport
     virtual bool pollControl(std::vector<ControlMsg>& out) = 0;
 };
 
-// Listens on the given TCP port and blocks until exactly one client connects, returning a ready
-// transport (or nullptr on failure).
-std::unique_ptr<Transport> listenTcp(uint16_t port);
+// Listens on the given TCP port and blocks until exactly one client connects and passes the auth
+// check, returning a ready transport (or nullptr on failure/auth rejection). A non-empty token is
+// required to match the client's AuthMsg; an empty token accepts any client.
+std::unique_ptr<Transport> listenTcp(uint16_t port, const std::string& token);
 
-// Listens for a QUIC client on the given UDP port and blocks until the handshake completes,
-// returning a ready transport (or nullptr on failure / if built without QUIC support).
-std::unique_ptr<Transport> listenQuic(uint16_t port);
+// Listens for a QUIC client on the given UDP port, blocking until the handshake completes and the
+// client passes the auth check. Returns a ready transport (or nullptr on failure/auth rejection/
+// if built without QUIC support). Token semantics match listenTcp.
+std::unique_ptr<Transport> listenQuic(uint16_t port, const std::string& token);
 
 } // namespace mimir::remote

@@ -69,10 +69,21 @@ static bool sendControl(int fd, ControlKind kind, float a = 0.f, float b = 0.f)
     return sendAll(fd, &msg, sizeof(msg));
 }
 
+// Sends the auth handshake (always first on the control channel; token may be empty).
+static bool sendAuth(int fd, const std::string& token)
+{
+    AuthMsg a{};
+    a.magic = AUTH_MAGIC;
+    size_t n = token.size() < TOKEN_MAX ? token.size() : static_cast<size_t>(TOKEN_MAX);
+    std::memcpy(a.token, token.data(), n);
+    return sendAll(fd, &a, sizeof(a));
+}
+
 int main(int argc, char *argv[])
 {
-    std::string host = (argc >= 2)? argv[1] : "127.0.0.1";
-    std::string port = (argc >= 3)? argv[2] : "9000";
+    std::string host  = (argc >= 2)? argv[1] : "127.0.0.1";
+    std::string port  = (argc >= 3)? argv[2] : "9000";
+    std::string token = (argc >= 4)? argv[3] : "";
 
     // Resolve and connect.
     addrinfo hints{};
@@ -92,10 +103,13 @@ int main(int argc, char *argv[])
     }
     freeaddrinfo(res);
 
+    // The server reads our AuthMsg before sending anything, so send it first.
+    if (!sendAuth(fd, token)) { fprintf(stderr, "failed to send auth\n"); return EXIT_FAILURE; }
+
     Hello hello{};
     if (!recvAll(fd, &hello, sizeof(hello)) || hello.magic != PROTOCOL_MAGIC)
     {
-        fprintf(stderr, "invalid server hello\n");
+        fprintf(stderr, "invalid server hello (rejected? wrong token?)\n");
         return EXIT_FAILURE;
     }
     uint32_t w = hello.width, h = hello.height;
@@ -116,6 +130,7 @@ int main(int argc, char *argv[])
         if (!recvAll(fd, &header, sizeof(header))) { break; }
         frame.resize(header.size);
         if (!recvAll(fd, frame.data(), header.size)) { break; }
+        if (header.flags & FRAME_STATS) { continue; } // server telemetry, not a frame
         count++;
 
         // Scripted interaction to verify the control round-trip:

@@ -151,6 +151,17 @@ void queue_control(QuicClient *c, ControlKind kind, float a = 0.f, float b = 0.f
     c->ctrl_out.insert(c->ctrl_out.end(), p, p + sizeof(msg));
 }
 
+// Queues the auth handshake as the first bytes on the control stream (token may be empty).
+void queue_auth(QuicClient *c, const std::string& token)
+{
+    AuthMsg a{};
+    a.magic = AUTH_MAGIC;
+    size_t n = token.size() < TOKEN_MAX ? token.size() : static_cast<size_t>(TOKEN_MAX);
+    std::memcpy(a.token, token.data(), n);
+    auto *p = reinterpret_cast<const uint8_t*>(&a);
+    c->ctrl_out.insert(c->ctrl_out.end(), p, p + sizeof(a));
+}
+
 // Decodes one H.264 access unit (or copies a raw frame) into c->bgra, running the verification
 // script (save PPMs, send control, quit) keyed on the decoded-frame counter.
 void on_frame(QuicClient *c, const uint8_t *payload, size_t len)
@@ -233,7 +244,17 @@ void process_video(QuicClient *c)
         std::memcpy(&fh, c->vbuf.data() + pos, sizeof(FrameHeader));
         if (c->vbuf.size() - pos - sizeof(FrameHeader) < fh.size) { break; }
         const uint8_t *payload = c->vbuf.data() + pos + sizeof(FrameHeader);
-        on_frame(c, payload, fh.size);
+        if (fh.flags & FRAME_STATS)
+        {
+            Stats st{};
+            if (fh.size >= sizeof(st)) { std::memcpy(&st, payload, sizeof(st)); }
+            printf("[stats] %.1f fps, %u kbps, encode %.2f ms\n",
+                st.fps_milli / 1000.0, st.kbps, st.encode_us / 1000.0);
+        }
+        else
+        {
+            on_frame(c, payload, fh.size);
+        }
         pos += sizeof(FrameHeader) + fh.size;
         if (c->quit) { break; }
     }
@@ -446,13 +467,17 @@ void client_free(QuicClient *c)
 
 int main(int argc, char *argv[])
 {
-    const char *host = (argc >= 2) ? argv[1] : "127.0.0.1";
-    const char *port = (argc >= 3) ? argv[2] : "9000";
+    const char *host  = (argc >= 2) ? argv[1] : "127.0.0.1";
+    const char *port  = (argc >= 3) ? argv[2] : "9000";
+    const char *token = (argc >= 4) ? argv[3] : "";
 
     ngtcp2_ccerr_default(&g_client.last_error);
     if (!client_init(&g_client, host, port)) { return EXIT_FAILURE; }
 
     QuicClient *c = &g_client;
+    // Queue the auth handshake so it's the first thing sent on the control stream; the server
+    // withholds the video stream until it validates this.
+    queue_auth(c, token);
     if (!pump_write(c)) { client_free(c); return EXIT_FAILURE; }
 
     while (!c->quit)
