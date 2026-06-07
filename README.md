@@ -24,7 +24,7 @@
 
 
 Library for interactive real-time visualization of CUDA code with Vulkan.
-Tested on Linux Mint 21.3, with kernel version 5.15.0-139 (more releases coming soon).
+Tested on Linux Mint 21.3 (kernel 5.15.0-139) and Arch Linux (kernel 7.0.10-arch1-1, CUDA 13.3).
 
 ## Dependencies
 
