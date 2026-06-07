@@ -350,11 +350,31 @@ interfaces so earlier, simpler implementations are drop-in-replaced.
      than raw with the control round-trip intact, and raw-over-QUIC (3.6 MB frames) flows through
      stream flow control correctly.
 
-   Still open from the original plan: client-side QUIC→TCP auto-fallback selection (the server
-   already speaks both; the bundled clients are per-transport), and the SSH-tunnel path is TCP by
-   construction (documented in §5, not separately re-tested here).
-5. **Polish.** Auth/handshake, resize handling, keyframe-on-join, reconnect, metrics surfaced
-   to the client (reuse `getMetrics`, `mimir.hpp:111`), graceful disconnect.
+   Client-side QUIC→TCP auto-fallback is implemented in step 5 (below).
+5. **Polish. [DONE]**
+   - *Auth.* The client always sends an `AuthMsg` (token, NUL-padded) as the first control-channel
+     message; `serveRemote()`/`listen{Tcp,Quic}()` take a shared token (empty = accept any) and
+     validate it at the transport layer before any stream is sent. `listenTcp` loops past rejected
+     clients keeping the listen socket; `listenQuic` uses a persistent listener socket and only
+     starts a session on a genuine QUIC Initial (`ngtcp2_pkt_decode_hd_long`), dropping a
+     departing/unauthorized client's stray packets so it can't end the server or make it churn.
+   - *Reconnect + keyframe-on-join.* `serveRemote()` serves one client at a time and loops to the
+     next after each disconnects, with a fresh per-session encoder — so a new client always starts
+     on an IDR. Frames carry `FRAME_KEYFRAME`.
+   - *Metrics.* The server sends a `Stats` message (~1/s; `FRAME_STATS`) with fps, bitrate, and
+     mean encode time; clients print it.
+   - *Resize.* A `Resize` control event rebuilds the offscreen targets (`recreateGraphics`) and
+     encoder at the new resolution and re-announces geometry via a framed `Hello` (`FRAME_HELLO`);
+     the auto client reallocs + flushes its decoder. (Engine fix: gate the metrics query-pool read
+     by a `graphics_epoch` so a freshly rebuilt empty pool isn't read with WAIT and blocked on.)
+   - *Client QUIC→TCP auto-fallback.* `run_remote_quic` is now a transport-auto client: prefers
+     QUIC and, if it doesn't come up within 3 s (UDP blocked / tunnel), falls back to TCP. A 4th
+     arg forces `auto|quic|tcp`.
+
+   Verified over TCP and QUIC: correct token streams + prints stats; reconnect serves successive
+   clients; wrong/no token is rejected and the server survives; auto falls back to TCP against a
+   TCP-only server; a mid-stream resize 1280×720→960×540 yields correctly-sized frames with the
+   session uninterrupted.
 
 ## 9. Open questions / risks
 
@@ -365,5 +385,6 @@ interfaces so earlier, simpler implementations are drop-in-replaced.
 - **Colorspace conversion** RGBA→NV12 cost and placement (compute shader vs. NVENC input).
 - **Single vs. multi-client** later — the `FrameSink`/transport seams should not preclude
   fan-out, but it's out of scope for v1.
-- **Auth model** for a public university port — token now, something stronger later.
+- ~~**Auth model**~~ **(done for v1):** shared token presented in `AuthMsg`, validated at the
+  transport before streaming (empty = accept any). Something stronger (per-user keys, PKI) later.
 ```
