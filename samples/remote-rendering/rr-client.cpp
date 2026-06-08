@@ -28,6 +28,10 @@ using namespace mimir::remote;
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_ossl.h>
+// ngtcp2_conn_get_expiry2 was added after 1.22.x; alias it to the original on older releases.
+#ifndef HAVE_NGTCP2_CONN_GET_EXPIRY2
+#  define ngtcp2_conn_get_expiry2 ngtcp2_conn_get_expiry
+#endif
 
 #include <openssl/ssl.h>
 #include <openssl/rand.h>
@@ -559,7 +563,7 @@ bool run_quic(const char *host, const char *port, const std::string& token, Deco
     const uint64_t t0 = now_ns();
     while (!g.quit.load())
     {
-        ngtcp2_tstamp expiry = ngtcp2_conn_get_expiry2(q.conn);
+        ngtcp2_tstamp expiry = ngtcp2_conn_get_expiry(q.conn);
         ngtcp2_tstamp now = now_ns();
         int timeout = 16;
         if (expiry != UINT64_MAX)
@@ -572,7 +576,7 @@ bool run_quic(const char *host, const char *port, const std::string& token, Deco
         if (pr < 0) { if (errno == EINTR) { continue; } break; }
         if ((pfd.revents & POLLIN) && !quic_pump_read(&q)) { break; }
         quic_process_video(&q);
-        if (ngtcp2_conn_get_expiry2(q.conn) <= now_ns())
+        if (ngtcp2_conn_get_expiry(q.conn) <= now_ns())
         {
             if (ngtcp2_conn_handle_expiry(q.conn, now_ns()) != 0) { break; }
         }

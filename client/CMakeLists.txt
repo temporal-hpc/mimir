@@ -19,11 +19,21 @@ if(PkgConfig_FOUND)
 endif()
 
 if(MIMIR_CLIENT_FOUND AND OpenSSL_FOUND AND OpenGL_FOUND AND Threads_FOUND)
+    include(CheckSymbolExists)
+    set(CMAKE_REQUIRED_INCLUDES ${MIMIR_CLIENT_INCLUDE_DIRS})
+    set(CMAKE_REQUIRED_LIBRARIES ${MIMIR_CLIENT_LIBRARIES})
+    check_symbol_exists(ngtcp2_conn_get_expiry2 "ngtcp2/ngtcp2.h" HAVE_NGTCP2_CONN_GET_EXPIRY2)
+    unset(CMAKE_REQUIRED_INCLUDES)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+
     add_executable(mimir-client ${PROJECT_SOURCE_DIR}/samples/remote-rendering/rr-client.cpp)
     target_compile_features(mimir-client PRIVATE cxx_std_20)
     target_include_directories(mimir-client PRIVATE ${PROJECT_SOURCE_DIR}/lib/include/public)
     target_link_libraries(mimir-client PRIVATE
         PkgConfig::MIMIR_CLIENT OpenSSL::SSL OpenSSL::Crypto glfw OpenGL::GL Threads::Threads)
+    if(HAVE_NGTCP2_CONN_GET_EXPIRY2)
+        target_compile_definitions(mimir-client PRIVATE HAVE_NGTCP2_CONN_GET_EXPIRY2)
+    endif()
     set_target_properties(mimir-client PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
     install(TARGETS mimir-client RUNTIME DESTINATION bin)

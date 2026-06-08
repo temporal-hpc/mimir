@@ -36,6 +36,30 @@ if(@MIMIR_BUILT_WITH_QUIC@)
     endif()
 endif()
 
+# Recreate the slang IMPORTED target: it cannot be exported (it is an IMPORTED target in the
+# mimir build), so we reconstruct it here using paths baked in at configure time.
+if(NOT TARGET slang)
+    set(_slang_lib "@MIMIR_SLANG_LIBRARY@")
+    set(_slang_inc "@MIMIR_SLANG_INCLUDES@")
+    # Install-tree fallback: slang .so is installed at <prefix>/lib/, headers at <prefix>/include/slang/
+    if(NOT EXISTS "${_slang_lib}")
+        get_filename_component(_slang_lib
+            "${CMAKE_CURRENT_LIST_DIR}/../../libslang.so" ABSOLUTE)
+        get_filename_component(_slang_inc
+            "${CMAKE_CURRENT_LIST_DIR}/../../../include/slang" ABSOLUTE)
+    endif()
+    if(NOT EXISTS "${_slang_lib}")
+        message(FATAL_ERROR
+            "mimir: slang shared library not found at:\n  ${_slang_lib}\n"
+            "If you moved the build directory, rebuild mimir with mimir-build-from-zero.sh.")
+    endif()
+    add_library(slang UNKNOWN IMPORTED)
+    set_target_properties(slang PROPERTIES
+        IMPORTED_LOCATION             "${_slang_lib}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_slang_inc}"
+    )
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/mimirTargets.cmake")
 
 # CPM-fetched packages define namespace aliases (e.g. spdlog::spdlog) in their own

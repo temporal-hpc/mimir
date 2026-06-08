@@ -124,6 +124,8 @@ export(EXPORT MimirTargets
 )
 set(MIMIR_BUILT_WITH_REMOTE ${MIMIR_ENABLE_REMOTE})
 set(MIMIR_BUILT_WITH_QUIC   ${MIMIR_ENABLE_QUIC})
+set(MIMIR_SLANG_LIBRARY  "${slang_SOURCE_DIR}/lib/libslang.so")
+set(MIMIR_SLANG_INCLUDES "${slang_SOURCE_DIR}/include")
 configure_file("${PROJECT_SOURCE_DIR}/cmake/mimirConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/mimir/mimirConfig.cmake"
     @ONLY
@@ -141,4 +143,14 @@ install(
         "${CMAKE_CURRENT_BINARY_DIR}/mimir/mimirConfigVersion.cmake"
     DESTINATION
         ${ConfigPackageLocation}
+)
+# Install slang shared libraries so installed consumers can find them.
+install(
+    DIRECTORY "${slang_SOURCE_DIR}/lib/"
+    DESTINATION lib
+    FILES_MATCHING PATTERN "libslang*.so*"
+)
+install(
+    DIRECTORY "${slang_SOURCE_DIR}/include/"
+    DESTINATION include/slang
 )

@@ -443,7 +443,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 client_gone = true; break;
             }
 
-            // Telemetry: once per second, report fps / bitrate / mean encode time to the client.
+            // Telemetry: once per second, report fps / bitrate / mean encode time to the client
+            // and print the same summary to the server terminal.
             ++win_frames; ++session_frames;
             win_bytes += payload_size;
             win_enc_us += enc_ms * 1000.0;
@@ -457,6 +458,11 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .kbps      = static_cast<uint32_t>(static_cast<double>(win_bytes) * 8.0 / 1000.0 / elapsed),
                     .encode_us = static_cast<uint32_t>(win_enc_us / static_cast<double>(win_frames)),
                 };
+                spdlog::info("[stats] frame {:6d} | {:5.1f} fps | {:6d} kbps | {:5.0f} µs encode",
+                    st.frames,
+                    static_cast<double>(st.fps_milli) / 1000.0,
+                    st.kbps,
+                    static_cast<double>(st.encode_us));
                 remote::FrameHeader sh{ .size = static_cast<uint32_t>(sizeof(st)),
                     .flags = remote::FRAME_STATS };
                 if (!transport->sendVideo(&sh, sizeof(sh)) || !transport->sendVideo(&st, sizeof(st)))
@@ -481,7 +487,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 path, timed_count, enc_sum_ms / static_cast<double>(timed_count),
                 enc_min_ms, enc_max_ms);
         }
-        spdlog::info("remote: client session ended after {} frames ({})",
+        spdlog::info("remote: client session ended after {} frames ({}) — simulation paused, waiting for next client",
             session_frames, client_gone ? "disconnected" : "client quit");
         // Loop back to listen for the next client (reconnect), unless max_iters stopped us.
     }
