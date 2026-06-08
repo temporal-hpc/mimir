@@ -1,3 +1,7 @@
+cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
+project(mimir-sample-edgeflip LANGUAGES CXX CUDA)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/MimirSample.cmake")
+
 find_package(CUDAToolkit REQUIRED)
 include(FetchContent)
 
@@ -10,7 +14,7 @@ FetchContent_Declare(nfd
 FetchContent_MakeAvailable(nfd)
 
 add_library(cleap STATIC)
-# Compile cleap.cc with nvcc, so that the compiler can find vector_types.h
+# Compile cleap.cc with nvcc so it can find vector_types.h
 set_source_files_properties(cleap/src/cleap.cc PROPERTIES LANGUAGE CUDA)
 target_sources(cleap PRIVATE cleap/src/cleap.cu cleap/src/cleap.cc)
 target_include_directories(cleap PUBLIC cleap/src)
@@ -18,9 +22,8 @@ target_link_directories(cleap PRIVATE CUDA::cudart)
 
 add_executable(tiuque)
 set_target_properties(tiuque PROPERTIES
-    CUDA_STANDARD            20
-    CUDA_ARCHITECTURES       native
-    RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/samples
+    CUDA_STANDARD      20
+    CUDA_ARCHITECTURES native
 )
 target_sources(tiuque PRIVATE main.cpp Application.cpp Mesh.cpp)
 target_link_libraries(tiuque PRIVATE samples_common cleap imgui nfd)

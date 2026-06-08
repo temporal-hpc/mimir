@@ -122,9 +122,11 @@ export(EXPORT MimirTargets
     FILE "${CMAKE_CURRENT_BINARY_DIR}/mimir/mimirTargets.cmake"
     #NAMESPACE mimir::
 )
-configure_file("${PROJECT_SOURCE_DIR}/cmake/mimirConfig.cmake"
+set(MIMIR_BUILT_WITH_REMOTE ${MIMIR_ENABLE_REMOTE})
+set(MIMIR_BUILT_WITH_QUIC   ${MIMIR_ENABLE_QUIC})
+configure_file("${PROJECT_SOURCE_DIR}/cmake/mimirConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/mimir/mimirConfig.cmake"
-    COPYONLY
+    @ONLY
 )
 
 set(ConfigPackageLocation lib/cmake/mimir)
@@ -135,9 +137,8 @@ install(EXPORT MimirTargets
 )
 install(
     FILES
-        "${PROJECT_SOURCE_DIR}/cmake/mimirConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/mimir/mimirConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/mimir/mimirConfigVersion.cmake"
     DESTINATION
         ${ConfigPackageLocation}
-    #COMPONENT Devel
 )

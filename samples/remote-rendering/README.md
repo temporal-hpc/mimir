@@ -5,7 +5,7 @@ network; the client displays the frames and sends interaction (camera, pause) ba
 researcher on a laptop driving a visualization that runs on a remote GPU box (cluster node,
 workstation) over the internet.
 
-Two binaries, built from this directory:
+Two binaries, built from the repository root after building the mimir library:
 
 - **`rr-server`** — renders headless with mimir, encodes (H.264 via NVENC, or raw), and streams to
   one client at a time. Links the `mimir` library + CUDA.
@@ -27,22 +27,45 @@ particle buffer lives on the GPU via mimir's CUDA interop.
 
 ## Building
 
-The client (and the server's H.264/QUIC paths) need optional dependencies, enabled at configure
-time:
+> **New here?** Start from the repository root [`README.md`](../../README.md) to build the
+> mimir library first, then come back here. This sample cannot be built without it.
+
+**Extra system packages** (install before building):
+- ffmpeg — H.264 encoding/decoding (`libavcodec`, `libavutil`, `libswscale`)
+- ngtcp2 + OpenSSL — QUIC transport
+- On Arch: `pacman -S ffmpeg libngtcp2 openssl`
+
+**Step 1 — build the mimir library** from the repository root with the remote rendering flags:
 
 ```sh
-cmake -S . -B build -G Ninja -DMIMIR_ENABLE_REMOTE=ON -DMIMIR_ENABLE_QUIC=ON
-cmake --build build --target rr-server rr-client
+./mimir-build-from-zero.sh --remote --quic   # add --gcc 14 on Arch Linux / GCC 16 systems
 ```
 
-- `-DMIMIR_ENABLE_REMOTE=ON` — H.264 encoding via ffmpeg/NVENC (pkg-config `libavcodec` …). Without
-  it the server streams raw frames.
-- `-DMIMIR_ENABLE_QUIC=ON` — QUIC transport via ngtcp2. Without it the server is TCP-only.
-- `rr-client` builds whenever ngtcp2 + ffmpeg + OpenGL are found (independent of the flags above);
-  otherwise it's skipped and only `rr-server` is built.
+**Or, manually:**
+```sh
+cmake -B build -DMIMIR_ENABLE_REMOTE=ON -DMIMIR_ENABLE_QUIC=ON
+cmake --build build -j
+```
 
-Binaries land in `build/samples/` and expect the slang shaders there (the `copy_shaders` target
-handles this for the server). Run them from `build/samples/`.
+- `--remote` / `-DMIMIR_ENABLE_REMOTE=ON` enables H.264 encoding via ffmpeg/NVENC. Without it the server streams raw frames.
+- `--quic` / `-DMIMIR_ENABLE_QUIC=ON` enables the QUIC transport via ngtcp2. Without it the server is TCP-only.
+
+**Step 2 — build this sample:**
+
+```sh
+./samples-build-from-zero.sh --sample remote-rendering   # add --gcc 14 if used in step 1
+```
+
+**Or, manually:**
+```sh
+cmake -B samples/remote-rendering/build -S samples/remote-rendering/ -Dmimir_DIR=$(pwd)/build/lib/mimir
+cmake --build samples/remote-rendering/build -j
+```
+
+- `rr-client` is built automatically when ngtcp2 + ffmpeg + OpenGL are all found; otherwise it
+  is skipped and only `rr-server` is built.
+
+Binaries land in `samples/remote-rendering/build/`. Run them from there.
 
 ## Running
 

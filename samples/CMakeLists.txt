@@ -1,7 +1,13 @@
-add_library(samples_common INTERFACE)
-target_compile_features(samples_common INTERFACE cxx_std_20)
-target_include_directories(samples_common SYSTEM INTERFACE include)
-target_link_libraries(samples_common INTERFACE mimir)
+cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
+project(mimir-samples LANGUAGES CXX CUDA)
+
+include(cmake/MimirSample.cmake)
+
+# All sample binaries land in bin/ so shaders (copied below) are alongside them.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# powermon must come before samples that link it (nbody, points3d).
+add_subdirectory(powermon)
 
 # Essential samples
 add_subdirectory(headless)
@@ -28,15 +34,12 @@ add_subdirectory(texture_cudaarray)
 add_subdirectory(colloids)
 add_subdirectory(potts)
 add_subdirectory(voronoi2)
-# Utilities
-add_subdirectory(powermon)
 
-# Copy slang shaders to output directory
+# Copy mimir shaders next to the built binaries (the engine loads them at runtime).
 add_custom_target(copy_shaders ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${PROJECT_SOURCE_DIR}/shaders
-        ${PROJECT_BINARY_DIR}/samples/shaders/
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        "${CMAKE_CURRENT_SOURCE_DIR}/../shaders"
+        "${CMAKE_BINARY_DIR}/bin/shaders/"
     COMMENT "Copying shaders..."
     VERBATIM
 )

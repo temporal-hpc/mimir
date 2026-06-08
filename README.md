@@ -48,21 +48,38 @@ which may be needed to install separately for some Linux distributions.
 ## Building
 
 Building from source requires a `C++20` host compiler, `CUDA SDK >= 10.0` and `cmake >= 3.24`.
-From the cloned or downloaded source code folder, run:
-```cmake
-cmake -B build
-cmake --build <build_dir> -j
+From the cloned or downloaded source folder, run:
+
+```sh
+./mimir-build-from-zero.sh
 ```
 
-The above commands will generate the corresponding makefiles and build the library,
-using all available cores to speed up compilation.
-Refer to the [CMake documentation](https://cmake.org/cmake/help/latest/manual/cmake.1.html)
-for additional command-line settings.
+**Or, manually:**
+```sh
+cmake -B build
+cmake --build build -j
+```
+
+> **GCC compatibility:** CUDA supports GCC up to a maximum version per release. Check yours with
+> `nvcc --version` and use `--gcc <N>` (script) or `-DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-<N>`
+> (cmake) if your default GCC exceeds it. For the authoritative table see the
+> [NVIDIA CUDA Installation Guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/).
+>
+> | CUDA | Max GCC |
+> |---|---|
+> | 12.0 – 12.2 | 12 |
+> | 12.3 – 12.6 | 13 |
+> | 13.x | 14 |
+>
+> _Arch Linux as of June 2026 defaults to GCC 16 with CUDA 13.x — use `--gcc 14`._
+
+Run `./mimir-build-from-zero.sh --help` to see all script options. For full cmake options refer
+to the [CMake documentation](https://cmake.org/cmake/help/latest/manual/cmake.1.html).
 
 By default, `FetchContent` will attempt to use local installations of the required libraries before
 downloading them. This may create issues, for example, when using glm
-in [Arch Linux](https://bugs.archlinux.org/task/71987). To override this behavious, pass the
-`FETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER` option when generating the makefiles.
+in [Arch Linux](https://bugs.archlinux.org/task/71987). To override this behaviour, pass
+`-DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER` on the cmake line.
 
 ### Build options
 
@@ -80,8 +97,6 @@ to any program that links to this library to avoid crashed due to interactions w
 Compiles the slang library from source for linking with Mìmir instead of using a prebuilt release.
 This is slower and more error-prone compared to using the precompiled release,
 and historically was used only for debugging slang library calls.
-* `MIMIR_BUILD_SAMPLES` (default ON):
-Compiles sample programs that demonstrate various features provided by the library.
 * `MIMIR_ENABLE_REMOTE` (default OFF):
 Enables H.264 (NVENC) encoding for the remote-rendering server, via system ffmpeg. Without it the
 server streams uncompressed frames. See [Remote rendering](#remote-rendering).
@@ -96,15 +111,9 @@ From a successful build placed at `<build_dir>`, run:
 cmake --install <build_dir> --prefix <install_prefix>
 ```
 
-By default, this will install the library at the standard system library location. Use the
-`--prefix` option to change the installation root folder to `<install_prefix>` (this defaults
-to the system library path). Another CMake application can then use `find_package(mimir)` to
-link with the installed library. If the library was installed to a non-default path
-`<install_prefix>`, run:
-
-```cmake
-cmake build -DCMAKE_PREFIX_PATH=<install_prefix>
-```
+By default, this will install the library to the standard system path. Use `--prefix` to install
+elsewhere. After installing, samples and other CMake projects can find mimir via the `MIMIR_DIR`
+environment variable — see [`samples/README.md`](samples/README.md).
 
 ## Using Mìmir
 
@@ -139,35 +148,11 @@ The following key bindings are available for a Mìmir window:
 * `Ctrl-G`: Toggle control panel
 * `Ctrl-Q`: Close window
 
-## Running samples
+## Samples
 
-A successful build generates sample programs that link to the compiled library.
-From the source root, samples are placed in `build/samples/<sample_name>`
-(it is recommended to run the executables from this path so that additional assets).
-Example input files for executables that require them (image and mesh viewer)
-are included in the `build/samples/assets` folder.
-The library currently provides the following samples:
-
-* `run_unstructured`: Displays a 2D brownian moving point cloud with various point sizes.
-* `run_structured`: As above, but executing and a Jump Flood Algorithm (JFA) CUDA kernel to compute
-a Distance Transform (DT) over a regular structured grid, using point positions as JFA seeds.
-* `run_texture [path_to_image]`: Simple image viewer and box filter with periodically varying
-radii over the loaded image. Kernel code was ported from the CUDA-Vulkan interop sample program
-[vulkanImageCUDA](https://github.com/NVIDIA/cuda-samples/tree/master/Samples/5_Domain_Specific/vulkanImageCUDA).
-* `run_mesh [path_to_obj]`: Triangle mesh loader and viewer that uses
-[tinyobjloader](https://github.com/tinyobjloader/tinyobjloader) to process `.obj` mesh files.
-Smooth per-vertex normals are calculated for the loaded mesh and copied to device memory
-along with vertex position and triangle vertex indices.
-After that, a CUDA kernel deforms the mesh repeatedly along the normal directions for each vertex,
-displaying the results in real time after each kernel call.
-* `potts3`: Potts model visualization, based on code by Ferrero et al. (2012). Original source
-is available [here](https://github.com/ezeferrero/Potts-Model-on-GPUs)
-* `run_colloids [params]`: Visualization of a 2D colloidal particle system with excluded volumes.
-The following parameters are recommended (paste as arguments to the run_colloids executable):
-    - 4096 0.79 0.01 0.7 1 1 0.3 1 -1
-    - 4096 0.52 0.01 0.5 1 1 0.5 -1 -2
-    - 4096 0.0873 0.01 0.5 1 1 0.5 -1 -4
-* `run_nbody`: Gravitational N-body simulation, based on code from the [CUDA samples repository](https://github.com/NVIDIA/cuda-samples/tree/master/Samples/5_Domain_Specific/nbody), replacing the OpenGL backend with Mìmir.
+Samples are built separately from the library. Full build instructions — including how to
+point samples at the library, build all or just one, and run them — are in
+[`samples/README.md`](samples/README.md).
 
 ## Remote rendering
 
@@ -180,14 +165,30 @@ token, SSH tunnel), and controls are in
 **Extra dependencies** (only for this feature): ffmpeg (H.264) and ngtcp2 + OpenSSL (QUIC). On
 Arch: `pacman -S ffmpeg libngtcp2 openssl`.
 
-**Configure** with the feature flags, then build the two binaries:
+**Step 1 — build the library** with the feature flags:
+```sh
+./mimir-build-from-zero.sh --remote --quic   # add --gcc 14 on Arch Linux / GCC 16 systems
+```
+**Or, manually:**
 ```sh
 cmake -B build -DMIMIR_ENABLE_REMOTE=ON -DMIMIR_ENABLE_QUIC=ON
 cmake --build build -j
 ```
 
-**Run** from `build/samples/` — server on the GPU box, client on the viewing machine:
+**Step 2 — build the remote-rendering sample:**
 ```sh
+./samples-build-from-zero.sh --sample remote-rendering   # add --gcc 14 if used in step 1
+```
+**Or, manually:**
+```sh
+cmake -B samples/remote-rendering/build -S samples/remote-rendering/ -Dmimir_DIR=$(pwd)/build/lib/mimir
+cmake --build samples/remote-rendering/build -j
+```
+
+**Step 3 — run** from the build folder — server on the GPU box, client on the viewing machine:
+```sh
+cd samples/remote-rendering/build
+
 # server: H.264 over QUIC, 1280x720, 50k points
 ./rr-server 9000 1280 720 50000 1 quic
 # client: prefers QUIC, falls back to TCP automatically
