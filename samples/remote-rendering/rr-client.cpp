@@ -745,9 +745,49 @@ int run_headless(int frames)
 
 } // namespace
 
+static void usage(const char *prog)
+{
+    printf(
+        "Usage: %s [host] [port] [token] [transport] [frames]\n"
+        "\n"
+        "  host       Server hostname or IP address       (default: 127.0.0.1)\n"
+        "  port       Server port                         (default: 9000)\n"
+        "  token      Shared secret (must match server;   (default: empty)\n"
+        "             leave empty if server has none)\n"
+        "  transport  auto (default) | quic | tcp\n"
+        "             auto: tries QUIC first, falls back to TCP\n"
+        "             tcp:  required when connecting through an ssh -L tunnel\n"
+        "  frames     If > 0, run headless: receive N frames, save rr-client.ppm, exit\n"
+        "             (default: 0 = open interactive window)\n"
+        "\n"
+        "All arguments are positional and optional; omitted trailing args use their defaults.\n"
+        "\n"
+        "Examples:\n"
+        "  # Connect to a local server (or via ssh -L 9000:localhost:9000):\n"
+        "  %s\n"
+        "\n"
+        "  # Connect to a remote server by IP over TCP (e.g. through ssh tunnel):\n"
+        "  %s 127.0.0.1 9000 \"\" tcp\n"
+        "\n"
+        "  # Connect to a server with a shared secret, transport auto-selected:\n"
+        "  %s 192.168.1.10 9000 mysecret\n"
+        "\n"
+        "  # Headless test: receive 10 frames, save rr-client.ppm, then exit:\n"
+        "  %s 127.0.0.1 9000 \"\" tcp 10\n",
+        prog, prog, prog, prog, prog);
+}
+
 int main(int argc, char *argv[])
 {
     setvbuf(stdout, nullptr, _IOLBF, 0);
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
+            usage(argv[0]);
+            return 0;
+        }
+    }
+
     std::string host  = (argc >= 2) ? argv[1] : "127.0.0.1";
     std::string port  = (argc >= 3) ? argv[2] : "9000";
     std::string token = (argc >= 4) ? argv[3] : "";

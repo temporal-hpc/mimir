@@ -58,8 +58,48 @@ __global__ void integrate(float *coords, size_t point_count, curandState *rng)
     rng[tidx] = state;
 }
 
+static void usage(const char *prog)
+{
+    printf(
+        "Usage: %s [port] [width] [height] [point_count] [h264] [transport] [token]\n"
+        "\n"
+        "  port        TCP/UDP port to listen on          (default: 9000)\n"
+        "  width       Render width in pixels             (default: 1280)\n"
+        "  height      Render height in pixels            (default: 720)\n"
+        "  point_count Number of 3-D points to simulate  (default: 10000)\n"
+        "  h264        1 = H.264 encoding (needs -DMIMIR_ENABLE_REMOTE=ON), 0 = raw (default: 0)\n"
+        "  transport   tcp (default, works with ssh -L) | quic (needs -DMIMIR_ENABLE_QUIC=ON)\n"
+        "  token       Shared secret the client must send (default: empty = accept anyone)\n"
+        "\n"
+        "All arguments are positional and optional; omitted trailing args use their defaults.\n"
+        "\n"
+        "Examples:\n"
+        "  # Minimal — listen on 9000, 1280x720, 10000 points, raw, TCP:\n"
+        "  %s\n"
+        "\n"
+        "  # H.264, 1920x1080, 50000 points, TCP (good default for LAN / ssh -L):\n"
+        "  %s 9000 1920 1080 50000 1\n"
+        "\n"
+        "  # Same but over QUIC (direct UDP, not through an ssh tunnel):\n"
+        "  %s 9000 1920 1080 50000 1 quic\n"
+        "\n"
+        "  # H.264, QUIC, with a shared secret so only authorised clients can connect:\n"
+        "  %s 9000 1920 1080 50000 1 quic mysecret\n"
+        "\n"
+        "Run from the build directory (shaders must be next to the binary):\n"
+        "  cd samples/remote-rendering/build && ./rr-server ...\n",
+        prog, prog, prog, prog, prog);
+}
+
 int main(int argc, char *argv[])
 {
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
+            usage(argv[0]);
+            return EXIT_SUCCESS;
+        }
+    }
+
     unsigned short port      = 9000;
     int width                = 1280;
     int height               = 720;
