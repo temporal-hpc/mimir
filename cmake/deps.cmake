@@ -17,8 +17,18 @@ endif()
 include(${CPM_DOWNLOAD_LOCATION})
 
 # GLFW windowing lib
+# Detect X11 availability so GLFW doesn't fail on headless HPC nodes with no X headers.
+find_package(X11 QUIET)
+if(X11_FOUND)
+    set(_glfw_x11 "GLFW_BUILD_X11 ON")
+else()
+    message(STATUS "mimir: X11 not found — building GLFW without X11 (headless/null platform)")
+    set(_glfw_x11 "GLFW_BUILD_X11 OFF")
+endif()
+
 CPMAddPackage(URI "gh:glfw/glfw#3.4"
-    OPTIONS "GLFW_BUILD_EXAMPLES OFF" "GLFW_BUILD_TESTS OFF" "GLFW_BUILD_DOCS OFF" "GLFW_BUILD_WAYLAND OFF" # Do not include Wayland support in GLFW
+    OPTIONS "GLFW_BUILD_EXAMPLES OFF" "GLFW_BUILD_TESTS OFF" "GLFW_BUILD_DOCS OFF"
+            "GLFW_BUILD_WAYLAND OFF" "${_glfw_x11}"
 )
 
 # GLM shader math lib
