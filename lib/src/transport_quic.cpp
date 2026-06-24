@@ -31,6 +31,11 @@ namespace mimir::remote
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_ossl.h>
 
+// ngtcp2_conn_get_expiry2 was added after 1.22.x; alias it to the original on older releases.
+#ifndef HAVE_NGTCP2_CONN_GET_EXPIRY2
+#  define ngtcp2_conn_get_expiry2 ngtcp2_conn_get_expiry
+#endif
+
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
