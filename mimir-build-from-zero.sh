@@ -9,6 +9,7 @@ BUILD_DIR="$SCRIPT_DIR/build"
 BUILD_TYPE="Release"
 ENABLE_REMOTE=OFF
 ENABLE_QUIC=OFF
+HEADLESS=OFF
 JOBS=$(nproc)
 
 usage() {
@@ -26,6 +27,8 @@ Options:
                      Requires: ffmpeg (libavcodec, libavutil, libswscale).
   --quic             Enable QUIC transport (MIMIR_ENABLE_QUIC=ON).
                      Requires: ngtcp2 + OpenSSL.
+  --headless         Build without X11/display support (for HPC nodes / containers
+                     with no display stack). rr-server still works; windowed samples won't.
   --debug            Build in Debug mode (default: Release).
   --build-dir <dir>  Build directory (default: build/).
   --jobs <n>         Parallel build jobs (default: $(nproc)).
@@ -36,6 +39,7 @@ Examples:
   $(basename "$0") --gcc 14
   $(basename "$0") --gcc 14 --remote --quic
   $(basename "$0") --gcc 14 --remote --quic --build-dir mybuild --jobs 8
+  $(basename "$0") --remote --headless         # HPC container, no display
 EOF
 }
 
@@ -44,6 +48,7 @@ while [[ $# -gt 0 ]]; do
         --gcc)        GCC_VERSION="$2";  shift 2 ;;
         --remote)     ENABLE_REMOTE=ON;  shift ;;
         --quic)       ENABLE_QUIC=ON;    shift ;;
+        --headless)   HEADLESS=ON;       shift ;;
         --debug)      BUILD_TYPE=Debug;  shift ;;
         --build-dir)  BUILD_DIR="$2";    shift 2 ;;
         --jobs)       JOBS="$2";         shift 2 ;;
@@ -62,6 +67,7 @@ CMAKE_ARGS=(
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
     -DMIMIR_ENABLE_REMOTE="$ENABLE_REMOTE"
     -DMIMIR_ENABLE_QUIC="$ENABLE_QUIC"
+    -DMIMIR_HEADLESS="$HEADLESS"
 )
 
 if [[ -n "$GCC_VERSION" ]]; then

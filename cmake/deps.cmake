@@ -17,13 +17,28 @@ endif()
 include(${CPM_DOWNLOAD_LOCATION})
 
 # GLFW windowing lib
-# Detect X11 availability so GLFW doesn't fail on headless HPC nodes with no X headers.
-find_package(X11 QUIET)
-if(X11_FOUND)
-    set(_glfw_x11 "GLFW_BUILD_X11 ON")
-else()
-    message(STATUS "mimir: X11 not found — building GLFW without X11 (headless/null platform)")
+# On headless nodes (no display, HPC containers) disable X11 to avoid needing the full
+# X11 dev stack. Pass -DMIMIR_HEADLESS=ON from the build script to force this.
+option(MIMIR_HEADLESS "Build without X11/display support (headless server, HPC)" OFF)
+if(MIMIR_HEADLESS)
+    message(STATUS "mimir: MIMIR_HEADLESS=ON — building GLFW without X11 (null platform)")
     set(_glfw_x11 "GLFW_BUILD_X11 OFF")
+else()
+    find_package(X11 QUIET)
+    if(X11_FOUND)
+        # Verify the full set of headers GLFW actually needs; partial X11 (e.g. libgl-dev
+        # pulling in libx11-dev without libxrandr-dev) causes harder errors inside GLFW.
+        find_path(_xrandr_inc "X11/extensions/Xrandr.h")
+        if(_xrandr_inc)
+            set(_glfw_x11 "GLFW_BUILD_X11 ON")
+        else()
+            message(STATUS "mimir: X11 found but incomplete (missing XRandR) — building GLFW without X11")
+            set(_glfw_x11 "GLFW_BUILD_X11 OFF")
+        endif()
+    else()
+        message(STATUS "mimir: X11 not found — building GLFW without X11 (null platform)")
+        set(_glfw_x11 "GLFW_BUILD_X11 OFF")
+    endif()
 endif()
 
 CPMAddPackage(URI "gh:glfw/glfw#3.4"
