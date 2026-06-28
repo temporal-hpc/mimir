@@ -20,6 +20,12 @@ add_subdirectory(CA3D-voxels)
 # Experiments
 add_subdirectory(nbody)
 add_subdirectory(points3d)
+# Comparison sample: same nbody simulation rendered with datoviz instead of mimir.
+# Off by default because it fetches and builds datoviz from source (slow first build).
+option(MIMIR_SAMPLES_BUILD_DATOVIZ "Build the nbody-datoviz comparison sample" OFF)
+if(MIMIR_SAMPLES_BUILD_DATOVIZ)
+    add_subdirectory(nbody-datoviz)
+endif()
 # These sample directories were removed but their entries were left behind; disabled so the
 # tree configures. Re-enable if the samples are restored.
 #add_subdirectory(points3dcpu)
