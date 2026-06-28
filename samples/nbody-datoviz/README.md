@@ -65,11 +65,24 @@ sudo apt install xorg-dev   # libxrandr-dev, libxinerama-dev, libxcursor-dev, li
 
 (zlib is optional: datoviz only uses it for gzipped test data, which this sample never loads.)
 
+**Compiler**: CUDA 12/13 does not support GCC 16+. On systems where the default `gcc` is newer
+than GCC 14 (e.g. Arch Linux), pass the versioned compilers explicitly:
+
+```sh
+cmake -B build \
+    -DCMAKE_CXX_COMPILER=g++-14 \
+    -DCMAKE_C_COMPILER=gcc-14 \
+    -DCMAKE_CUDA_HOST_COMPILER=g++-14
+```
+
 This sample is OFF by default in the samples tree; enable it with
 `-DMIMIR_SAMPLES_BUILD_DATOVIZ=ON`, or build this directory standalone:
 
 ```sh
-cmake -B build
+cmake -B build \
+    -DCMAKE_CXX_COMPILER=g++-14 \
+    -DCMAKE_C_COMPILER=gcc-14 \
+    -DCMAKE_CUDA_HOST_COMPILER=g++-14
 cmake --build build -j
 ```
 

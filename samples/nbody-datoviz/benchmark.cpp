@@ -73,6 +73,22 @@ struct PerformanceMetrics {
     float transfer; // EXTRA column: per-frame D2H + datoviz upload cost (mimir has none).
 };
 
+static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
+static std::string sd(int v)    { return std::to_string(v); }
+
+static void printAligned(std::initializer_list<std::pair<const char*, std::string>> cols)
+{
+    std::vector<int> w;
+    for (auto& [h, v] : cols)
+        w.push_back((int)(strlen(h) > v.size() ? strlen(h) : v.size()));
+    int i = 0;
+    for (auto& [h, v] : cols) fprintf(stderr, "%-*s  ", w[i++], h);
+    fprintf(stderr, "\n");
+    i = 0;
+    for (auto& [h, v] : cols) fprintf(stderr, "%-*s  ", w[i++], v.c_str());
+    fprintf(stderr, "\n");
+}
+
 struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics power;
@@ -94,6 +110,26 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
     auto nvml = result.memory;
 
     // Same column order as nbody, with transfer_time appended as the final column.
+    printAligned({
+        {"mode",          mode},
+        {"windowres",     resolution},
+        {"N",             sd(input.body_count)},
+        {"target_fps",    sd(input.target_fps)},
+        {"framerate",     sf(library.frame_rate)},
+        {"compute_time",  sf(library.times.compute)},
+        {"pipeline_time", sf(library.times.pipeline)},
+        {"graphics_time", sf(library.times.graphics)},
+        {"vk_usage",      sf(library.devmem.usage)},
+        {"vk_budget",     sf(library.devmem.budget)},
+        {"gpu_power",     sf(gpu.average_power)},
+        {"gpu_energy",    sf(gpu.total_energy)},
+        {"gpu_time",      sf(gpu.total_time)},
+        {"nvml_free",     sf(nvml.free)},
+        {"nvml_reserved", sf(nvml.reserved)},
+        {"nvml_total",    sf(nvml.total)},
+        {"nvml_used",     sf(nvml.used)},
+        {"transfer_time", sf(library.transfer)},
+    });
     printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
@@ -101,10 +137,10 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         input.target_fps,
         library.frame_rate,
         library.times.compute,
-        library.times.pipeline,   // always 0 for datoviz (not exposed)
+        library.times.pipeline,
         library.times.graphics,
-        library.devmem.usage,     // NVML used (GiB) substitute
-        library.devmem.budget,    // NVML total (GiB) substitute
+        library.devmem.usage,
+        library.devmem.budget,
         gpu.average_power,
         gpu.total_energy,
         gpu.total_time,
@@ -112,7 +148,7 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         nvml.reserved,
         nvml.total,
         nvml.used,
-        library.transfer          // EXTRA column
+        library.transfer
     );
 }
 
@@ -283,6 +319,32 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
     }
 }
 
+// Live per-frame metrics written by the simulation loop, read by the GUI callback.
+struct HudData
+{
+    unsigned int n;
+    int          frame;
+    float        fps;
+    float        compute_ms;
+    float        transfer_ms;
+    float        graphics_ms;
+};
+
+static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
+{
+    auto* hud = static_cast<HudData*>(ev->user_data);
+    dvz_gui_pos((vec2){10, 10}, (vec2){0, 0});
+    dvz_gui_size((vec2){230, 150});
+    dvz_gui_begin("Performance", 0);
+    dvz_gui_text("Bodies     %u",    hud->n);
+    dvz_gui_text("Frame      %d",    hud->frame);
+    dvz_gui_text("FPS        %.1f",  hud->fps);
+    dvz_gui_text("Compute    %.2f ms", hud->compute_ms);
+    dvz_gui_text("Transfer   %.2f ms", hud->transfer_ms);
+    dvz_gui_text("Graphics   %.2f ms", hud->graphics_ms);
+    dvz_gui_end();
+}
+
 // Holds the datoviz objects so setup/teardown stay tidy.
 struct DatovizContext
 {
@@ -295,8 +357,11 @@ struct DatovizContext
     DvzVisual *visual;
 };
 
-static DatovizContext setupDatoviz(BenchmarkInput input, NBodyParams params,
-    const float *initial_pos3, unsigned int n)
+// Marker size in pixels. datoviz sizes are in screen pixels; the NBodyParams::point_size
+// field is in world-space units tuned for mimir and is not reusable here.
+static constexpr float MARKER_SIZE_PX = 3.0f;
+
+static DatovizContext setupDatoviz(BenchmarkInput input, const float *initial_pos3, unsigned int n)
 {
     DatovizContext ctx{};
 
@@ -304,11 +369,11 @@ static DatovizContext setupDatoviz(BenchmarkInput input, NBodyParams params,
     ctx.batch = dvz_app_batch(ctx.app);
     ctx.scene = dvz_scene(ctx.batch);
 
-    int fig_flags = input.enable_sync ? DVZ_CANVAS_FLAGS_VSYNC : DVZ_CANVAS_FLAGS_NONE;
+    int fig_flags = DVZ_CANVAS_FLAGS_IMGUI;
+    if (input.enable_sync) fig_flags |= DVZ_CANVAS_FLAGS_VSYNC;
     ctx.figure = dvz_figure(ctx.scene, input.width, input.height, fig_flags);
     ctx.panel = dvz_panel_default(ctx.figure);
     ctx.arcball = dvz_panel_arcball(ctx.panel, 0); // 3D interactivity
-    (void)params;
 
     // Filled disc markers, matching mimir's Markers view appearance.
     ctx.visual = dvz_marker(ctx.batch, 0);
@@ -319,8 +384,7 @@ static DatovizContext setupDatoviz(BenchmarkInput input, NBodyParams params,
 
     dvz_marker_position(ctx.visual, 0, n, (vec3 *)initial_pos3, 0);
 
-    // Uniform size and white color, set once (static for the whole run).
-    std::vector<float> sizes(n, params.point_size);
+    std::vector<float> sizes(n, MARKER_SIZE_PX);
     dvz_marker_size(ctx.visual, 0, n, sizes.data(), 0);
 
     std::vector<DvzColor> colors(n);
@@ -336,7 +400,6 @@ static DatovizContext setupDatoviz(BenchmarkInput input, NBodyParams params,
 
 BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 {
-    params.point_size /= 5.f;
 
     const int device_id = 0;
     checkCuda(cudaSetDevice(device_id));
@@ -380,7 +443,13 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     checkCuda(cudaMemcpy(h_pos3, d_pos3, vec3_memsize, cudaMemcpyDeviceToHost));
 
     DatovizContext ctx{};
-    if (input.display) { ctx = setupDatoviz(input, params, h_pos3, n); }
+    HudData hud{};
+    hud.n = n;
+    if (input.display)
+    {
+        ctx = setupDatoviz(input, h_pos3, n);
+        dvz_app_gui(ctx.app, dvz_figure_id(ctx.figure), hudCallback, &hud);
+    }
 
     // CUDA events for compute timing (same instrument mimir uses).
     cudaEvent_t cstart, cstop;
@@ -417,12 +486,25 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                     h_pos3[3 * b + 2] = host.pos[4 * b + 2];
                 }
                 dvz_marker_position(ctx.visual, 0, n, (vec3 *)h_pos3, 0);
-                total_transfer += (float)ms_since(t0);
+                float frame_transfer = (float)ms_since(t0);
+                total_transfer += frame_transfer;
 
                 auto g0 = clk::now();
-                if (!dvz_app_step(ctx.app)) { break; }
-                total_graphics += (float)ms_since(g0);
+                if (!dvz_scene_step(ctx.scene, ctx.app)) { break; }
+                float frame_graphics = (float)ms_since(g0);
+                total_graphics += frame_graphics;
                 frame_count++;
+
+                float frame_compute = (float)ms_since(c0) - frame_transfer - frame_graphics;
+                float frame_total = frame_compute + frame_transfer + frame_graphics;
+                hud.frame       = (int)frame_count;
+                hud.compute_ms  = frame_compute;
+                hud.transfer_ms = frame_transfer;
+                hud.graphics_ms = frame_graphics;
+                if (frame_total > 0) {
+                    float new_fps = 1000.f / frame_total;
+                    hud.fps = (frame_count == 1) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
+                }
             }
         }
         delete[] host.force;
@@ -431,8 +513,6 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     {
         for (int i = 0; i < input.iter_count; ++i)
         {
-            if (input.display && !dvz_app_is_running(ctx.app)) { break; }
-
             // --- Compute (physics kernel only, same as mimir's compute metric) ---
             checkCuda(cudaEventRecord(cstart));
             integrateNbodySystem(device, current_read, params.time_step,
@@ -453,13 +533,29 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 packPositionsVec3(device.dPos[current_read], d_pos3, n, block_size);
                 checkCuda(cudaMemcpy(h_pos3, d_pos3, vec3_memsize, cudaMemcpyDeviceToHost));
                 dvz_marker_position(ctx.visual, 0, n, (vec3 *)h_pos3, 0);
-                total_transfer += (float)ms_since(t0);
+                float frame_transfer = (float)ms_since(t0);
+                total_transfer += frame_transfer;
 
                 // --- Graphics: render + present one frame ---
+                // dvz_scene_step (not dvz_app_step) is required: it registers the scene's
+                // per-frame callback which calls dvz_app_submit, flushing the position update
+                // queued above into the renderer. dvz_app_is_running is not checked here
+                // because is_running starts false and is only set true inside dvz_app_step.
                 auto g0 = clk::now();
-                if (!dvz_app_step(ctx.app)) { break; }
-                total_graphics += (float)ms_since(g0);
+                if (!dvz_scene_step(ctx.scene, ctx.app)) { break; }
+                float frame_graphics = (float)ms_since(g0);
+                total_graphics += frame_graphics;
                 frame_count++;
+
+                hud.frame       = (int)frame_count;
+                hud.compute_ms  = compute_ms;
+                hud.transfer_ms = frame_transfer;
+                hud.graphics_ms = frame_graphics;
+                float frame_total = compute_ms + frame_transfer + frame_graphics;
+                if (frame_total > 0) {
+                    float new_fps = 1000.f / frame_total;
+                    hud.fps = (frame_count == 1) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
+                }
             }
         }
     }
@@ -487,12 +583,12 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
     PerformanceMetrics metrics{};
     metrics.frame_rate     = frame_rate;
-    metrics.times.compute  = total_compute;
-    metrics.times.graphics = total_graphics;
+    metrics.times.compute  = total_compute  / 1000.f; // ms -> s, matches mimir convention
+    metrics.times.graphics = total_graphics / 1000.f;
     metrics.times.pipeline = 0.f; // not exposed by datoviz
     metrics.devmem.usage   = (float)nvml.used;  // NVML substitute for Vulkan budget
     metrics.devmem.budget  = (float)nvml.total; // NVML substitute
-    metrics.transfer       = total_transfer;
+    metrics.transfer       = total_transfer / 1000.f;
 
     // Cleanup
     checkCuda(cudaEventDestroy(cstart));
@@ -513,8 +609,47 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
 }
 
+static void usage(const char *prog)
+{
+    printf(
+        "Usage: %s [width height] [body_count] [iters] [present] [target_fps] [vsync] [display] [use_cpu]\n"
+        "\n"
+        "  width height   Window resolution in pixels              (default: 1920 1080)\n"
+        "  body_count     Number of simulated bodies               (default: 77824)\n"
+        "  iters          Simulation steps to run                  (default: 1000000)\n"
+        "  present        Present mode (unused; kept for CLI parity with nbody) (default: 0)\n"
+        "  target_fps     Frame-rate cap; 0 = unlimited            (default: 0)\n"
+        "  vsync          1 = enable VSync, 0 = disable            (default: 1)\n"
+        "  display        1 = open window and render, 0 = simulate only (no window) (default: 1)\n"
+        "  use_cpu        1 = CPU integrator, 0 = GPU kernel       (default: 0)\n"
+        "\n"
+        "All arguments are positional and optional; omitted trailing args use their defaults.\n"
+        "width and height must be supplied together.\n"
+        "\n"
+        "Output: one CSV row to stdout (same column layout as samples/nbody, plus transfer_time).\n"
+        "\n"
+        "Examples:\n"
+        "  # Open a 1920x1080 window, 1M bodies, 1000 steps, then exit:\n"
+        "  %s 1920 1080 1000000 1000\n"
+        "\n"
+        "  # Headless simulation (no window) — measures pure compute throughput:\n"
+        "  %s 1920 1080 1000000 1000 0 0 1 0\n"
+        "\n"
+        "  # Use the batch driver to sweep parameters and write a CSV:\n"
+        "  ./batch_main.sh results.csv\n",
+        prog, prog, prog);
+}
+
 int main(int argc, char *argv[])
 {
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
+            usage(argv[0]);
+            return EXIT_SUCCESS;
+        }
+    }
+    if (argc == 1) { usage(argv[0]); return EXIT_SUCCESS; }
+
     auto input = BenchmarkInput::defaultValues();
     NBodyParams params = demo_params[3];
 

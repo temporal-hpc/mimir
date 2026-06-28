@@ -1,5 +1,9 @@
+#include <chrono>
 #include <random>
 #include <string> // std::stoul
+#include <vector>
+
+#include <imgui.h>
 
 #include "benchmark.hpp"
 #include "nbody_gpu.cuh"
@@ -49,6 +53,22 @@ struct BenchmarkResult {
     GPUMemoryMetrics memory;
 };
 
+static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
+static std::string sd(int v)    { return std::to_string(v); }
+
+static void printAligned(std::initializer_list<std::pair<const char*, std::string>> cols)
+{
+    std::vector<int> w;
+    for (auto& [h, v] : cols)
+        w.push_back((int)(strlen(h) > v.size() ? strlen(h) : v.size()));
+    int i = 0;
+    for (auto& [h, v] : cols) fprintf(stderr, "%-*s  ", w[i++], h);
+    fprintf(stderr, "\n");
+    i = 0;
+    for (auto& [h, v] : cols) fprintf(stderr, "%-*s  ", w[i++], v.c_str());
+    fprintf(stderr, "\n");
+}
+
 void formatResults(BenchmarkInput input, BenchmarkResult result)
 {
     // Determine execution mode for benchmarking and write CSV column names
@@ -68,6 +88,25 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
     auto gpu = result.power;
     auto nvml = result.memory;
 
+    printAligned({
+        {"mode",          mode},
+        {"windowres",     resolution},
+        {"N",             sd(input.body_count)},
+        {"target_fps",    sd(input.target_fps)},
+        {"framerate",     sf(library.frame_rate)},
+        {"compute_time",  sf(library.times.compute)},
+        {"pipeline_time", sf(library.times.pipeline)},
+        {"graphics_time", sf(library.times.graphics)},
+        {"vk_usage",      sf(library.devmem.usage)},
+        {"vk_budget",     sf(library.devmem.budget)},
+        {"gpu_power",     sf(gpu.average_power)},
+        {"gpu_energy",    sf(gpu.total_energy)},
+        {"gpu_time",      sf(gpu.total_time)},
+        {"nvml_free",     sf(nvml.free)},
+        {"nvml_reserved", sf(nvml.reserved)},
+        {"nvml_total",    sf(nvml.total)},
+        {"nvml_used",     sf(nvml.used)},
+    });
     printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
@@ -266,6 +305,13 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
     }
 }
 
+struct HudData {
+    unsigned int n          = 0;
+    int          frame      = 0;
+    float        fps        = 0.f;
+    float        compute_ms = 0.f;
+};
+
 BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 {
     params.point_size /= 5.f;
@@ -284,6 +330,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     options.present.mode = input.present;
     options.present.enable_sync = input.enable_sync;
     options.present.target_fps  = input.target_fps;
+    options.show_panel = input.display; // required for setGuiCallback to fire
 
     InstanceHandle instance = nullptr;
     createInstance(options, &instance);
@@ -355,8 +402,33 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
     // Start display and measurements
     //setCameraPosition(instance, {0.f, 0.f, -3.f});
+    HudData hud{ .n = (unsigned)input.body_count };
+    if (input.display)
+    {
+        setGuiCallback(instance, [&hud]() {
+            ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(220, 100), ImGuiCond_Always);
+            ImGui::Begin("Performance", nullptr,
+                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar);
+            ImGui::Text("Bodies     %u",      hud.n);
+            ImGui::Text("Frame      %d",      hud.frame);
+            ImGui::Text("FPS        %.1f",    hud.fps);
+            ImGui::Text("Compute    %.2f ms", hud.compute_ms);
+            ImGui::End();
+        });
+    }
     GPUPowerBegin("gpu", 100);
     if (input.display) displayAsync(instance);
+
+    using Clock = std::chrono::steady_clock;
+
+    cudaEvent_t cstart = nullptr, cstop = nullptr;
+    if (input.display)
+    {
+        checkCuda(cudaEventCreate(&cstart));
+        checkCuda(cudaEventCreate(&cstop));
+    }
 
     // Main simulation loop
     if (input.use_cpu)
@@ -364,29 +436,48 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         host.force = new float[input.body_count * 3];
         memset(host.force, 0, input.body_count * 3 * sizeof(float));
 
+        auto frame_start = Clock::now();
         for (int i = 0; i < input.iter_count; ++i)
         {
+            auto t0 = Clock::now();
             integrateNBodySystemCpu(host, params.time_step,
                 params.damping, params.softening, input.body_count
             );
+            auto t1 = Clock::now();
             if (input.display) { prepareViews(instance); }
             checkCuda(cudaMemcpy(device.dPos[current_read], host.pos,
                 nbody_memsize, cudaMemcpyHostToDevice)
             );
             if (input.display) { updateViews(instance); }
+
+            if (input.display)
+            {
+                auto now = Clock::now();
+                using ms = std::chrono::duration<float, std::milli>;
+                float frame_ms = ms(now - frame_start).count();
+                float new_fps  = frame_ms > 0.f ? 1000.f / frame_ms : 0.f;
+                hud.frame      = i;
+                hud.compute_ms = ms(t1 - t0).count();
+                hud.fps        = (i == 0) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
+                frame_start    = now;
+            }
         }
 
         delete[] host.force;
     }
     else
     {
+        auto frame_start = Clock::now();
         for (int i = 0; i < input.iter_count && isRunning(instance); ++i)
         {
             if (input.display) { prepareViews(instance); }
 
+            if (input.display) { checkCuda(cudaEventRecord(cstart)); }
             integrateNbodySystem(device, current_read, params.time_step,
                 params.damping, input.body_count, block_size
             );
+            if (input.display) { checkCuda(cudaEventRecord(cstop)); }
+
             std::swap(current_read, current_write);
 
             if (input.display)
@@ -394,9 +485,25 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 toggleVisibility(views[0]);
                 toggleVisibility(views[1]);
                 updateViews(instance);
+
+                checkCuda(cudaEventSynchronize(cstop));
+                float kernel_ms = 0.f;
+                checkCuda(cudaEventElapsedTime(&kernel_ms, cstart, cstop));
+
+                auto now = Clock::now();
+                using ms = std::chrono::duration<float, std::milli>;
+                float frame_ms = ms(now - frame_start).count();
+                float new_fps  = frame_ms > 0.f ? 1000.f / frame_ms : 0.f;
+                hud.frame      = i;
+                hud.compute_ms = kernel_ms;
+                hud.fps        = (i == 0) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
+                frame_start    = now;
             }
         }
     }
+
+    if (cstart) { cudaEventDestroy(cstart); }
+    if (cstop)  { cudaEventDestroy(cstop); }
 
     // Retrieve metrics
     auto metrics = getMetrics(instance);
@@ -428,8 +535,47 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
 }
 
+static void usage(const char *prog)
+{
+    printf(
+        "Usage: %s [width height] [body_count] [iters] [present] [target_fps] [vsync] [display] [use_cpu]\n"
+        "\n"
+        "  width height   Window resolution in pixels              (default: 1920 1080)\n"
+        "  body_count     Number of simulated bodies               (default: 77824)\n"
+        "  iters          Simulation steps to run                  (default: 1000000)\n"
+        "  present        0=Immediate, 1=TripleBuffering, 2=VSync  (default: 0)\n"
+        "  target_fps     Frame-rate cap; 0 = unlimited            (default: 0)\n"
+        "  vsync          1 = enable VSync, 0 = disable            (default: 1)\n"
+        "  display        1 = open window and render, 0 = simulate only (no window) (default: 1)\n"
+        "  use_cpu        1 = CPU integrator, 0 = GPU kernel       (default: 0)\n"
+        "\n"
+        "All arguments are positional and optional; omitted trailing args use their defaults.\n"
+        "width and height must be supplied together.\n"
+        "\n"
+        "Output: one CSV row to stdout (same column layout as samples/nbody-datoviz, minus transfer_time).\n"
+        "\n"
+        "Examples:\n"
+        "  # Open a 1920x1080 window, 1M bodies, 1000 steps, then exit:\n"
+        "  %s 1920 1080 1000000 1000\n"
+        "\n"
+        "  # Headless simulation (no window) — measures pure compute throughput:\n"
+        "  %s 1920 1080 1000000 1000 0 0 1 0\n"
+        "\n"
+        "  # Use the batch driver to sweep parameters and write a CSV:\n"
+        "  ./batch_main.sh results.csv\n",
+        prog, prog, prog);
+}
+
 int main(int argc, char *argv[])
 {
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
+            usage(argv[0]);
+            return EXIT_SUCCESS;
+        }
+    }
+    if (argc == 1) { usage(argv[0]); return EXIT_SUCCESS; }
+
     auto input = BenchmarkInput::defaultValues();
     NBodyParams params = demo_params[3];
 

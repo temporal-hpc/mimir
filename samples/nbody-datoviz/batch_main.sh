@@ -2,6 +2,19 @@
 # Same driver as samples/nbody/batch_main.sh, pointing at the datoviz binary and with
 # the extra transfer_time column appended to the CSV header.
 
+if [[ "$1" == "--help" || "$1" == "-h" || -z "$1" ]]; then
+    echo "Usage: $0 <output.csv>"
+    echo ""
+    echo "  output.csv   File to append results to (created if it does not exist)"
+    echo ""
+    echo "Runs benchmark_datoviz across the parameter grid defined in this script"
+    echo "and appends one CSV row per configuration (plus a header) to output.csv."
+    echo ""
+    echo "Example:"
+    echo "  $0 results.csv"
+    exit 0
+fi
+
 iters=1000
 present=0
 sizes=(1000000)

@@ -50,7 +50,9 @@ ExternalProject_Add(datoviz_ext
         -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
     # Build only the shared library (skips struct_sizes/cli/etc.).
-    BUILD_COMMAND     ${CMAKE_COMMAND} --build <BINARY_DIR> --target libdatoviz
+    # --parallel 1: datoviz's embed_resources.cmake has a write race under parallel make
+    # (file(WRITE)+file(APPEND) is not atomic); single-job avoids duplicate shader symbols.
+    BUILD_COMMAND     ${CMAKE_COMMAND} --build <BINARY_DIR> --target libdatoviz --parallel 1
     INSTALL_COMMAND   ""
     BUILD_BYPRODUCTS  "${DATOVIZ_LIB}"
     USES_TERMINAL_DOWNLOAD TRUE
@@ -108,6 +110,8 @@ set_target_properties(benchmark_datoviz PROPERTIES
 
 target_compile_options(benchmark_datoviz PRIVATE -Wall -Wextra -O3)
 set_target_properties(benchmark_datoviz PROPERTIES
-    CUDA_STANDARD      20
-    CUDA_ARCHITECTURES native
+    CXX_STANDARD               20
+    CUDA_STANDARD              20
+    CUDA_ARCHITECTURES         native
+    RUNTIME_OUTPUT_DIRECTORY   "${CMAKE_BINARY_DIR}/bin"
 )
