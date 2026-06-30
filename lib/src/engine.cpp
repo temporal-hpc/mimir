@@ -203,8 +203,6 @@ void MimirInstance::waitKernelStart()
     cudaExternalSemaphoreWaitParams wait_params{};
     wait_params.flags = 0;
     wait_params.params.fence.value = wait_value;
-    //spdlog::trace("kernel waits for render {}", wait_params.params.fence.value);
-
     // Wait for Vulkan to complete its work
     validation::checkCuda(cudaWaitExternalSemaphoresAsync(
         &interop.cuda_semaphore, &wait_params, 1, interop.cuda_stream)
@@ -228,8 +226,6 @@ void MimirInstance::signalKernelFinish()
     cudaExternalSemaphoreSignalParams signal_params{};
     signal_params.flags = 0;
     signal_params.params.fence.value = signal_value;
-    //spdlog::trace("kernel signals iteration {}", signal_params.params.fence.value);
-
     // Signal Vulkan to continue with the updated buffers
     validation::checkCuda(cudaSignalExternalSemaphoresAsync(
         &interop.cuda_semaphore, &signal_params, 1, interop.cuda_stream)
@@ -1017,6 +1013,13 @@ void MimirInstance::initVulkan()
 
     initGraphics();
     createSyncObjects();
+    // CUDA compute events are context-lifetime (not swapchain-lifetime): they outlive
+    // swapchain rebuilds and must not be destroyed/recreated in cleanupGraphics().
+    compute_monitor = metrics::ComputeMonitor::make(0);
+    deletors.context.add([=,this]{
+        cudaEventDestroy(compute_monitor.start);
+        cudaEventDestroy(compute_monitor.stop);
+    });
     // After command pool and render pass are created.
     // The GUI uses the GLFW/window backend, so it is only initialized for on-screen instances.
     if (!isHeadless())
@@ -1151,16 +1154,13 @@ void MimirInstance::initGraphics()
     // Create one command buffer per swapchain/offscreen image
     command_buffers = createCommandBuffers(device, command_pool, swapchain.image_count);
 
-    // Initialize metrics monitoring
+    // Initialize graphics metrics monitoring (recreated on swapchain rebuild)
     auto timestamp_period = physical_device.general.properties.limits.timestampPeriod;
     graphics_monitor = metrics::GraphicsMonitor::make(device, 2 * command_buffers.size(), timestamp_period, 240);
-    compute_monitor = metrics::ComputeMonitor::make(0);
 
     deletors.graphics.add([=,this]{
         if (!isHeadless()) { vkDestroySwapchainKHR(device, swapchain.current, nullptr); }
         vkDestroyQueryPool(device, graphics_monitor.query_pool, nullptr);
-        cudaEventDestroy(compute_monitor.start);
-        cudaEventDestroy(compute_monitor.stop);
     });
 
     // Create depth image and image view
@@ -1434,20 +1434,16 @@ void MimirInstance::renderFrame()
 
     if (compute_active && options.present.enable_sync)
     {
-        VkSemaphoreWaitInfo wait_info{
-            .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-            .pNext          = nullptr,
-            .flags          = 0,
-            .semaphoreCount = 1,
-            .pSemaphores    = &interop.vk_semaphore,
-            .pValues        = &wait_value,
-        };
-        validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
-
+        // GPU waits for CUDA's signal directly at vertex-input stage so the vertex shader
+        // cannot read positions before CUDA has finished writing them.  The old CPU-side
+        // vkWaitSemaphores call is removed: it was redundant because the GPU semaphore wait
+        // provides the same guarantee, and it was stalling the render thread unnecessarily.
+        // interop.timeline_value was always 0 (never updated), so the GPU wait was a no-op;
+        // use wait_value here to pass the correct expected CUDA signal value.
         waits.push_back(interop.vk_semaphore);
-        stages.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        stages.push_back(VK_PIPELINE_STAGE_VERTEX_INPUT_BIT);
         signals.push_back(interop.vk_semaphore);
-        wait_values.push_back(interop.timeline_value);
+        wait_values.push_back(wait_value);
         signal_values.push_back(signal_value);
         advance_timeline = true;
     }
@@ -1699,6 +1695,7 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
     for (size_t view_idx = 0; view_idx < views.size(); ++view_idx)
     {
         auto& view = views[view_idx];
+        if (!view->desc.visible) { continue; }
 
         ModelViewProjection mvp{
             .model = view->translation * view->rotation * view->scale,

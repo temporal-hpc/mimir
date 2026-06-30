@@ -77,7 +77,14 @@ void addViewGUI(View *handle, int uid)
     auto& desc = handle->desc;
     bool node_open = ImGui::CollapsingHeader("", ImGuiTreeNodeFlags_AllowItemOverlap);
     ImGui::SameLine(); ImGui::Text("%s #%u", "View", uid);
-    ImGui::SameLine(ImGui::GetWindowWidth()-60); ImGui::Checkbox("show", &desc.visible);
+    {
+        float checkbox_w = ImGui::GetFrameHeight()
+            + ImGui::GetStyle().ItemSpacing.x
+            + ImGui::CalcTextSize("show").x
+            + ImGui::GetStyle().WindowPadding.x;
+        ImGui::SameLine(ImGui::GetWindowWidth() - checkbox_w);
+    }
+    ImGui::Checkbox("show", &desc.visible);
     if (node_open)
     {
         ImGui::ColorEdit4("Element color", &desc.default_color.x);
@@ -138,6 +145,11 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
 
     if (opts.show_panel)
     {
+        ImVec2 disp = ImGui::GetIO().DisplaySize;
+        float scale = std::max(disp.x / 1920.f, disp.y / 1080.f);
+        // Force a fixed width each frame so the stale ini value (from the smaller-font era)
+        // can't make the panel too narrow. Height stays auto so all controls are visible.
+        ImGui::SetNextWindowSize(ImVec2(400.f * scale, 0.f), ImGuiCond_Always);
         ImGui::Begin("Scene parameters");
 
         ImGui::InputFloat3("Light position",  (float*)&opts.light_pos, "%.3f");
@@ -196,6 +208,19 @@ void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescr
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(win_ctx.window, true);
+
+    // Load a TTF font scaled to the window's framebuffer size so the atlas is crisp at any
+    // resolution. Baseline: 16px at 1080p → 32px at 4K, etc.
+    {
+        int fw = 1920, fh = 1080;
+        glfwGetFramebufferSize(win_ctx.window, &fw, &fh);
+        float dpi_scale = std::max(static_cast<float>(fw) / 1920.f,
+                                   static_cast<float>(fh) / 1080.f);
+        ImGui::GetIO().Fonts->AddFontFromFileTTF(
+            MIMIR_IMGUI_FONTS_DIR "/Roboto-Medium.ttf",
+            16.f * dpi_scale
+        );
+    }
 
     ImGui_ImplVulkan_InitInfo info{
         .Instance                    = instance,

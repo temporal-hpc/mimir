@@ -55,6 +55,29 @@ struct BenchmarkResult {
 
 static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
 static std::string sd(int v)    { return std::to_string(v); }
+static std::string smb(size_t bytes) {
+    char b[32]; snprintf(b, sizeof(b), "%.2f MB", bytes / (1024.0 * 1024.0)); return b;
+}
+
+static void printSystemInfo(size_t nbody_memsize, bool display)
+{
+    char gpu_name[256] = "Unknown";
+    nvmlDeviceGetName(getNvmlDevice(), gpu_name, sizeof(gpu_name));
+
+    nvmlMemory_v2_t mi;
+    mi.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+    nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
+    constexpr double gb = 1024.0 * 1024.0 * 1024.0;
+
+    const char *kind = display ? "interop" : "CUDA";
+    fprintf(stderr, "GPU: %s\n", gpu_name);
+    fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
+    fprintf(stderr, "Buffers:\n");
+    fprintf(stderr, "  dPos[0]  (%s):    %s\n", kind, smb(nbody_memsize).c_str());
+    fprintf(stderr, "  dPos[1]  (%s):    %s\n", kind, smb(nbody_memsize).c_str());
+    fprintf(stderr, "  dVel     (CUDA):     %s\n", smb(nbody_memsize).c_str());
+    fprintf(stderr, "  Total:               %s\n", smb(3 * nbody_memsize).c_str());
+}
 
 static void printAligned(std::initializer_list<std::pair<const char*, std::string>> cols)
 {
@@ -161,6 +184,7 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
 {
     std::mt19937 rng(12345);
     std::uniform_real_distribution<float> rand_pos(-1.f, 1.f);
+    std::uniform_real_distribution<float> rand_unit(0.f, 1.f);
 
     //float weight = 100000.f;
     float mass = 1.f;//weight / body_count;
@@ -227,9 +251,9 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
                 float len = normalize(point);
                 if (len > 1) { continue; }
 
-                pos[p++] = point.x * (inner + (outer - inner) * rand() / (float)RAND_MAX);
-                pos[p++] = point.y * (inner + (outer - inner) * rand() / (float)RAND_MAX);
-                pos[p++] = point.z * (inner + (outer - inner) * rand() / (float)RAND_MAX);
+                pos[p++] = point.x * (inner + (outer - inner) * rand_unit(rng));
+                pos[p++] = point.y * (inner + (outer - inner) * rand_unit(rng));
+                pos[p++] = point.z * (inner + (outer - inner) * rand_unit(rng));
                 pos[p++] = mass;
 
                 x = 0.0f;  // * (rand() / (float) RAND_MAX * 2 - 1);
@@ -306,10 +330,14 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
 }
 
 struct HudData {
-    unsigned int n          = 0;
-    int          frame      = 0;
-    float        fps        = 0.f;
-    float        compute_ms = 0.f;
+    unsigned int n             = 0;
+    int          frame         = 0;
+    float        fps           = 0.f;
+    float        compute_ms    = 0.f;
+    float        render_ms     = 0.f;
+    char         gpu_name[256] = {};
+    float        gpu_total_gb  = 0.f;
+    float        buf_total_mb  = 0.f;
 };
 
 BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
@@ -406,28 +434,76 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     if (input.display)
     {
         setGuiCallback(instance, [&hud]() {
-            ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
-            ImGui::SetNextWindowSize(ImVec2(220, 100), ImGuiCond_Always);
+            ImVec2 disp = ImGui::GetIO().DisplaySize;
+            // Pivot (1,0) anchors the window's top-right corner to this position,
+            // so the window auto-sizes leftward without clipping at the right edge.
+            ImGui::SetNextWindowPos(ImVec2(disp.x - 10.f, 10.f), ImGuiCond_Always, ImVec2(1.f, 0.f));
             ImGui::Begin("Performance", nullptr,
                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar);
-            ImGui::Text("Bodies     %u",      hud.n);
-            ImGui::Text("Frame      %d",      hud.frame);
-            ImGui::Text("FPS        %.1f",    hud.fps);
-            ImGui::Text("Compute    %.2f ms", hud.compute_ms);
+                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+                ImGuiWindowFlags_AlwaysAutoResize);
+            if (ImGui::BeginTable("hw", 2)) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("GPU");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_name);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f GB", hud.gpu_total_gb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Buffers");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f MB", hud.buf_total_mb);
+                ImGui::EndTable();
+            }
+            ImGui::Separator();
+            if (ImGui::BeginTable("perf", 2)) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Bodies");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.n);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Frame");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%d", hud.frame);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("FPS");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f", hud.fps);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Compute");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.compute_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Transfer");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A (zero-copy)");
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
+                ImGui::EndTable();
+            }
             ImGui::End();
         });
     }
     GPUPowerBegin("gpu", 100);
+    printSystemInfo(nbody_memsize, input.display);
+    {
+        nvmlMemory_v2_t mi;
+        mi.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
+        nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
+        hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+        hud.buf_total_mb = (float)(3 * nbody_memsize / (1024.0 * 1024.0));
+    }
     if (input.display) displayAsync(instance);
 
     using Clock = std::chrono::steady_clock;
 
-    cudaEvent_t cstart = nullptr, cstop = nullptr;
+    cudaEvent_t cstart = nullptr, cstop = nullptr, cstop_prev = nullptr;
     if (input.display)
     {
         checkCuda(cudaEventCreate(&cstart));
         checkCuda(cudaEventCreate(&cstop));
+        if (input.enable_sync)
+        {
+            checkCuda(cudaEventCreate(&cstop_prev));
+            checkCuda(cudaEventRecord(cstop_prev, 0));
+            checkCuda(cudaEventSynchronize(cstop_prev));
+        }
     }
 
     // Main simulation loop
@@ -467,6 +543,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     }
     else
     {
+        using ms = std::chrono::duration<float, std::milli>;
         auto frame_start = Clock::now();
         for (int i = 0; i < input.iter_count && isRunning(instance); ++i)
         {
@@ -490,8 +567,18 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 float kernel_ms = 0.f;
                 checkCuda(cudaEventElapsedTime(&kernel_ms, cstart, cstop));
 
-                auto now = Clock::now();
-                using ms = std::chrono::duration<float, std::milli>;
+                // GPU render time: cstop_prev fires at end of kernel_{i-1} (Vulkan starts),
+                // cstart fires after the GPU semaphore wait in prepareViews (Vulkan done).
+                // Both are on stream 0, so elapsed gives true Vulkan render latency.
+                if (input.enable_sync && i > 0)
+                {
+                    float r_ms = 0.f;
+                    checkCuda(cudaEventElapsedTime(&r_ms, cstop_prev, cstart));
+                    hud.render_ms = (i == 1) ? r_ms : 0.9f * hud.render_ms + 0.1f * r_ms;
+                }
+                if (input.enable_sync) { std::swap(cstop, cstop_prev); }
+
+                auto now       = Clock::now();
                 float frame_ms = ms(now - frame_start).count();
                 float new_fps  = frame_ms > 0.f ? 1000.f / frame_ms : 0.f;
                 hud.frame      = i;
@@ -502,8 +589,9 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         }
     }
 
-    if (cstart) { cudaEventDestroy(cstart); }
-    if (cstop)  { cudaEventDestroy(cstop); }
+    if (cstart)     { cudaEventDestroy(cstart); }
+    if (cstop)      { cudaEventDestroy(cstop); }
+    if (cstop_prev) { cudaEventDestroy(cstop_prev); }
 
     // Retrieve metrics
     auto metrics = getMetrics(instance);
@@ -525,8 +613,14 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     // Cleanup
     exit(instance);
     destroyInstance(instance);
-    checkCuda(cudaFree(device.dPos[0]));
-    checkCuda(cudaFree(device.dPos[1]));
+    // dPos[0/1] with display=1 are interop pointers managed by mimir (freed via
+    // allocLinear deletors inside destroyInstance); calling cudaFree on them would
+    // double-free. With display=0 they are plain cudaMalloc pointers.
+    if (!input.display)
+    {
+        checkCuda(cudaFree(device.dPos[0]));
+        checkCuda(cudaFree(device.dPos[1]));
+    }
     checkCuda(cudaFree(device.dVel));
 
     delete[] host.pos;

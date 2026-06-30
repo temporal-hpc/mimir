@@ -92,10 +92,14 @@ add_executable(benchmark_datoviz
 # Shared header-only helpers from the samples tree (checkCuda). No mimir link.
 target_include_directories(benchmark_datoviz PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../include"
+    "${DATOVIZ_SRC}/external/imgui"
 )
+
+set(DATOVIZ_EXTERNAL_LIB "${DATOVIZ_BUILD}/libexternal_sources.a")
 
 target_link_libraries(benchmark_datoviz PRIVATE
     datoviz
+    "${DATOVIZ_EXTERNAL_LIB}"
     powermon
     OpenMP::OpenMP_CXX
 )

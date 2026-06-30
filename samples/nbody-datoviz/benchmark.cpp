@@ -21,6 +21,7 @@
 #include <vector> // std::vector
 
 #include <datoviz.h>
+#include <imgui.h>
 
 #include "benchmark.hpp"
 #include "nbody_gpu.cuh"
@@ -75,6 +76,30 @@ struct PerformanceMetrics {
 
 static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
 static std::string sd(int v)    { return std::to_string(v); }
+static std::string smb(size_t bytes) {
+    char b[32]; snprintf(b, sizeof(b), "%.2f MB", bytes / (1024.0 * 1024.0)); return b;
+}
+
+static void printSystemInfo(size_t nbody_memsize, size_t vec3_memsize)
+{
+    char gpu_name[256] = "Unknown";
+    nvmlDeviceGetName(getNvmlDevice(), gpu_name, sizeof(gpu_name));
+
+    nvmlMemory_v2_t mi;
+    mi.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+    nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
+    constexpr double gb = 1024.0 * 1024.0 * 1024.0;
+
+    fprintf(stderr, "GPU: %s\n", gpu_name);
+    fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
+    fprintf(stderr, "Buffers:\n");
+    fprintf(stderr, "  dPos[0]  (CUDA):   %s\n", smb(nbody_memsize).c_str());
+    fprintf(stderr, "  dPos[1]  (CUDA):   %s\n", smb(nbody_memsize).c_str());
+    fprintf(stderr, "  dVel     (CUDA):   %s\n", smb(nbody_memsize).c_str());
+    fprintf(stderr, "  d_pos3   (CUDA):   %s\n", smb(vec3_memsize).c_str());
+    fprintf(stderr, "  h_pos3   (pinned): %s\n", smb(vec3_memsize).c_str());
+    fprintf(stderr, "  Total:             %s\n", smb(3 * nbody_memsize + 2 * vec3_memsize).c_str());
+}
 
 static void printAligned(std::initializer_list<std::pair<const char*, std::string>> cols)
 {
@@ -184,6 +209,7 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
 {
     std::mt19937 rng(12345);
     std::uniform_real_distribution<float> rand_pos(-1.f, 1.f);
+    std::uniform_real_distribution<float> rand_unit(0.f, 1.f);
 
     float mass = 1.f;
     float inv_mass = 1.f;
@@ -245,9 +271,9 @@ void randomizeBodies(NBodyConfig config, float *pos, float *vel, float *color,
                 float len = normalize(point);
                 if (len > 1) { continue; }
 
-                pos[p++] = point.x * (inner + (outer - inner) * rand() / (float)RAND_MAX);
-                pos[p++] = point.y * (inner + (outer - inner) * rand() / (float)RAND_MAX);
-                pos[p++] = point.z * (inner + (outer - inner) * rand() / (float)RAND_MAX);
+                pos[p++] = point.x * (inner + (outer - inner) * rand_unit(rng));
+                pos[p++] = point.y * (inner + (outer - inner) * rand_unit(rng));
+                pos[p++] = point.z * (inner + (outer - inner) * rand_unit(rng));
                 pos[p++] = mass;
 
                 x = 0.0f;
@@ -328,20 +354,26 @@ struct HudData
     float        compute_ms;
     float        transfer_ms;
     float        graphics_ms;
+    char         gpu_name[256];
+    float        gpu_total_gb;
+    float        buf_total_mb;
 };
 
 static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
 {
     auto* hud = static_cast<HudData*>(ev->user_data);
     dvz_gui_pos((vec2){10, 10}, (vec2){0, 0});
-    dvz_gui_size((vec2){230, 150});
     dvz_gui_begin("Performance", 0);
-    dvz_gui_text("Bodies     %u",    hud->n);
-    dvz_gui_text("Frame      %d",    hud->frame);
-    dvz_gui_text("FPS        %.1f",  hud->fps);
-    dvz_gui_text("Compute    %.2f ms", hud->compute_ms);
-    dvz_gui_text("Transfer   %.2f ms", hud->transfer_ms);
-    dvz_gui_text("Graphics   %.2f ms", hud->graphics_ms);
+    dvz_gui_text("GPU        %s",       hud->gpu_name);
+    dvz_gui_text("VRAM       %.1f GB",  hud->gpu_total_gb);
+    dvz_gui_text("Buffers    %.1f MB",  hud->buf_total_mb);
+    dvz_gui_text("");
+    dvz_gui_text("Bodies     %u",       hud->n);
+    dvz_gui_text("Frame      %d",       hud->frame);
+    dvz_gui_text("FPS        %.1f",     hud->fps);
+    dvz_gui_text("Compute    %.2f ms",  hud->compute_ms);
+    dvz_gui_text("Transfer   %.2f ms",  hud->transfer_ms);
+    dvz_gui_text("Graphics   %.2f ms",  hud->graphics_ms);
     dvz_gui_end();
 }
 
@@ -460,6 +492,15 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     size_t frame_count = 0;
 
     GPUPowerBegin("gpu", 100);
+    printSystemInfo(nbody_memsize, vec3_memsize);
+    {
+        nvmlMemory_v2_t mi;
+        mi.version = (unsigned int)(sizeof(nvmlMemory_v2_t) | (2 << 24U));
+        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
+        nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
+        hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+        hud.buf_total_mb = (float)((3 * nbody_memsize + 2 * vec3_memsize) / (1024.0 * 1024.0));
+    }
     auto loop_start = clk::now();
 
     if (input.use_cpu)

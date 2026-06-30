@@ -48,6 +48,10 @@ set_target_properties(mimir PROPERTIES
     CUDA_STANDARD            20
 )
 target_compile_features(mimir PRIVATE cxx_std_20)
+# Expose the path to ImGui's bundled TTF fonts so gui.cpp can load a crisp DPI-scaled font.
+target_compile_definitions(mimir PRIVATE
+    "MIMIR_IMGUI_FONTS_DIR=\"${imgui_SOURCE_DIR}/misc/fonts\""
+)
 target_compile_options(mimir PRIVATE
     -Wall -Wextra -Wformat -Wformat=2 -Wconversion -Wimplicit-fallthrough
     "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"

@@ -117,12 +117,19 @@ struct MarkerOptions
         Ellipse,
     };
 
-    // Marker shape used in this view.
-    Shape shape;
+    // Sphere3D: geometry shader expands each point into a quad; fragment shader does
+    //           ray-sphere intersection + Blinn-Phong lighting + custom depth write.
+    //           Full 3D appearance, ~4-6× more GPU work than Flat2D.
+    // Flat2D:   Native point sprites (gl_PointSize/gl_PointCoord); fragment shader
+    //           clips to a disc using point-coord distance only. No geometry shader,
+    //           no lighting, no custom depth — comparable cost to datoviz.
+    enum class RenderMode { Sphere3D, Flat2D };
 
-    // Initialize options with sensible defaults when not specified by the user.
+    Shape      shape;
+    RenderMode render_mode = RenderMode::Sphere3D;
+
     static MarkerOptions defaults() {
-        return { .shape = Shape::Disc };
+        return { .shape = Shape::Disc, .render_mode = RenderMode::Sphere3D };
     }
 };
 

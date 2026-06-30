@@ -36,10 +36,14 @@ std::string getDefaultShaderPath()
 namespace mimir
 {
 
-VkPipelineDepthStencilStateCreateInfo getDepthInfo()
+VkPipelineDepthStencilStateCreateInfo getDepthInfo(const ViewDescription& desc)
 {
-    // TODO: Decide when to apply depth testing
-    bool use_depth = true; //(domain == DomainType::Domain3D);
+    // Flat2D markers render as point sprites with no custom depth write; depth test/write
+    // adds bandwidth cost (clear + per-fragment read/write) with no visual benefit.
+    bool flat2d = desc.type == ViewType::Markers
+        && std::holds_alternative<MarkerOptions>(desc.options)
+        && std::get<MarkerOptions>(desc.options).render_mode == MarkerOptions::RenderMode::Flat2D;
+    bool use_depth = !flat2d;
     bool depth_test = use_depth;
     bool depth_write = use_depth;
 
@@ -174,17 +178,26 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
     {
         case ViewType::Markers:
         {
-            compile.module_path = "shaders/marker.slang";
-            compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
-
-            // Add dimensionality specialization
-            std::string marker_spec = fmt::format("Marker{}", getDomainType(desc.domain));
-            compile.specializations.push_back(marker_spec);
-
-            // Add shape specializations
-            compile.specializations.push_back(getShapeStyle(desc.style));
             auto options = std::get<MarkerOptions>(desc.options);
-            compile.specializations.push_back(getMarkerShape(options.shape));
+            if (options.render_mode == MarkerOptions::RenderMode::Flat2D)
+            {
+                // Flat 2D point sprites: vertex + fragment only, no geometry stage.
+                // No domain/shape/style specializations — disc clipping is built in.
+                compile.module_path = "shaders/marker_flat.slang";
+                compile.entrypoints = {"vertexMain", "fragmentMain"};
+            }
+            else
+            {
+                // Sphere3D (default): geometry shader expands points to quads;
+                // fragment does ray-sphere intersection + lighting.
+                compile.module_path = "shaders/marker.slang";
+                compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
+
+                std::string marker_spec = fmt::format("Marker{}", getDomainType(desc.domain));
+                compile.specializations.push_back(marker_spec);
+                compile.specializations.push_back(getShapeStyle(desc.style));
+                compile.specializations.push_back(getMarkerShape(options.shape));
+            }
             break;
         }
         case ViewType::Edges:
@@ -457,7 +470,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
         .vertex_input_info      = getVertexDescription(params),
         .input_assembly         = getInputAssemblyInfo(params.type),
         .rasterizer             = getRasterizationInfo(params.type),
-        .depth_stencil          = getDepthInfo(),
+        .depth_stencil          = getDepthInfo(params),
         .color_blend_attachment = color_blend,
         .multisampling          = multisampling,
     };
