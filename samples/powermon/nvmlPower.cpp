@@ -284,3 +284,8 @@ nvmlDevice_t getNvmlDevice()
 {
     return nvmlDeviceID;
 }
+
+double getGPUCurrentPower()
+{
+    return gpuCurrentPower;
+}

@@ -34,6 +34,9 @@ struct GPUPowerMetrics
 void GPUPowerBegin(const char *alg, int ms);
 GPUPowerMetrics GPUPowerEnd();
 nvmlDevice_t getNvmlDevice();
+// Most recent whole-board GPU power draw in Watts, as sampled by the background polling
+// thread started by GPUPowerBegin() (0 before it runs). Board-level, not per-process.
+double getGPUCurrentPower();
 
 // CPU power measure functions
 void CPUPowerBegin(const char *alg, int ms);

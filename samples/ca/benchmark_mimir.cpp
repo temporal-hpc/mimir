@@ -40,6 +40,7 @@ struct HudData {
     float        fps;
     float        compute_ms;
     float        render_ms;
+    float        gpu_watts;
     char         gpu_name[256];
     float        gpu_total_gb;
     float        buf_mb;
@@ -296,6 +297,9 @@ BenchmarkResult runExperiment(CAInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Power");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
                 ImGui::EndTable();
             }
             ImGui::End();
@@ -378,6 +382,8 @@ BenchmarkResult runExperiment(CAInput input)
             hud.frame      = i;
             hud.compute_ms = (i == 0) ? kernel_ms : 0.9f * hud.compute_ms + 0.1f * kernel_ms;
             hud.fps        = (i == 0) ? new_fps   : 0.9f * hud.fps        + 0.1f * new_fps;
+            float watts    = (float)getGPUCurrentPower();
+            hud.gpu_watts  = (i == 0) ? watts     : 0.9f * hud.gpu_watts  + 0.1f * watts;
             frame_start    = now;
             ++frame_count;
         }

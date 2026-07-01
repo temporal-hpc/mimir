@@ -365,6 +365,7 @@ struct HudData
     float        d2h_ms;       // cudaMemcpy Device→Host (PCIe DMA; 0 in CPU path)
     float        h2h_ms;       // dvz_marker_position (pinned host → datoviz internal heap copy)
     float        render_ms;    // dvz_scene_step: H2D staging write + D2D upload + draw (inseparable)
+    float        gpu_watts;
     char         gpu_name[256];
     float        gpu_total_gb;
     float        buf_total_mb;
@@ -388,6 +389,7 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("    D2H    %.2f ms",  hud->d2h_ms);
     dvz_gui_text("    H2H    %.2f ms",  hud->h2h_ms);
     dvz_gui_text("Render     %.2f ms (H2D + D2D + draw)", hud->render_ms);
+    dvz_gui_text("Power      %.1f W",   hud->gpu_watts);
     dvz_gui_end();
 }
 
@@ -572,6 +574,8 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                     float new_fps = 1000.f / frame_total;
                     hud.fps = (frame_count == 1) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
                 }
+                float watts   = (float)getGPUCurrentPower();
+                hud.gpu_watts = (frame_count == 1) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
             }
         }
         delete[] host.force;
@@ -637,6 +641,8 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                     float new_fps = 1000.f / frame_total;
                     hud.fps = (frame_count == 1) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
                 }
+                float watts   = (float)getGPUCurrentPower();
+                hud.gpu_watts = (frame_count == 1) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
             }
         }
     }
