@@ -5,15 +5,23 @@
 //
 //   mimir   : CUDA writes R8 pixels into a Vulkan/CUDA shared buffer — zero transfer.
 //   datoviz : has no CUDA interop; each frame the pixel buffer must round-trip:
-//               1. pack    uint8 grid → uchar4 device buffer     (GPU kernel)
-//               2. d2h     uchar4 device → pinned host buffer     (PCIe)
-//               3. staging host buffer → datoviz staging buffer   (CPU memcpy)
-//               4. upload  staging → GPU texture memory           (GPU, inside dvz_scene_step)
-//               5. draw    render the fullscreen quad              (GPU, inside dvz_scene_step)
+//               1. D2H    uint8 grid (device) -> pinned host buffer     (PCIe DMA)
+//               2. H2H    pinned host -> datoviz's internal heap copy   (CPU memcpy,
+//                                                                        inside dvz_texture_data)
+//               3. H2D    heap copy -> Vulkan staging VkBuffer          (CPU memcpy,
+//                                                                        inside dvz_scene_step)
+//               4. D2D    staging VkBuffer -> device-local VkImage      (GPU copy + tiling,
+//                                                                        inside dvz_scene_step)
+//               5. draw   render the fullscreen quad                    (GPU, inside dvz_scene_step)
 //
-// Steps 4 and 5 are inseparable via the datoviz public API; both are captured
-// in render_ms (dvz_scene_step wall-clock) and labeled "GPU upload + draw" in
-// the HUD and CSV output.
+// The grid is already single-byte grayscale (0/255 per cell), so no RGBA packing
+// kernel is needed: the texture is DVZ_FORMAT_R8_UNORM, displayed via datoviz's
+// built-in DVZ_CMAP_BINARY colormap (DVZ_IMAGE_FLAGS_MODE_COLORMAP). This is a 4x
+// reduction in bytes moved per frame versus an RGBA8 texture.
+//
+// Steps 3, 4 and 5 are inseparable via the datoviz public API; all three are
+// captured in render_ms (dvz_scene_step wall-clock) and labeled "H2D + D2D + draw"
+// in the HUD and CSV output.
 
 #include <atomic>
 #include <chrono>
@@ -53,10 +61,10 @@ struct HudData {
     int          frame;
     float        fps;
     float        compute_ms;
-    float        pack_ms;      // launchPackRGBA GPU kernel (uint8 → uchar4 device)
-    float        d2h_ms;       // cudaMemcpy Device→Host (PCIe)
-    float        staging_ms;   // dvz_texture_data (host → CPU staging buffer, fast)
-    float        render_ms;    // dvz_scene_step: GPU staging→texture upload + draw (inseparable)
+    float        pack_ms;      // always 0 — grid is already single-byte grayscale
+    float        d2h_ms;       // cudaMemcpy Device->Host (PCIe DMA)
+    float        h2h_ms;       // dvz_texture_data (pinned host -> datoviz internal heap copy)
+    float        render_ms;    // dvz_scene_step: H2D + D2D + draw (inseparable)
     char         gpu_name[256];
     float        gpu_total_gb;
     float        buf_mb;
@@ -68,13 +76,13 @@ struct HudData {
 // Mirrors mimir's PerformanceMetrics so CSV columns line up.
 // pipeline is not measurable via datoviz and is always 0.
 // devmem usage/budget are substituted with NVML used/total.
-// graphics_time = dvz_scene_step wall-clock (GPU texture upload from staging + draw).
-// transfer.{pack,d2h,staging} are the three CPU-measurable stages before dvz_scene_step.
+// graphics_time = dvz_scene_step wall-clock (H2D staging write + D2D retile + draw).
+// transfer.{pack,d2h,h2h} are the measurable stages before dvz_scene_step.
 struct PerformanceMetrics {
     float frame_rate;
     struct { float compute; float graphics; float pipeline; } times;
     struct { float usage; float budget; } devmem;
-    struct { float pack; float d2h; float staging; } transfer;
+    struct { float pack; float d2h; float h2h; } transfer;
 };
 
 struct GPUMemoryMetrics { double free, reserved, total, used; };
@@ -134,9 +142,8 @@ static void printSystemInfo(CAInput input)
     fprintf(stderr, "Buffers:\n");
     fprintf(stderr, "  d_grid[0]  (CUDA):    %s\n", smb(N).c_str());
     fprintf(stderr, "  d_grid[1]  (CUDA):    %s\n", smb(N).c_str());
-    fprintf(stderr, "  d_rgba     (CUDA):    %s\n", smb(N * 4).c_str());
-    fprintf(stderr, "  h_rgba     (pinned):  %s\n", smb(N * 4).c_str());
-    fprintf(stderr, "  Total:                %s\n", smb(N * 10).c_str());
+    fprintf(stderr, "  h_pixels   (pinned):  %s\n", smb(N).c_str());
+    fprintf(stderr, "  Total:                %s\n", smb(N * 3).c_str());
 }
 
 void formatResults(CAInput input, BenchmarkResult result)
@@ -152,8 +159,8 @@ void formatResults(CAInput input, BenchmarkResult result)
     auto nvml = result.memory;
 
     // Same column order as benchmark_mimir.
-    // graphics_time = dvz_scene_step (GPU texture upload + draw, inseparable).
-    // pack_time/d2h_time/staging_time are the three measurable transfer stages.
+    // graphics_time = dvz_scene_step (H2D staging write + D2D retile + draw, inseparable).
+    // pack_time/d2h_time/h2h_time are the measurable transfer stages.
     printAligned({
         {"mode",          mode},
         {"windowres",     resolution},
@@ -177,7 +184,7 @@ void formatResults(CAInput input, BenchmarkResult result)
         {"nvml_used",     sf((float)nvml.used)},
         {"pack_time",     sf(lib.transfer.pack)},
         {"d2h_time",      sf(lib.transfer.d2h)},
-        {"staging_time",  sf(lib.transfer.staging)},
+        {"h2h_time",      sf(lib.transfer.h2h)},
     });
     printf("%s,%s,%d,%d,%u,%f,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
@@ -187,7 +194,7 @@ void formatResults(CAInput input, BenchmarkResult result)
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
         nvml.free, nvml.reserved, nvml.total, nvml.used,
-        lib.transfer.pack, lib.transfer.d2h, lib.transfer.staging);
+        lib.transfer.pack, lib.transfer.d2h, lib.transfer.h2h);
 }
 
 // ---------------------------------------------------------------------------
@@ -226,11 +233,11 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("Compute    %.2f ms",   hud->compute_ms);
     dvz_gui_text("Pack       %.2f ms",   hud->pack_ms);
     dvz_gui_text("D2H        %.2f ms",   hud->d2h_ms);
-    dvz_gui_text("Stage      %.2f ms",   hud->staging_ms);
-    dvz_gui_text("Transfer   %.2f ms (pack + D2H + staging)",
-                 hud->pack_ms + hud->d2h_ms + hud->staging_ms);
+    dvz_gui_text("H2H        %.2f ms",   hud->h2h_ms);
+    dvz_gui_text("Transfer   %.2f ms (pack + D2H + H2H)",
+                 hud->pack_ms + hud->d2h_ms + hud->h2h_ms);
     dvz_gui_text("Render*    %.2f ms",   hud->render_ms);
-    dvz_gui_text("* GPU upload + draw");
+    dvz_gui_text("* H2D + D2D + draw");
     dvz_gui_end();
 }
 
@@ -238,7 +245,7 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
 // datoviz setup
 // ---------------------------------------------------------------------------
 
-static DatovizContext setupDatoviz(CAInput input, const uchar4* initial_pixels, int W, int H)
+static DatovizContext setupDatoviz(CAInput input, const uint8_t* initial_pixels, int W, int H)
 {
     DatovizContext ctx{};
     ctx.app   = dvz_app(DVZ_APP_FLAGS_NONE);
@@ -251,7 +258,10 @@ static DatovizContext setupDatoviz(CAInput input, const uchar4* initial_pixels, 
     ctx.panel  = dvz_panel_default(ctx.figure);
     dvz_panel_panzoom(ctx.panel, 0);
 
-    ctx.visual = dvz_image(ctx.batch, 0);
+    // Single-channel R8 texture displayed through datoviz's built-in grayscale
+    // colormap — no RGBA packing kernel needed.
+    ctx.visual = dvz_image(ctx.batch, DVZ_IMAGE_FLAGS_MODE_COLORMAP);
+    dvz_image_colormap(ctx.visual, DVZ_CMAP_BINARY);
     dvz_image_alloc(ctx.visual, 1);
 
     // Center the image in the panel, scaled to fill the window.
@@ -266,7 +276,7 @@ static DatovizContext setupDatoviz(CAInput input, const uchar4* initial_pixels, 
 
     ctx.texture = dvz_texture_2D(
         ctx.batch,
-        DVZ_FORMAT_R8G8B8A8_UNORM,
+        DVZ_FORMAT_R8_UNORM,
         DVZ_FILTER_NEAREST,
         DVZ_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         (uint32_t)W, (uint32_t)H,
@@ -294,18 +304,15 @@ BenchmarkResult runExperiment(CAInput input)
     checkCuda(cudaMalloc(&d_grid[1], N));
     int r = 0, w = 1;
 
-    // Device RGBA staging buffer + pinned host buffer for fast D2H.
-    uchar4* d_rgba = nullptr;
-    uchar4* h_rgba = nullptr;
-    checkCuda(cudaMalloc((void**)&d_rgba, sizeof(uchar4) * N));
-    checkCuda(cudaHostAlloc((void**)&h_rgba, sizeof(uchar4) * N, cudaHostAllocDefault));
+    // Pinned host buffer for fast D2H — same byte layout as d_grid (0/255 per cell).
+    uint8_t* h_pixels = nullptr;
+    checkCuda(cudaHostAlloc((void**)&h_pixels, N, cudaHostAllocDefault));
 
     auto h_grid = initGrid(input.ca);
     checkCuda(cudaMemcpy(d_grid[r], h_grid.data(), N, cudaMemcpyHostToDevice));
 
-    // Pack initial pixels for datoviz texture creation.
-    launchPackRGBA(d_grid[r], d_rgba, W, H);
-    checkCuda(cudaMemcpy(h_rgba, d_rgba, sizeof(uchar4) * N, cudaMemcpyDeviceToHost));
+    // Prime the pinned buffer for datoviz texture creation.
+    checkCuda(cudaMemcpy(h_pixels, d_grid[r], N, cudaMemcpyDeviceToHost));
 
     std::atomic<bool> quit_flag{false};
 
@@ -319,7 +326,7 @@ BenchmarkResult runExperiment(CAInput input)
 
     if (input.display)
     {
-        ctx = setupDatoviz(input, h_rgba, W, H);
+        ctx = setupDatoviz(input, h_pixels, W, H);
         dvz_app_gui(ctx.app, dvz_figure_id(ctx.figure), hudCallback, &hud);
         dvz_app_on_keyboard(ctx.app, keyCallback, &quit_flag);
 
@@ -328,21 +335,18 @@ BenchmarkResult runExperiment(CAInput input)
         mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
         nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
         hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
-        // 2 × uint8 grid + device uchar4 + pinned uchar4
-        hud.buf_mb = (float)((2 * N + 4 * N + 4 * N) / (1024.0 * 1024.0));
+        // 2 x uint8 grid + pinned uint8 buffer
+        hud.buf_mb = (float)((2 * N + N) / (1024.0 * 1024.0));
     }
 
-    // CUDA events: cstart/cstop for GoL compute, pstart/pstop for pack kernel.
-    cudaEvent_t cstart, cstop, pstart, pstop;
+    // CUDA events for GoL compute timing.
+    cudaEvent_t cstart, cstop;
     checkCuda(cudaEventCreate(&cstart));
     checkCuda(cudaEventCreate(&cstop));
-    checkCuda(cudaEventCreate(&pstart));
-    checkCuda(cudaEventCreate(&pstop));
 
     float total_compute  = 0.f;
-    float total_pack     = 0.f;
     float total_d2h      = 0.f;
-    float total_staging  = 0.f;
+    float total_h2h      = 0.f;
     float total_graphics = 0.f;
     size_t frame_count   = 0;
 
@@ -366,46 +370,35 @@ BenchmarkResult runExperiment(CAInput input)
 
         if (input.display)
         {
-            // --- Pack: uint8 grid → uchar4 device buffer (GPU kernel) ---
-            checkCuda(cudaEventRecord(pstart));
-            launchPackRGBA(d_grid[r], d_rgba, W, H);
-            checkCuda(cudaEventRecord(pstop));
-
-            // --- D2H: device → pinned host (synchronous; also drains stream 0,
-            //     making pstop queryable immediately after). ---
+            // --- D2H: uint8 grid (device) -> pinned host (PCIe DMA) ---
             auto t_d2h = clk::now();
-            checkCuda(cudaMemcpy(h_rgba, d_rgba,
-                sizeof(uchar4) * N, cudaMemcpyDeviceToHost));
+            checkCuda(cudaMemcpy(h_pixels, d_grid[r], N, cudaMemcpyDeviceToHost));
             float d2h_ms = (float)ms_since(t_d2h);
 
-            float pack_ms = 0.f;
-            checkCuda(cudaEventElapsedTime(&pack_ms, pstart, pstop));
-
-            // --- Staging: host → datoviz CPU staging buffer (fast memcpy) ---
-            auto t_staging = clk::now();
+            // --- H2H: pinned host -> datoviz's internal heap copy (CPU memcpy) ---
+            auto t_h2h = clk::now();
             dvz_texture_data(ctx.texture, 0, 0, 0,
                 (uint32_t)W, (uint32_t)H, 1,
-                (DvzSize)(sizeof(uchar4) * N), h_rgba);
-            float staging_ms = (float)ms_since(t_staging);
+                (DvzSize)N, h_pixels);
+            float h2h_ms = (float)ms_since(t_h2h);
 
-            total_pack    += pack_ms;
-            total_d2h     += d2h_ms;
-            total_staging += staging_ms;
+            total_d2h += d2h_ms;
+            total_h2h += h2h_ms;
 
-            // --- Render: dvz_scene_step = GPU staging→texture upload + draw ---
-            // These two GPU operations are inseparable via the datoviz public API.
+            // --- Render: dvz_scene_step = H2D staging write + D2D retile + draw ---
+            // These GPU/CPU operations are inseparable via the datoviz public API.
             auto t_render = clk::now();
             if (!dvz_scene_step(ctx.scene, ctx.app) || quit_flag) break;
             float graphics_ms = (float)ms_since(t_render);
             total_graphics += graphics_ms;
             ++frame_count;
 
-            float frame_total = compute_ms + pack_ms + d2h_ms + staging_ms + graphics_ms;
+            float frame_total = compute_ms + d2h_ms + h2h_ms + graphics_ms;
             hud.frame      = (int)frame_count;
             hud.compute_ms = compute_ms;
-            hud.pack_ms    = pack_ms;
+            hud.pack_ms    = 0.f;
             hud.d2h_ms     = d2h_ms;
-            hud.staging_ms = staging_ms;
+            hud.h2h_ms     = h2h_ms;
             hud.render_ms  = graphics_ms;
             if (frame_total > 0.f) {
                 float new_fps = 1000.f / frame_total;
@@ -439,15 +432,13 @@ BenchmarkResult runExperiment(CAInput input)
     metrics.times.pipeline      = 0.f;
     metrics.devmem.usage        = (float)nvml.used;
     metrics.devmem.budget       = (float)nvml.total;
-    metrics.transfer.pack       = total_pack     / 1000.f;
-    metrics.transfer.d2h        = total_d2h      / 1000.f;
-    metrics.transfer.staging    = total_staging  / 1000.f;
+    metrics.transfer.pack       = 0.f;
+    metrics.transfer.d2h        = total_d2h / 1000.f;
+    metrics.transfer.h2h        = total_h2h / 1000.f;
 
     // Cleanup
     checkCuda(cudaEventDestroy(cstart));
     checkCuda(cudaEventDestroy(cstop));
-    checkCuda(cudaEventDestroy(pstart));
-    checkCuda(cudaEventDestroy(pstop));
 
     if (input.display)
     {
@@ -456,8 +447,7 @@ BenchmarkResult runExperiment(CAInput input)
     }
     checkCuda(cudaFree(d_grid[0]));
     checkCuda(cudaFree(d_grid[1]));
-    checkCuda(cudaFree(d_rgba));
-    checkCuda(cudaFreeHost(h_rgba));
+    checkCuda(cudaFreeHost(h_pixels));
 
     return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
 }
@@ -483,8 +473,9 @@ static void usage(const char* prog)
         "  display        1 = open window, 0 = headless compute   (default: 1)\n"
         "\n"
         "Output: one CSV row to stdout.\n"
-        "        Columns match benchmark_mimir plus pack_time, d2h_time, staging_time.\n"
-        "        graphics_time = dvz_scene_step (GPU texture upload + draw, inseparable).\n",
+        "        Columns match benchmark_mimir plus pack_time, d2h_time, h2h_time.\n"
+        "        graphics_time = dvz_scene_step (H2D staging write + D2D retile + draw,\n"
+        "        inseparable).\n",
         prog);
 }
 

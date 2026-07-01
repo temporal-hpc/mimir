@@ -25,17 +25,6 @@ __global__ void stepGoLKernel(const uint8_t* __restrict__ src,
     dst[y * W + x] = (n == 3 || (alive && n == 2)) ? 255u : 0u;
 }
 
-// Convert uint8 grid to RGBA8 for display.
-__global__ void packRGBAKernel(const uint8_t* __restrict__ grid,
-                               uchar4*        __restrict__ out,
-                               int N)
-{
-    int i = (int)(blockIdx.x * blockDim.x + threadIdx.x);
-    if (i >= N) return;
-    unsigned char v = grid[i] ? 220u : 15u;
-    out[i] = {v, v, v, 255u};
-}
-
 // ---------------------------------------------------------------------------
 // Launch wrappers
 // ---------------------------------------------------------------------------
@@ -45,12 +34,6 @@ void launchStepGoL(const uint8_t* src, uint8_t* dst, int W, int H, cudaStream_t 
     dim3 block(16, 16);
     dim3 grid((W + 15) / 16, (H + 15) / 16);
     stepGoLKernel<<<grid, block, 0, s>>>(src, dst, W, H);
-}
-
-void launchPackRGBA(const uint8_t* grid, uchar4* out, int W, int H, cudaStream_t s)
-{
-    int N = W * H;
-    packRGBAKernel<<<(N + 255) / 256, 256, 0, s>>>(grid, out, N);
 }
 
 // ---------------------------------------------------------------------------

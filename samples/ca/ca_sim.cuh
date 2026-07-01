@@ -15,6 +15,3 @@ std::vector<uint8_t> initGrid(const CAParams& p);
 
 // Conway's Game of Life: one step with toroidal wrapping.
 void launchStepGoL(const uint8_t* src, uint8_t* dst, int W, int H, cudaStream_t s = 0);
-
-// Pack uint8 grid into RGBA8: alive → (220,220,220,255), dead → (15,15,15,255).
-void launchPackRGBA(const uint8_t* grid, uchar4* out, int W, int H, cudaStream_t s = 0);
