@@ -10,6 +10,7 @@
 //               3. dvz_texture_data uploads host buffer → GPU texture (inside datoviz)
 //             That round trip is the overhead this benchmark quantifies (transfer_time).
 
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <string>
@@ -177,6 +178,21 @@ void formatResults(CAInput input, BenchmarkResult result)
 }
 
 // ---------------------------------------------------------------------------
+// Keyboard callback — Ctrl+W closes the window
+// ---------------------------------------------------------------------------
+
+static void keyCallback(DvzApp* /*app*/, DvzId /*window_id*/, DvzKeyboardEvent* ev)
+{
+    if (ev->type == DVZ_KEYBOARD_EVENT_PRESS
+        && ev->key  == DVZ_KEY_W
+        && (ev->mods & DVZ_KEY_MODIFIER_CONTROL))
+    {
+        auto* flag = static_cast<std::atomic<bool>*>(ev->user_data);
+        flag->store(true);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // HUD callback (datoviz GUI — called from within dvz_scene_step)
 // ---------------------------------------------------------------------------
 
@@ -273,6 +289,8 @@ BenchmarkResult runExperiment(CAInput input)
     launchPackRGBA(d_grid[r], d_rgba, W, H);
     checkCuda(cudaMemcpy(h_rgba, d_rgba, sizeof(uchar4) * N, cudaMemcpyDeviceToHost));
 
+    std::atomic<bool> quit_flag{false};
+
     DatovizContext ctx{};
     HudData hud{};
     hud.cells   = (unsigned int)N;
@@ -285,6 +303,7 @@ BenchmarkResult runExperiment(CAInput input)
     {
         ctx = setupDatoviz(input, h_rgba, W, H);
         dvz_app_gui(ctx.app, dvz_figure_id(ctx.figure), hudCallback, &hud);
+        dvz_app_on_keyboard(ctx.app, keyCallback, &quit_flag);
 
         nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
         nvmlMemory_v2_t mi;
@@ -339,7 +358,7 @@ BenchmarkResult runExperiment(CAInput input)
 
             // --- Render ---
             auto g0 = clk::now();
-            if (!dvz_scene_step(ctx.scene, ctx.app)) break;
+            if (!dvz_scene_step(ctx.scene, ctx.app) || quit_flag) break;
             float graphics_ms = (float)ms_since(g0);
             total_graphics += graphics_ms;
             ++frame_count;

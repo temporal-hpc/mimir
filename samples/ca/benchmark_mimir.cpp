@@ -7,6 +7,7 @@
 //
 // Compare with benchmark_datoviz.cpp which must round-trip GPU -> host -> GPU.
 
+#include <atomic>
 #include <chrono>
 #include <vector>
 #include <string>
@@ -211,6 +212,9 @@ BenchmarkResult runExperiment(CAInput input)
         checkCuda(cudaMalloc((void**)&d_pixels, sizeof(uchar4) * N));
     }
 
+    // Ctrl+W closes the window; set by the GUI callback, polled by the main loop.
+    std::atomic<bool> quit_flag{false};
+
     // HUD data shared between the simulation loop and the ImGui callback.
     HudData hud{};
     hud.cells   = (unsigned int)N;
@@ -229,8 +233,12 @@ BenchmarkResult runExperiment(CAInput input)
         // 2 × uint8 grid + 1 × uchar4 pixel buffer
         hud.buf_mb = (float)((2 * N + 4 * N) / (1024.0 * 1024.0));
 
-        setGuiCallback(instance, [&hud]() {
-            ImVec2 disp = ImGui::GetIO().DisplaySize;
+        setGuiCallback(instance, [&hud, &quit_flag]() {
+            auto& io = ImGui::GetIO();
+            if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_W, /*repeat=*/false))
+                quit_flag.store(true);
+
+            ImVec2 disp = io.DisplaySize;
             ImGui::SetNextWindowPos(ImVec2(disp.x - 10.f, 10.f),
                 ImGuiCond_Always, ImVec2(1.f, 0.f));
             ImGui::Begin("Performance", nullptr,
@@ -302,7 +310,7 @@ BenchmarkResult runExperiment(CAInput input)
     auto loop_start  = Clock::now();
     size_t frame_count = 0;
 
-    for (int i = 0; i < input.iter_count && (!input.display || isRunning(instance)); ++i)
+    for (int i = 0; i < input.iter_count && (!input.display || (isRunning(instance) && !quit_flag)); ++i)
     {
         if (input.display) prepareViews(instance);
 
