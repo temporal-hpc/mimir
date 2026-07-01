@@ -233,11 +233,8 @@ BenchmarkResult runExperiment(CAInput input)
 
     if (input.display)
     {
-        nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
-        nvmlMemory_v2_t mi;
-        mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
-        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
-        hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+        // GPU name/VRAM need NVML, which is only initialized later by GPUPowerBegin(); they are
+        // filled in after that call. buf_mb needs no NVML, so set it here.
         hud.buf_mb = (float)((2 * N) / (1024.0 * 1024.0));  // 2 × uint8 interop grid
 
         setGuiCallback(instance, [&hud, &quit_flag]() {
@@ -303,8 +300,6 @@ BenchmarkResult runExperiment(CAInput input)
             }
             ImGui::End();
         });
-
-        displayAsync(instance);
     }
 
     // CUDA timing events.
@@ -320,6 +315,20 @@ BenchmarkResult runExperiment(CAInput input)
 
     GPUPowerBegin("gpu", 100);
     printSystemInfo(input);
+
+    if (input.display)
+    {
+        // NVML is initialized by GPUPowerBegin() above, so the GPU name/VRAM queries succeed
+        // here (they returned 0 when issued before init). Start the async render loop only
+        // after the HUD fields are valid so the very first frame shows correct values.
+        nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
+        nvmlMemory_v2_t mi;
+        mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
+        hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+
+        displayAsync(instance);
+    }
 
     using Clock = std::chrono::steady_clock;
     auto frame_start = Clock::now();

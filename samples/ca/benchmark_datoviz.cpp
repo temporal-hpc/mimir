@@ -325,11 +325,8 @@ BenchmarkResult runExperiment(CAInput input)
         dvz_app_gui(ctx.app, dvz_figure_id(ctx.figure), hudCallback, &hud);
         dvz_app_on_keyboard(ctx.app, keyCallback, &quit_flag);
 
-        nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
-        nvmlMemory_v2_t mi;
-        mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
-        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
-        hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+        // GPU name/VRAM need NVML, which is only initialized later by GPUPowerBegin(); they are
+        // filled in after that call. buf_mb needs no NVML, so set it here.
         // 2 x uint8 grid + pinned uint8 buffer
         hud.buf_mb = (float)((2 * N + N) / (1024.0 * 1024.0));
     }
@@ -347,6 +344,17 @@ BenchmarkResult runExperiment(CAInput input)
 
     GPUPowerBegin("gpu", 100);
     printSystemInfo(input);
+
+    if (input.display)
+    {
+        // NVML is initialized by GPUPowerBegin() above, so the GPU name/VRAM queries succeed
+        // here (they returned 0 when issued before init).
+        nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
+        nvmlMemory_v2_t mi;
+        mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
+        hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+    }
 
     auto loop_start = clk::now();
 
