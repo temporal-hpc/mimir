@@ -92,7 +92,7 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
         },
         .render_timeline   = 0,
         .running           = false,
-        .compute_active    = false,
+        .render_request    = 0,
         .rendering_thread  = {},
         .uniform_buffers   = {},
         .views             = {},
@@ -138,46 +138,18 @@ MimirInstance MimirInstance::make(int width, int height)
 
 void MimirInstance::deinit()
 {
-    fprintf(stderr, "[DEBUG3] start joinable=%d\n", (int)rendering_thread.joinable());
     if (rendering_thread.joinable())
     {
         rendering_thread.join();
     }
-    fprintf(stderr, "[DEBUG3] after join\n");
     if (interop.cuda_stream != nullptr)
     {
         validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
     }
-    fprintf(stderr, "[DEBUG3] after cudaStreamSynchronize\n");
 
-    // The render thread's last submission may still be parked on the CUDA-Vulkan interop
-    // timeline semaphore, waiting for a value that will never arrive now that the compute
-    // side has stopped calling signalKernelFinish(). That submission stays queued on the
-    // GPU forever, so any later vkDestroy* of resources it references would hang too (not
-    // just our own CPU-side waits). Force the semaphore past any value a stuck wait could
-    // target so the GPU submission unblocks before we touch any Vulkan resources; the
-    // frame's contents no longer matter since we're tearing down.
-    uint64_t current_value = 0;
-    fprintf(stderr, "[DEBUG3] before vkGetSemaphoreCounterValue\n");
-    validation::checkVulkan(vkGetSemaphoreCounterValue(device, interop.vk_semaphore, &current_value));
-    fprintf(stderr, "[DEBUG3] after vkGetSemaphoreCounterValue value=%lu\n", (unsigned long)current_value);
-    VkSemaphoreSignalInfo signal_info{
-        .sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO,
-        .pNext     = nullptr,
-        .semaphore = interop.vk_semaphore,
-        .value     = current_value + 1000,
-    };
-    fprintf(stderr, "[DEBUG3] before vkSignalSemaphore\n");
-    validation::checkVulkan(vkSignalSemaphore(device, &signal_info));
-    fprintf(stderr, "[DEBUG3] after vkSignalSemaphore\n");
-
-    fprintf(stderr, "[DEBUG3] before waitFramesIdle\n");
-    waitFramesIdle();
-    fprintf(stderr, "[DEBUG3] after waitFramesIdle\n");
+    vkDeviceWaitIdle(device);
     freeFrameCudaBuffer();
-    fprintf(stderr, "[DEBUG3] after freeFrameCudaBuffer\n");
     cleanupGraphics();
-    fprintf(stderr, "[DEBUG3] after cleanupGraphics\n");
     if (!isHeadless())
     {
         gui::shutdown();
@@ -185,7 +157,6 @@ void MimirInstance::deinit()
     }
     deletors.views.flush();
     deletors.context.flush();
-    fprintf(stderr, "[DEBUG3] end\n");
 }
 
 void MimirInstance::exit()
@@ -206,13 +177,38 @@ void MimirInstance::displayAsync()
     std::atomic_ref<bool>(running).store(true, std::memory_order_release);
     rendering_thread = std::thread([&,this]()
     {
+        // Number of interop-synchronized frames this thread has already produced. In sync mode
+        // the compute thread bumps render_request once per iteration and we render exactly one
+        // interop frame per outstanding request, keeping the GPU/CUDA timeline ping-pong 1:1.
+        uint64_t served = 0;
         while(!window_context.shouldClose())
         {
             window_context.processEvents();
-            gui::draw(camera, options, views, gui_callback);
-            renderFrame();
+            if (options.present.enable_sync)
+            {
+                auto requested = std::atomic_ref<uint64_t>(render_request).load(std::memory_order_acquire);
+                if (requested > served)
+                {
+                    gui::draw(camera, options, views, gui_callback);
+                    renderFrame(/*advance_interop=*/true);
+                    served++;
+                }
+                else
+                {
+                    // No compute step pending: keep the window responsive without producing a
+                    // frame that would read the shared buffer outside the interop handshake.
+                    std::this_thread::sleep_for(std::chrono::microseconds(200));
+                }
+            }
+            else
+            {
+                // Unsynchronized: free-run plain frames (no interop timeline participation).
+                gui::draw(camera, options, views, gui_callback);
+                renderFrame(/*advance_interop=*/false);
+            }
         }
         std::atomic_ref<bool>(running).store(false, std::memory_order_release);
+        vkDeviceWaitIdle(device);
     });
 }
 
@@ -220,7 +216,8 @@ void MimirInstance::prepareViews()
 {
     if (options.present.enable_sync && std::atomic_ref<bool>(running).load(std::memory_order_acquire))
     {
-        std::atomic_ref<bool>(compute_active).store(true, std::memory_order_release);
+        // Request exactly one interop-synchronized frame from the render thread for this step.
+        std::atomic_ref<uint64_t>(render_request).fetch_add(1, std::memory_order_release);
         waitKernelStart();
         compute_monitor.startWatch();
     }
@@ -245,7 +242,6 @@ void MimirInstance::updateViews()
     {
         compute_monitor.stopWatch();
         signalKernelFinish();
-        std::atomic_ref<bool>(compute_active).store(false, std::memory_order_release);
     }
 }
 
@@ -267,13 +263,14 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
     prepare();
 
     std::atomic_ref<bool>(running).store(true, std::memory_order_release);
-    std::atomic_ref<bool>(compute_active).store(true, std::memory_order_release);
     size_t iter_idx = 0;
+    // Single-threaded lockstep: exactly one interop-synchronized frame per simulation step.
+    bool interop = options.present.enable_sync;
     while(!window_context.shouldClose())
     {
         window_context.processEvents();
         gui::draw(camera, options, views, gui_callback);
-        renderFrame();
+        renderFrame(/*advance_interop=*/interop);
 
         if (std::atomic_ref<bool>(running).load(std::memory_order_acquire)) waitKernelStart();
         if (iter_idx < iter_count)
@@ -283,7 +280,6 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
         }
         if (std::atomic_ref<bool>(running).load(std::memory_order_acquire)) signalKernelFinish();
     }
-    std::atomic_ref<bool>(compute_active).store(false, std::memory_order_release);
     std::atomic_ref<bool>(running).store(false, std::memory_order_release);
     vkDeviceWaitIdle(device);
 }
@@ -1150,20 +1146,9 @@ void MimirInstance::createSyncObjects()
 
 void MimirInstance::cleanupGraphics()
 {
-    fprintf(stderr, "[DEBUG3] cleanupGraphics before waitFramesIdle\n");
-    waitFramesIdle();
-    fprintf(stderr, "[DEBUG3] cleanupGraphics before flush, count=%zu\n", deletors.graphics.deletors.size());
+    vkDeviceWaitIdle(device);
     //vkFreeCommandBuffers(device, command_pool, command_buffers.size(), command_buffers.data());
-    int idx = (int)deletors.graphics.deletors.size();
-    for (auto it = deletors.graphics.deletors.rbegin(); it != deletors.graphics.deletors.rend(); ++it)
-    {
-        fprintf(stderr, "[DEBUG3] flush before idx=%d\n", idx);
-        (*it)();
-        fprintf(stderr, "[DEBUG3] flush after idx=%d\n", idx);
-        idx--;
-    }
-    deletors.graphics.deletors.clear();
-    fprintf(stderr, "[DEBUG3] cleanupGraphics after flush\n");
+    deletors.graphics.flush();
 }
 
 void MimirInstance::initGraphics()
@@ -1199,15 +1184,8 @@ void MimirInstance::initGraphics()
     graphics_monitor = metrics::GraphicsMonitor::make(device, 2 * command_buffers.size(), timestamp_period, 240);
 
     deletors.graphics.add([=,this]{
-        if (!isHeadless())
-        {
-            fprintf(stderr, "[DEBUG3] before vkDestroySwapchainKHR\n");
-            vkDestroySwapchainKHR(device, swapchain.current, nullptr);
-            fprintf(stderr, "[DEBUG3] after vkDestroySwapchainKHR\n");
-        }
-        fprintf(stderr, "[DEBUG3] before vkDestroyQueryPool\n");
+        if (!isHeadless()) { vkDestroySwapchainKHR(device, swapchain.current, nullptr); }
         vkDestroyQueryPool(device, graphics_monitor.query_pool, nullptr);
-        fprintf(stderr, "[DEBUG3] after vkDestroyQueryPool\n");
     });
 
     // Create depth image and image view
@@ -1443,33 +1421,7 @@ void MimirInstance::waitTimelineHost()
     validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
 }
 
-// Waits for every in-flight frame's fence with a bounded timeout, instead of an
-// unconditional vkDeviceWaitIdle(). The render thread can submit a draw waiting on the
-// CUDA-Vulkan interop timeline semaphore to reach a value that CUDA will never signal,
-// if the compute thread stops calling signalKernelFinish() (loop ends, program exits)
-// right as the render thread issues one more interop-gated submission than the compute
-// side will ever satisfy. vkDeviceWaitIdle() has no timeout and would hang forever in
-// that case; waiting on each fence individually lets us log and proceed with cleanup
-// instead of blocking the process indefinitely.
-void MimirInstance::waitFramesIdle()
-{
-    for (auto& sync : sync_data)
-    {
-        auto result = vkWaitForFences(device, 1, &sync.frame_fence, VK_TRUE, frame_timeout);
-        if (result == VK_TIMEOUT)
-        {
-            spdlog::warn("Timed out waiting for a frame fence during shutdown "
-                         "(likely a stuck CUDA-Vulkan interop semaphore); "
-                         "proceeding with cleanup anyway");
-        }
-        else
-        {
-            validation::checkVulkan(result);
-        }
-    }
-}
-
-void MimirInstance::renderFrame()
+void MimirInstance::renderFrame(bool advance_interop)
 {
     // Get frame index from the inflight frames array
     auto frame_idx = render_timeline % MAX_FRAMES_IN_FLIGHT;
@@ -1505,7 +1457,7 @@ void MimirInstance::renderFrame()
         signal_values.push_back(0);
     }
 
-    if (std::atomic_ref<bool>(compute_active).load(std::memory_order_acquire) && options.present.enable_sync)
+    if (advance_interop)
     {
         // GPU waits for CUDA's signal directly at vertex-input stage so the vertex shader
         // cannot read positions before CUDA has finished writing them.  The old CPU-side
@@ -1599,10 +1551,12 @@ void MimirInstance::renderFrame()
         signal_value += 2;
     }
 
-    // Fill submit waits & signals info
+    // Fill submit waits & signals info. The timeline submit info is only needed when this
+    // frame carries the interop timeline semaphore (advance_timeline); plain frames submit
+    // with binary semaphores alone.
     VkTimelineSemaphoreSubmitInfo *extra = nullptr;
     VkTimelineSemaphoreSubmitInfo timeline_info{};
-    if (std::atomic_ref<bool>(running).load(std::memory_order_acquire) && options.present.enable_sync)
+    if (advance_timeline)
     {
         timeline_info = VkTimelineSemaphoreSubmitInfo{
             .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,

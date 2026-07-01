@@ -108,7 +108,15 @@ struct MimirInstance
     // rebuilt (empty) query pool isn't read with WAIT and blocked on after a resize.
     uint64_t graphics_epoch = 0;
     bool running;
-    bool compute_active;
+    // Interop lockstep handshake between the compute thread and the async render thread.
+    // prepareViews() bumps render_request once per compute iteration to ask the render thread
+    // for exactly one interop-synchronized frame; the render thread renders one such frame per
+    // request. This keeps the count of GPU interop submissions equal to the number of compute
+    // iterations (the CUDA-Vulkan timeline ping-pong requires strict 1:1 alternation), so no
+    // orphaned interop-gated submit is ever left waiting on a signal that will never come.
+    // Accessed cross-thread via std::atomic_ref (kept a plain member so MimirInstance stays
+    // movable, since it is returned by value from make()).
+    uint64_t render_request;
     std::thread rendering_thread;
 
     std::vector<AllocatedBuffer> uniform_buffers;
@@ -184,12 +192,14 @@ struct MimirInstance
 
     void initVulkan();
     void prepare();
-    void renderFrame();
+    // Renders and submits a single frame. When advance_interop is true, the submission carries
+    // the CUDA-Vulkan interop timeline wait/signal (used for one frame per compute iteration in
+    // synchronized mode); otherwise it is a plain frame that does not touch the interop timeline.
+    void renderFrame(bool advance_interop = false);
     void drawElements(uint32_t image_idx);
     void waitKernelStart();
     void signalKernelFinish();
     void waitTimelineHost();
-    void waitFramesIdle();
 
     // Vulkan core-related functions
     void createInstance();
