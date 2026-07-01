@@ -189,6 +189,7 @@ struct MimirInstance
     void waitKernelStart();
     void signalKernelFinish();
     void waitTimelineHost();
+    void waitFramesIdle();
 
     // Vulkan core-related functions
     void createInstance();

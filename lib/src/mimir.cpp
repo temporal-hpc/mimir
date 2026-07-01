@@ -3,6 +3,8 @@
 #include "mimir/api.hpp"
 #include "mimir/engine.hpp"
 
+#include <atomic> // std::atomic_ref
+
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -27,7 +29,10 @@ void destroyInstance(InstanceHandle engine)
     delete engine;
 }
 
-bool isRunning(InstanceHandle engine) { return engine->running; }
+bool isRunning(InstanceHandle engine)
+{
+    return std::atomic_ref<bool>(engine->running).load(std::memory_order_acquire);
+}
 
 void allocLinear(InstanceHandle engine, void **dev_ptr, size_t size, AllocHandle *alloc)
 {
