@@ -100,7 +100,7 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
     {
         mode = input.display? "mimir" : "none";
     }
-    else { mode = input.enable_sync? "sync" : "desync"; }
+    else { mode = input.enable_interop_sync? "sync" : "desync"; }
 
     std::string resolution = "None";
     if      (input.width == 1920 && input.height == 1080) { resolution = "FHD"; }
@@ -361,7 +361,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     options.window.size = {input.width, input.height}; // Starting window size
     options.background_color = {0.f, 0.f, 0.f, 1.f};
     options.present.mode = input.present;
-    options.present.enable_sync = input.enable_sync;
+    options.present.enable_interop_sync = input.enable_interop_sync;
     options.present.enable_fps_limit = false;  // always uncapped
     options.show_panel = input.display; // required for setGuiCallback to fire
 
@@ -515,7 +515,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     {
         checkCuda(cudaEventCreate(&cstart));
         checkCuda(cudaEventCreate(&cstop));
-        if (input.enable_sync)
+        if (input.enable_interop_sync)
         {
             checkCuda(cudaEventCreate(&cstop_prev));
             checkCuda(cudaEventRecord(cstop_prev, 0));
@@ -589,13 +589,13 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 // GPU render time: cstop_prev fires at end of kernel_{i-1} (Vulkan starts),
                 // cstart fires after the GPU semaphore wait in prepareViews (Vulkan done).
                 // Both are on stream 0, so elapsed gives true Vulkan render latency.
-                if (input.enable_sync && i > 0)
+                if (input.enable_interop_sync && i > 0)
                 {
                     float r_ms = 0.f;
                     checkCuda(cudaEventElapsedTime(&r_ms, cstop_prev, cstart));
                     hud.render_ms = (i == 1) ? r_ms : 0.9f * hud.render_ms + 0.1f * r_ms;
                 }
-                if (input.enable_sync) { std::swap(cstop, cstop_prev); }
+                if (input.enable_interop_sync) { std::swap(cstop, cstop_prev); }
 
                 auto now       = Clock::now();
                 float frame_ms = ms(now - frame_start).count();
@@ -653,18 +653,21 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 static void usage(const char *prog)
 {
     printf(
-        "Usage: %s [width height] [body_count] [iters] [present] [vsync] [display] [use_cpu]\n"
+        "Usage: %s [width height] [body_count] [iters] [options]\n"
         "\n"
+        "Positional (in order; width/height must be supplied together):\n"
         "  width height   Window resolution in pixels              (default: 1920 1080)\n"
         "  body_count     Number of simulated bodies               (default: 77824)\n"
         "  iters          Simulation steps to run                  (default: 1000000)\n"
-        "  present        0=Immediate, 1=TripleBuffering, 2=VSync  (default: 0)\n"
-        "  vsync          1 = enable VSync, 0 = disable            (default: 1)\n"
-        "  display        1 = open window and render, 0 = simulate only (no window) (default: 1)\n"
-        "  use_cpu        1 = CPU integrator, 0 = GPU kernel       (default: 0)\n"
         "\n"
-        "All arguments are positional and optional; omitted trailing args use their defaults.\n"
-        "width and height must be supplied together.\n"
+        "Options (named, order-independent; omitted ones use their default):\n"
+        "  --present N        0=Immediate 1=TripleBuffering 2=VSync (default: 0)\n"
+        "                     Real display vsync lives here (--present 2).\n"
+        "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
+        "                     NOT vsync; gates compute/render on the shared buffer.\n"
+        "  --display N        1 = open window, 0 = simulate only    (default: 1)\n"
+        "  --use-cpu N        1 = CPU integrator, 0 = GPU kernel     (default: 0)\n"
+        "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "\n"
         "Output: one CSV row to stdout (same column layout as samples/nbody-datoviz, minus transfer_time).\n"
@@ -674,7 +677,7 @@ static void usage(const char *prog)
         "  %s 1920 1080 1000000 1000\n"
         "\n"
         "  # Headless simulation (no window) — measures pure compute throughput:\n"
-        "  %s 1920 1080 1000000 1000 0 1 0\n"
+        "  %s 1920 1080 1000000 1000 --display 0\n"
         "\n"
         "  # Use the batch driver to sweep parameters and write a CSV:\n"
         "  ./batch_main.sh results.csv\n",
@@ -683,25 +686,32 @@ static void usage(const char *prog)
 
 int main(int argc, char *argv[])
 {
-    for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
-            usage(argv[0]);
-            return EXIT_SUCCESS;
-        }
-    }
     if (argc == 1) { usage(argv[0]); return EXIT_SUCCESS; }
 
     auto input = BenchmarkInput::defaultValues();
     NBodyParams params = demo_params[3];
 
-    // Parse parameters from command line
-    if (argc >= 3) { input.width = std::stoi(argv[1]); input.height = std::stoi(argv[2]); }
-    if (argc >= 4) input.body_count  = std::stoul(argv[3]);
-    if (argc >= 5) input.iter_count  = std::stoi(argv[4]);
-    if (argc >= 6) input.present     = static_cast<PresentMode>(std::stoi(argv[5]));
-    if (argc >= 7) input.enable_sync = static_cast<bool>(std::stoi(argv[6]));
-    if (argc >= 8) input.display     = static_cast<bool>(std::stoi(argv[7]));
-    if (argc >= 9) input.use_cpu    = static_cast<bool>(std::stoi(argv[8]));
+    std::vector<std::string> pos;
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string a = argv[i];
+        if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
+        if (a.rfind("--", 0) == 0)
+        {
+            if (i + 1 >= argc)
+            { fprintf(stderr, "Missing value for %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
+            std::string v = argv[++i];
+            if      (a == "--present")      input.present = static_cast<PresentMode>(std::stoi(v));
+            else if (a == "--interop-sync") input.enable_interop_sync = static_cast<bool>(std::stoi(v));
+            else if (a == "--display")      input.display = static_cast<bool>(std::stoi(v));
+            else if (a == "--use-cpu")      input.use_cpu = static_cast<bool>(std::stoi(v));
+            else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
+        }
+        else { pos.push_back(a); }
+    }
+    if (pos.size() >= 2) { input.width = std::stoi(pos[0]); input.height = std::stoi(pos[1]); }
+    if (pos.size() >= 3)   input.body_count = std::stoul(pos[2]);
+    if (pos.size() >= 4)   input.iter_count = std::stoi(pos[3]);
 
     auto result = runExperiment(input, params);
     formatResults(input, result);

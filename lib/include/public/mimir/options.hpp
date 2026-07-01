@@ -63,8 +63,10 @@ struct PresentOptions
 {
     // Sets frame presentation scheme used by the engine instance.
     PresentMode mode;
-    // Enable/disable CUDA-Vulkan interop synchronization.
-    bool enable_sync;
+    // Enable/disable CUDA-Vulkan interop synchronization. Note this is NOT display vsync
+    // (that is selected via 'mode' == PresentMode::VSync); it gates compute/render access to
+    // the shared interop buffer via the timeline-semaphore handshake.
+    bool enable_interop_sync;
     // Enables the FPS cap with the value specified by 'target_fps'.
     bool enable_fps_limit;
     // Throttle rendering to achieve this value when 'enable_fps_limit' is enabled.
@@ -74,9 +76,9 @@ struct PresentOptions
     static PresentOptions makeDefault()
     {
         return PresentOptions{
-            .mode              = PresentMode::Immediate,
-            .enable_sync       = true,
-            .enable_fps_limit  = true,
+            .mode                = PresentMode::Immediate,
+            .enable_interop_sync = true,
+            .enable_fps_limit    = true,
             .target_fps        = 60,
             .target_frame_time = 0,
         };

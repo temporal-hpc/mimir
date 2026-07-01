@@ -50,8 +50,7 @@ struct CAInput {
     int      win_height  = 1080;
     CAParams ca          = {};
     int      iter_count  = 1000000;
-    int      present     = 0;     // kept for CLI parity; maps to vsync when displaying
-    bool     enable_sync = true;
+    bool     vsync       = true;  // real display vsync (DVZ_CANVAS_FLAGS_VSYNC)
     bool     display     = true;
 };
 
@@ -250,7 +249,7 @@ static DatovizContext setupDatoviz(CAInput input, const uint8_t* initial_pixels,
     ctx.scene = dvz_scene(ctx.batch);
 
     int fig_flags = DVZ_CANVAS_FLAGS_IMGUI;
-    if (input.enable_sync) fig_flags |= DVZ_CANVAS_FLAGS_VSYNC;
+    if (input.vsync) fig_flags |= DVZ_CANVAS_FLAGS_VSYNC;
     ctx.figure = dvz_figure(ctx.scene, input.win_width, input.win_height, fig_flags);
     ctx.panel  = dvz_panel_default(ctx.figure);
     dvz_panel_panzoom(ctx.panel, 0);
@@ -466,18 +465,21 @@ BenchmarkResult runExperiment(CAInput input)
 static void usage(const char* prog)
 {
     printf(
-        "Usage: %s [win_w win_h] [grid_w grid_h] [seed] [density] [iters]"
-        " [present] [vsync] [display]\n"
+        "Usage: %s [win_w win_h] [grid_w grid_h] [seed] [density] [iters] [options]\n"
         "\n"
+        "Positional (in order; win_w/win_h and grid_w/grid_h must each be a pair):\n"
         "  win_w  win_h   Window resolution in pixels             (default: 1920 1080)\n"
         "  grid_w grid_h  CA grid dimensions in cells             (default: 1024 1024)\n"
         "  seed           RNG seed for initial state              (default: 12345)\n"
         "  density        Initial live-cell fraction [0,1]        (default: 0.30)\n"
         "  iters          Simulation steps to run                 (default: 1000000)\n"
-        "  present        kept for CLI parity; ignored by datoviz (default: 0)\n"
-        "  vsync          1 = enable VSync, 0 = disable           (default: 1)\n"
-        "  display        1 = open window, 0 = headless compute   (default: 1)\n"
         "\n"
+        "Options (named, order-independent; omitted ones use their default):\n"
+        "  --vsync N          display vsync: 1=on 0=off            (default: 1)\n"
+        "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
+        "\n"
+        "(datoviz has no present-mode selection; the mimir --present flag has no\n"
+        " datoviz equivalent, so it is intentionally absent here.)\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
         "        Columns match benchmark_mimir plus pack_time, d2h_time, h2h_time.\n"
@@ -488,20 +490,30 @@ static void usage(const char* prog)
 
 int main(int argc, char* argv[])
 {
-    for (int i = 1; i < argc; ++i)
-        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h")
-            { usage(argv[0]); return EXIT_SUCCESS; }
     if (argc == 1) { usage(argv[0]); return EXIT_SUCCESS; }
 
     CAInput input{};
-    if (argc >= 3)  { input.win_width  = std::stoi(argv[1]); input.win_height = std::stoi(argv[2]); }
-    if (argc >= 5)  { input.ca.width   = std::stoi(argv[3]); input.ca.height  = std::stoi(argv[4]); }
-    if (argc >= 6)    input.ca.seed    = (uint32_t)std::stoul(argv[5]);
-    if (argc >= 7)    input.ca.density = std::stof(argv[6]);
-    if (argc >= 8)    input.iter_count = std::stoi(argv[7]);
-    if (argc >= 9)    input.present    = std::stoi(argv[8]);
-    if (argc >= 10)   input.enable_sync = (bool)std::stoi(argv[9]);
-    if (argc >= 11)   input.display    = (bool)std::stoi(argv[10]);
+    std::vector<std::string> pos;
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string a = argv[i];
+        if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
+        if (a.rfind("--", 0) == 0)
+        {
+            if (i + 1 >= argc)
+            { fprintf(stderr, "Missing value for %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
+            std::string v = argv[++i];
+            if      (a == "--vsync")   input.vsync   = (bool)std::stoi(v);
+            else if (a == "--display") input.display = (bool)std::stoi(v);
+            else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
+        }
+        else { pos.push_back(a); }
+    }
+    if (pos.size() >= 2) { input.win_width  = std::stoi(pos[0]); input.win_height = std::stoi(pos[1]); }
+    if (pos.size() >= 4) { input.ca.width   = std::stoi(pos[2]); input.ca.height  = std::stoi(pos[3]); }
+    if (pos.size() >= 5)   input.ca.seed    = (uint32_t)std::stoul(pos[4]);
+    if (pos.size() >= 6)   input.ca.density = std::stof(pos[5]);
+    if (pos.size() >= 7)   input.iter_count = std::stoi(pos[6]);
 
     auto result = runExperiment(input);
     formatResults(input, result);

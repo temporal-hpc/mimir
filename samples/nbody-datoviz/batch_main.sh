@@ -16,11 +16,10 @@ if [[ "$1" == "--help" || "$1" == "-h" || -z "$1" ]]; then
 fi
 
 iters=1000
-present=0
 sizes=(1000000)
 widths=(1920)
 heights=(1080)
-syncs=(1)
+syncs=(1)   # datoviz --vsync sweep (real display vsync)
 echo "mode,windowres,N,framerate,compute_time,pipeline_time,graphics_time,vk_usage,vk_budget,gpu_power,gpu_energy,gpu_time,nvml_free,nvml_reserved,nvml_total,nvml_used,transfer_time" >> $1
 for i in ${!widths[@]}; do
     w=${widths[$i]}
@@ -28,10 +27,10 @@ for i in ${!widths[@]}; do
     viewport="${w}x${h}"
     echo "Viewport: " ${viewport}
     for sync in ${syncs[@]}; do
-        echo "  Sync mode: ${sync}"
+        echo "  VSync: ${sync}"
         for n in ${sizes[@]}; do
             echo "    Size: ${n}"
-            ./build/bin/benchmark_datoviz ${w} ${h} ${n} ${iters} ${present} ${sync} >> $1
+            ./build/bin/benchmark_datoviz ${w} ${h} ${n} ${iters} --vsync ${sync} >> $1
         done
     done
 done

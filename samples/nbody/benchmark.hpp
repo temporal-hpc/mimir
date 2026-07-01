@@ -7,7 +7,7 @@ struct BenchmarkInput
     unsigned int body_count;
     int iter_count;
     mimir::PresentMode present;
-    bool enable_sync;
+    bool enable_interop_sync;
     bool display;
     bool use_cpu;
 
@@ -20,7 +20,7 @@ struct BenchmarkInput
             .body_count  = 77824,
             .iter_count  = 1000000,
             .present     = mimir::PresentMode::Immediate,
-            .enable_sync = true,
+            .enable_interop_sync = true,
             .display     = true,
             .use_cpu     = false,
         };

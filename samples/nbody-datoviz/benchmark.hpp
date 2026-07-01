@@ -1,10 +1,10 @@
 #pragma once
 
 // Standalone benchmark input for the datoviz N-body comparison sample.
-// Mirrors samples/nbody/benchmark.hpp field-for-field (and CLI argument order) so the
-// two binaries are drop-in comparable, but without any mimir dependency. `present` is
-// kept as a plain int to preserve the CLI argument layout; datoviz does not expose
-// mimir's PresentMode enum.
+// Mirrors samples/nbody/benchmark.hpp (same positional args and defaults) so the two
+// binaries are drop-in comparable, but without any mimir dependency. datoviz has no
+// present-mode selection, so there is no `present` field here; `vsync` is real display
+// vsync (DVZ_CANVAS_FLAGS_VSYNC), unlike mimir's --interop-sync.
 
 struct BenchmarkInput
 {
@@ -12,8 +12,7 @@ struct BenchmarkInput
     int height;
     unsigned int body_count;
     int iter_count;
-    int present;       // kept for CLI parity with nbody (unused by datoviz path)
-    bool enable_sync;  // maps to vsync when displaying
+    bool vsync;    // real display vsync (DVZ_CANVAS_FLAGS_VSYNC)
     bool display;
     bool use_cpu;
 
@@ -25,8 +24,7 @@ struct BenchmarkInput
             .height      = 1080,
             .body_count  = 77824,
             .iter_count  = 1000000,
-            .present     = 0,
-            .enable_sync = true,
+            .vsync       = true,
             .display     = true,
             .use_cpu     = false,
         };

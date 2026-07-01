@@ -418,7 +418,7 @@ static DatovizContext setupDatoviz(BenchmarkInput input, const float *initial_po
     ctx.scene = dvz_scene(ctx.batch);
 
     int fig_flags = DVZ_CANVAS_FLAGS_IMGUI;
-    if (input.enable_sync) fig_flags |= DVZ_CANVAS_FLAGS_VSYNC;
+    if (input.vsync) fig_flags |= DVZ_CANVAS_FLAGS_VSYNC;
     ctx.figure = dvz_figure(ctx.scene, input.width, input.height, fig_flags);
     ctx.panel = dvz_panel_default(ctx.figure);
     ctx.arcball = dvz_panel_arcball(ctx.panel, 0); // 3D interactivity
@@ -703,18 +703,20 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 static void usage(const char *prog)
 {
     printf(
-        "Usage: %s [width height] [body_count] [iters] [present] [vsync] [display] [use_cpu]\n"
+        "Usage: %s [width height] [body_count] [iters] [options]\n"
         "\n"
+        "Positional (in order; width/height must be supplied together):\n"
         "  width height   Window resolution in pixels              (default: 1920 1080)\n"
         "  body_count     Number of simulated bodies               (default: 77824)\n"
         "  iters          Simulation steps to run                  (default: 1000000)\n"
-        "  present        Present mode (unused; kept for CLI parity with nbody) (default: 0)\n"
-        "  vsync          1 = enable VSync, 0 = disable            (default: 1)\n"
-        "  display        1 = open window and render, 0 = simulate only (no window) (default: 1)\n"
-        "  use_cpu        1 = CPU integrator, 0 = GPU kernel       (default: 0)\n"
         "\n"
-        "All arguments are positional and optional; omitted trailing args use their defaults.\n"
-        "width and height must be supplied together.\n"
+        "Options (named, order-independent; omitted ones use their default):\n"
+        "  --vsync N          display vsync: 1=on 0=off             (default: 1)\n"
+        "  --display N        1 = open window, 0 = simulate only    (default: 1)\n"
+        "  --use-cpu N        1 = CPU integrator, 0 = GPU kernel     (default: 0)\n"
+        "\n"
+        "(datoviz has no present-mode selection; the mimir --present flag has no\n"
+        " datoviz equivalent, so it is intentionally absent here.)\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "\n"
         "Output: one CSV row to stdout (same column layout as samples/nbody, plus transfer_time).\n"
@@ -724,7 +726,7 @@ static void usage(const char *prog)
         "  %s 1920 1080 1000000 1000\n"
         "\n"
         "  # Headless simulation (no window) — measures pure compute throughput:\n"
-        "  %s 1920 1080 1000000 1000 0 1 0\n"
+        "  %s 1920 1080 1000000 1000 --display 0\n"
         "\n"
         "  # Use the batch driver to sweep parameters and write a CSV:\n"
         "  ./batch_main.sh results.csv\n",
@@ -733,25 +735,31 @@ static void usage(const char *prog)
 
 int main(int argc, char *argv[])
 {
-    for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
-            usage(argv[0]);
-            return EXIT_SUCCESS;
-        }
-    }
     if (argc == 1) { usage(argv[0]); return EXIT_SUCCESS; }
 
     auto input = BenchmarkInput::defaultValues();
     NBodyParams params = demo_params[3];
 
-    // Same CLI argument order as samples/nbody so batch scripts are interchangeable.
-    if (argc >= 3) { input.width = std::stoi(argv[1]); input.height = std::stoi(argv[2]); }
-    if (argc >= 4) input.body_count  = std::stoul(argv[3]);
-    if (argc >= 5) input.iter_count  = std::stoi(argv[4]);
-    if (argc >= 6) input.present     = std::stoi(argv[5]);
-    if (argc >= 7) input.enable_sync = static_cast<bool>(std::stoi(argv[6]));
-    if (argc >= 8) input.display     = static_cast<bool>(std::stoi(argv[7]));
-    if (argc >= 9) input.use_cpu    = static_cast<bool>(std::stoi(argv[8]));
+    std::vector<std::string> pos;
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string a = argv[i];
+        if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
+        if (a.rfind("--", 0) == 0)
+        {
+            if (i + 1 >= argc)
+            { fprintf(stderr, "Missing value for %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
+            std::string v = argv[++i];
+            if      (a == "--vsync")   input.vsync   = static_cast<bool>(std::stoi(v));
+            else if (a == "--display") input.display = static_cast<bool>(std::stoi(v));
+            else if (a == "--use-cpu") input.use_cpu = static_cast<bool>(std::stoi(v));
+            else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
+        }
+        else { pos.push_back(a); }
+    }
+    if (pos.size() >= 2) { input.width = std::stoi(pos[0]); input.height = std::stoi(pos[1]); }
+    if (pos.size() >= 3)   input.body_count = std::stoul(pos[2]);
+    if (pos.size() >= 4)   input.iter_count = std::stoi(pos[3]);
 
     auto result = runExperiment(input, params);
     formatResults(input, result);

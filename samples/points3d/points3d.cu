@@ -118,9 +118,9 @@ int main(int argc, char *argv[])
     options.window.size = {width,height}; // Starting window size
     options.window.decorate = false;
     options.present = {
-        .mode        = present_mode,
-        .enable_sync = enable_sync,
-        .target_fps  = target_fps,
+        .mode                = present_mode,
+        .enable_interop_sync = enable_sync,
+        .target_fps          = target_fps,
     };
     options.light_pos = { 0.f, 0.f, 10.f };
     InstanceHandle instance = nullptr;

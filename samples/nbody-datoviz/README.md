@@ -88,11 +88,17 @@ cmake --build build -j
 
 ## Running
 
-Same CLI argument order as `samples/nbody`:
+Same positional arguments as `samples/nbody`, then named options. Note the sync flag
+differs by design: datoviz's `--vsync` is **real display vsync**, whereas mimir's
+`--interop-sync` is CUDA-Vulkan interop synchronization (mimir's real vsync is `--present 2`).
+datoviz has no present-mode selection, so there is no `--present` flag here.
 
 ```
-benchmark_datoviz <width> <height> <body_count> <iters> <present> <enable_sync> <display> <use_cpu>
+benchmark_datoviz <width> <height> <body_count> <iters> [--vsync 0|1] [--display 0|1] [--use-cpu 0|1]
 ```
+
+Options are order-independent; omitted ones use their defaults (`--vsync 1 --display 1
+--use-cpu 0`). Run `benchmark_datoviz --help` for the full list.
 
 Or use the batch driver (writes a CSV with the header):
 

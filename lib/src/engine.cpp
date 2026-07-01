@@ -184,7 +184,7 @@ void MimirInstance::displayAsync()
         while(!window_context.shouldClose())
         {
             window_context.processEvents();
-            if (options.present.enable_sync)
+            if (options.present.enable_interop_sync)
             {
                 auto requested = std::atomic_ref<uint64_t>(render_request).load(std::memory_order_acquire);
                 if (requested > served)
@@ -214,7 +214,7 @@ void MimirInstance::displayAsync()
 
 void MimirInstance::prepareViews()
 {
-    if (options.present.enable_sync && std::atomic_ref<bool>(running).load(std::memory_order_acquire))
+    if (options.present.enable_interop_sync && std::atomic_ref<bool>(running).load(std::memory_order_acquire))
     {
         // Request exactly one interop-synchronized frame from the render thread for this step.
         std::atomic_ref<uint64_t>(render_request).fetch_add(1, std::memory_order_release);
@@ -238,7 +238,7 @@ void MimirInstance::waitKernelStart()
 
 void MimirInstance::updateViews()
 {
-    if (options.present.enable_sync && std::atomic_ref<bool>(running).load(std::memory_order_acquire))
+    if (options.present.enable_interop_sync && std::atomic_ref<bool>(running).load(std::memory_order_acquire))
     {
         compute_monitor.stopWatch();
         signalKernelFinish();
@@ -265,7 +265,7 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
     std::atomic_ref<bool>(running).store(true, std::memory_order_release);
     size_t iter_idx = 0;
     // Single-threaded lockstep: exactly one interop-synchronized frame per simulation step.
-    bool interop = options.present.enable_sync;
+    bool interop = options.present.enable_interop_sync;
     while(!window_context.shouldClose())
     {
         window_context.processEvents();

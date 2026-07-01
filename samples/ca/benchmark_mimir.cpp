@@ -30,7 +30,7 @@ struct CAInput {
     CAParams    ca           = {};          // grid dimensions, seed, density
     int         iter_count   = 1000000;
     PresentMode present      = PresentMode::Immediate;
-    bool        enable_sync  = true;
+    bool        enable_interop_sync  = true;
     bool        display      = true;
 };
 
@@ -165,7 +165,7 @@ BenchmarkResult runExperiment(CAInput input)
     opts.window.size         = { input.win_width, input.win_height };
     opts.background_color    = { 0.f, 0.f, 0.f, 1.f };
     opts.present.mode              = input.present;
-    opts.present.enable_sync       = input.enable_sync;
+    opts.present.enable_interop_sync       = input.enable_interop_sync;
     opts.present.enable_fps_limit  = false;  // always uncapped
     opts.show_panel          = input.display;
 
@@ -310,7 +310,7 @@ BenchmarkResult runExperiment(CAInput input)
     cudaEvent_t cstart = nullptr, cstop = nullptr, cstop_prev = nullptr;
     checkCuda(cudaEventCreate(&cstart));
     checkCuda(cudaEventCreate(&cstop));
-    if (input.enable_sync && input.display)
+    if (input.enable_interop_sync && input.display)
     {
         checkCuda(cudaEventCreate(&cstop_prev));
         checkCuda(cudaEventRecord(cstop_prev));
@@ -366,14 +366,14 @@ BenchmarkResult runExperiment(CAInput input)
 
             // Render time: from end of previous frame's pack kernel to start of this
             // frame's compute — i.e. the time Vulkan spent rendering frame (i-1).
-            if (input.enable_sync && i > 0)
+            if (input.enable_interop_sync && i > 0)
             {
                 float render_ms = 0.f;
                 checkCuda(cudaEventElapsedTime(&render_ms, cstop_prev, cstart));
                 hud.render_ms = (i == 1) ? render_ms
                                          : 0.9f * hud.render_ms + 0.1f * render_ms;
             }
-            if (input.enable_sync) std::swap(cstop, cstop_prev);
+            if (input.enable_interop_sync) std::swap(cstop, cstop_prev);
 
             auto now = Clock::now();
             using ms = std::chrono::duration<float, std::milli>;
@@ -440,19 +440,22 @@ BenchmarkResult runExperiment(CAInput input)
 static void usage(const char* prog)
 {
     printf(
-        "Usage: %s [win_w win_h] [grid_w grid_h] [seed] [density] [iters]"
-        " [present] [vsync] [display]\n"
+        "Usage: %s [win_w win_h] [grid_w grid_h] [seed] [density] [iters] [options]\n"
         "\n"
+        "Positional (in order; win_w/win_h and grid_w/grid_h must each be a pair):\n"
         "  win_w  win_h   Window resolution in pixels             (default: 1920 1080)\n"
         "  grid_w grid_h  CA grid dimensions in cells             (default: 1024 1024)\n"
         "  seed           RNG seed for initial state              (default: 12345)\n"
         "  density        Initial live-cell fraction [0,1]        (default: 0.30)\n"
         "  iters          Simulation steps to run                 (default: 1000000)\n"
-        "  present        0=Immediate 1=TripleBuffering 2=VSync   (default: 0)\n"
-        "  vsync          1 = enable GPU sync, 0 = disable        (default: 1)\n"
-        "  display        1 = open window, 0 = headless compute   (default: 1)\n"
         "\n"
-        "win_w/win_h and grid_w/grid_h must each be supplied as a pair.\n"
+        "Options (named, order-independent; omitted ones use their default):\n"
+        "  --present N        0=Immediate 1=TripleBuffering 2=VSync (default: 0)\n"
+        "                     Real display vsync lives here (--present 2).\n"
+        "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
+        "                     NOT vsync; gates compute/render on the shared buffer.\n"
+        "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
+        "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
         "        Column layout matches benchmark_datoviz; pack/d2h/h2h columns are 0.\n"
@@ -462,20 +465,31 @@ static void usage(const char* prog)
 
 int main(int argc, char* argv[])
 {
-    for (int i = 1; i < argc; ++i)
-        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h")
-            { usage(argv[0]); return EXIT_SUCCESS; }
     if (argc == 1) { usage(argv[0]); return EXIT_SUCCESS; }
 
     CAInput input{};
-    if (argc >= 3)  { input.win_width   = std::stoi(argv[1]); input.win_height  = std::stoi(argv[2]); }
-    if (argc >= 5)  { input.ca.width    = std::stoi(argv[3]); input.ca.height   = std::stoi(argv[4]); }
-    if (argc >= 6)    input.ca.seed     = (uint32_t)std::stoul(argv[5]);
-    if (argc >= 7)    input.ca.density  = std::stof(argv[6]);
-    if (argc >= 8)    input.iter_count  = std::stoi(argv[7]);
-    if (argc >= 9)    input.present     = static_cast<PresentMode>(std::stoi(argv[8]));
-    if (argc >= 10)   input.enable_sync = (bool)std::stoi(argv[9]);
-    if (argc >= 11)   input.display     = (bool)std::stoi(argv[10]);
+    std::vector<std::string> pos;
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string a = argv[i];
+        if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
+        if (a.rfind("--", 0) == 0)
+        {
+            if (i + 1 >= argc)
+            { fprintf(stderr, "Missing value for %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
+            std::string v = argv[++i];
+            if      (a == "--present")      input.present = static_cast<PresentMode>(std::stoi(v));
+            else if (a == "--interop-sync") input.enable_interop_sync = (bool)std::stoi(v);
+            else if (a == "--display")      input.display = (bool)std::stoi(v);
+            else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
+        }
+        else { pos.push_back(a); }
+    }
+    if (pos.size() >= 2) { input.win_width  = std::stoi(pos[0]); input.win_height = std::stoi(pos[1]); }
+    if (pos.size() >= 4) { input.ca.width   = std::stoi(pos[2]); input.ca.height  = std::stoi(pos[3]); }
+    if (pos.size() >= 5)   input.ca.seed    = (uint32_t)std::stoul(pos[4]);
+    if (pos.size() >= 6)   input.ca.density = std::stof(pos[5]);
+    if (pos.size() >= 7)   input.iter_count = std::stoi(pos[6]);
 
     auto result = runExperiment(input);
     formatResults(input, result);

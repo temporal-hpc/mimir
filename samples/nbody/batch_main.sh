@@ -29,10 +29,10 @@ for i in ${!widths[@]}; do
     #    @1920x1080 +0+0 {ViewPortIn=1920x1080, ViewPortOut=1920x1080+0+0}"
     echo "Viewport: " ${viewport}
     for sync in ${syncs[@]}; do
-        echo "  Sync mode: ${sync}"
+        echo "  Interop-sync: ${sync}"
         for n in ${sizes[@]}; do
             echo "    Size: ${n}"
-            ./build/bin/benchmark ${w} ${h} ${n} ${iters} ${present} ${sync} >> $1
+            ./build/bin/benchmark ${w} ${h} ${n} ${iters} --present ${present} --interop-sync ${sync} >> $1
         done
     done
 done
