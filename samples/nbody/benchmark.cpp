@@ -117,7 +117,6 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"mode",          mode},
         {"windowres",     resolution},
         {"N",             sd(input.body_count)},
-        {"target_fps",    sd(input.target_fps)},
         {"framerate",     sf(library.frame_rate)},
         {"compute_time",  sf(library.times.compute)},
         {"pipeline_time", sf(library.times.pipeline)},
@@ -135,11 +134,10 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"d2h_time",      sf(0.f)},
         {"h2h_time",      sf(0.f)},
     });
-    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
-        input.target_fps,
         library.frame_rate,
         library.times.compute,
         library.times.pipeline,
@@ -363,7 +361,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     options.background_color = {0.f, 0.f, 0.f, 1.f};
     options.present.mode = input.present;
     options.present.enable_sync = input.enable_sync;
-    options.present.target_fps  = input.target_fps;
+    options.present.enable_fps_limit = false;  // always uncapped
     options.show_panel = input.display; // required for setGuiCallback to fire
 
     InstanceHandle instance = nullptr;
@@ -647,19 +645,19 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 static void usage(const char *prog)
 {
     printf(
-        "Usage: %s [width height] [body_count] [iters] [present] [target_fps] [vsync] [display] [use_cpu]\n"
+        "Usage: %s [width height] [body_count] [iters] [present] [vsync] [display] [use_cpu]\n"
         "\n"
         "  width height   Window resolution in pixels              (default: 1920 1080)\n"
         "  body_count     Number of simulated bodies               (default: 77824)\n"
         "  iters          Simulation steps to run                  (default: 1000000)\n"
         "  present        0=Immediate, 1=TripleBuffering, 2=VSync  (default: 0)\n"
-        "  target_fps     Frame-rate cap; 0 = unlimited            (default: 0)\n"
         "  vsync          1 = enable VSync, 0 = disable            (default: 1)\n"
         "  display        1 = open window and render, 0 = simulate only (no window) (default: 1)\n"
         "  use_cpu        1 = CPU integrator, 0 = GPU kernel       (default: 0)\n"
         "\n"
         "All arguments are positional and optional; omitted trailing args use their defaults.\n"
         "width and height must be supplied together.\n"
+        "Frame rate is always uncapped (no target_fps limiter).\n"
         "\n"
         "Output: one CSV row to stdout (same column layout as samples/nbody-datoviz, minus transfer_time).\n"
         "\n"
@@ -668,7 +666,7 @@ static void usage(const char *prog)
         "  %s 1920 1080 1000000 1000\n"
         "\n"
         "  # Headless simulation (no window) — measures pure compute throughput:\n"
-        "  %s 1920 1080 1000000 1000 0 0 1 0\n"
+        "  %s 1920 1080 1000000 1000 0 1 0\n"
         "\n"
         "  # Use the batch driver to sweep parameters and write a CSV:\n"
         "  ./batch_main.sh results.csv\n",
@@ -693,10 +691,9 @@ int main(int argc, char *argv[])
     if (argc >= 4) input.body_count  = std::stoul(argv[3]);
     if (argc >= 5) input.iter_count  = std::stoi(argv[4]);
     if (argc >= 6) input.present     = static_cast<PresentMode>(std::stoi(argv[5]));
-    if (argc >= 7) input.target_fps  = std::stoi(argv[6]);
-    if (argc >= 8) input.enable_sync = static_cast<bool>(std::stoi(argv[7]));
-    if (argc >= 9) input.display     = static_cast<bool>(std::stoi(argv[8]));
-    if (argc >= 10) input.use_cpu    = static_cast<bool>(std::stoi(argv[9]));
+    if (argc >= 7) input.enable_sync = static_cast<bool>(std::stoi(argv[6]));
+    if (argc >= 8) input.display     = static_cast<bool>(std::stoi(argv[7]));
+    if (argc >= 9) input.use_cpu    = static_cast<bool>(std::stoi(argv[8]));
 
     auto result = runExperiment(input, params);
     formatResults(input, result);

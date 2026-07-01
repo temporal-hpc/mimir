@@ -31,7 +31,7 @@ mimir eliminates entirely.
 The CSV columns match `samples/nbody` exactly, with `transfer_time` appended:
 
 ```
-mode,windowres,N,target_fps,framerate,compute_time,pipeline_time,graphics_time,
+mode,windowres,N,framerate,compute_time,pipeline_time,graphics_time,
 vk_usage,vk_budget,gpu_power,gpu_energy,gpu_time,nvml_free,nvml_reserved,nvml_total,
 nvml_used,transfer_time
 ```
@@ -91,7 +91,7 @@ cmake --build build -j
 Same CLI argument order as `samples/nbody`:
 
 ```
-benchmark_datoviz <width> <height> <body_count> <iters> <present> <target_fps> <enable_sync> <display> <use_cpu>
+benchmark_datoviz <width> <height> <body_count> <iters> <present> <enable_sync> <display> <use_cpu>
 ```
 
 Or use the batch driver (writes a CSV with the header):

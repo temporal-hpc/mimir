@@ -30,7 +30,6 @@ struct CAInput {
     CAParams    ca           = {};          // grid dimensions, seed, density
     int         iter_count   = 1000000;
     PresentMode present      = PresentMode::Immediate;
-    int         target_fps   = 0;
     bool        enable_sync  = true;
     bool        display      = true;
 };
@@ -121,7 +120,6 @@ void formatResults(CAInput input, BenchmarkResult result)
         {"grid_h",        sd(input.ca.height)},
         {"seed",          su(input.ca.seed)},
         {"density",       sf(input.ca.density)},
-        {"target_fps",    sd(input.target_fps)},
         {"framerate",     sf(lib.frame_rate)},
         {"compute_time",  sf(lib.times.compute)},
         {"pipeline_time", sf(lib.times.pipeline)},
@@ -139,10 +137,9 @@ void formatResults(CAInput input, BenchmarkResult result)
         {"d2h_time",      sf(0.f)},
         {"h2h_time",      sf(0.f)},
     });
-    printf("%s,%s,%d,%d,%u,%f,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
         input.ca.width, input.ca.height, input.ca.seed, input.ca.density,
-        input.target_fps,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -166,9 +163,9 @@ BenchmarkResult runExperiment(CAInput input)
     ViewerOptions opts{};
     opts.window.size         = { input.win_width, input.win_height };
     opts.background_color    = { 0.f, 0.f, 0.f, 1.f };
-    opts.present.mode        = input.present;
-    opts.present.enable_sync = input.enable_sync;
-    opts.present.target_fps  = input.target_fps;
+    opts.present.mode              = input.present;
+    opts.present.enable_sync       = input.enable_sync;
+    opts.present.enable_fps_limit  = false;  // always uncapped
     opts.show_panel          = input.display;
 
     InstanceHandle instance = nullptr;
@@ -429,7 +426,7 @@ static void usage(const char* prog)
 {
     printf(
         "Usage: %s [win_w win_h] [grid_w grid_h] [seed] [density] [iters]"
-        " [present] [target_fps] [vsync] [display]\n"
+        " [present] [vsync] [display]\n"
         "\n"
         "  win_w  win_h   Window resolution in pixels             (default: 1920 1080)\n"
         "  grid_w grid_h  CA grid dimensions in cells             (default: 1024 1024)\n"
@@ -437,11 +434,11 @@ static void usage(const char* prog)
         "  density        Initial live-cell fraction [0,1]        (default: 0.30)\n"
         "  iters          Simulation steps to run                 (default: 1000000)\n"
         "  present        0=Immediate 1=TripleBuffering 2=VSync   (default: 0)\n"
-        "  target_fps     Frame-rate cap; 0 = unlimited           (default: 0)\n"
         "  vsync          1 = enable GPU sync, 0 = disable        (default: 1)\n"
         "  display        1 = open window, 0 = headless compute   (default: 1)\n"
         "\n"
         "win_w/win_h and grid_w/grid_h must each be supplied as a pair.\n"
+        "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
         "        Column layout matches benchmark_datoviz; pack/d2h/h2h columns are 0.\n"
         "        graphics_time = mimir internal render time (zero-copy, no upload).\n",
@@ -462,9 +459,8 @@ int main(int argc, char* argv[])
     if (argc >= 7)    input.ca.density  = std::stof(argv[6]);
     if (argc >= 8)    input.iter_count  = std::stoi(argv[7]);
     if (argc >= 9)    input.present     = static_cast<PresentMode>(std::stoi(argv[8]));
-    if (argc >= 10)   input.target_fps  = std::stoi(argv[9]);
-    if (argc >= 11)   input.enable_sync = (bool)std::stoi(argv[10]);
-    if (argc >= 12)   input.display     = (bool)std::stoi(argv[11]);
+    if (argc >= 10)   input.enable_sync = (bool)std::stoi(argv[9]);
+    if (argc >= 11)   input.display     = (bool)std::stoi(argv[10]);
 
     auto result = runExperiment(input);
     formatResults(input, result);
