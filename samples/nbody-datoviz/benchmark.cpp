@@ -385,13 +385,11 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("Frame      %d",       hud->frame);
     dvz_gui_text("FPS        %.1f",     hud->fps);
     dvz_gui_text("Compute    %.2f ms",  hud->compute_ms);
-    dvz_gui_text("Pack       %.2f ms",  hud->pack_ms);
-    dvz_gui_text("D2H        %.2f ms",  hud->d2h_ms);
-    dvz_gui_text("H2H        %.2f ms",  hud->h2h_ms);
-    dvz_gui_text("Transfer   %.2f ms (pack + D2H + H2H)",
-                 hud->pack_ms + hud->d2h_ms + hud->h2h_ms);
-    dvz_gui_text("Render*    %.2f ms",  hud->render_ms);
-    dvz_gui_text("* H2D + D2D + draw");
+    dvz_gui_text("Transfer   %.2f ms",  hud->pack_ms + hud->d2h_ms + hud->h2h_ms);
+    dvz_gui_text("    Pack   %.2f ms",  hud->pack_ms);
+    dvz_gui_text("    D2H    %.2f ms",  hud->d2h_ms);
+    dvz_gui_text("    H2H    %.2f ms",  hud->h2h_ms);
+    dvz_gui_text("Render     %.2f ms (H2D + D2D + draw)", hud->render_ms);
     dvz_gui_end();
 }
 
