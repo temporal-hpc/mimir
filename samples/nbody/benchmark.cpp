@@ -111,6 +111,8 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
     auto gpu = result.power;
     auto nvml = result.memory;
 
+    // pack_time/d2h_time/staging_time are 0 for mimir (zero-copy, no pack step).
+    // Column layout matches nbody-datoviz for direct CSV comparison.
     printAligned({
         {"mode",          mode},
         {"windowres",     resolution},
@@ -129,8 +131,11 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"nvml_reserved", sf(nvml.reserved)},
         {"nvml_total",    sf(nvml.total)},
         {"nvml_used",     sf(nvml.used)},
+        {"pack_time",     sf(0.f)},
+        {"d2h_time",      sf(0.f)},
+        {"staging_time",  sf(0.f)},
     });
-    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
@@ -147,7 +152,8 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         nvml.free,
         nvml.reserved,
         nvml.total,
-        nvml.used
+        nvml.used,
+        0.f, 0.f, 0.f
     );
 }
 
@@ -469,8 +475,17 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Compute");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.compute_ms);
                 ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Pack");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("D2H");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Stage");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
+                ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Transfer");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A (zero-copy)");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A (pack + D2H + staging)");
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);

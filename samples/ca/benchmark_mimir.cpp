@@ -111,6 +111,9 @@ void formatResults(CAInput input, BenchmarkResult result)
     auto gpu  = result.power;
     auto nvml = result.memory;
 
+    // pack_time/d2h_time/staging_time are 0 for mimir (zero-copy, no pack step).
+    // graphics_time = mimir's internal render time.
+    // Column layout matches benchmark_datoviz for direct CSV comparison.
     printAligned({
         {"mode",          mode},
         {"windowres",     resolution},
@@ -132,15 +135,19 @@ void formatResults(CAInput input, BenchmarkResult result)
         {"nvml_reserved", sf((float)nvml.reserved)},
         {"nvml_total",    sf((float)nvml.total)},
         {"nvml_used",     sf((float)nvml.used)},
+        {"pack_time",     sf(0.f)},
+        {"d2h_time",      sf(0.f)},
+        {"staging_time",  sf(0.f)},
     });
-    printf("%s,%s,%d,%d,%u,%f,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%u,%f,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
         input.ca.width, input.ca.height, input.ca.seed, input.ca.density,
         input.target_fps,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
-        nvml.free, nvml.reserved, nvml.total, nvml.used);
+        nvml.free, nvml.reserved, nvml.total, nvml.used,
+        0.f, 0.f, 0.f);
 }
 
 // ---------------------------------------------------------------------------
@@ -281,8 +288,17 @@ BenchmarkResult runExperiment(CAInput input)
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Compute");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.compute_ms);
                 ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Pack");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("D2H");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Stage");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
+                ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Transfer");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A (zero-copy)");
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A (pack + D2H + staging)");
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
@@ -426,8 +442,9 @@ static void usage(const char* prog)
         "  display        1 = open window, 0 = headless compute   (default: 1)\n"
         "\n"
         "win_w/win_h and grid_w/grid_h must each be supplied as a pair.\n"
-        "Output: one CSV row to stdout (same column layout as benchmark_datoviz,\n"
-        "        minus transfer_time which is N/A for the zero-copy mimir path).\n",
+        "Output: one CSV row to stdout.\n"
+        "        Column layout matches benchmark_datoviz; pack/d2h/staging columns are 0.\n"
+        "        graphics_time = mimir internal render time (zero-copy, no upload).\n",
         prog);
 }
 

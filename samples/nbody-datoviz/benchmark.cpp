@@ -67,11 +67,13 @@ struct GPUMemoryMetrics {
 // Performance metrics, mirroring mimir's PerformanceMetrics so the CSV columns line up.
 // pipeline (GPU render-pass time) is not measurable through datoviz's public API and is
 // reported as 0. devmem usage/budget are substituted with NVML used/total (see formatResults).
+// graphics_time = dvz_scene_step wall-clock (GPU marker upload from staging + draw).
+// transfer.{pack,d2h,staging} are the three measurable stages before dvz_scene_step.
 struct PerformanceMetrics {
     float frame_rate;
     struct { float compute; float graphics; float pipeline; } times;
     struct { float usage; float budget; } devmem;
-    float transfer; // EXTRA column: per-frame D2H + datoviz upload cost (mimir has none).
+    struct { float pack; float d2h; float staging; } transfer;
 };
 
 static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
@@ -134,7 +136,9 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
     auto gpu = result.power;
     auto nvml = result.memory;
 
-    // Same column order as nbody, with transfer_time appended as the final column.
+    // Same column order as nbody.
+    // graphics_time = dvz_scene_step (GPU marker upload + draw, inseparable).
+    // pack_time/d2h_time/staging_time are the three measurable transfer stages.
     printAligned({
         {"mode",          mode},
         {"windowres",     resolution},
@@ -153,9 +157,11 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"nvml_reserved", sf(nvml.reserved)},
         {"nvml_total",    sf(nvml.total)},
         {"nvml_used",     sf(nvml.used)},
-        {"transfer_time", sf(library.transfer)},
+        {"pack_time",     sf(library.transfer.pack)},
+        {"d2h_time",      sf(library.transfer.d2h)},
+        {"staging_time",  sf(library.transfer.staging)},
     });
-    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
@@ -173,7 +179,9 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         nvml.reserved,
         nvml.total,
         nvml.used,
-        library.transfer
+        library.transfer.pack,
+        library.transfer.d2h,
+        library.transfer.staging
     );
 }
 
@@ -352,8 +360,10 @@ struct HudData
     int          frame;
     float        fps;
     float        compute_ms;
-    float        transfer_ms;
-    float        graphics_ms;
+    float        pack_ms;      // packPositionsVec3 GPU kernel (or CPU repack)
+    float        d2h_ms;       // cudaMemcpy Device→Host (PCIe; 0 in CPU path)
+    float        staging_ms;   // dvz_marker_position (host → datoviz staging)
+    float        render_ms;    // dvz_scene_step: GPU marker upload + draw (inseparable)
     char         gpu_name[256];
     float        gpu_total_gb;
     float        buf_total_mb;
@@ -372,8 +382,13 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("Frame      %d",       hud->frame);
     dvz_gui_text("FPS        %.1f",     hud->fps);
     dvz_gui_text("Compute    %.2f ms",  hud->compute_ms);
-    dvz_gui_text("Transfer   %.2f ms",  hud->transfer_ms);
-    dvz_gui_text("Graphics   %.2f ms",  hud->graphics_ms);
+    dvz_gui_text("Pack       %.2f ms",  hud->pack_ms);
+    dvz_gui_text("D2H        %.2f ms",  hud->d2h_ms);
+    dvz_gui_text("Stage      %.2f ms",  hud->staging_ms);
+    dvz_gui_text("Transfer   %.2f ms (pack + D2H + staging)",
+                 hud->pack_ms + hud->d2h_ms + hud->staging_ms);
+    dvz_gui_text("Render*    %.2f ms",  hud->render_ms);
+    dvz_gui_text("* GPU upload + draw");
     dvz_gui_end();
 }
 
@@ -483,12 +498,15 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         dvz_app_gui(ctx.app, dvz_figure_id(ctx.figure), hudCallback, &hud);
     }
 
-    // CUDA events for compute timing (same instrument mimir uses).
-    cudaEvent_t cstart, cstop;
+    // CUDA events: cstart/cstop for physics kernel, pstart/pstop for pack kernel.
+    cudaEvent_t cstart, cstop, pstart, pstop;
     checkCuda(cudaEventCreate(&cstart));
     checkCuda(cudaEventCreate(&cstop));
+    checkCuda(cudaEventCreate(&pstart));
+    checkCuda(cudaEventCreate(&pstop));
 
-    float total_compute = 0.f, total_transfer = 0.f, total_graphics = 0.f;
+    float total_compute = 0.f, total_pack = 0.f, total_d2h = 0.f,
+          total_staging = 0.f, total_graphics = 0.f;
     size_t frame_count = 0;
 
     GPUPowerBegin("gpu", 100);
@@ -518,30 +536,39 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
             if (input.display)
             {
-                auto t0 = clk::now();
-                // Repack float4 host positions -> vec3 host (CPU path: no device buffer).
+                // Pack: CPU repack float4→vec3 (no GPU kernel in CPU path, d2h=0).
+                auto t_pack = clk::now();
                 for (unsigned int b = 0; b < n; b++)
                 {
                     h_pos3[3 * b + 0] = host.pos[4 * b + 0];
                     h_pos3[3 * b + 1] = host.pos[4 * b + 1];
                     h_pos3[3 * b + 2] = host.pos[4 * b + 2];
                 }
-                dvz_marker_position(ctx.visual, 0, n, (vec3 *)h_pos3, 0);
-                float frame_transfer = (float)ms_since(t0);
-                total_transfer += frame_transfer;
+                float pack_ms = (float)ms_since(t_pack);
 
-                auto g0 = clk::now();
+                // Staging: host → datoviz marker staging buffer.
+                auto t_staging = clk::now();
+                dvz_marker_position(ctx.visual, 0, n, (vec3 *)h_pos3, 0);
+                float staging_ms = (float)ms_since(t_staging);
+
+                total_pack    += pack_ms;
+                total_staging += staging_ms;
+
+                // Render: dvz_scene_step = GPU marker upload + draw.
+                auto t_render = clk::now();
                 if (!dvz_scene_step(ctx.scene, ctx.app)) { break; }
-                float frame_graphics = (float)ms_since(g0);
-                total_graphics += frame_graphics;
+                float graphics_ms = (float)ms_since(t_render);
+                total_graphics += graphics_ms;
                 frame_count++;
 
-                float frame_compute = (float)ms_since(c0) - frame_transfer - frame_graphics;
-                float frame_total = frame_compute + frame_transfer + frame_graphics;
-                hud.frame       = (int)frame_count;
-                hud.compute_ms  = frame_compute;
-                hud.transfer_ms = frame_transfer;
-                hud.graphics_ms = frame_graphics;
+                float frame_compute = (float)ms_since(c0) - pack_ms - staging_ms - graphics_ms;
+                float frame_total   = frame_compute + pack_ms + staging_ms + graphics_ms;
+                hud.frame      = (int)frame_count;
+                hud.compute_ms = frame_compute;
+                hud.pack_ms    = pack_ms;
+                hud.d2h_ms     = 0.f;
+                hud.staging_ms = staging_ms;
+                hud.render_ms  = graphics_ms;
                 if (frame_total > 0) {
                     float new_fps = 1000.f / frame_total;
                     hud.fps = (frame_count == 1) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
@@ -569,30 +596,44 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
             if (input.display)
             {
-                // --- Transfer: GPU pack -> D2H -> datoviz upload (the datoviz overhead) ---
-                auto t0 = clk::now();
+                // Pack: float4 → vec3 device buffer (GPU kernel).
+                checkCuda(cudaEventRecord(pstart));
                 packPositionsVec3(device.dPos[current_read], d_pos3, n, block_size);
-                checkCuda(cudaMemcpy(h_pos3, d_pos3, vec3_memsize, cudaMemcpyDeviceToHost));
-                dvz_marker_position(ctx.visual, 0, n, (vec3 *)h_pos3, 0);
-                float frame_transfer = (float)ms_since(t0);
-                total_transfer += frame_transfer;
+                checkCuda(cudaEventRecord(pstop));
 
-                // --- Graphics: render + present one frame ---
-                // dvz_scene_step (not dvz_app_step) is required: it registers the scene's
-                // per-frame callback which calls dvz_app_submit, flushing the position update
-                // queued above into the renderer. dvz_app_is_running is not checked here
-                // because is_running starts false and is only set true inside dvz_app_step.
-                auto g0 = clk::now();
+                // D2H: device → pinned host (synchronous; also drains stream 0,
+                //      making pstop queryable immediately after).
+                auto t_d2h = clk::now();
+                checkCuda(cudaMemcpy(h_pos3, d_pos3, vec3_memsize, cudaMemcpyDeviceToHost));
+                float d2h_ms = (float)ms_since(t_d2h);
+
+                float pack_ms = 0.f;
+                checkCuda(cudaEventElapsedTime(&pack_ms, pstart, pstop));
+
+                // Staging: host → datoviz marker staging buffer.
+                auto t_staging = clk::now();
+                dvz_marker_position(ctx.visual, 0, n, (vec3 *)h_pos3, 0);
+                float staging_ms = (float)ms_since(t_staging);
+
+                total_pack    += pack_ms;
+                total_d2h     += d2h_ms;
+                total_staging += staging_ms;
+
+                // Render: dvz_scene_step = GPU marker upload from staging + draw.
+                // These two GPU operations are inseparable via the datoviz public API.
+                auto t_render = clk::now();
                 if (!dvz_scene_step(ctx.scene, ctx.app)) { break; }
-                float frame_graphics = (float)ms_since(g0);
-                total_graphics += frame_graphics;
+                float graphics_ms = (float)ms_since(t_render);
+                total_graphics += graphics_ms;
                 frame_count++;
 
-                hud.frame       = (int)frame_count;
-                hud.compute_ms  = compute_ms;
-                hud.transfer_ms = frame_transfer;
-                hud.graphics_ms = frame_graphics;
-                float frame_total = compute_ms + frame_transfer + frame_graphics;
+                hud.frame      = (int)frame_count;
+                hud.compute_ms = compute_ms;
+                hud.pack_ms    = pack_ms;
+                hud.d2h_ms     = d2h_ms;
+                hud.staging_ms = staging_ms;
+                hud.render_ms  = graphics_ms;
+                float frame_total = compute_ms + pack_ms + d2h_ms + staging_ms + graphics_ms;
                 if (frame_total > 0) {
                     float new_fps = 1000.f / frame_total;
                     hud.fps = (frame_count == 1) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
@@ -623,17 +664,21 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     auto gpu_power = GPUPowerEnd();
 
     PerformanceMetrics metrics{};
-    metrics.frame_rate     = frame_rate;
-    metrics.times.compute  = total_compute  / 1000.f; // ms -> s, matches mimir convention
-    metrics.times.graphics = total_graphics / 1000.f;
-    metrics.times.pipeline = 0.f; // not exposed by datoviz
-    metrics.devmem.usage   = (float)nvml.used;  // NVML substitute for Vulkan budget
-    metrics.devmem.budget  = (float)nvml.total; // NVML substitute
-    metrics.transfer       = total_transfer / 1000.f;
+    metrics.frame_rate           = frame_rate;
+    metrics.times.compute        = total_compute  / 1000.f; // ms → s
+    metrics.times.graphics       = total_graphics / 1000.f;
+    metrics.times.pipeline       = 0.f;
+    metrics.devmem.usage         = (float)nvml.used;
+    metrics.devmem.budget        = (float)nvml.total;
+    metrics.transfer.pack        = total_pack    / 1000.f;
+    metrics.transfer.d2h         = total_d2h     / 1000.f;
+    metrics.transfer.staging     = total_staging / 1000.f;
 
     // Cleanup
     checkCuda(cudaEventDestroy(cstart));
     checkCuda(cudaEventDestroy(cstop));
+    checkCuda(cudaEventDestroy(pstart));
+    checkCuda(cudaEventDestroy(pstop));
     if (input.display)
     {
         dvz_scene_destroy(ctx.scene);

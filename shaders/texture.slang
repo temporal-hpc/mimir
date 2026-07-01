@@ -15,12 +15,12 @@ struct VertexData
 [shader("vertex")]
 VertexData vertex2dMain(VertexInput input)
 {
-    float4 pos = float4(input.pos, 1);
-
+    // Positions from makeImageFrame are already in NDC space (-1..1).
+    // Applying the 3D perspective MVP would project them as world-space coords,
+    // always producing a square regardless of window/grid aspect ratio.
     VertexData output;
-    output.pos = mul(pos, mvp.all);
-    output.uv = input.uv;
-
+    output.pos = float4(input.pos, 1.0);
+    output.uv  = input.uv;
     return output;
 }
 
