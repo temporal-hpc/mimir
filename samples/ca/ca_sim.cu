@@ -36,6 +36,21 @@ void launchStepGoL(const uint8_t* src, uint8_t* dst, int W, int H, cudaStream_t 
     stepGoLKernel<<<grid, block, 0, s>>>(src, dst, W, H);
 }
 
+__global__ void invertGridKernel(const uint8_t* __restrict__ grid,
+                                  uint8_t*       __restrict__ out,
+                                  int N)
+{
+    int i = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+    if (i >= N) return;
+    out[i] = 255u - grid[i];
+}
+
+void launchInvertGrid(const uint8_t* grid, uint8_t* out, int W, int H, cudaStream_t s)
+{
+    int N = W * H;
+    invertGridKernel<<<(N + 255) / 256, 256, 0, s>>>(grid, out, N);
+}
+
 // ---------------------------------------------------------------------------
 // Host init
 // ---------------------------------------------------------------------------
