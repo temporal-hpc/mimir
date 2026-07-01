@@ -78,3 +78,14 @@ float4 frag2d_Char4(VertexData input) : SV_Target
     return picker.getColor(samp);
 }
 
+// Single-channel R8 image (VK_FORMAT_R8_UNORM).
+// Vulkan fills missing G/B/A channels with 0/0/1 when sampled as float4,
+// so only .r is meaningful: 0.0 → dead grey, 1.0 → alive grey.
+[shader("fragment")]
+float4 frag2d_R8(VertexData input) : SV_Target
+{
+    float v = Tex2d_Float4.Sample(Sampler, input.uv).r;
+    float c = lerp(15.0 / 255.0, 220.0 / 255.0, v);
+    return float4(c, c, c, 1.0);
+}
+

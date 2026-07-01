@@ -18,11 +18,11 @@ __global__ void stepGoLKernel(const uint8_t* __restrict__ src,
     for (int dy = -1; dy <= 1; ++dy)
         for (int dx = -1; dx <= 1; ++dx) {
             if (dx == 0 && dy == 0) continue;
-            n += src[((y + dy + H) % H) * W + ((x + dx + W) % W)];
+            n += (src[((y + dy + H) % H) * W + ((x + dx + W) % W)] != 0) ? 1 : 0;
         }
 
-    uint8_t alive = src[y * W + x];
-    dst[y * W + x] = (n == 3 || (alive && n == 2)) ? 1u : 0u;
+    bool alive = src[y * W + x] != 0;
+    dst[y * W + x] = (n == 3 || (alive && n == 2)) ? 255u : 0u;
 }
 
 // Convert uint8 grid to RGBA8 for display.
@@ -63,6 +63,6 @@ std::vector<uint8_t> initGrid(const CAParams& p)
     std::uniform_real_distribution<float> dist(0.f, 1.f);
     std::vector<uint8_t> h((size_t)p.width * p.height);
     for (auto& c : h)
-        c = dist(rng) < p.density ? 1u : 0u;
+        c = dist(rng) < p.density ? 255u : 0u;
     return h;
 }

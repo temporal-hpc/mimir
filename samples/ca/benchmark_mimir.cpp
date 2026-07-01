@@ -1,9 +1,8 @@
 // 2D Game of Life benchmark — mimir rendering path.
 //
-// The simulation uses two ping-pong uint8 grid buffers (plain CUDA).
-// The render buffer is a single uchar4 interop buffer (Vulkan/CUDA shared)
-// that is packed from the active grid each frame. mimir reads it in place —
-// zero per-frame host transfer.
+// Both ping-pong uint8 grid buffers are allocated as mimir interop allocations.
+// Vulkan reads the just-written buffer directly each frame — no pack step, no
+// extra memory, zero per-frame host transfer.
 //
 // Compare with benchmark_datoviz.cpp which must round-trip GPU -> host -> GPU.
 
@@ -95,10 +94,9 @@ static void printSystemInfo(CAInput input)
     fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
     fprintf(stderr, "Grid: %d x %d  (%.2f M cells)\n", input.ca.width, input.ca.height, N / 1e6);
     fprintf(stderr, "Buffers:\n");
-    fprintf(stderr, "  d_grid[0]  (CUDA):     %s\n", smb(N).c_str());
-    fprintf(stderr, "  d_grid[1]  (CUDA):     %s\n", smb(N).c_str());
-    fprintf(stderr, "  d_pixels   (interop):  %s\n", smb(N * 4).c_str());
-    fprintf(stderr, "  Total:                 %s\n", smb(N * 6).c_str());
+    fprintf(stderr, "  d_grid[0]  (interop):  %s\n", smb(N).c_str());
+    fprintf(stderr, "  d_grid[1]  (interop):  %s\n", smb(N).c_str());
+    fprintf(stderr, "  Total:                 %s\n", smb(2 * N).c_str());
 }
 
 void formatResults(CAInput input, BenchmarkResult result)
@@ -157,15 +155,6 @@ BenchmarkResult runExperiment(CAInput input)
 
     checkCuda(cudaSetDevice(0));
 
-    // Two ping-pong CA grid buffers (uint8, plain CUDA).
-    uint8_t* d_grid[2] = {};
-    checkCuda(cudaMalloc(&d_grid[0], N));
-    checkCuda(cudaMalloc(&d_grid[1], N));
-    int r = 0, w = 1;
-
-    auto h_grid = initGrid(input.ca);
-    checkCuda(cudaMemcpy(d_grid[r], h_grid.data(), N, cudaMemcpyHostToDevice));
-
     // Mimir instance.
     ViewerOptions opts{};
     opts.window.size         = { input.win_width, input.win_height };
@@ -178,38 +167,53 @@ BenchmarkResult runExperiment(CAInput input)
     InstanceHandle instance = nullptr;
     createInstance(opts, &instance);
 
-    // Interop pixel buffer (uchar4 RGBA8) — shared between CUDA and Vulkan.
-    uchar4*     d_pixels     = nullptr;
-    AllocHandle pixels_alloc = {};
-    ViewHandle  view         = nullptr;
+    // Two ping-pong CA grid buffers (uint8).
+    // In display mode both are interop allocations so Vulkan can read them directly.
+    // In headless mode plain CUDA allocations suffice.
+    uint8_t*    d_grid[2]      = {};
+    AllocHandle grid_alloc[2]  = {};
+    ViewHandle  view[2]        = {};
+    int r = 0, w = 1;
+
+    auto h_grid = initGrid(input.ca);
 
     if (input.display)
     {
-        allocLinear(instance, (void**)&d_pixels, sizeof(uchar4) * N, &pixels_alloc);
+        for (int k = 0; k < 2; ++k)
+            allocLinear(instance, (void**)&d_grid[k], N, &grid_alloc[k]);
 
-        // Prime with the initial grid so the first frame isn't garbage.
-        launchPackRGBA(d_grid[r], d_pixels, W, H);
+        // Load initial state into buffer 0.
+        checkCuda(cudaMemcpy(d_grid[0], h_grid.data(), N, cudaMemcpyHostToDevice));
         checkCuda(cudaDeviceSynchronize());
 
-        ViewDescription desc{
-            .type       = ViewType::Image,
-            .options    = {},
-            .domain     = DomainType::Domain2D,
-            .attributes = {
-                { AttributeType::Position, makeImageFrame(instance) },
-                { AttributeType::Color, AttributeDescription{
-                    .source = pixels_alloc,
-                    .size   = (unsigned int)N,
-                    .format = FormatDescription::make<char4>(),
-                }}
-            },
-            .layout = Layout::make(W, H),
-        };
-        createView(instance, &desc, &view);
+        // R8 UNORM format: cells store 0 (dead) or 255 (alive).
+        FormatDescription r8_fmt{ .kind = FormatKind::UnsignedNormalized, .size = 1, .components = 1 };
+
+        for (int k = 0; k < 2; ++k)
+        {
+            ViewDescription desc{
+                .type       = ViewType::Image,
+                .options    = {},
+                .domain     = DomainType::Domain2D,
+                .attributes = {
+                    { AttributeType::Position, makeImageFrame(instance) },
+                    { AttributeType::Color, AttributeDescription{
+                        .source = grid_alloc[k],
+                        .size   = (unsigned int)N,
+                        .format = r8_fmt,
+                    }}
+                },
+                .layout  = Layout::make(W, H),
+                .visible = (k == r),  // only view[r] starts visible
+            };
+            createView(instance, &desc, &view[k]);
+        }
     }
     else
     {
-        checkCuda(cudaMalloc((void**)&d_pixels, sizeof(uchar4) * N));
+        checkCuda(cudaMalloc(&d_grid[0], N));
+        checkCuda(cudaMalloc(&d_grid[1], N));
+        checkCuda(cudaMemcpy(d_grid[0], h_grid.data(), N, cudaMemcpyHostToDevice));
     }
 
     // Ctrl+W closes the window; set by the GUI callback, polled by the main loop.
@@ -230,8 +234,7 @@ BenchmarkResult runExperiment(CAInput input)
         mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
         nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
         hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
-        // 2 × uint8 grid + 1 × uchar4 pixel buffer
-        hud.buf_mb = (float)((2 * N + 4 * N) / (1024.0 * 1024.0));
+        hud.buf_mb = (float)((2 * N) / (1024.0 * 1024.0));  // 2 × uint8 interop grid
 
         setGuiCallback(instance, [&hud, &quit_flag]() {
             auto& io = ImGui::GetIO();
@@ -316,8 +319,14 @@ BenchmarkResult runExperiment(CAInput input)
 
         if (input.display) checkCuda(cudaEventRecord(cstart));
         launchStepGoL(d_grid[r], d_grid[w], W, H);
-        launchPackRGBA(d_grid[w], d_pixels, W, H);
         if (input.display) checkCuda(cudaEventRecord(cstop));
+
+        if (input.display)
+        {
+            // Switch visibility: hide the source buffer, show the just-written one.
+            toggleVisibility(view[r]);
+            toggleVisibility(view[w]);
+        }
 
         std::swap(r, w);
 
@@ -383,15 +392,14 @@ BenchmarkResult runExperiment(CAInput input)
     {
         exit(instance);
         destroyInstance(instance);
-        // d_pixels is an interop allocation owned by mimir; freed via destroyInstance.
+        // grid_alloc[0/1] are interop allocations owned by mimir; freed via destroyInstance.
     }
     else
     {
         destroyInstance(instance);
-        checkCuda(cudaFree(d_pixels));
+        checkCuda(cudaFree(d_grid[0]));
+        checkCuda(cudaFree(d_grid[1]));
     }
-    checkCuda(cudaFree(d_grid[0]));
-    checkCuda(cudaFree(d_grid[1]));
 
     metrics.frame_rate = frame_rate;
     return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };

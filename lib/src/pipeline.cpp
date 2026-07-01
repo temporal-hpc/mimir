@@ -232,10 +232,13 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         }
         case ViewType::Image:
         {
-            // Do not use specializations in texture shaders for now
             compile.specializations.clear();
             compile.module_path = "shaders/texture.slang";
-            compile.entrypoints = {"vertex2dMain", "frag2d_Char4"};
+            auto it = desc.attributes.find(AttributeType::Color);
+            bool single_channel = it != desc.attributes.end()
+                && it->second.format.components == 1;
+            compile.entrypoints = {"vertex2dMain",
+                single_channel ? "frag2d_R8" : "frag2d_Char4"};
             break;
         }
         default:
