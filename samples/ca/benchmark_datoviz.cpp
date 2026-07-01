@@ -1,0 +1,449 @@
+// 2D Game of Life benchmark — datoviz rendering path.
+//
+// Identical simulation to benchmark_mimir.cpp (same kernel, same initGrid seed).
+// The only difference is the rendering path:
+//
+//   mimir   : CUDA writes RGBA pixels into a Vulkan/CUDA shared buffer — zero transfer.
+//   datoviz : has no CUDA interop; each frame the pixel buffer must round-trip:
+//               1. pack uint8 grid → uchar4 device buffer (GPU kernel)
+//               2. cudaMemcpy device → pinned host buffer
+//               3. dvz_texture_data uploads host buffer → GPU texture (inside datoviz)
+//             That round trip is the overhead this benchmark quantifies (transfer_time).
+
+#include <chrono>
+#include <cstring>
+#include <string>
+#include <vector>
+
+#include <datoviz.h>
+
+#include "ca_sim.cuh"
+#include "nvmlPower.hpp"
+#include "validation.hpp"
+
+using clk = std::chrono::high_resolution_clock;
+static inline double ms_since(clk::time_point t0)
+{
+    return std::chrono::duration<double, std::milli>(clk::now() - t0).count();
+}
+
+// ---------------------------------------------------------------------------
+// Input / output structs
+// ---------------------------------------------------------------------------
+
+struct CAInput {
+    int      win_width   = 1920;
+    int      win_height  = 1080;
+    CAParams ca          = {};
+    int      iter_count  = 1000000;
+    int      present     = 0;     // kept for CLI parity; maps to vsync when displaying
+    int      target_fps  = 0;
+    bool     enable_sync = true;
+    bool     display     = true;
+};
+
+struct HudData {
+    unsigned int cells;
+    int          frame;
+    float        fps;
+    float        compute_ms;
+    float        transfer_ms;
+    float        graphics_ms;
+    char         gpu_name[256];
+    float        gpu_total_gb;
+    float        buf_mb;
+    int          grid_w, grid_h;
+    float        density;
+    uint32_t     seed;
+};
+
+// Mirrors mimir's PerformanceMetrics so CSV columns line up.
+// pipeline is not measurable via datoviz and is always 0.
+// devmem usage/budget are substituted with NVML used/total.
+struct PerformanceMetrics {
+    float frame_rate;
+    struct { float compute; float graphics; float pipeline; } times;
+    struct { float usage; float budget; } devmem;
+    float transfer;
+};
+
+struct GPUMemoryMetrics { double free, reserved, total, used; };
+
+struct BenchmarkResult {
+    PerformanceMetrics perf;
+    GPUPowerMetrics    power;
+    GPUMemoryMetrics   memory;
+};
+
+struct DatovizContext {
+    DvzApp*     app;
+    DvzBatch*   batch;
+    DvzScene*   scene;
+    DvzFigure*  figure;
+    DvzPanel*   panel;
+    DvzVisual*  visual;
+    DvzTexture* texture;
+};
+
+// ---------------------------------------------------------------------------
+// Output formatting helpers
+// ---------------------------------------------------------------------------
+
+static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
+static std::string sd(int v)    { return std::to_string(v); }
+static std::string su(uint32_t v) { return std::to_string(v); }
+static std::string smb(size_t bytes) {
+    char b[32]; snprintf(b, sizeof(b), "%.2f MB", bytes / (1024.0 * 1024.0)); return b;
+}
+
+static void printAligned(std::initializer_list<std::pair<const char*, std::string>> cols)
+{
+    std::vector<int> w;
+    for (auto& [h, v] : cols)
+        w.push_back((int)(strlen(h) > v.size() ? strlen(h) : v.size()));
+    int i = 0;
+    for (auto& [h, v] : cols) fprintf(stderr, "%-*s  ", w[i++], h);
+    fprintf(stderr, "\n");
+    i = 0;
+    for (auto& [h, v] : cols) fprintf(stderr, "%-*s  ", w[i++], v.c_str());
+    fprintf(stderr, "\n");
+}
+
+static void printSystemInfo(CAInput input)
+{
+    char gpu_name[256] = "Unknown";
+    nvmlDeviceGetName(getNvmlDevice(), gpu_name, sizeof(gpu_name));
+    nvmlMemory_v2_t mi;
+    mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+    nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
+    constexpr double gb = 1024.0 * 1024.0 * 1024.0;
+    size_t N = (size_t)input.ca.width * input.ca.height;
+    fprintf(stderr, "GPU: %s\n", gpu_name);
+    fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
+    fprintf(stderr, "Grid: %d x %d  (%.2f M cells)\n", input.ca.width, input.ca.height, N / 1e6);
+    fprintf(stderr, "Buffers:\n");
+    fprintf(stderr, "  d_grid[0]  (CUDA):    %s\n", smb(N).c_str());
+    fprintf(stderr, "  d_grid[1]  (CUDA):    %s\n", smb(N).c_str());
+    fprintf(stderr, "  d_rgba     (CUDA):    %s\n", smb(N * 4).c_str());
+    fprintf(stderr, "  h_rgba     (pinned):  %s\n", smb(N * 4).c_str());
+    fprintf(stderr, "  Total:                %s\n", smb(N * 10).c_str());
+}
+
+void formatResults(CAInput input, BenchmarkResult result)
+{
+    std::string mode = input.display ? "datoviz" : "none";
+    std::string resolution = "None";
+    if      (input.win_width == 1920 && input.win_height == 1080) resolution = "FHD";
+    else if (input.win_width == 2560 && input.win_height == 1440) resolution = "QHD";
+    else if (input.win_width == 3840 && input.win_height == 2160) resolution = "UHD";
+
+    auto lib  = result.perf;
+    auto gpu  = result.power;
+    auto nvml = result.memory;
+
+    // Same column order as benchmark_mimir, with transfer_time appended.
+    printAligned({
+        {"mode",          mode},
+        {"windowres",     resolution},
+        {"grid_w",        sd(input.ca.width)},
+        {"grid_h",        sd(input.ca.height)},
+        {"seed",          su(input.ca.seed)},
+        {"density",       sf(input.ca.density)},
+        {"target_fps",    sd(input.target_fps)},
+        {"framerate",     sf(lib.frame_rate)},
+        {"compute_time",  sf(lib.times.compute)},
+        {"pipeline_time", sf(lib.times.pipeline)},
+        {"graphics_time", sf(lib.times.graphics)},
+        {"vk_usage",      sf(lib.devmem.usage)},
+        {"vk_budget",     sf(lib.devmem.budget)},
+        {"gpu_power",     sf(gpu.average_power)},
+        {"gpu_energy",    sf(gpu.total_energy)},
+        {"gpu_time",      sf(gpu.total_time)},
+        {"nvml_free",     sf((float)nvml.free)},
+        {"nvml_reserved", sf((float)nvml.reserved)},
+        {"nvml_total",    sf((float)nvml.total)},
+        {"nvml_used",     sf((float)nvml.used)},
+        {"transfer_time", sf(lib.transfer)},
+    });
+    printf("%s,%s,%d,%d,%u,%f,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+        mode.c_str(), resolution.c_str(),
+        input.ca.width, input.ca.height, input.ca.seed, input.ca.density,
+        input.target_fps,
+        lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
+        lib.devmem.usage, lib.devmem.budget,
+        gpu.average_power, gpu.total_energy, gpu.total_time,
+        nvml.free, nvml.reserved, nvml.total, nvml.used,
+        lib.transfer);
+}
+
+// ---------------------------------------------------------------------------
+// HUD callback (datoviz GUI — called from within dvz_scene_step)
+// ---------------------------------------------------------------------------
+
+static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
+{
+    auto* hud = static_cast<HudData*>(ev->user_data);
+    dvz_gui_pos((vec2){10, 10}, (vec2){0, 0});
+    dvz_gui_begin("Performance", 0);
+    dvz_gui_text("GPU        %s",       hud->gpu_name);
+    dvz_gui_text("VRAM       %.1f GB",  hud->gpu_total_gb);
+    dvz_gui_text("Grid       %d x %d",  hud->grid_w, hud->grid_h);
+    dvz_gui_text("Seed       %u",       hud->seed);
+    dvz_gui_text("Density    %.2f",     hud->density);
+    dvz_gui_text("Buffers    %.1f MB",  hud->buf_mb);
+    dvz_gui_text("");
+    dvz_gui_text("Frame      %d",       hud->frame);
+    dvz_gui_text("FPS        %.1f",     hud->fps);
+    dvz_gui_text("Compute    %.2f ms",  hud->compute_ms);
+    dvz_gui_text("Transfer   %.2f ms",  hud->transfer_ms);
+    dvz_gui_text("Graphics   %.2f ms",  hud->graphics_ms);
+    dvz_gui_end();
+}
+
+// ---------------------------------------------------------------------------
+// datoviz setup
+// ---------------------------------------------------------------------------
+
+static DatovizContext setupDatoviz(CAInput input, const uchar4* initial_pixels, int W, int H)
+{
+    DatovizContext ctx{};
+    ctx.app   = dvz_app(DVZ_APP_FLAGS_NONE);
+    ctx.batch = dvz_app_batch(ctx.app);
+    ctx.scene = dvz_scene(ctx.batch);
+
+    int fig_flags = DVZ_CANVAS_FLAGS_IMGUI;
+    if (input.enable_sync) fig_flags |= DVZ_CANVAS_FLAGS_VSYNC;
+    ctx.figure = dvz_figure(ctx.scene, input.win_width, input.win_height, fig_flags);
+    ctx.panel  = dvz_panel_default(ctx.figure);
+    dvz_panel_panzoom(ctx.panel, 0);
+
+    ctx.visual = dvz_image(ctx.batch, 0);
+    dvz_image_alloc(ctx.visual, 1);
+
+    // Center the image in the panel, scaled to fill the window.
+    vec3 pos    = {0, 0, 0};
+    vec2 size   = {(float)input.win_width, (float)input.win_height};
+    vec2 anchor = {0, 0};          // anchor (0,0) = center of image at position
+    vec4 uv     = {0, 0, 1, 1};   // full texture
+    dvz_image_position(ctx.visual, 0, 1, &pos,    0);
+    dvz_image_size    (ctx.visual, 0, 1, &size,   0);
+    dvz_image_anchor  (ctx.visual, 0, 1, &anchor, 0);
+    dvz_image_texcoords(ctx.visual, 0, 1, &uv,    0);
+
+    ctx.texture = dvz_texture_2D(
+        ctx.batch,
+        DVZ_FORMAT_R8G8B8A8_UNORM,
+        DVZ_FILTER_NEAREST,
+        DVZ_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        (uint32_t)W, (uint32_t)H,
+        (void*)initial_pixels, 0);
+    dvz_image_texture(ctx.visual, ctx.texture);
+    dvz_panel_visual(ctx.panel, ctx.visual, 0);
+    return ctx;
+}
+
+// ---------------------------------------------------------------------------
+// Experiment
+// ---------------------------------------------------------------------------
+
+BenchmarkResult runExperiment(CAInput input)
+{
+    const int    W = input.ca.width;
+    const int    H = input.ca.height;
+    const size_t N = (size_t)W * H;
+
+    checkCuda(cudaSetDevice(0));
+
+    // Two ping-pong CA grid buffers (uint8, plain CUDA).
+    uint8_t* d_grid[2] = {};
+    checkCuda(cudaMalloc(&d_grid[0], N));
+    checkCuda(cudaMalloc(&d_grid[1], N));
+    int r = 0, w = 1;
+
+    // Device RGBA staging buffer + pinned host buffer for fast D2H.
+    uchar4* d_rgba = nullptr;
+    uchar4* h_rgba = nullptr;
+    checkCuda(cudaMalloc((void**)&d_rgba, sizeof(uchar4) * N));
+    checkCuda(cudaHostAlloc((void**)&h_rgba, sizeof(uchar4) * N, cudaHostAllocDefault));
+
+    auto h_grid = initGrid(input.ca);
+    checkCuda(cudaMemcpy(d_grid[r], h_grid.data(), N, cudaMemcpyHostToDevice));
+
+    // Pack initial pixels for datoviz texture creation.
+    launchPackRGBA(d_grid[r], d_rgba, W, H);
+    checkCuda(cudaMemcpy(h_rgba, d_rgba, sizeof(uchar4) * N, cudaMemcpyDeviceToHost));
+
+    DatovizContext ctx{};
+    HudData hud{};
+    hud.cells   = (unsigned int)N;
+    hud.grid_w  = W;
+    hud.grid_h  = H;
+    hud.density = input.ca.density;
+    hud.seed    = input.ca.seed;
+
+    if (input.display)
+    {
+        ctx = setupDatoviz(input, h_rgba, W, H);
+        dvz_app_gui(ctx.app, dvz_figure_id(ctx.figure), hudCallback, &hud);
+
+        nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
+        nvmlMemory_v2_t mi;
+        mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+        nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
+        hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+        // 2 × uint8 grid + device uchar4 + pinned uchar4
+        hud.buf_mb = (float)((2 * N + 4 * N + 4 * N) / (1024.0 * 1024.0));
+    }
+
+    // CUDA events for compute timing.
+    cudaEvent_t cstart, cstop;
+    checkCuda(cudaEventCreate(&cstart));
+    checkCuda(cudaEventCreate(&cstop));
+
+    float total_compute  = 0.f;
+    float total_transfer = 0.f;
+    float total_graphics = 0.f;
+    size_t frame_count   = 0;
+
+    GPUPowerBegin("gpu", 100);
+    printSystemInfo(input);
+
+    auto loop_start = clk::now();
+
+    for (int i = 0; i < input.iter_count; ++i)
+    {
+        // --- Compute (GoL step only) ---
+        checkCuda(cudaEventRecord(cstart));
+        launchStepGoL(d_grid[r], d_grid[w], W, H);
+        checkCuda(cudaEventRecord(cstop));
+        checkCuda(cudaEventSynchronize(cstop));
+        float compute_ms = 0.f;
+        checkCuda(cudaEventElapsedTime(&compute_ms, cstart, cstop));
+        total_compute += compute_ms;
+
+        std::swap(r, w);
+
+        if (input.display)
+        {
+            // --- Transfer: GPU pack -> D2H -> datoviz upload ---
+            auto t0 = clk::now();
+            launchPackRGBA(d_grid[r], d_rgba, W, H);
+            // Synchronous D2H (also drains the pack kernel from stream 0).
+            checkCuda(cudaMemcpy(h_rgba, d_rgba,
+                sizeof(uchar4) * N, cudaMemcpyDeviceToHost));
+            dvz_texture_data(ctx.texture, 0, 0, 0,
+                (uint32_t)W, (uint32_t)H, 1,
+                (DvzSize)(sizeof(uchar4) * N), h_rgba);
+            float transfer_ms = (float)ms_since(t0);
+            total_transfer += transfer_ms;
+
+            // --- Render ---
+            auto g0 = clk::now();
+            if (!dvz_scene_step(ctx.scene, ctx.app)) break;
+            float graphics_ms = (float)ms_since(g0);
+            total_graphics += graphics_ms;
+            ++frame_count;
+
+            float frame_total = compute_ms + transfer_ms + graphics_ms;
+            hud.frame       = (int)frame_count;
+            hud.compute_ms  = compute_ms;
+            hud.transfer_ms = transfer_ms;
+            hud.graphics_ms = graphics_ms;
+            if (frame_total > 0.f) {
+                float new_fps = 1000.f / frame_total;
+                hud.fps = (frame_count == 1) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
+            }
+        }
+    }
+
+    auto loop_wall = std::chrono::duration<double>(clk::now() - loop_start).count();
+    float frame_rate = 0.f;
+    if (input.display && loop_wall > 0.0) frame_rate = (float)(frame_count / loop_wall);
+    else if (loop_wall > 0.0)             frame_rate = (float)(input.iter_count / loop_wall);
+
+    nvmlMemory_v2_t meminfo;
+    meminfo.version = (unsigned int)(sizeof(meminfo) | (2 << 24U));
+    nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &meminfo);
+    constexpr double gb = 1024.0 * 1024.0 * 1024.0;
+    GPUMemoryMetrics nvml{
+        .free     = meminfo.free / gb,
+        .reserved = meminfo.reserved / gb,
+        .total    = meminfo.total / gb,
+        .used     = meminfo.used / gb,
+    };
+
+    auto gpu_power = GPUPowerEnd();
+
+    PerformanceMetrics metrics{};
+    metrics.frame_rate     = frame_rate;
+    metrics.times.compute  = total_compute  / 1000.f;   // ms -> s
+    metrics.times.graphics = total_graphics / 1000.f;
+    metrics.times.pipeline = 0.f;
+    metrics.devmem.usage   = (float)nvml.used;
+    metrics.devmem.budget  = (float)nvml.total;
+    metrics.transfer       = total_transfer / 1000.f;
+
+    // Cleanup
+    checkCuda(cudaEventDestroy(cstart));
+    checkCuda(cudaEventDestroy(cstop));
+
+    if (input.display)
+    {
+        dvz_scene_destroy(ctx.scene);
+        dvz_app_destroy(ctx.app);
+    }
+    checkCuda(cudaFree(d_grid[0]));
+    checkCuda(cudaFree(d_grid[1]));
+    checkCuda(cudaFree(d_rgba));
+    checkCuda(cudaFreeHost(h_rgba));
+
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+}
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+static void usage(const char* prog)
+{
+    printf(
+        "Usage: %s [win_w win_h] [grid_w grid_h] [seed] [density] [iters]"
+        " [present] [target_fps] [vsync] [display]\n"
+        "\n"
+        "  win_w  win_h   Window resolution in pixels             (default: 1920 1080)\n"
+        "  grid_w grid_h  CA grid dimensions in cells             (default: 1024 1024)\n"
+        "  seed           RNG seed for initial state              (default: 12345)\n"
+        "  density        Initial live-cell fraction [0,1]        (default: 0.30)\n"
+        "  iters          Simulation steps to run                 (default: 1000000)\n"
+        "  present        kept for CLI parity; ignored by datoviz (default: 0)\n"
+        "  target_fps     kept for CLI parity; ignored by datoviz (default: 0)\n"
+        "  vsync          1 = enable VSync, 0 = disable           (default: 1)\n"
+        "  display        1 = open window, 0 = headless compute   (default: 1)\n"
+        "\n"
+        "Output: one CSV row to stdout (same column layout as benchmark_mimir,\n"
+        "        with transfer_time appended as the final column).\n",
+        prog);
+}
+
+int main(int argc, char* argv[])
+{
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h")
+            { usage(argv[0]); return EXIT_SUCCESS; }
+    if (argc == 1) { usage(argv[0]); return EXIT_SUCCESS; }
+
+    CAInput input{};
+    if (argc >= 3)  { input.win_width  = std::stoi(argv[1]); input.win_height = std::stoi(argv[2]); }
+    if (argc >= 5)  { input.ca.width   = std::stoi(argv[3]); input.ca.height  = std::stoi(argv[4]); }
+    if (argc >= 6)    input.ca.seed    = (uint32_t)std::stoul(argv[5]);
+    if (argc >= 7)    input.ca.density = std::stof(argv[6]);
+    if (argc >= 8)    input.iter_count = std::stoi(argv[7]);
+    if (argc >= 9)    input.present    = std::stoi(argv[8]);
+    if (argc >= 10)   input.target_fps = std::stoi(argv[9]);
+    if (argc >= 11)   input.enable_sync = (bool)std::stoi(argv[10]);
+    if (argc >= 12)   input.display    = (bool)std::stoi(argv[11]);
+
+    auto result = runExperiment(input);
+    formatResults(input, result);
+    return EXIT_SUCCESS;
+}
