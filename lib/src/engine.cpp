@@ -1,6 +1,8 @@
 #include "mimir/engine.hpp"
 #include "mimir/mimir.hpp"
 
+#include <spdlog/cfg/env.h>
+
 #include "mimir/api.hpp"
 #include "mimir/framelimit.hpp"
 #include "mimir/gui.hpp"
@@ -108,6 +110,9 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
 #else
     spdlog::set_level(spdlog::level::trace);
 #endif
+    // SPDLOG_LEVEL=<level> overrides the build-type default (e.g. to get slang
+    // compile diagnostics out of a release build).
+    spdlog::cfg::load_env_levels();
     spdlog::set_pattern("[%H:%M:%S] [%l] %v");
 
     engine.options.present.target_frame_time = getTargetFrameTime(

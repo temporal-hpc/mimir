@@ -28,6 +28,15 @@ struct FSIn
     float4 color : COLOR;
 };
 
+// gl_PointCoord: slang has no system-value semantic for the point-sprite coordinate
+// (HLSL has no point sprites), so read the SPIR-V builtin directly.
+float2 pointCoord()
+{
+    return spirv_asm {
+        result:$$float2 = OpLoad builtin(PointCoord:float2);
+    };
+}
+
 [shader("vertex")]
 VSOut vertexMain<P: IPosition, C: IColor, S: ISize>(
     P in_pos   : POSITION,
@@ -42,11 +51,11 @@ VSOut vertexMain<P: IPosition, C: IColor, S: ISize>(
 }
 
 [shader("fragment")]
-float4 fragmentMain(FSIn input, float2 pt : SV_PointCoord) : SV_Target
+float4 fragmentMain(FSIn input) : SV_Target
 {
-    // pt is in [0,1]; center at (0.5, 0.5).  Discard corners outside the inscribed
-    // disc (dot(p,p) > 0.25  ↔  distance from center > 0.5).
-    float2 p = pt - float2(0.5, 0.5);
+    // Point coord is in [0,1]; center at (0.5, 0.5).  Discard corners outside the
+    // inscribed disc (dot(p,p) > 0.25  ↔  distance from center > 0.5).
+    float2 p = pointCoord() - float2(0.5, 0.5);
     if (dot(p, p) > 0.25) { discard; }
     return input.color;
 }

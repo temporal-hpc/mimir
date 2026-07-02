@@ -194,8 +194,17 @@ std::vector<VkPipelineShaderStageCreateInfo> ShaderBuilder::compileModule(
         params.module_path, fmt::join(params.entrypoints, ", ")
     );
 
-    // Load code from a Slang source as a module
+    // Load code from a Slang source as a module.
+    // loadModule reports failure only through the returned pointer and the diagnostics
+    // blob (there is no SlangResult), so a null check is the only error detection here.
     auto module = session->loadModule(params.module_path.c_str(), diag.writeRef());
+    if (module == nullptr)
+    {
+        const char* msg = diag != nullptr
+            ? static_cast<const char*>(diag->getBufferPointer()) : "unknown error";
+        spdlog::error("Failed to compile shader module '{}': {}", params.module_path, msg);
+        return {};
+    }
     validation::checkSlang(result, diag);
 
     // Shader components include the loaded module plus all required entrypoints
