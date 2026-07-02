@@ -1,9 +1,14 @@
 // Flat 2D marker shader — cheap alternative to marker.slang.
 //
 // Uses native point sprites (gl_PointSize / gl_PointCoord) instead of a geometry
-// shader quad expansion.  The fragment stage clips each point to a disc using only
-// the point-coordinate distance — no ray-sphere intersection, no lighting, no custom
-// depth write.  This matches the GPU cost of a datoviz-style renderer.
+// shader quad expansion.  No ray-sphere intersection, no lighting, no custom depth
+// write.
+//
+// The fragment stage replicates datoviz's disc marker exactly (graphics_marker.frag,
+// DISC/FILLED, linewidth 0, angle 0): the SDF treats the sprite as `size + antialias`
+// pixels wide, so the opaque disc is size²/(size+antialias) px with a ~1 px gaussian
+// skirt.  This makes a given size value produce the SAME on-screen disc as a datoviz
+// marker of that size — required for fair benchmark comparisons.
 //
 // Enabled via MarkerOptions::RenderMode::Flat2D.  All other programs that do not set
 // that field continue to use marker.slang (Sphere3D) unchanged.
@@ -13,12 +18,17 @@ import position;
 import color;
 import size;
 
+// Matches datoviz's constants.glsl (ANTIALIAS, "antialias = 1 everywhere").
+static const float ANTIALIAS = 1.0;
+
 // Vertex stage outputs.  SV_PointSize sets gl_PointSize; it is a GPU built-in and
-// is NOT interpolated to fragments, so the fragment stage uses its own input struct.
+// is NOT interpolated to fragments, so the size is also passed as a regular varying
+// (PSIZE) for the fragment SDF.
 struct VSOut
 {
     float4 pos   : SV_Position;
     float4 color : COLOR;
+    float  szv   : PSIZE;
     float  sz    : SV_PointSize;
 };
 
@@ -26,6 +36,7 @@ struct VSOut
 struct FSIn
 {
     float4 color : COLOR;
+    float  szv   : PSIZE;
 };
 
 // gl_PointCoord: slang has no system-value semantic for the point-sprite coordinate
@@ -46,16 +57,32 @@ VSOut vertexMain<P: IPosition, C: IColor, S: ISize>(
     VSOut o;
     o.pos   = mul(in_pos.getPosition(), mvp.all);
     o.color = in_color.getColor();
-    o.sz    = in_size.getSize();
+    o.szv   = in_size.getSize();
+    o.sz    = o.szv;
     return o;
 }
 
 [shader("fragment")]
 float4 fragmentMain(FSIn input) : SV_Target
 {
-    // Point coord is in [0,1]; center at (0.5, 0.5).  Discard corners outside the
-    // inscribed disc (dot(p,p) > 0.25  ↔  distance from center > 0.5).
+    // Point coord is in [0,1]; recenter to [-0.5, 0.5] like datoviz's P.
     float2 p = pointCoord() - float2(0.5, 0.5);
-    if (dot(p, p) > 0.25) { discard; }
-    return input.color;
+
+    // datoviz corner discard (graphics_marker.frag, eps = 5e-3).
+    const float eps = 5e-3;
+    if (abs(p.x) >= 0.5 - eps || abs(p.y) >= 0.5 - eps) { discard; }
+
+    // datoviz marker_disc SDF over a sprite treated as (size + antialias) px wide:
+    // d < 0 inside the opaque disc, gaussian alpha falloff outside (filled(), the
+    // linewidth-0 path where t = -antialias).
+    float sz = input.szv;
+    float d  = length(p * (sz + ANTIALIAS)) - sz / 2.0;
+
+    float4 color = input.color;
+    if (d >= 0.0)
+    {
+        float border = (d + ANTIALIAS) / ANTIALIAS;
+        color.a *= exp(-border * border);
+    }
+    return color;
 }

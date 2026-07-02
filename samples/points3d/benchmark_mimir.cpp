@@ -49,6 +49,8 @@ struct HudData {
     float        gpu_total_gb;
     float        buf_mb;
     uint32_t     seed;
+    unsigned int k;
+    float        epsilon;
 };
 
 struct GPUMemoryMetrics { double free, reserved, total, used; };
@@ -83,7 +85,7 @@ static void printAligned(std::initializer_list<std::pair<const char*, std::strin
     fprintf(stderr, "\n");
 }
 
-static void printSystemInfo(PointsInput input, size_t rng_bytes)
+static void printSystemInfo(PointsInput input, size_t rng_bytes, size_t cluster_bytes)
 {
     int device_id = -1;
     checkCuda(cudaGetDevice(&device_id));
@@ -102,10 +104,13 @@ static void printSystemInfo(PointsInput input, size_t rng_bytes)
         device_id, prop.name, prop.major, prop.minor);
     fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
     fprintf(stderr, "Points: %u  (seed %u)\n", input.pts.count, input.pts.seed);
+    fprintf(stderr, "Init distribution: %u modes, epsilon %.4f\n", input.pts.k, input.pts.epsilon);
     fprintf(stderr, "Buffers:\n");
     fprintf(stderr, "  positions  (interop):  %s\n", smb(pos_bytes).c_str());
     fprintf(stderr, "  rng states (CUDA):     %s\n", smb(rng_bytes).c_str());
-    fprintf(stderr, "  Total:                 %s\n", smb(pos_bytes + rng_bytes).c_str());
+    fprintf(stderr, "  clusters   (CUDA):     %s\n", smb(cluster_bytes).c_str());
+    fprintf(stderr, "  Total:                 %s\n",
+        smb(pos_bytes + rng_bytes + cluster_bytes).c_str());
 }
 
 void formatResults(PointsInput input, BenchmarkResult result)
@@ -128,6 +133,8 @@ void formatResults(PointsInput input, BenchmarkResult result)
         {"windowres",     resolution},
         {"N",             sd((int)input.pts.count)},
         {"seed",          su(input.pts.seed)},
+        {"k",             su(input.pts.k)},
+        {"epsilon",       sf(input.pts.epsilon)},
         {"framerate",     sf(lib.frame_rate)},
         {"compute_time",  sf(lib.times.compute)},
         {"pipeline_time", sf(lib.times.pipeline)},
@@ -145,9 +152,9 @@ void formatResults(PointsInput input, BenchmarkResult result)
         {"d2h_time",      sf(0.f)},
         {"h2h_time",      sf(0.f)},
     });
-    printf("%s,%s,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%u,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        input.pts.count, input.pts.seed,
+        input.pts.count, input.pts.seed, input.pts.k, input.pts.epsilon,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -221,22 +228,26 @@ BenchmarkResult runExperiment(PointsInput input)
         checkCuda(cudaMalloc((void**)&d_pos, pos_bytes));
     }
 
-    auto rng = createRngStates(input.pts.seed);
-    launchInitPositions(d_pos, n, rng);
+    auto rng      = createRngStates(input.pts.seed);
+    auto clusters = createClusters(input.pts);
+    launchInitPositions(d_pos, input.pts, clusters, rng);
 
     // Ctrl+W closes the window; set by the GUI callback, polled by the main loop.
     std::atomic<bool> quit_flag{false};
 
     // HUD data shared between the simulation loop and the ImGui callback.
     HudData hud{};
-    hud.points = (unsigned int)n;
-    hud.seed   = input.pts.seed;
+    hud.points  = (unsigned int)n;
+    hud.seed    = input.pts.seed;
+    hud.k       = input.pts.k;
+    hud.epsilon = input.pts.epsilon;
 
     if (input.display)
     {
         // GPU name/VRAM need NVML, which is only initialized later by GPUPowerBegin(); they are
         // filled in after that call. buf_mb and the CUDA device info need no NVML.
-        hud.buf_mb = (float)((pos_bytes + rngStatesBytes(rng)) / (1024.0 * 1024.0));
+        hud.buf_mb = (float)((pos_bytes + rngStatesBytes(rng) + clusterBytes(clusters, n))
+            / (1024.0 * 1024.0));
         int device_id = -1;
         checkCuda(cudaGetDevice(&device_id));
         cudaDeviceProp prop{};
@@ -272,6 +283,12 @@ BenchmarkResult runExperiment(PointsInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Seed");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.seed);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Modes k");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.k);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Epsilon");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.4f", hud.epsilon);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Buffers");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f MB", hud.buf_mb);
@@ -324,7 +341,7 @@ BenchmarkResult runExperiment(PointsInput input)
     }
 
     GPUPowerBegin("gpu", 100);
-    printSystemInfo(input, rngStatesBytes(rng));
+    printSystemInfo(input, rngStatesBytes(rng), clusterBytes(clusters, n));
 
     if (input.display)
     {
@@ -350,7 +367,7 @@ BenchmarkResult runExperiment(PointsInput input)
         if (input.display) prepareViews(instance);
 
         if (input.display) checkCuda(cudaEventRecord(cstart));
-        launchIntegrate3D(d_pos, n, rng);
+        launchIntegrate3D(d_pos, n, clusters, rng);
         if (input.display) checkCuda(cudaEventRecord(cstop));
 
         if (input.display)
@@ -412,6 +429,7 @@ BenchmarkResult runExperiment(PointsInput input)
     if (cstart)     cudaEventDestroy(cstart);
     if (cstop)      cudaEventDestroy(cstop);
     if (cstop_prev) cudaEventDestroy(cstop_prev);
+    destroyClusters(clusters);
     destroyRngStates(rng);
 
     if (input.display)
@@ -455,6 +473,11 @@ static void usage(const char* prog)
         "                     Same meaning as benchmark_datoviz --size.\n"
         "  --marker-mode N    0 = Flat2D point sprites (datoviz-comparable cost),\n"
         "                     1 = Sphere3D ray-traced spheres       (default: 0)\n"
+        "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
+        "  --epsilon E        Per-axis stddev of each mode          (default: 0.05)\n"
+        "                     The walk is mean-reverting, so clusters keep this\n"
+        "                     stddev over time. Centers are seed-deterministic;\n"
+        "                     same cloud as benchmark_datoviz for equal args.\n"
         "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
@@ -483,6 +506,8 @@ int main(int argc, char* argv[])
             else if (a == "--display")      input.display = (bool)std::stoi(v);
             else if (a == "--size")         input.size_px = std::stof(v);
             else if (a == "--marker-mode")  input.sphere3d = (bool)std::stoi(v);
+            else if (a == "--k")            input.pts.k = (unsigned int)std::stoul(v);
+            else if (a == "--epsilon")      input.pts.epsilon = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

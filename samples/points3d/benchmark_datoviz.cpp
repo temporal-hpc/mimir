@@ -44,6 +44,7 @@ struct PointsInput {
     bool         vsync      = true;  // real display vsync (DVZ_CANVAS_FLAGS_VSYNC)
     bool         display    = true;
     float        size_px    = 5.f;   // marker size in pixels (same as benchmark_mimir --size)
+    bool         sphere3d   = false; // lit sphere impostors instead of flat discs
 };
 
 struct HudData {
@@ -61,6 +62,8 @@ struct HudData {
     float        gpu_total_gb;
     float        buf_mb;
     uint32_t     seed;
+    unsigned int k;
+    float        epsilon;
 };
 
 // Mirrors mimir's PerformanceMetrics so CSV columns line up.
@@ -117,7 +120,7 @@ static void printAligned(std::initializer_list<std::pair<const char*, std::strin
     fprintf(stderr, "\n");
 }
 
-static void printSystemInfo(PointsInput input, size_t rng_bytes)
+static void printSystemInfo(PointsInput input, size_t rng_bytes, size_t cluster_bytes)
 {
     int device_id = -1;
     checkCuda(cudaGetDevice(&device_id));
@@ -136,11 +139,14 @@ static void printSystemInfo(PointsInput input, size_t rng_bytes)
         device_id, prop.name, prop.major, prop.minor);
     fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
     fprintf(stderr, "Points: %u  (seed %u)\n", input.pts.count, input.pts.seed);
+    fprintf(stderr, "Init distribution: %u modes, epsilon %.4f\n", input.pts.k, input.pts.epsilon);
     fprintf(stderr, "Buffers:\n");
     fprintf(stderr, "  positions  (CUDA):     %s\n", smb(pos_bytes).c_str());
     fprintf(stderr, "  positions  (pinned):   %s\n", smb(pos_bytes).c_str());
     fprintf(stderr, "  rng states (CUDA):     %s\n", smb(rng_bytes).c_str());
-    fprintf(stderr, "  Total:                 %s\n", smb(2 * pos_bytes + rng_bytes).c_str());
+    fprintf(stderr, "  clusters   (CUDA):     %s\n", smb(cluster_bytes).c_str());
+    fprintf(stderr, "  Total:                 %s\n",
+        smb(2 * pos_bytes + rng_bytes + cluster_bytes).c_str());
 }
 
 void formatResults(PointsInput input, BenchmarkResult result)
@@ -163,6 +169,8 @@ void formatResults(PointsInput input, BenchmarkResult result)
         {"windowres",     resolution},
         {"N",             sd((int)input.pts.count)},
         {"seed",          su(input.pts.seed)},
+        {"k",             su(input.pts.k)},
+        {"epsilon",       sf(input.pts.epsilon)},
         {"framerate",     sf(lib.frame_rate)},
         {"compute_time",  sf(lib.times.compute)},
         {"pipeline_time", sf(lib.times.pipeline)},
@@ -180,9 +188,9 @@ void formatResults(PointsInput input, BenchmarkResult result)
         {"d2h_time",      sf(lib.transfer.d2h)},
         {"h2h_time",      sf(lib.transfer.h2h)},
     });
-    printf("%s,%s,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%u,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        input.pts.count, input.pts.seed,
+        input.pts.count, input.pts.seed, input.pts.k, input.pts.epsilon,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -219,6 +227,8 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("VRAM       %.1f GB",  hud->gpu_total_gb);
     dvz_gui_text("Points     %u",       hud->points);
     dvz_gui_text("Seed       %u",       hud->seed);
+    dvz_gui_text("Modes k    %u",       hud->k);
+    dvz_gui_text("Epsilon    %.4f",     hud->epsilon);
     dvz_gui_text("Buffers    %.1f MB",  hud->buf_mb);
     dvz_gui_text("");
     dvz_gui_text("Frame      %d",        hud->frame);
@@ -250,24 +260,39 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
     ctx.panel   = dvz_panel_default(ctx.figure);
     ctx.arcball = dvz_panel_arcball(ctx.panel, 0); // 3D interactivity
 
-    // Filled disc markers sized in pixels — matches mimir's Flat2D Markers view.
-    ctx.visual = dvz_marker(ctx.batch, 0);
-    dvz_marker_mode(ctx.visual, DVZ_MARKER_MODE_CODE);
-    dvz_marker_aspect(ctx.visual, DVZ_MARKER_ASPECT_FILLED);
-    dvz_marker_shape(ctx.visual, DVZ_MARKER_SHAPE_DISC);
-    dvz_marker_alloc(ctx.visual, n);
-
-    dvz_marker_position(ctx.visual, 0, n, (vec3*)initial_pos3, 0);
-
-    std::vector<float> sizes(n, input.size_px);
-    dvz_marker_size(ctx.visual, 0, n, sizes.data(), 0);
-
     std::vector<DvzColor> colors(n);
     for (unsigned int i = 0; i < n; i++)
     {
         colors[i][0] = 255; colors[i][1] = 255; colors[i][2] = 255; colors[i][3] = 255;
     }
-    dvz_marker_color(ctx.visual, 0, n, colors.data(), 0);
+
+    if (input.sphere3d)
+    {
+        // Lit sphere impostors (ray-sphere point sprites with Phong lighting and
+        // per-fragment depth) — same technique as mimir's Sphere3D marker mode.
+        // dvz_sphere_size is the sphere diameter in NDC units; mimir's Sphere3D
+        // uses radius = size/100 world units, so size/50 gives the same geometry
+        // (the [-1,1]^3 domain maps 1:1 to NDC under the arcball).
+        ctx.visual = dvz_sphere(ctx.batch, DVZ_SPHERE_FLAGS_LIGHTING);
+        dvz_sphere_alloc(ctx.visual, n);
+        dvz_sphere_position(ctx.visual, 0, n, (vec3*)initial_pos3, 0);
+        std::vector<float> sizes(n, input.size_px / 50.f);
+        dvz_sphere_size(ctx.visual, 0, n, sizes.data(), 0);
+        dvz_sphere_color(ctx.visual, 0, n, colors.data(), 0);
+    }
+    else
+    {
+        // Filled disc markers sized in pixels — matches mimir's Flat2D Markers view.
+        ctx.visual = dvz_marker(ctx.batch, 0);
+        dvz_marker_mode(ctx.visual, DVZ_MARKER_MODE_CODE);
+        dvz_marker_aspect(ctx.visual, DVZ_MARKER_ASPECT_FILLED);
+        dvz_marker_shape(ctx.visual, DVZ_MARKER_SHAPE_DISC);
+        dvz_marker_alloc(ctx.visual, n);
+        dvz_marker_position(ctx.visual, 0, n, (vec3*)initial_pos3, 0);
+        std::vector<float> sizes(n, input.size_px);
+        dvz_marker_size(ctx.visual, 0, n, sizes.data(), 0);
+        dvz_marker_color(ctx.visual, 0, n, colors.data(), 0);
+    }
 
     dvz_panel_visual(ctx.panel, ctx.visual, 0);
     return ctx;
@@ -292,8 +317,9 @@ BenchmarkResult runExperiment(PointsInput input)
     float* h_pos = nullptr;
     checkCuda(cudaHostAlloc((void**)&h_pos, pos_bytes, cudaHostAllocDefault));
 
-    auto rng = createRngStates(input.pts.seed);
-    launchInitPositions(d_pos, n, rng);
+    auto rng      = createRngStates(input.pts.seed);
+    auto clusters = createClusters(input.pts);
+    launchInitPositions(d_pos, input.pts, clusters, rng);
 
     // Prime the pinned buffer for datoviz visual creation.
     checkCuda(cudaMemcpy(h_pos, d_pos, pos_bytes, cudaMemcpyDeviceToHost));
@@ -302,8 +328,10 @@ BenchmarkResult runExperiment(PointsInput input)
 
     DatovizContext ctx{};
     HudData hud{};
-    hud.points = (unsigned int)n;
-    hud.seed   = input.pts.seed;
+    hud.points  = (unsigned int)n;
+    hud.seed    = input.pts.seed;
+    hud.k       = input.pts.k;
+    hud.epsilon = input.pts.epsilon;
 
     if (input.display)
     {
@@ -313,7 +341,8 @@ BenchmarkResult runExperiment(PointsInput input)
 
         // GPU name/VRAM need NVML, which is only initialized later by GPUPowerBegin(); they are
         // filled in after that call. buf_mb and the CUDA device info need no NVML.
-        hud.buf_mb = (float)((2 * pos_bytes + rngStatesBytes(rng)) / (1024.0 * 1024.0));
+        hud.buf_mb = (float)((2 * pos_bytes + rngStatesBytes(rng) + clusterBytes(clusters, n))
+            / (1024.0 * 1024.0));
         int device_id = -1;
         checkCuda(cudaGetDevice(&device_id));
         cudaDeviceProp prop{};
@@ -334,7 +363,7 @@ BenchmarkResult runExperiment(PointsInput input)
     size_t frame_count   = 0;
 
     GPUPowerBegin("gpu", 100);
-    printSystemInfo(input, rngStatesBytes(rng));
+    printSystemInfo(input, rngStatesBytes(rng), clusterBytes(clusters, n));
 
     if (input.display)
     {
@@ -353,7 +382,7 @@ BenchmarkResult runExperiment(PointsInput input)
     {
         // --- Compute (random-walk step only) ---
         checkCuda(cudaEventRecord(cstart));
-        launchIntegrate3D(d_pos, n, rng);
+        launchIntegrate3D(d_pos, n, clusters, rng);
         checkCuda(cudaEventRecord(cstop));
         checkCuda(cudaEventSynchronize(cstop));
         float compute_ms = 0.f;
@@ -369,7 +398,8 @@ BenchmarkResult runExperiment(PointsInput input)
 
             // --- H2H: pinned host -> datoviz's internal heap copy (CPU memcpy) ---
             auto t_h2h = clk::now();
-            dvz_marker_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0);
+            if (input.sphere3d) dvz_sphere_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0);
+            else                dvz_marker_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0);
             float h2h_ms = (float)ms_since(t_h2h);
 
             total_d2h += d2h_ms;
@@ -439,6 +469,7 @@ BenchmarkResult runExperiment(PointsInput input)
         dvz_scene_destroy(ctx.scene);
         dvz_app_destroy(ctx.app);
     }
+    destroyClusters(clusters);
     destroyRngStates(rng);
     checkCuda(cudaFree(d_pos));
     checkCuda(cudaFreeHost(h_pos));
@@ -466,6 +497,15 @@ static void usage(const char* prog)
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
         "  --size S           Marker size in pixels                 (default: 5)\n"
         "                     Same meaning as benchmark_mimir --size.\n"
+        "  --marker-mode N    0 = flat disc markers (dvz_marker),\n"
+        "                     1 = lit sphere impostors (dvz_sphere) (default: 0)\n"
+        "                     Mode 1 matches benchmark_mimir --marker-mode 1: the\n"
+        "                     sphere radius is size/100 in [-1,1] domain units.\n"
+        "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
+        "  --epsilon E        Per-axis stddev of each mode          (default: 0.05)\n"
+        "                     The walk is mean-reverting, so clusters keep this\n"
+        "                     stddev over time. Centers are seed-deterministic;\n"
+        "                     same cloud as benchmark_mimir for equal args.\n"
         "\n"
         "(datoviz has no present-mode selection; the mimir --present flag has no\n"
         " datoviz equivalent, so it is intentionally absent here.)\n"
@@ -496,9 +536,12 @@ int main(int argc, char* argv[])
             if (i + 1 >= argc)
             { fprintf(stderr, "Missing value for %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
             std::string v = argv[++i];
-            if      (a == "--vsync")   input.vsync   = (bool)std::stoi(v);
-            else if (a == "--display") input.display = (bool)std::stoi(v);
-            else if (a == "--size")    input.size_px = std::stof(v);
+            if      (a == "--vsync")       input.vsync    = (bool)std::stoi(v);
+            else if (a == "--display")     input.display  = (bool)std::stoi(v);
+            else if (a == "--size")        input.size_px  = std::stof(v);
+            else if (a == "--marker-mode") input.sphere3d = (bool)std::stoi(v);
+            else if (a == "--k")           input.pts.k = (unsigned int)std::stoul(v);
+            else if (a == "--epsilon")     input.pts.epsilon = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

@@ -126,6 +126,9 @@ struct MarkerOptions
     enum class RenderMode { Sphere3D, Flat2D };
 
     Shape      shape;
+    // Engine-managed: derived from ViewerOptions::light_model at createView time
+    // (None -> Flat2D, Phong -> Sphere3D). Do not set directly; choose the shading
+    // through the instance-wide light model instead.
     RenderMode render_mode = RenderMode::Sphere3D;
 
     static MarkerOptions defaults() {

@@ -173,6 +173,47 @@ std::vector<const char*> getRequiredDeviceExtensions(bool include_swapchain)
     return extensions;
 }
 
+bool checkAllExtensionsSupported(VkPhysicalDevice dev, std::span<const char*> expected);
+
+// Extensions required by the path-tracing render path (LightModel::PathTracing).
+// VK_KHR_buffer_device_address is core in Vulkan 1.2 (feature flag, no extension).
+std::vector<const char*> getRayTracingExtensions()
+{
+    return {
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+        VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+    };
+}
+
+bool supportsRayTracing(VkPhysicalDevice dev)
+{
+    auto rt_extensions = getRayTracingExtensions();
+    if (!checkAllExtensionsSupported(dev, rt_extensions)) { return false; }
+
+    // Extension presence does not guarantee the features; query them explicitly.
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtp_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+    };
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+        .pNext = &rtp_features,
+    };
+    VkPhysicalDeviceVulkan12Features vk12_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .pNext = &accel_features,
+    };
+    VkPhysicalDeviceFeatures2 features2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &vk12_features,
+    };
+    vkGetPhysicalDeviceFeatures2(dev, &features2);
+
+    return accel_features.accelerationStructure == VK_TRUE
+        && rtp_features.rayTracingPipeline      == VK_TRUE
+        && vk12_features.bufferDeviceAddress    == VK_TRUE;
+}
+
 bool checkAllExtensionsSupported(VkPhysicalDevice dev, std::span<const char*> expected)
 {
     // Enumerate extensions and check if all required extensions are included
@@ -355,6 +396,32 @@ VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_fam
     vk11features.storageInputOutput16 = VK_FALSE;
 
     auto device_extensions = getRequiredDeviceExtensions(!headless);
+
+    // Ray tracing (LightModel::PathTracing) support: enabled whenever the GPU has it,
+    // so an instance can request path tracing without special device setup. The
+    // feature structs live in this scope because vkCreateDevice reads the pNext chain.
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+        .accelerationStructure = VK_TRUE,
+    };
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtp_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+        .rayTracingPipeline = VK_TRUE,
+    };
+    if (supportsRayTracing(gpu))
+    {
+        for (auto ext : getRayTracingExtensions()) { device_extensions.push_back(ext); }
+        vk12features.bufferDeviceAddress = VK_TRUE;
+        accel_features.pNext = &rtp_features;
+        vk12features.pNext   = &accel_features;
+        spdlog::info("Ray tracing extensions enabled (device is path-tracing capable)");
+    }
+    else
+    {
+        spdlog::info("Ray tracing not supported by this device; "
+                     "LightModel::PathTracing will be unavailable");
+    }
+
     VkDeviceCreateInfo create_info{
         .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext                   = &vk11features,

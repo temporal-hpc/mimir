@@ -798,6 +798,28 @@ View *MimirInstance::createView(ViewDescription *desc)
         view.desc.options = initOptions(view.desc.type);
     }
 
+    // The instance-wide light model decides how markers are shaded; the per-view
+    // MarkerOptions::render_mode is derived from it here (see ViewerOptions::light_model).
+    if (view.desc.type == ViewType::Markers
+        && std::holds_alternative<MarkerOptions>(view.desc.options))
+    {
+        auto& marker_opts = std::get<MarkerOptions>(view.desc.options);
+        switch (options.light_model)
+        {
+            case LightModel::None:
+                marker_opts.render_mode = MarkerOptions::RenderMode::Flat2D;
+                break;
+            case LightModel::Phong:
+                marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
+                break;
+            case LightModel::PathTracing:
+                spdlog::warn("LightModel::PathTracing is not implemented yet; "
+                             "rendering with Phong raster instead");
+                marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
+                break;
+        }
+    }
+
     translateView(&view, desc->position);
     rotateView(&view, desc->rotation);
     scaleView(&view, desc->scale);

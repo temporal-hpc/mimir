@@ -57,6 +57,14 @@ struct WindowOptions
 // Remote   = headless rendering streamed to a connected client (not yet implemented).
 enum class RenderMode { Local, Headless, Remote };
 
+// Selects how the scene is shaded, instance-wide.
+// None        = unlit raster; markers draw as flat 2D point-sprite discs.
+// Phong       = lit raster; markers draw as ray-sphere impostors with Blinn-Phong.
+// PathTracing = Vulkan ray-traced path tracing (requires an RT-capable GPU; markers
+//               become instanced triangle icospheres). In development — currently
+//               falls back to Phong raster with a warning. See DESIGN_pathtracing.md.
+enum class LightModel { None, Phong, PathTracing };
+
 enum class PresentMode { Immediate, TripleBuffering, VSync };
 
 struct PresentOptions
@@ -89,6 +97,10 @@ struct ViewerOptions
 {
     // Selects on-screen (Local) vs offscreen/headless rendering for this instance.
     RenderMode render_mode  = RenderMode::Local;
+
+    // Instance-wide shading model; drives how each view's pipeline is built
+    // (e.g. flat vs lit markers). Phong preserves the historical default look.
+    LightModel light_model  = LightModel::Phong;
 
     // Options for the window associated to the engine instance.
     WindowOptions window    = WindowOptions::makeDefault();
