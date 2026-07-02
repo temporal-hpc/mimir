@@ -192,21 +192,22 @@ bool supportsRayTracing(VkPhysicalDevice dev)
     if (!checkAllExtensionsSupported(dev, rt_extensions)) { return false; }
 
     // Extension presence does not guarantee the features; query them explicitly.
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtp_features{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
-    };
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_features{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
-        .pNext = &rtp_features,
-    };
-    VkPhysicalDeviceVulkan12Features vk12_features{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-        .pNext = &accel_features,
-    };
-    VkPhysicalDeviceFeatures2 features2{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &vk12_features,
-    };
+    // Value-initialize ({}) then assign, to avoid -Werror=missing-field-initializers
+    // on the many trailing feature bits we intentionally leave zeroed.
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtp_features{};
+    rtp_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_features{};
+    accel_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+    accel_features.pNext = &rtp_features;
+
+    VkPhysicalDeviceVulkan12Features vk12_features{};
+    vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    vk12_features.pNext = &accel_features;
+
+    VkPhysicalDeviceFeatures2 features2{};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &vk12_features;
     vkGetPhysicalDeviceFeatures2(dev, &features2);
 
     return accel_features.accelerationStructure == VK_TRUE
@@ -400,14 +401,13 @@ VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_fam
     // Ray tracing (LightModel::PathTracing) support: enabled whenever the GPU has it,
     // so an instance can request path tracing without special device setup. The
     // feature structs live in this scope because vkCreateDevice reads the pNext chain.
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_features{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
-        .accelerationStructure = VK_TRUE,
-    };
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtp_features{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
-        .rayTracingPipeline = VK_TRUE,
-    };
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_features{};
+    accel_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+    accel_features.accelerationStructure = VK_TRUE;
+
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtp_features{};
+    rtp_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+    rtp_features.rayTracingPipeline = VK_TRUE;
     if (supportsRayTracing(gpu))
     {
         for (auto ext : getRayTracingExtensions()) { device_extensions.push_back(ext); }

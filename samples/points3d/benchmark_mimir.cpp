@@ -33,9 +33,20 @@ struct PointsInput {
     PresentMode  present     = PresentMode::Immediate;
     bool         enable_interop_sync = true;
     bool         display     = true;
-    float        size_px     = 5.f;         // marker size (pixels in Flat2D mode)
-    bool         sphere3d    = false;       // Sphere3D markers instead of Flat2D
+    float        size_px     = 5.f;         // marker size (pixels in unlit/None mode)
+    LightModel   light_model = LightModel::None;  // None=Flat2D discs, Phong=lit spheres,
+                                                  // PathTracing=RT (falls back to Phong for now)
 };
+
+// Parse --light-model none|phong|path-tracing into the instance-wide LightModel.
+static LightModel parseLightModel(const std::string& v)
+{
+    if (v == "none")         return LightModel::None;
+    if (v == "phong")        return LightModel::Phong;
+    if (v == "path-tracing") return LightModel::PathTracing;
+    fprintf(stderr, "Unknown --light-model '%s' (use none|phong|path-tracing)\n", v.c_str());
+    exit(EXIT_FAILURE);
+}
 
 struct HudData {
     unsigned int points;
@@ -176,6 +187,14 @@ BenchmarkResult runExperiment(PointsInput input)
     // Mimir instance.
     ViewerOptions opts{};
     opts.window.size         = { input.win_width, input.win_height };
+    opts.light_model         = input.light_model;
+    // Sun coming from a diagonal behind-and-above the camera, so the home view is lit
+    // like the datoviz baseline. Eye forward = -z, so +z lights the camera-facing side,
+    // +y is overhead, -x is to the left. This is the SAME normalized direction fed to
+    // benchmark_datoviz (dvz_sphere_light_pos, w=0), so both samples share one sun.
+    // marker.slang uses dot(normal, light_pos) WITHOUT normalizing, so it must stay unit
+    // length or it also scales diffuse brightness.
+    opts.light_pos           = { -0.4082f, 0.4082f, 0.8165f }; // normalize({-1, 1, 2})
     opts.background_color    = { 0.f, 0.f, 0.f, 1.f };
     opts.present.mode              = input.present;
     opts.present.enable_interop_sync       = input.enable_interop_sync;
@@ -191,14 +210,17 @@ BenchmarkResult runExperiment(PointsInput input)
         AllocHandle pos_alloc{};
         allocLinear(instance, (void**)&d_pos, pos_bytes, &pos_alloc);
 
-        // Flat2D markers are native point sprites sized in pixels — the same
-        // semantics as datoviz markers, so --size means the same thing in both
-        // benchmarks. Sphere3D (--marker-mode 1) does full ray-traced spheres,
-        // where default_size is in world units instead.
+        // marker_opts.render_mode is engine-managed now: createView derives it from
+        // the instance's light_model (None -> Flat2D discs, Phong/PathTracing ->
+        // Sphere3D). We must NOT set render_mode here.
+        //
+        // In None mode the markers are native point sprites sized in pixels — the
+        // same semantics as datoviz markers, so --size means the same thing in both
+        // benchmarks. Lit modes draw world-space spheres, where default_size is a
+        // world-unit radius instead.
         MarkerOptions marker_opts = MarkerOptions::defaults();
-        marker_opts.render_mode = input.sphere3d ? MarkerOptions::RenderMode::Sphere3D
-                                                 : MarkerOptions::RenderMode::Flat2D;
-        float size = input.sphere3d ? input.size_px / 100.f : input.size_px;
+        float size = (input.light_model == LightModel::None) ? input.size_px
+                                                             : input.size_px / 100.f;
 
         ViewDescription desc{
             .type       = ViewType::Markers,
@@ -469,10 +491,13 @@ static void usage(const char* prog)
         "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
         "                     NOT vsync; gates compute/render on the shared buffer.\n"
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
-        "  --size S           Marker size in pixels                 (default: 5)\n"
-        "                     Same meaning as benchmark_datoviz --size.\n"
-        "  --marker-mode N    0 = Flat2D point sprites (datoviz-comparable cost),\n"
-        "                     1 = Sphere3D ray-traced spheres       (default: 0)\n"
+        "  --size S           Marker size in pixels (none) or /100 world radius\n"
+        "                     (phong/path-tracing)                  (default: 5)\n"
+        "                     In 'none' mode, same meaning as benchmark_datoviz --size.\n"
+        "  --light-model M    none         = unlit Flat2D discs (datoviz-comparable),\n"
+        "                     phong        = lit Sphere3D impostors,\n"
+        "                     path-tracing = Vulkan RT (falls back to phong for now)\n"
+        "                                                            (default: none)\n"
         "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
         "  --epsilon E        Per-axis stddev of each mode          (default: 0.05)\n"
         "                     The walk is mean-reverting, so clusters keep this\n"
@@ -505,7 +530,7 @@ int main(int argc, char* argv[])
             else if (a == "--interop-sync") input.enable_interop_sync = (bool)std::stoi(v);
             else if (a == "--display")      input.display = (bool)std::stoi(v);
             else if (a == "--size")         input.size_px = std::stof(v);
-            else if (a == "--marker-mode")  input.sphere3d = (bool)std::stoi(v);
+            else if (a == "--light-model")  input.light_model = parseLightModel(v);
             else if (a == "--k")            input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")      input.pts.epsilon = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }

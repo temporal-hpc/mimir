@@ -39,24 +39,27 @@ Just written, **compiles NOT yet verified** (the rebuild was interrupted to push
 
 ## Immediate next steps (in order)
 
-1. **Rebuild the library from zero and fix any compile fallout** of the LightModel /
-   device.cpp changes: `./mimir-build-from-zero.sh --gcc 14 --remote` (drop `--gcc 14`
-   if not on Arch). Watch for: the RT feature structs use designated initializers
-   (zero-fill is intended); `checkAllExtensionsSupported` is forward-declared in
-   device.cpp above its use.
-2. **Update both benchmarks to `--light-model none|phong|path-tracing`** replacing
-   `--marker-mode` (this is NOT done yet — benchmark_mimir still sets
-   `marker_opts.render_mode` directly, which the engine now OVERRIDES from the default
-   Phong light model, so until this step the benchmark's flat mode is broken!):
-   - benchmark_mimir: set `opts.light_model` from the flag; stop touching
-     marker_opts.render_mode; size mapping: none → pixels, phong/path-tracing → /100.
-   - benchmark_datoviz: none → dvz_marker discs, phong → dvz_sphere lit impostors,
-     path-tracing → print "datoviz is the raster baseline, cannot path trace" + exit.
-   - Rebuild: `./samples-build-from-zero.sh --sample points3d --gcc 14`. Verify
-     `--light-model none` gives identical-size discs in both, `phong` gives lit spheres.
-3. **Path tracing phases 1-4** as laid out in DESIGN_pathtracing.md §9 (engine RT
-   plumbing → instanced icosphere BLAS/TLAS from interop positions → orbit/cube-rotation
-   modes with fixed sun → benchmark CSV integration).
+1. ~~**Rebuild the library from zero and fix compile fallout**~~ ✅ DONE on the laptop
+   (RTX 4090, CUDA 13.2, gcc-14). The RT feature structs used C++ designated
+   initializers which tripped `-Werror=missing-field-initializers` under gcc-14 —
+   converted both the `supportsRayTracing` query block and the `createLogicalDevice`
+   enable block in device.cpp to the `Struct x{}; x.field = …;` style used elsewhere in
+   the file. Library builds clean.
+2. ~~**Update both benchmarks to `--light-model none|phong|path-tracing`**~~ ✅ DONE and
+   verified. benchmark_mimir sets `opts.light_model`, no longer touches
+   marker_opts.render_mode (engine-managed), size none→px / phong,pt→/100. Both
+   benchmarks parse `none|phong|path-tracing`; datoviz path-tracing prints the raster
+   baseline message and exits 1. Verified windowed: mimir none≈2050 fps (flat discs),
+   phong≈400 fps (lit spheres); datoviz none/phong both render.
+   FIXED: the intermittent garbage `graphics_time` (~1.78e9 s) was a
+   `GraphicsMonitor::stopFrameWatch` bug — a swapchain recreation (resize/OUT_OF_DATE/
+   SUBOPTIMAL, common on Wayland) rebuilds the monitor mid-frame at engine.cpp:1632,
+   resetting frame_start to a default TimePoint so stopFrameWatch computed now()-epoch.
+   metrics.cpp now skips a frame sample when frame_start is unset. Verified 10/10
+   clean runs (was ~1 in 4 corrupt).
+3. **Path tracing phases 1-4** — NOT STARTED. As laid out in DESIGN_pathtracing.md §9
+   (engine RT plumbing → instanced icosphere BLAS/TLAS from interop positions →
+   orbit/cube-rotation modes with fixed sun → benchmark CSV integration).
 
 ## Machine gotchas (workstation-specific knowledge you'll otherwise lack)
 

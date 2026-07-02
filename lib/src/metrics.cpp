@@ -72,6 +72,15 @@ float GraphicsMonitor::stopFrameWatch()
 {
     namespace time = std::chrono;
     frame_end = time::high_resolution_clock::now();
+
+    // If the monitor was (re)created between startFrameWatch() and here — e.g. a
+    // swapchain recreation on resize/OUT_OF_DATE/SUBOPTIMAL, which rebuilds this
+    // GraphicsMonitor mid-frame — frame_start is back to a default-constructed
+    // TimePoint and (frame_end - frame_start) would be a ~decades-long bogus delta
+    // (~1.78e9 s) that corrupts total_graphics_time. Skip this frame's sample but
+    // keep frame_end so the next startFrameWatch() resumes a continuous timeline.
+    if (frame_start == TimePoint{}) { return 0.f; }
+
     auto frame_time = time::duration<float,time::seconds::period>(frame_end - frame_start).count();
 
     total_graphics_time += frame_time;

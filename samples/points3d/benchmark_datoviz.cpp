@@ -47,6 +47,24 @@ struct PointsInput {
     bool         sphere3d   = false; // lit sphere impostors instead of flat discs
 };
 
+// Map --light-model none|phong|path-tracing onto datoviz's raster geometry.
+// datoviz is the raster baseline (DESIGN_pathtracing.md §7): 'none' -> flat discs,
+// 'phong' -> lit sphere impostors, 'path-tracing' is unavailable and exits.
+static bool parseLightModelSphere(const std::string& v)
+{
+    if (v == "none")  return false;
+    if (v == "phong") return true;
+    if (v == "path-tracing")
+    {
+        fprintf(stderr,
+            "datoviz is the raster baseline and cannot path trace; "
+            "run benchmark_mimir --light-model path-tracing instead.\n");
+        exit(EXIT_FAILURE);
+    }
+    fprintf(stderr, "Unknown --light-model '%s' (use none|phong|path-tracing)\n", v.c_str());
+    exit(EXIT_FAILURE);
+}
+
 struct HudData {
     unsigned int points;
     int          frame;
@@ -275,6 +293,12 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
         // (the [-1,1]^3 domain maps 1:1 to NDC under the arcball).
         ctx.visual = dvz_sphere(ctx.batch, DVZ_SPHERE_FLAGS_LIGHTING);
         dvz_sphere_alloc(ctx.visual, n);
+        // Directional sun (w=0 -> lighting.glsl normalizes light.pos and ignores
+        // distance) coming diagonally from behind-and-above the camera. Same world-space
+        // convention and SAME normalized vector as benchmark_mimir's opts.light_pos, so
+        // both samples are lit by one shared sun instead of datoviz's default light.
+        vec4 sun_dir = { -0.4082f, 0.4082f, 0.8165f, 0.f }; // normalize({-1, 1, 2}), w=0
+        dvz_sphere_light_pos(ctx.visual, 0, sun_dir);
         dvz_sphere_position(ctx.visual, 0, n, (vec3*)initial_pos3, 0);
         std::vector<float> sizes(n, input.size_px / 50.f);
         dvz_sphere_size(ctx.visual, 0, n, sizes.data(), 0);
@@ -381,6 +405,13 @@ BenchmarkResult runExperiment(PointsInput input)
     for (int i = 0; i < input.iter_count; ++i)
     {
         // --- Compute (random-walk step only) ---
+        // NOTE: windowed, this reads ~0.1 ms higher than mimir's ~0.02 ms for the SAME
+        // kernel. The kernel really is ~0.02 ms (see --display 0, which drops it to that);
+        // the extra ~0.1 ms is the GPU graphics->compute transition latency datoviz pays
+        // because it separates render from compute with a full vkDeviceWaitIdle
+        // (dvz_app_wait, below) rather than mimir's fine-grained interop timeline
+        // semaphore. It is a genuine per-frame cost of the non-interop path, not the
+        // kernel, and is ~0.2% of the render-bound frame.
         checkCuda(cudaEventRecord(cstart));
         launchIntegrate3D(d_pos, n, clusters, rng);
         checkCuda(cudaEventRecord(cstop));
@@ -407,8 +438,18 @@ BenchmarkResult runExperiment(PointsInput input)
 
             // --- Render: dvz_scene_step = H2D staging write + D2D upload + draw ---
             // These GPU/CPU operations are inseparable via the datoviz public API.
+            // dvz_scene_step submits the frame ASYNCHRONOUSLY and returns after only the
+            // CPU-side work, so without a fence the real GPU render cost leaks into the
+            // NEXT frame's compute timing (the CUDA kernel serializes behind the still-
+            // running Vulkan render on the shared GPU, inflating "compute" from ~0.02 ms
+            // to ~16 ms). dvz_app_wait() drains the GPU here so graphics_ms is the true
+            // render cost and the next kernel is measured uncontended. This serializes
+            // compute vs render exactly like mimir's interop lockstep, giving an
+            // apples-to-apples per-phase comparison (at the cost of datoviz's async
+            // CPU/GPU pipelining, which would otherwise raise its throughput).
             auto t_render = clk::now();
             if (!dvz_scene_step(ctx.scene, ctx.app) || quit_flag) break;
+            dvz_app_wait(ctx.app);
             float graphics_ms = (float)ms_since(t_render);
             total_graphics += graphics_ms;
             ++frame_count;
@@ -497,9 +538,11 @@ static void usage(const char* prog)
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
         "  --size S           Marker size in pixels                 (default: 5)\n"
         "                     Same meaning as benchmark_mimir --size.\n"
-        "  --marker-mode N    0 = flat disc markers (dvz_marker),\n"
-        "                     1 = lit sphere impostors (dvz_sphere) (default: 0)\n"
-        "                     Mode 1 matches benchmark_mimir --marker-mode 1: the\n"
+        "  --light-model M    none         = flat disc markers (dvz_marker),\n"
+        "                     phong        = lit sphere impostors (dvz_sphere),\n"
+        "                     path-tracing = unavailable (datoviz is the raster\n"
+        "                                    baseline; exits)      (default: none)\n"
+        "                     'phong' matches benchmark_mimir --light-model phong: the\n"
         "                     sphere radius is size/100 in [-1,1] domain units.\n"
         "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
         "  --epsilon E        Per-axis stddev of each mode          (default: 0.05)\n"
@@ -539,7 +582,7 @@ int main(int argc, char* argv[])
             if      (a == "--vsync")       input.vsync    = (bool)std::stoi(v);
             else if (a == "--display")     input.display  = (bool)std::stoi(v);
             else if (a == "--size")        input.size_px  = std::stof(v);
-            else if (a == "--marker-mode") input.sphere3d = (bool)std::stoi(v);
+            else if (a == "--light-model") input.sphere3d = parseLightModelSphere(v);
             else if (a == "--k")           input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")     input.pts.epsilon = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
