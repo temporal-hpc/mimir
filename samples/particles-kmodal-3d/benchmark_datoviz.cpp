@@ -22,7 +22,7 @@
 
 #include <datoviz.h>
 
-#include "points3d_sim.cuh"
+#include "kmodal_sim.cuh"
 #include "nvmlPower.hpp"
 #include "validation.hpp"
 

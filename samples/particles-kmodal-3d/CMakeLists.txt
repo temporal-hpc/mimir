@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
-project(mimir-sample-points3d LANGUAGES CXX CUDA)
+project(mimir-sample-particles-kmodal-3d LANGUAGES CXX CUDA)
 
 # -------------------------------------------------------------------------------------------------
 # Shared deps
@@ -15,7 +15,7 @@ find_package(OpenMP)
 # -------------------------------------------------------------------------------------------------
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/MimirSample.cmake")
 
-add_executable(benchmark_mimir benchmark_mimir.cpp points3d_sim.cu)
+add_executable(benchmark_mimir benchmark_mimir.cpp kmodal_sim.cu)
 target_link_libraries(benchmark_mimir PRIVATE samples_common powermon imgui)
 target_compile_options(benchmark_mimir PRIVATE -Wall -Wextra -O3)
 set_target_properties(benchmark_mimir PROPERTIES
@@ -80,7 +80,7 @@ add_dependencies(datoviz datoviz_ext)
 # -------------------------------------------------------------------------------------------------
 # datoviz target
 # -------------------------------------------------------------------------------------------------
-add_executable(benchmark_datoviz benchmark_datoviz.cpp points3d_sim.cu)
+add_executable(benchmark_datoviz benchmark_datoviz.cpp kmodal_sim.cu)
 target_include_directories(benchmark_datoviz PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../include"
     "${DATOVIZ_SRC}/external/imgui"

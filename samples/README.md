@@ -50,16 +50,16 @@ Binaries land in `samples/build/bin/`. Shaders are copied there automatically.
 ## Building a single sample
 
 ```sh
-./samples-build-from-zero.sh --sample points3d   # add --gcc 14 if your system needs it
+./samples-build-from-zero.sh --sample particles-kmodal-3d   # add --gcc 14 if your system needs it
 ```
 
 **Or, manually:**
 ```sh
-cmake -B samples/points3d/build -S samples/points3d/ -Dmimir_DIR=$(pwd)/build/lib/mimir
-cmake --build samples/points3d/build -j
+cmake -B samples/particles-kmodal-3d/build -S samples/particles-kmodal-3d/ -Dmimir_DIR=$(pwd)/build/lib/mimir
+cmake --build samples/particles-kmodal-3d/build -j
 ```
 
-The binary lands in `samples/points3d/build/`. Run it from there — shaders are already next to it.
+The binary lands in `samples/particles-kmodal-3d/build/`. Run it from there — shaders are already next to it.
 
 Run `./samples-build-from-zero.sh --help` to see all available sample names and options.
 

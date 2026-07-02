@@ -43,7 +43,7 @@ size_t rngStatesBytes(const RngStates& rng);
 
 // Persistent cluster data for the mean-reverting walk: the k centers (float3*) and
 // the per-point cluster assignment (unsigned int*), both device buffers kept opaque.
-// lambda is the OU reversion rate derived from epsilon (see points3d_sim.cu).
+// lambda is the OU reversion rate derived from epsilon (see kmodal_sim.cu).
 struct ClusterData {
     void*        centers = nullptr;
     void*        ids     = nullptr;

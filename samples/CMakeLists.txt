@@ -19,8 +19,8 @@ add_subdirectory(image)
 add_subdirectory(CA3D-voxels)
 # Experiments
 add_subdirectory(nbody)
-# points3d builds standalone only (like samples/ca): its benchmark_datoviz target fetches
-# and builds datoviz from source. Use: ./samples-build-from-zero.sh --sample points3d
+# particles-kmodal-3d builds standalone only (like samples/ca): its benchmark_datoviz target fetches
+# and builds datoviz from source. Use: ./samples-build-from-zero.sh --sample particles-kmodal-3d
 # Comparison sample: same nbody simulation rendered with datoviz instead of mimir.
 # Off by default because it fetches and builds datoviz from source (slow first build).
 option(MIMIR_SAMPLES_BUILD_DATOVIZ "Build the nbody-datoviz comparison sample" OFF)

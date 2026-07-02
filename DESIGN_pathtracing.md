@@ -1,4 +1,4 @@
-# Design: Vulkan Path Tracing for the points3d Scene
+# Design: Vulkan Path Tracing for the particles-kmodal-3d Scene
 
 Status: **Accepted — implementation started** (see HANDOFF.md for exact progress)
 Author: Cristobal (drafted with Claude)
@@ -6,15 +6,15 @@ Last updated: 2026-07-02
 
 ## 1. Goal
 
-Path-trace the points3d "cheese" scene (k-modal gaussian point clusters in the [-1,1]³
+Path-trace the particles-kmodal-3d "cheese" scene (k-modal gaussian point clusters in the [-1,1]³
 cube, mean-reverting walk) with Vulkan ray tracing, accelerated by RT cores when
-available. points3d completes the benchmark matrix as the render-bound workload:
+available. particles-kmodal-3d completes the benchmark matrix as the render-bound workload:
 
 | sample | compute | transfer | render |
 |--------------------|---------|----------|--------|
 | nbody | high | low | low |
 | cellular automata | low | high | low |
-| points3d (PT) | low | low | **high** |
+| particles-kmodal-3d (PT) | low | low | **high** |
 
 ## 2. Scene and lighting model
 

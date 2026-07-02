@@ -1,4 +1,4 @@
-#include "points3d_sim.cuh"
+#include "kmodal_sim.cuh"
 #include <curand_kernel.h>
 #include <random>
 #include <vector>

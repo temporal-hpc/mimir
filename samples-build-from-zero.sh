@@ -15,7 +15,7 @@ AVAILABLE_SAMPLES=(
     image
     mesh3d
     nbody
-    points3d
+    particles-kmodal-3d
     potts
     powermon
     remote-rendering

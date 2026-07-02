@@ -1,4 +1,4 @@
-# Handoff: continuing the points3d path-tracing work on another machine
+# Handoff: continuing the particles-kmodal-3d path-tracing work on another machine
 
 Written 2026-07-02 on the workstation, for picking up on the laptop (RTX GPU) after a
 pull. Delete this file once the context is absorbed. Companion doc: DESIGN_pathtracing.md
@@ -6,12 +6,12 @@ pull. Delete this file once the context is absorbed. Companion doc: DESIGN_patht
 
 ## Where we are
 
-points3d is finished as a raster benchmark pair and the path-tracing feature has just
+particles-kmodal-3d is finished as a raster benchmark pair and the path-tracing feature has just
 been started (public API only — no RT rendering code exists yet).
 
 Done and tested on the workstation (RTX 3090 Ti):
 
-- `samples/points3d/`: benchmark_mimir + benchmark_datoviz share `points3d_sim.cu`.
+- `samples/particles-kmodal-3d/`: benchmark_mimir + benchmark_datoviz share `kmodal_sim.cu`.
   K-modal gaussian init (`--k`, `--epsilon`), mean-reverting OU walk so the cheese
   shape persists (verified: cluster stddev stays ~epsilon after 5000 steps), cluster
   centers drawn over the FULL cube so wall-adjacent blobs get sliced flat by the
@@ -66,7 +66,7 @@ Just written, **compiles NOT yet verified** (the rebuild was interrupted to push
 - Multi-GPU machines: datoviz auto-picks the "best" GPU which may not drive the
   display; benchmark_datoviz self-defaults `DVZ_GPU=0` (setenv, non-overwriting).
   samples/ca and samples/nbody-datoviz do NOT have this default yet.
-- The mimir shader path resolves next to the executable; points3d's CMakeLists has a
+- The mimir shader path resolves next to the executable; particles-kmodal-3d's CMakeLists has a
   POST_BUILD copy step, but if you edit shaders without relinking, re-copy manually
   (`cmake -E copy_directory shaders <bin>/shaders`).
 - Release builds silence spdlog; `SPDLOG_LEVEL=err` (or info) re-enables — essential
@@ -74,5 +74,5 @@ Just written, **compiles NOT yet verified** (the rebuild was interrupted to push
   ShaderBuilder::compileModule.
 - `exit(instance)` MUST be called before `destroyInstance` or the process hangs.
 - Benchmarks: Ctrl+W closes the window cleanly; run from
-  `samples/points3d/build/bin/`; smoke test:
+  `samples/particles-kmodal-3d/build/bin/`; smoke test:
   `SPDLOG_LEVEL=err ./benchmark_mimir 1280 720 500000 12345 240`.
