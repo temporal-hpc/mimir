@@ -227,7 +227,8 @@ void MimirInstance::displayAsync()
                     gui::draw(camera, options, views, gui_callback, gui::HudStats{
                         rt_enabled, graphics_monitor.getFramerate(),
                         (float)raytracing.last_tlas_ms, (float)raytracing.last_trace_ms,
-                        options.pt_samples_per_pixel, options.pt_max_bounces });
+                        options.pt_samples_per_pixel, options.pt_max_bounces,
+                        options.camera_control == CameraControl::Fly });
                     renderFrame(/*advance_interop=*/true);
                     served++;
                 }
@@ -244,7 +245,8 @@ void MimirInstance::displayAsync()
                 gui::draw(camera, options, views, gui_callback, gui::HudStats{
                     rt_enabled, graphics_monitor.getFramerate(),
                     (float)raytracing.last_tlas_ms, (float)raytracing.last_trace_ms,
-                    options.pt_samples_per_pixel, options.pt_max_bounces });
+                    options.pt_samples_per_pixel, options.pt_max_bounces,
+                    options.camera_control == CameraControl::Fly });
                 renderFrame(/*advance_interop=*/false);
             }
         }
@@ -369,7 +371,8 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
         gui::draw(camera, options, views, gui_callback, gui::HudStats{
             rt_enabled, graphics_monitor.getFramerate(),
             (float)raytracing.last_tlas_ms, (float)raytracing.last_trace_ms,
-            options.pt_samples_per_pixel, options.pt_max_bounces });
+            options.pt_samples_per_pixel, options.pt_max_bounces,
+            options.camera_control == CameraControl::Fly });
         renderFrame(/*advance_interop=*/interop);
 
         if (std::atomic_ref<bool>(running).load(std::memory_order_acquire)) waitKernelStart();

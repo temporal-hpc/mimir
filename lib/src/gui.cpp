@@ -138,7 +138,10 @@ static void drawPtOverlay(const HudStats& s)
 {
     ImVec2 disp = ImGui::GetIO().DisplaySize;
     float scale = std::max(disp.x / 1920.f, disp.y / 1080.f);
-    ImGui::SetNextWindowPos(ImVec2(10.f * scale, 10.f * scale), ImGuiCond_Always);
+    // Anchor to the top-right corner (pivot at the window's own top-right) so it never sits under
+    // the "Scene parameters" panel, which docks top-left.
+    ImGui::SetNextWindowPos(ImVec2(disp.x - 10.f * scale, 10.f * scale),
+        ImGuiCond_Always, ImVec2(1.f, 0.f));
     ImGui::SetNextWindowBgAlpha(0.55f);
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
         | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
@@ -149,6 +152,11 @@ static void drawPtOverlay(const HudStats& s)
     ImGui::Text("TLAS build : %6.3f ms", s.tlas_ms);
     ImGui::Text("Trace      : %6.3f ms", s.trace_ms);
     ImGui::Text("spp %u   bounces %u", s.spp, s.bounces);
+    if (s.fly)
+    {
+        ImGui::Separator();
+        ImGui::TextDisabled("TAB: release cursor for menus");
+    }
     ImGui::End();
 }
 

@@ -23,6 +23,7 @@ struct HudStats
     float trace_ms = 0.f;  // vkCmdTraceRays, last frame
     unsigned int spp = 0;
     unsigned int bounces = 0;
+    bool fly = false;      // Fly camera active: show the TAB (release cursor) hint
 };
 
 void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
