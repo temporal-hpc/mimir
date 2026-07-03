@@ -1,6 +1,5 @@
 // À-trous edge-avoiding wavelet denoiser (Dammertz et al. 2010) for the path-traced result.
-// This is the "runs on any GPU" fallback denoiser (a Vulkan compute pass); the OptiX AI denoiser
-// takes over when tensor cores are available. Each invocation applies a 5x5 wavelet with an
+// A Vulkan compute pass that runs on any GPU. Each invocation applies a 5x5 wavelet with an
 // increasing step_width across passes, so a few passes reach a wide spatial support cheaply. The
 // filter is edge-aware: neighbor contributions are weighted down across discontinuities in colour,
 // surface normal, and depth (the first-hit G-buffer), so silhouettes and shading edges survive.

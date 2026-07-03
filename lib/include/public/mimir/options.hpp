@@ -141,9 +141,9 @@ struct ViewerOptions
     unsigned int pt_samples_per_pixel = 1; // rays per pixel per frame (--spp)
     unsigned int pt_max_bounces       = 4; // max path depth (--bounces)
     unsigned int pt_subdivisions      = 1; // icosphere tessellation: 0=20,1=80,2=320 tris (--subdiv)
-    // Denoise the path-traced result before display (--denoise). Uses the OptiX AI denoiser
-    // (tensor cores) when available, otherwise a Vulkan-compute a-trous edge-avoiding wavelet
-    // filter that runs on any GPU. Edge-stopping is guided by the first-hit normal/depth G-buffer.
+    // Denoise the path-traced result before display (--denoise) with a Vulkan-compute a-trous
+    // edge-avoiding wavelet filter (runs on any GPU). Edge-stopping is guided by the first-hit
+    // normal/depth G-buffer, so noise is smoothed while silhouettes and shading edges survive.
     bool pt_denoise = false;
 
     // Camera interaction (on-screen only; see CameraControl).

@@ -43,7 +43,7 @@ struct MaterialData
 [[vk::binding(2, 0)]] RWTexture2D<float4> accum;
 // First-hit G-buffer guide for the denoiser (RGBA16F): xyz = world-space normal, w = hit distance
 // (linear depth from the eye). Miss writes a zero normal and a large depth so the filter treats
-// background as a flat region. Consumed by the a-trous edge-avoiding wavelet / OptiX aux inputs.
+// background as a flat region. Consumed by the a-trous edge-avoiding wavelet denoiser.
 [[vk::binding(3, 0)]] RWTexture2D<float4> gbuffer;
 
 static const float PI = 3.14159265;
