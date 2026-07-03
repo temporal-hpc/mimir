@@ -18,6 +18,10 @@ struct PerformanceMetrics
         float graphics;
         // Total time taken by the shader pipeline during rendering.
         float pipeline;
+        // Path tracing only (0 otherwise): last-frame GPU time to rebuild the TLAS from the live
+        // positions (instance writer + build), and to trace the frame (vkCmdTraceRays), in ms.
+        float tlas_build;
+        float trace;
     } times;
 
     struct {

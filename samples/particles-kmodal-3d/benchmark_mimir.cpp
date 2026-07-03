@@ -183,15 +183,23 @@ void formatResults(PointsInput input, BenchmarkResult result)
         {"pack_time",     sf(0.f)},
         {"d2h_time",      sf(0.f)},
         {"h2h_time",      sf(0.f)},
+        // Path-tracing columns (appended so the leading columns stay datoviz-comparable). For
+        // non-path-tracing modes spp/bounces/subdiv carry their defaults and the times are 0.
+        {"spp",           su(input.pt_spp)},
+        {"bounces",       su(input.pt_bounces)},
+        {"subdiv",        su(input.pt_subdiv)},
+        {"tlas_time",     sf(lib.times.tlas_build)},
+        {"trace_time",    sf(lib.times.trace)},
     });
-    printf("%s,%s,%u,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%u,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f\n",
         mode.c_str(), resolution.c_str(),
         input.pts.count, input.pts.seed, input.pts.k, input.pts.epsilon,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
         nvml.free, nvml.reserved, nvml.total, nvml.used,
-        0.f, 0.f, 0.f);
+        0.f, 0.f, 0.f,
+        input.pt_spp, input.pt_bounces, input.pt_subdiv, lib.times.tlas_build, lib.times.trace);
 }
 
 // ---------------------------------------------------------------------------
@@ -553,8 +561,11 @@ static void usage(const char* prog)
         "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
-        "        Column layout matches benchmark_datoviz; pack/d2h/h2h columns are 0.\n"
-        "        graphics_time = mimir internal render time (zero-copy, no upload).\n",
+        "        Leading columns match benchmark_datoviz; pack/d2h/h2h columns are 0.\n"
+        "        graphics_time = mimir internal render time (zero-copy, no upload).\n"
+        "        Appended path-tracing columns: spp,bounces,subdiv,tlas_time,trace_time\n"
+        "        (tlas_time/trace_time are GPU ms, 0 for non-path-tracing modes).\n"
+        "        See sweep_pathtracing.sh to sweep these knobs into a CSV.\n",
         prog);
 }
 

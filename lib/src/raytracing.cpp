@@ -778,6 +778,19 @@ RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     };
     vkGetPhysicalDeviceProperties2(gpu, &props2);
 
+    // GPU-timestamp timing pool for the HUD/CSV (FRAMES*4 timestamps; see the header). Disabled
+    // if the device reports a 0 timestamp period (no timestamp support), leaving timings at 0.
+    ctx.timestamp_period = props2.properties.limits.timestampPeriod;
+    if (ctx.timestamp_period > 0.f)
+    {
+        VkQueryPoolCreateInfo qinfo{
+            .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, .pNext = nullptr, .flags = 0,
+            .queryType = VK_QUERY_TYPE_TIMESTAMP, .queryCount = FRAMES * 4, .pipelineStatistics = 0,
+        };
+        validation::checkVulkan(vkCreateQueryPool(device, &qinfo, nullptr, &ctx.timing_pool));
+        vkResetQueryPool(device, ctx.timing_pool, 0, FRAMES * 4);
+    }
+
     buildIcosphereBlas(ctx, subdiv);
     createRtPipeline(ctx);
     createCompositeResources(ctx);
@@ -909,6 +922,14 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
 {
     if (particle_count == 0) { return; }
 
+    // Reset this frame's 4 timestamps (previous readings for frame_idx were already read back in
+    // renderFrame) and stamp the start of the TLAS build.
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdResetQueryPool(cmd, timing_pool, frame_idx * 4, 4);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 0);
+    }
+
     // 1) Instance writer: fill this frame's instance buffer from the live positions.
     InstanceWriterPush push{
         .count = particle_count, .radius = particle_radius,
@@ -943,6 +964,12 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
         VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1, &to_trace, 0, nullptr, 0, nullptr);
+
+    // Stamp the end of the TLAS build (instance writer + build barriers).
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 1);
+    }
 }
 
 void RayTracingContext::destroyFrameResources()
@@ -984,8 +1011,16 @@ void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
     vkCmdPushConstants(cmd, rt_pipeline_layout,
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
         | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(RtPushConstants), &pc);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 2);
+    }
     api.cmdTraceRays(cmd, &raygen_region, &miss_region, &hit_region, &callable_region,
         extent.width, extent.height, 1);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 3);
+    }
 
     // Transition to SHADER_READ_ONLY so the composite fragment shader can sample it.
     VkImageMemoryBarrier to_read{
@@ -1000,6 +1035,20 @@ void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_read);
 }
 
+void RayTracingContext::readTimings(uint32_t frame_idx)
+{
+    if (timing_pool == VK_NULL_HANDLE) { return; }
+    uint64_t ts[4] = { 0, 0, 0, 0 };
+    // No WAIT_BIT: the caller only reads after the frame's fence, so results are ready; if for any
+    // reason they are not (VK_NOT_READY), keep the previous values rather than stalling.
+    VkResult r = vkGetQueryPoolResults(device, timing_pool, frame_idx * 4, 4,
+        sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+    if (r != VK_SUCCESS) { return; }
+    double ms_per_tick = static_cast<double>(timestamp_period) / 1.0e6;
+    last_tlas_ms  = static_cast<double>(ts[1] - ts[0]) * ms_per_tick;
+    last_trace_ms = static_cast<double>(ts[3] - ts[2]) * ms_per_tick;
+}
+
 void RayTracingContext::recordComposite(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, composite_pipeline);
@@ -1011,6 +1060,7 @@ void RayTracingContext::recordComposite(VkCommandBuffer cmd, uint32_t frame_idx)
 void RayTracingContext::destroy()
 {
     destroyFrameResources();
+    if (timing_pool) { vkDestroyQueryPool(device, timing_pool, nullptr); }
     if (composite_pipeline_layout) { vkDestroyPipelineLayout(device, composite_pipeline_layout, nullptr); }
     if (composite_set_layout)      { vkDestroyDescriptorSetLayout(device, composite_set_layout, nullptr); }
     if (composite_pool)            { vkDestroyDescriptorPool(device, composite_pool, nullptr); }

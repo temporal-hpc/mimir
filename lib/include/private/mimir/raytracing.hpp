@@ -148,6 +148,14 @@ struct RayTracingContext
     static constexpr VkFormat storage_format = VK_FORMAT_R16G16B16A16_SFLOAT;
     uint32_t max_recursion = 2;
 
+    // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*4 timestamps (per frame:
+    // 0/1 bracket the instance-writer + TLAS build, 2/3 bracket the trace). Read back with one
+    // frame of latency (after the frame's fence). last_*_ms hold the most recent readings.
+    VkQueryPool timing_pool = VK_NULL_HANDLE;
+    float timestamp_period = 0.f; // nanoseconds per tick (0 = timestamps unsupported, disabled)
+    double last_tlas_ms = 0.0;    // instance-writer + TLAS build time, last completed frame
+    double last_trace_ms = 0.0;   // vkCmdTraceRays time, last completed frame
+
     // Build the resolution-independent context: loads the RT API, queries properties,
     // builds the icosphere BLAS and a static grid TLAS, and creates the RT pipeline + SBT.
     static RayTracingContext make(VkDevice device, VkPhysicalDevice gpu,
@@ -174,6 +182,11 @@ struct RayTracingContext
     // Record the ray-trace for the given frame into its storage image (adds the layout
     // barriers around vkCmdTraceRaysKHR). Must be recorded OUTSIDE a render pass.
     void recordTrace(VkCommandBuffer cmd, uint32_t frame_idx, const RtPushConstants& pc);
+
+    // Read back the given frame's TLAS-build/trace timestamps into last_tlas_ms/last_trace_ms.
+    // Call after the frame's fence has signalled (its previous submission is complete) and BEFORE
+    // recordUpdateScene resets the queries for the new frame. No-op if timing is unsupported.
+    void readTimings(uint32_t frame_idx);
     // Record the fullscreen composite that samples the frame's storage image. Must be
     // recorded INSIDE the raster render pass, before the ImGui HUD.
     void recordComposite(VkCommandBuffer cmd, uint32_t frame_idx);

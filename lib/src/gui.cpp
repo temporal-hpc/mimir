@@ -133,8 +133,27 @@ void addViewGUI(View *handle, int uid)
     ImGui::PopID();
 }
 
+// Always-on translucent corner overlay with the path-tracing GPU timings.
+static void drawPtOverlay(const HudStats& s)
+{
+    ImVec2 disp = ImGui::GetIO().DisplaySize;
+    float scale = std::max(disp.x / 1920.f, disp.y / 1080.f);
+    ImGui::SetNextWindowPos(ImVec2(10.f * scale, 10.f * scale), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
+        | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
+        | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+    ImGui::Begin("Path tracing HUD", nullptr, flags);
+    ImGui::Text("Path tracing   %.1f FPS", s.fps);
+    ImGui::Separator();
+    ImGui::Text("TLAS build : %6.3f ms", s.tlas_ms);
+    ImGui::Text("Trace      : %6.3f ms", s.trace_ms);
+    ImGui::Text("spp %u   bounces %u", s.spp, s.bounces);
+    ImGui::End();
+}
+
 void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
-    const std::function<void(void)>& callback)
+    const std::function<void(void)>& callback, const HudStats& stats)
 {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -142,6 +161,7 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
 
     if (opts.show_demo_window) { ImGui::ShowDemoWindow(); }
     if (opts.show_metrics) { ImGui::ShowMetricsWindow(); }
+    if (stats.path_tracing) { drawPtOverlay(stats); }
 
     if (opts.show_panel)
     {
