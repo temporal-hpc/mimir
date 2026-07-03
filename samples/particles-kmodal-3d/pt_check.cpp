@@ -13,8 +13,10 @@ int main(int argc, char** argv)
     opts.render_mode      = RenderMode::Headless;
     opts.light_model      = LightModel::PathTracing;
     opts.window.size      = { 512, 512 };
-    opts.background_color  = { 0.f, 0.f, 0.f, 1.f }; // black, like the benchmark
+    opts.background_color  = { 0.10f, 0.10f, 0.13f, 1.f }; // dark grey: exercises env fill light
     opts.light_pos         = { -0.4082f, 0.4082f, -0.8165f }; // match benchmark PT world sun
+    opts.pt_samples_per_pixel = 4; // exercise the spp antialiasing loop
+    opts.pt_subdivisions      = 2; // exercise BLAS tessellation (320 tris)
     opts.present.enable_fps_limit = false;
 
     InstanceHandle engine = nullptr;

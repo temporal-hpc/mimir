@@ -36,7 +36,21 @@ struct PointsInput {
     float        size_px     = 5.f;         // marker size (pixels in unlit/None mode)
     LightModel   light_model = LightModel::None;  // None=Flat2D discs, Phong=lit spheres,
                                                   // PathTracing=RT (falls back to Phong for now)
+    // Path-tracing knobs (only used with --light-model path-tracing).
+    unsigned int pt_spp      = 1;            // samples per pixel per frame (--spp)
+    unsigned int pt_bounces  = 4;            // max path depth (--bounces; effective in Phase 2)
+    unsigned int pt_subdiv   = 1;            // icosphere tessellation 0/1/2 (--subdiv)
+    float3       background  = { 0.f, 0.f, 0.f }; // window/environment color (--background)
 };
+
+// Parse --background as "G" (grey level) or "R,G,B" in [0,1].
+static float3 parseColor(const std::string& v)
+{
+    float r = 0.f, g = 0.f, b = 0.f;
+    if (std::sscanf(v.c_str(), "%f,%f,%f", &r, &g, &b) == 3) { return { r, g, b }; }
+    float grey = std::stof(v);
+    return { grey, grey, grey };
+}
 
 // Parse --light-model none|phong|path-tracing into the instance-wide LightModel.
 static LightModel parseLightModel(const std::string& v)
@@ -197,7 +211,10 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.light_pos           = (input.light_model == LightModel::PathTracing)
         ? float3{ -0.4082f, 0.4082f, -0.8165f }  // world-space: from behind the camera
         : float3{ -0.4082f, 0.4082f,  0.8165f }; // eye-space (Phong/datoviz): normalize({-1,1,2})
-    opts.background_color    = { 0.f, 0.f, 0.f, 1.f };
+    opts.background_color    = { input.background.x, input.background.y, input.background.z, 1.f };
+    opts.pt_samples_per_pixel = input.pt_spp;
+    opts.pt_max_bounces       = input.pt_bounces;
+    opts.pt_subdivisions      = input.pt_subdiv;
     opts.present.mode              = input.present;
     opts.present.enable_interop_sync       = input.enable_interop_sync;
     opts.present.enable_fps_limit  = false;  // always uncapped
@@ -505,6 +522,14 @@ static void usage(const char* prog)
         "                     The walk is mean-reverting, so clusters keep this\n"
         "                     stddev over time. Centers are seed-deterministic;\n"
         "                     same cloud as benchmark_datoviz for equal args.\n"
+        "  --background C     Window/environment color: grey 'G' or 'R,G,B' in [0,1]\n"
+        "                     (default: 0 = black). Under path-tracing this is also the\n"
+        "                     sky/miss and ambient fill; black = sun-only lighting.\n"
+        "  Path-tracing only (--light-model path-tracing):\n"
+        "  --spp N            Samples per pixel per frame (antialiasing) (default: 1)\n"
+        "  --bounces N        Max path depth                          (default: 4)\n"
+        "                     (indirect bounces take effect in Phase 2)\n"
+        "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris (default: 1)\n"
         "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
@@ -535,6 +560,10 @@ int main(int argc, char* argv[])
             else if (a == "--light-model")  input.light_model = parseLightModel(v);
             else if (a == "--k")            input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")      input.pts.epsilon = std::stof(v);
+            else if (a == "--spp")          input.pt_spp = (unsigned int)std::stoul(v);
+            else if (a == "--bounces")      input.pt_bounces = (unsigned int)std::stoul(v);
+            else if (a == "--subdiv")       input.pt_subdiv = (unsigned int)std::stoul(v);
+            else if (a == "--background")   input.background = parseColor(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

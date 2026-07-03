@@ -34,34 +34,55 @@ struct Payload
     float hit_t; // < 0 on miss
 };
 
+// PCG hash for cheap per-sample jitter (stateful; advance between draws).
+uint pcgNext(inout uint state)
+{
+    state = state * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+float rnd(inout uint state) { return float(pcgNext(state)) / 4294967296.0; }
+
 [shader("raygeneration")]
 void raygenMain()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 dims  = DispatchRaysDimensions().xy;
 
-    float2 uv  = (float2(pixel) + 0.5) / float2(dims);
-    float2 ndc = uv * 2.0 - 1.0; // [-1,1], y increases downward (Vulkan pixel order)
+    // Per-pixel, per-frame RNG state so spp>1 jitters differently each frame (the scene
+    // animates every frame, so this is per-frame antialiasing, not accumulation).
+    uint seed = (pixel.x * 1973u + pixel.y * 9277u + pc.frame_index * 26699u) | 1u;
+    uint spp  = max(pc.spp, 1u);
 
-    // Pinhole primary ray in world space. Screen-up is +cam_up, so negate ndc.y (top row
-    // ndc.y=-1 must map to +up). Horizontal spread scales by aspect.
-    float3 dir = pc.cam_forward.xyz
-               + ndc.x * pc.tan_half_fov * pc.aspect * pc.cam_right.xyz
-               + (-ndc.y) * pc.tan_half_fov * pc.cam_up.xyz;
+    float3 accum = float3(0.0);
+    for (uint s = 0; s < spp; ++s)
+    {
+        // Jitter the pixel by [-0.5,0.5] for antialiasing (no jitter when spp == 1).
+        float2 jitter = (spp > 1u) ? float2(rnd(seed), rnd(seed)) - 0.5 : float2(0.0);
+        float2 uv  = (float2(pixel) + 0.5 + jitter) / float2(dims);
+        float2 ndc = uv * 2.0 - 1.0; // [-1,1], y increases downward (Vulkan pixel order)
 
-    RayDesc ray;
-    ray.Origin    = pc.cam_pos.xyz;
-    ray.Direction = normalize(dir);
-    ray.TMin      = 1e-3;
-    ray.TMax      = 1e4;
+        // Pinhole primary ray in world space. Screen-up is +cam_up, so negate ndc.y (top
+        // row ndc.y=-1 must map to +up). Horizontal spread scales by aspect.
+        float3 dir = pc.cam_forward.xyz
+                   + ndc.x * pc.tan_half_fov * pc.aspect * pc.cam_right.xyz
+                   + (-ndc.y) * pc.tan_half_fov * pc.cam_up.xyz;
 
-    Payload payload;
-    payload.color = float3(0.0);
-    payload.hit_t = -1.0;
-    TraceRay(tlas, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
+        RayDesc ray;
+        ray.Origin    = pc.cam_pos.xyz;
+        ray.Direction = normalize(dir);
+        ray.TMin      = 1e-3;
+        ray.TMax      = 1e4;
 
-    // Gamma (tone mapping proper arrives with HDR bounces in Phase 2).
-    float3 color = pow(saturate(payload.color), float3(1.0 / 2.2));
+        Payload payload;
+        payload.color = float3(0.0);
+        payload.hit_t = -1.0;
+        TraceRay(tlas, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
+        accum += payload.color;
+    }
+
+    // Average the samples, then gamma (proper tone mapping arrives with HDR bounces in Phase 2).
+    float3 color = pow(saturate(accum / float(spp)), float3(1.0 / 2.2));
     image[pixel] = float4(color, 1.0);
 }
 
