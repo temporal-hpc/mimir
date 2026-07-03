@@ -6,6 +6,7 @@
 #include <cuda_runtime_api.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 using namespace mimir;
@@ -18,8 +19,9 @@ int main(int argc, char** argv)
     opts.window.size      = { 512, 512 };
     opts.background_color  = { 0.10f, 0.10f, 0.13f, 1.f }; // dark grey: exercises env fill light
     opts.light_pos         = { -0.4082f, 0.4082f, -0.8165f }; // match benchmark PT world sun
-    opts.pt_samples_per_pixel = 4; // exercise the spp antialiasing loop
-    opts.pt_subdivisions      = 2; // exercise BLAS tessellation (320 tris)
+    opts.pt_samples_per_pixel = 16; // more samples to expose GI/shadow noise cleanly
+    opts.pt_subdivisions      = 2;  // exercise BLAS tessellation (320 tris)
+    opts.pt_max_bounces       = (argc > 2) ? (unsigned)atoi(argv[2]) : 4; // GI depth (argv[2])
     opts.present.enable_fps_limit = false;
 
     InstanceHandle engine = nullptr;
