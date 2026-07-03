@@ -75,6 +75,10 @@ struct HudData {
     float        fps;
     float        compute_ms;
     float        render_ms;
+    float        tlas_ms;        // path tracing: per-frame TLAS rebuild (sub-metric of Render)
+    float        trace_ms;       // path tracing: per-frame ray trace  (sub-metric of Render)
+    bool         path_tracing;   // show the TLAS/Trace sub-metrics only under path tracing
+    bool         fly;            // Fly camera active: show the TAB (release cursor) hint
     float        gpu_watts;
     char         gpu_name[256];
     char         gpu_device[64];   // "N (CC major.minor)"
@@ -301,6 +305,8 @@ BenchmarkResult runExperiment(PointsInput input)
     hud.seed    = input.pts.seed;
     hud.k       = input.pts.k;
     hud.epsilon = input.pts.epsilon;
+    hud.path_tracing = (input.light_model == LightModel::PathTracing);
+    hud.fly          = input.fly;
 
     if (input.display)
     {
@@ -380,10 +386,25 @@ BenchmarkResult runExperiment(PointsInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
+                if (hud.path_tracing) {
+                    // GPU cost of the two ray-tracing passes within Render (the rest is the
+                    // fullscreen composite, ImGui, present, and interop wait -- so these do not
+                    // sum to Render).
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    TLAS build");
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.tlas_ms);
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Trace");
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.trace_ms);
+                }
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Power");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
                 ImGui::EndTable();
+            }
+            if (hud.fly) {
+                ImGui::Separator();
+                ImGui::TextDisabled("TAB: release cursor for menus");
             }
             ImGui::End();
         });
@@ -456,6 +477,13 @@ BenchmarkResult runExperiment(PointsInput input)
             hud.frame      = i;
             hud.compute_ms = (i == 0) ? kernel_ms : 0.9f * hud.compute_ms + 0.1f * kernel_ms;
             hud.fps        = (i == 0) ? new_fps   : 0.9f * hud.fps        + 0.1f * new_fps;
+            if (hud.path_tracing)
+            {
+                // GPU-timestamped ray-tracing passes (sub-costs within Render), same EMA smoothing.
+                auto pt = getMetrics(instance).times;
+                hud.tlas_ms  = (i == 0) ? pt.tlas_build : 0.9f * hud.tlas_ms  + 0.1f * pt.tlas_build;
+                hud.trace_ms = (i == 0) ? pt.trace      : 0.9f * hud.trace_ms + 0.1f * pt.trace;
+            }
             float watts    = (float)getGPUCurrentPower();
             hud.gpu_watts  = (i == 0) ? watts     : 0.9f * hud.gpu_watts  + 0.1f * watts;
             frame_start    = now;

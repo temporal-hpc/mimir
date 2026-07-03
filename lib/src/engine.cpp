@@ -224,11 +224,7 @@ void MimirInstance::displayAsync()
                 auto requested = std::atomic_ref<uint64_t>(render_request).load(std::memory_order_acquire);
                 if (requested > served)
                 {
-                    gui::draw(camera, options, views, gui_callback, gui::HudStats{
-                        rt_enabled, graphics_monitor.getFramerate(),
-                        (float)raytracing.last_tlas_ms, (float)raytracing.last_trace_ms,
-                        options.pt_samples_per_pixel, options.pt_max_bounces,
-                        options.camera_control == CameraControl::Fly });
+                    gui::draw(camera, options, views, gui_callback);
                     renderFrame(/*advance_interop=*/true);
                     served++;
                 }
@@ -242,11 +238,7 @@ void MimirInstance::displayAsync()
             else
             {
                 // Unsynchronized: free-run plain frames (no interop timeline participation).
-                gui::draw(camera, options, views, gui_callback, gui::HudStats{
-                    rt_enabled, graphics_monitor.getFramerate(),
-                    (float)raytracing.last_tlas_ms, (float)raytracing.last_trace_ms,
-                    options.pt_samples_per_pixel, options.pt_max_bounces,
-                    options.camera_control == CameraControl::Fly });
+                gui::draw(camera, options, views, gui_callback);
                 renderFrame(/*advance_interop=*/false);
             }
         }
@@ -368,11 +360,7 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
     {
         window_context.processEvents();
         updateCamera();
-        gui::draw(camera, options, views, gui_callback, gui::HudStats{
-            rt_enabled, graphics_monitor.getFramerate(),
-            (float)raytracing.last_tlas_ms, (float)raytracing.last_trace_ms,
-            options.pt_samples_per_pixel, options.pt_max_bounces,
-            options.camera_control == CameraControl::Fly });
+        gui::draw(camera, options, views, gui_callback);
         renderFrame(/*advance_interop=*/interop);
 
         if (std::atomic_ref<bool>(running).load(std::memory_order_acquire)) waitKernelStart();
