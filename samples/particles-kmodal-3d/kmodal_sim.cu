@@ -10,7 +10,7 @@
 // Displacement stddev per axis per step, in world units (cube spans [-1,1]). Small = gentle,
 // slow per-iteration motion; the reversion rate lambda is derived from this, so the equilibrium
 // blob size (epsilon) is unaffected -- the clusters just evolve more slowly.
-constexpr float STEP_SIGMA = 0.002f;
+constexpr float STEP_SIGMA = 0.001f;
 
 __global__ void initRngKernel(curandState* states, int state_count, uint32_t seed)
 {
