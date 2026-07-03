@@ -78,7 +78,8 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
         app->camera.rotation.y += raw_dx * sens; // yaw:   mouse right   -> look right
         app->camera.rotation.x += raw_dy * sens; // pitch: mouse forward -> look up
         app->camera.rotation.x = std::clamp(app->camera.rotation.x, -89.9f, 89.9f);
-        app->camera.updateViewMatrix();
+        // Roll-free FPS rebuild (keeps the horizon level for any pitch/yaw), not the euler path.
+        app->camera.setFlyLook();
         return;
     }
 

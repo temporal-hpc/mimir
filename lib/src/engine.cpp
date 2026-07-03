@@ -300,7 +300,10 @@ void MimirInstance::updateCamera()
 
         if (glm::dot(dir, dir) > 0.f)
         {
-            camera.translate(glm::normalize(dir) * (options.camera_move_speed * dt));
+            // Move the eye, then rebuild the roll-free FPS view (translate() would use the euler
+            // path and reintroduce horizon roll). setFlyLook keeps the same yaw/pitch orientation.
+            camera.position += glm::normalize(dir) * (options.camera_move_speed * dt);
+            camera.setFlyLook();
         }
     }
 }

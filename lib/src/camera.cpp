@@ -2,6 +2,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <cmath> // std::sin, std::cos
+
 namespace mimir
 {
 
@@ -82,6 +84,21 @@ void Camera::translate(glm::vec3 delta)
 {
     this->position += delta;
     updateViewMatrix();
+}
+
+void Camera::setFlyLook()
+{
+    // Forward from yaw/pitch matching the rotation-0 convention (yaw=pitch=0 -> +z, pitch>0 looks
+    // down). setLookAt then rebuilds a horizontal `right`, so the horizon never rolls.
+    float pitch = glm::radians(rotation.x);
+    float yaw   = glm::radians(rotation.y);
+    float cp = std::cos(pitch);
+    glm::vec3 forward = {
+        std::sin(yaw) * cp,
+        -std::sin(pitch),
+        std::cos(yaw) * cp,
+    };
+    setLookAt(position, position + forward, glm::vec3(0.f, 1.f, 0.f));
 }
 
 void Camera::setLookAt(glm::vec3 eye, glm::vec3 center, glm::vec3 world_up)
