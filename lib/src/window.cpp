@@ -72,9 +72,11 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
         ctx.mouse_pos = { new_x, new_y };
 
         float sens = app->options.mouse_sensitivity;
-        // invert_mouse_y flips the vertical look axis (flight-sim feel: push mouse forward = look
-        // up). The two signs are just the two conventions; users pick the one that feels right.
-        float dy_sign = app->options.invert_mouse_y ? 1.f : -1.f;
+        // Default (standard FPS): push the mouse forward -> look up. Screen y grows downward so a
+        // forward push has raw_dy < 0, and rotation.x++ pitches the view DOWN (forward is
+        // (0,-sinθ,cosθ)); so dy_sign = +1 turns a forward push into a rotation.x decrease = look up.
+        // invert_mouse_y flips to the flight-sim feel (push forward = look down).
+        float dy_sign = app->options.invert_mouse_y ? -1.f : 1.f;
         app->camera.rotation.y += raw_dx * sens;           // yaw: mouse right -> look right
         app->camera.rotation.x += dy_sign * raw_dy * sens; // pitch (see invert_mouse_y)
         app->camera.rotation.x = std::clamp(app->camera.rotation.x, -89.9f, 89.9f);

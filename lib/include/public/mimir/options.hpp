@@ -149,8 +149,8 @@ struct ViewerOptions
     // Camera interaction (on-screen only; see CameraControl).
     CameraControl camera_control = CameraControl::Orbit;
     float mouse_sensitivity   = 0.1f; // degrees of yaw/pitch per pixel of mouse motion (Fly)
-    // Invert the vertical mouse-look axis (Fly): when true, pushing the mouse forward looks up
-    // (classic flight-sim feel); when false, pushing forward looks down. Yaw is unaffected.
+    // Vertical mouse-look axis (Fly). Default (false) is standard FPS: push the mouse forward to
+    // look up. Set true for the flight-sim feel (push forward to look down). Yaw is unaffected.
     bool invert_mouse_y       = false;
     float camera_move_speed   = 3.f;  // world units/second for WASD movement (Fly)
     // Scripted auto-orbit for reproducible, input-free runs (e.g. benchmarks): the camera circles
