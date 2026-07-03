@@ -13,7 +13,6 @@ target_sources(mimir
         src/framelimit.cpp
         src/gui.cpp
         src/interop.cpp
-        src/denoiser_optix.cpp
         src/metrics.cpp
         src/pipeline.cpp
         src/raytracing.cpp
@@ -104,29 +103,6 @@ if(MIMIR_ENABLE_QUIC)
         message(STATUS "mimir: QUIC transport enabled (ngtcp2 ${NGTCP2_libngtcp2_VERSION})")
     else()
         message(WARNING "mimir: MIMIR_ENABLE_QUIC set but ngtcp2 not found; TCP transport only")
-    endif()
-endif()
-
-# Optional OptiX AI denoiser (tensor-core accelerated) for path tracing. When enabled and the
-# OptiX headers are found, the path-tracing denoiser uses OptiX on NVIDIA GPUs and transparently
-# falls back to the built-in Vulkan-compute à-trous filter otherwise. OptiX is header-only (its
-# function table loads at runtime via the CUDA driver), so only headers + CUDA::cuda_driver are
-# needed. Point OptiX_ROOT / OPTIX_ROOT at the SDK if it is outside the default search paths.
-option(MIMIR_ENABLE_OPTIX "Enable the OptiX AI denoiser (tensor cores) for path tracing" OFF)
-if(MIMIR_ENABLE_OPTIX)
-    find_path(OPTIX_INCLUDE_DIR optix.h
-        HINTS
-            "${OptiX_ROOT}/include" "$ENV{OptiX_ROOT}/include"
-            "${OPTIX_ROOT}/include" "$ENV{OPTIX_ROOT}/include"
-            "$ENV{HOME}/NVIDIA-OptiX-SDK-9.0.0-linux64-x86_64/include"
-    )
-    if(OPTIX_INCLUDE_DIR)
-        target_compile_definitions(mimir PRIVATE MIMIR_HAVE_OPTIX)
-        target_include_directories(mimir SYSTEM PRIVATE ${OPTIX_INCLUDE_DIR})
-        target_link_libraries(mimir PRIVATE CUDA::cuda_driver)
-        message(STATUS "mimir: OptiX AI denoiser enabled (headers: ${OPTIX_INCLUDE_DIR})")
-    else()
-        message(WARNING "mimir: MIMIR_ENABLE_OPTIX set but optix.h not found; à-trous denoiser only")
     endif()
 endif()
 
