@@ -23,6 +23,10 @@ int main(int argc, char** argv)
     opts.pt_subdivisions      = 2;  // exercise BLAS tessellation (320 tris)
     opts.pt_max_bounces       = (argc > 2) ? (unsigned)atoi(argv[2]) : 4; // GI depth (argv[2])
     opts.present.enable_fps_limit = false;
+    // Optional harness knobs: PT_SPP overrides samples/pixel (lower = noisier, to expose the
+    // denoiser); PT_DENOISE=1 turns on the à-trous denoiser.
+    if (const char* s = getenv("PT_SPP"))     { opts.pt_samples_per_pixel = (unsigned)atoi(s); }
+    if (const char* d = getenv("PT_DENOISE")) { opts.pt_denoise = (atoi(d) != 0); }
 
     InstanceHandle engine = nullptr;
     createInstance(opts, &engine);

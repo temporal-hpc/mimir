@@ -171,10 +171,27 @@ struct RayTracingContext
     // the raygen keeps a running mean of the pre-tonemap radiance here so a static view converges.
     // Extent-dependent (rebuilt on resize, which also restarts accumulation). Bound at RT binding 2.
     StorageImage accum_image;
+    // Denoiser resources (extent-dependent). gbuffer_images hold the first-hit guide (RT binding 3:
+    // xyz world normal, w eye-space depth) the a-trous filter edge-stops on; denoise_ping[0/1] are
+    // the ping-pong scratch buffers the wavelet passes bounce through before the final tonemapped
+    // write lands in the display image. Per-frame (fence-gated reuse), mirroring storage_images.
+    std::vector<StorageImage> gbuffer_images;
+    std::vector<StorageImage> denoise_ping[2];
     VkExtent2D extent{};
     static constexpr VkFormat storage_format = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr VkFormat accum_format   = VK_FORMAT_R32G32B32A32_SFLOAT;
+    static constexpr VkFormat gbuffer_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    static constexpr uint32_t ATROUS_PASSES  = 3; // wavelet iterations (step widths 1, 2, 4)
     uint32_t max_recursion = 2;
+
+    // À-trous denoiser compute pipeline (resolution-independent) + its per-pass descriptor sets.
+    // atrous_sets is indexed [frame * ATROUS_PASSES + pass]; each set wires (in_color, gbuffer,
+    // out_color) for one wavelet pass, chaining accum -> ping0 -> ping1 -> display image.
+    VkDescriptorSetLayout atrous_set_layout = VK_NULL_HANDLE;
+    VkPipelineLayout atrous_pipeline_layout = VK_NULL_HANDLE;
+    VkPipeline atrous_pipeline = VK_NULL_HANDLE;
+    VkDescriptorPool atrous_pool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> atrous_sets;
 
     // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*4 timestamps (per frame:
     // 0/1 bracket the instance-writer + TLAS build, 2/3 bracket the trace). Read back with one
@@ -215,8 +232,17 @@ struct RayTracingContext
     void recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx);
 
     // Record the ray-trace for the given frame into its storage image (adds the layout
-    // barriers around vkCmdTraceRaysKHR). Must be recorded OUTSIDE a render pass.
-    void recordTrace(VkCommandBuffer cmd, uint32_t frame_idx, const RtPushConstants& pc);
+    // barriers around vkCmdTraceRaysKHR). Must be recorded OUTSIDE a render pass. When
+    // leave_image_general is set (the denoiser will post-process the display image), the display
+    // image is left in GENERAL instead of transitioned to SHADER_READ_ONLY for the composite.
+    void recordTrace(VkCommandBuffer cmd, uint32_t frame_idx, const RtPushConstants& pc,
+        bool leave_image_general = false);
+
+    // Record the à-trous denoiser passes for this frame: filter the accumulator (guided by the
+    // G-buffer) through the ping-pong buffers and write the tonemapped result into the display
+    // image, leaving it SHADER_READ_ONLY for the composite. Must be recorded OUTSIDE a render pass,
+    // after recordTrace(..., leave_image_general=true). No-op if denoiser resources are absent.
+    void recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx);
 
     // Read back the given frame's TLAS-build/trace timestamps into last_tlas_ms/last_trace_ms.
     // Call after the frame's fence has signalled (its previous submission is complete) and BEFORE

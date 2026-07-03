@@ -1723,9 +1723,11 @@ void MimirInstance::renderFrame(bool advance_interop)
         pc.accum_frame = pt_accum_frame;
         pt_accum_frame++;
 
-        // Rebuild this frame's TLAS from the live interop positions, then trace it.
+        // Rebuild this frame's TLAS from the live interop positions, then trace it. When denoising,
+        // the trace leaves the display image in GENERAL and recordDenoise writes the filtered result.
         raytracing.recordUpdateScene(cmd, frame_idx);
-        raytracing.recordTrace(cmd, frame_idx, pc);
+        raytracing.recordTrace(cmd, frame_idx, pc, /*leave_image_general=*/options.pt_denoise);
+        if (options.pt_denoise) { raytracing.recordDenoise(cmd, frame_idx); }
     }
 
     // Set clear color and depth stencil value

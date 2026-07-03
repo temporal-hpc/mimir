@@ -41,6 +41,10 @@ struct MaterialData
 // Persistent HDR running-mean accumulator (shared across frames in flight, RGBA32F). Holds the
 // pre-tonemap radiance averaged over accum_frame+1 frames; reset by restarting from accum_frame 0.
 [[vk::binding(2, 0)]] RWTexture2D<float4> accum;
+// First-hit G-buffer guide for the denoiser (RGBA16F): xyz = world-space normal, w = hit distance
+// (linear depth from the eye). Miss writes a zero normal and a large depth so the filter treats
+// background as a flat region. Consumed by the a-trous edge-avoiding wavelet / OptiX aux inputs.
+[[vk::binding(3, 0)]] RWTexture2D<float4> gbuffer;
 
 static const float PI = 3.14159265;
 static const float SUN_INTENSITY = 3.0; // radiance scale of the directional sun
@@ -97,12 +101,17 @@ bool sunOccluded(float3 p, float3 L)
     return sp.hit_t >= 0.0;
 }
 
-// Trace one full path and return its radiance.
-float3 tracePath(float3 origin, float3 dir, inout uint seed)
+// Trace one full path and return its radiance. Also reports the primary-hit guide (world normal
+// and eye-space depth) for the denoiser: g_normal is the first-hit surface normal (0 on a miss),
+// g_depth is the primary hit distance (a large sentinel on a miss).
+float3 tracePath(float3 origin, float3 dir, inout uint seed,
+    out float3 g_normal, out float g_depth)
 {
     float3 radiance   = float3(0.0);
     float3 throughput = float3(1.0);
     float3 sun = normalize(pc.sun_dir.xyz);
+    g_normal = float3(0.0);
+    g_depth  = 1e4; // miss sentinel (far)
 
     // bounces + 1 segments: the primary ray plus pc.bounces indirect bounces.
     uint segments = pc.bounces + 1u;
@@ -124,6 +133,9 @@ float3 tracePath(float3 origin, float3 dir, inout uint seed)
             radiance += throughput * payload.color;
             break;
         }
+
+        // Capture the primary-hit guide (denoiser edge-stopping) on the first segment.
+        if (b == 0u) { g_normal = payload.normal; g_depth = payload.hit_t; }
 
         // Emissive materials add their own radiance regardless of external lighting (area lights).
         radiance += throughput * payload.emission;
@@ -154,6 +166,8 @@ void raygenMain()
     uint spp  = max(pc.spp, 1u);
 
     float3 sample_sum = float3(0.0);
+    float3 g_normal = float3(0.0);
+    float  g_depth  = 1e4;
     for (uint s = 0; s < spp; ++s)
     {
         // Jitter the pixel by [-0.5,0.5] for antialiasing (no jitter when spp == 1).
@@ -165,8 +179,13 @@ void raygenMain()
         float3 dir = normalize(pc.cam_forward.xyz
                    + ndc.x * pc.tan_half_fov * pc.aspect * pc.cam_right.xyz
                    + (-ndc.y) * pc.tan_half_fov * pc.cam_up.xyz);
-        sample_sum += tracePath(pc.cam_pos.xyz, dir, seed);
+        float3 sn; float sd;
+        sample_sum += tracePath(pc.cam_pos.xyz, dir, seed, sn, sd);
+        // Keep the un-jittered (or first) sample's guide; all samples share the same primary hit.
+        if (s == 0u) { g_normal = sn; g_depth = sd; }
     }
+    // Write the first-hit guide for the denoiser (stable across accumulation for a static view).
+    gbuffer[pixel] = float4(g_normal, g_depth);
 
     // This frame's raw HDR radiance (mean over spp), pre-tonemap.
     float3 color = sample_sum / float(spp);

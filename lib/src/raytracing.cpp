@@ -375,8 +375,9 @@ void recordTlasBuild(RayTracingContext& ctx, VkCommandBuffer cmd, AccelStruct& t
 
 void createRtPipeline(RayTracingContext& ctx)
 {
-    // Descriptor set layout: TLAS + display storage image + persistent accumulator image.
-    VkDescriptorSetLayoutBinding bindings[3] = {
+    // Descriptor set layout: TLAS + display image + accumulator + denoiser G-buffer (all written
+    // by the raygen except the TLAS, which the closest-hit also reads).
+    VkDescriptorSetLayoutBinding bindings[4] = {
         { .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
           .descriptorCount = 1,
           .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR,
@@ -387,10 +388,13 @@ void createRtPipeline(RayTracingContext& ctx)
         { .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
           .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
           .pImmutableSamplers = nullptr },
+        { .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+          .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
+          .pImmutableSamplers = nullptr },
     };
     VkDescriptorSetLayoutCreateInfo set_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = nullptr, .flags = 0, .bindingCount = 3, .pBindings = bindings,
+        .pNext = nullptr, .flags = 0, .bindingCount = 4, .pBindings = bindings,
     };
     validation::checkVulkan(vkCreateDescriptorSetLayout(
         ctx.device, &set_info, nullptr, &ctx.rt_set_layout));
@@ -537,11 +541,11 @@ void createRtPipeline(RayTracingContext& ctx)
     ctx.hit_region.deviceAddress    = base + ctx.sbt_hit_records_offset;
     ctx.callable_region = {};
 
-    // Descriptor pool sized for a few frames in flight (TLAS + two storage images per set:
-    // the display image and the shared accumulator).
+    // Descriptor pool sized for a few frames in flight (TLAS + three storage images per set:
+    // display image, shared accumulator, and the denoiser G-buffer).
     VkDescriptorPoolSize rt_pool_sizes[2] = {
         { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 8 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 24 },
     };
     VkDescriptorPoolCreateInfo rt_pool_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -756,6 +760,85 @@ void createInstanceWriter(RayTracingContext& ctx)
     validation::checkVulkan(vkCreateDescriptorPool(ctx.device, &pool_info, nullptr, &ctx.iw_pool));
 }
 
+// ---- À-trous denoiser compute pipeline -------------------------------------------
+
+// Push constants for pathtrace_atrous.slang (28 bytes). Must match its PushConstants.
+struct AtrousPush
+{
+    int32_t dims_x;
+    int32_t dims_y;
+    int32_t step_width;
+    float c_phi;
+    float n_phi;
+    float p_phi;
+    uint32_t tonemap;
+};
+
+void createAtrousPipeline(RayTracingContext& ctx)
+{
+    // Three storage images: in_color, gbuffer, out_color.
+    VkDescriptorSetLayoutBinding bindings[3] = {
+        { .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .pImmutableSamplers = nullptr },
+        { .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .pImmutableSamplers = nullptr },
+        { .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .pImmutableSamplers = nullptr },
+    };
+    VkDescriptorSetLayoutCreateInfo set_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = nullptr, .flags = 0, .bindingCount = 3, .pBindings = bindings,
+    };
+    validation::checkVulkan(vkCreateDescriptorSetLayout(
+        ctx.device, &set_info, nullptr, &ctx.atrous_set_layout));
+
+    VkPushConstantRange push_range{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(AtrousPush),
+    };
+    VkPipelineLayoutCreateInfo layout_info{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr, .flags = 0,
+        .setLayoutCount = 1, .pSetLayouts = &ctx.atrous_set_layout,
+        .pushConstantRangeCount = 1, .pPushConstantRanges = &push_range,
+    };
+    validation::checkVulkan(vkCreatePipelineLayout(
+        ctx.device, &layout_info, nullptr, &ctx.atrous_pipeline_layout));
+
+    auto orig_path = std::filesystem::current_path();
+    std::filesystem::current_path(getDefaultShaderPath());
+    auto builder = ShaderBuilder::make();
+    ShaderCompileParams params{
+        .module_path = "shaders/pathtrace_atrous.slang",
+        .entrypoints = { "atrousMain" }, .specializations = {},
+    };
+    auto stages = builder.compileModule(ctx.device, params);
+    std::filesystem::current_path(orig_path);
+    if (stages.size() != 1)
+    {
+        spdlog::error("pathtrace_atrous.slang: expected 1 compute stage, got {}", stages.size());
+    }
+
+    VkComputePipelineCreateInfo pipeline_info{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr, .flags = 0, .stage = stages[0],
+        .layout = ctx.atrous_pipeline_layout,
+        .basePipelineHandle = VK_NULL_HANDLE, .basePipelineIndex = 0,
+    };
+    validation::checkVulkan(vkCreateComputePipelines(
+        ctx.device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &ctx.atrous_pipeline));
+    vkDestroyShaderModule(ctx.device, stages[0].module, nullptr);
+
+    // ATROUS_PASSES sets per frame, each with 3 storage images.
+    uint32_t set_count = RayTracingContext::ATROUS_PASSES * RayTracingContext::FRAMES;
+    VkDescriptorPoolSize pool_size{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 * set_count };
+    VkDescriptorPoolCreateInfo pool_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext = nullptr, .flags = 0, .maxSets = set_count,
+        .poolSizeCount = 1, .pPoolSizes = &pool_size,
+    };
+    validation::checkVulkan(vkCreateDescriptorPool(ctx.device, &pool_info, nullptr, &ctx.atrous_pool));
+}
+
 // Allocate the per-frame descriptor sets from their pools (bindings are written later, in
 // createFrameResources for the storage image and bindScene for the TLAS/instances).
 void allocateDescriptorSets(RayTracingContext& ctx)
@@ -774,6 +857,17 @@ void allocateDescriptorSets(RayTracingContext& ctx)
     alloc(ctx.rt_pool, ctx.rt_set_layout, ctx.rt_sets.data());
     alloc(ctx.composite_pool, ctx.composite_set_layout, ctx.composite_sets.data());
     alloc(ctx.iw_pool, ctx.iw_set_layout, ctx.iw_sets);
+
+    // À-trous denoiser: ATROUS_PASSES sets per frame (bindings written in createFrameResources).
+    uint32_t atrous_count = RayTracingContext::ATROUS_PASSES * RayTracingContext::FRAMES;
+    std::vector<VkDescriptorSetLayout> atrous_layouts(atrous_count, ctx.atrous_set_layout);
+    VkDescriptorSetAllocateInfo atrous_alloc{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = nullptr, .descriptorPool = ctx.atrous_pool,
+        .descriptorSetCount = atrous_count, .pSetLayouts = atrous_layouts.data(),
+    };
+    ctx.atrous_sets.resize(atrous_count);
+    validation::checkVulkan(vkAllocateDescriptorSets(ctx.device, &atrous_alloc, ctx.atrous_sets.data()));
 }
 
 } // namespace
@@ -822,6 +916,7 @@ RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     createRtPipeline(ctx);
     createCompositeResources(ctx);
     createInstanceWriter(ctx);
+    createAtrousPipeline(ctx);
     allocateDescriptorSets(ctx);
 
     spdlog::info("Path tracing ready: icosphere subdiv {} ({} tris); scene bound per view",
@@ -832,6 +927,23 @@ RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
 void RayTracingContext::createFrameResources(VkExtent2D new_extent, VkRenderPass render_pass)
 {
     extent = new_extent;
+
+    // Helper: allocate a device-local StorageImage of the given format/usage at the current extent.
+    auto makeStorageImage = [&](VkFormat format, VkImageUsageFlags usage) {
+        ImageParams params{
+            .type = VK_IMAGE_TYPE_2D, .format = format,
+            .extent = { extent.width, extent.height, 1 },
+            .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = usage, .levels = 1,
+        };
+        StorageImage si{};
+        si.image = createImage(device, physical_device, params);
+        VkMemoryRequirements req{};
+        vkGetImageMemoryRequirements(device, si.image, &req);
+        si.memory = allocateMemory(device, mem_props, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        validation::checkVulkan(vkBindImageMemory(device, si.image, si.memory, 0));
+        si.view = createImageView(device, si.image, params, VK_IMAGE_ASPECT_COLOR_BIT);
+        return si;
+    };
 
     // Storage images (one per frame in flight).
     storage_images.assign(FRAMES, {});
@@ -888,6 +1000,41 @@ void RayTracingContext::createFrameResources(VkExtent2D new_extent, VkRenderPass
         });
     }
 
+    // Denoiser images (per frame): the first-hit G-buffer written by the raygen, and two ping-pong
+    // scratch buffers for the à-trous passes. All are used only in GENERAL, so transition once here
+    // (contents are regenerated every frame). If denoising is off these simply go unused.
+    gbuffer_images.assign(FRAMES, {});
+    denoise_ping[0].assign(FRAMES, {});
+    denoise_ping[1].assign(FRAMES, {});
+    for (uint32_t i = 0; i < FRAMES; ++i)
+    {
+        gbuffer_images[i] = makeStorageImage(gbuffer_format, VK_IMAGE_USAGE_STORAGE_BIT);
+        denoise_ping[0][i] = makeStorageImage(storage_format, VK_IMAGE_USAGE_STORAGE_BIT);
+        denoise_ping[1][i] = makeStorageImage(storage_format, VK_IMAGE_USAGE_STORAGE_BIT);
+    }
+    submit([&](VkCommandBuffer cmd) {
+        std::vector<VkImageMemoryBarrier> barriers;
+        auto add = [&](VkImage img) {
+            barriers.push_back(VkImageMemoryBarrier{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .pNext = nullptr,
+                .srcAccessMask = 0, .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = img,
+                .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+            });
+        };
+        for (uint32_t i = 0; i < FRAMES; ++i)
+        {
+            add(gbuffer_images[i].image);
+            add(denoise_ping[0][i].image);
+            add(denoise_ping[1][i].image);
+        }
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, static_cast<uint32_t>(barriers.size()), barriers.data());
+    });
+
     // (Re)build the composite pipeline for this extent/render pass.
     if (composite_pipeline != VK_NULL_HANDLE)
     {
@@ -907,11 +1054,15 @@ void RayTracingContext::createFrameResources(VkExtent2D new_extent, VkRenderPass
             .sampler = VK_NULL_HANDLE, .imageView = accum_image.view,
             .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
         };
+        VkDescriptorImageInfo gbuffer_info{
+            .sampler = VK_NULL_HANDLE, .imageView = gbuffer_images[i].view,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+        };
         VkDescriptorImageInfo sampled_info{
             .sampler = composite_sampler, .imageView = storage_images[i].view,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
-        VkWriteDescriptorSet writes[3] = {
+        VkWriteDescriptorSet writes[4] = {
             { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
               .dstSet = rt_sets[i], .dstBinding = 1, .dstArrayElement = 0,
               .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -921,11 +1072,48 @@ void RayTracingContext::createFrameResources(VkExtent2D new_extent, VkRenderPass
               .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
               .pImageInfo = &accum_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
             { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
+              .dstSet = rt_sets[i], .dstBinding = 3, .dstArrayElement = 0,
+              .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+              .pImageInfo = &gbuffer_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
               .dstSet = composite_sets[i], .dstBinding = 0, .dstArrayElement = 0,
               .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
               .pImageInfo = &sampled_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
         };
-        vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device, 4, writes, 0, nullptr);
+    }
+
+    // Wire the à-trous descriptor sets: ATROUS_PASSES per frame, chaining the color buffers
+    // accum -> ping0 -> ping1 -> display image, with the G-buffer bound as the guide in each pass.
+    for (uint32_t i = 0; i < FRAMES; ++i)
+    {
+        // Per-pass (in_color, out_color); binding 1 is always this frame's G-buffer guide.
+        VkImageView chain_in[ATROUS_PASSES]  = {
+            accum_image.view, denoise_ping[0][i].view, denoise_ping[1][i].view };
+        VkImageView chain_out[ATROUS_PASSES] = {
+            denoise_ping[0][i].view, denoise_ping[1][i].view, storage_images[i].view };
+        for (uint32_t pass = 0; pass < ATROUS_PASSES; ++pass)
+        {
+            VkDescriptorSet set = atrous_sets[i * ATROUS_PASSES + pass];
+            VkDescriptorImageInfo in_info{ VK_NULL_HANDLE, chain_in[pass], VK_IMAGE_LAYOUT_GENERAL };
+            VkDescriptorImageInfo guide_info{ VK_NULL_HANDLE, gbuffer_images[i].view, VK_IMAGE_LAYOUT_GENERAL };
+            VkDescriptorImageInfo out_info{ VK_NULL_HANDLE, chain_out[pass], VK_IMAGE_LAYOUT_GENERAL };
+            VkWriteDescriptorSet aw[3] = {
+                { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
+                  .dstSet = set, .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
+                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                  .pImageInfo = &in_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+                { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
+                  .dstSet = set, .dstBinding = 1, .dstArrayElement = 0, .descriptorCount = 1,
+                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                  .pImageInfo = &guide_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+                { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
+                  .dstSet = set, .dstBinding = 2, .dstArrayElement = 0, .descriptorCount = 1,
+                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                  .pImageInfo = &out_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+            };
+            vkUpdateDescriptorSets(device, 3, aw, 0, nullptr);
+        }
     }
 }
 
@@ -1085,10 +1273,23 @@ void RayTracingContext::destroyFrameResources()
     if (accum_image.image != VK_NULL_HANDLE)  { vkDestroyImage(device, accum_image.image, nullptr); }
     if (accum_image.memory != VK_NULL_HANDLE) { vkFreeMemory(device, accum_image.memory, nullptr); }
     accum_image = {};
+
+    auto destroy_images = [&](std::vector<StorageImage>& imgs) {
+        for (auto& si : imgs)
+        {
+            if (si.view != VK_NULL_HANDLE)   { vkDestroyImageView(device, si.view, nullptr); }
+            if (si.image != VK_NULL_HANDLE)  { vkDestroyImage(device, si.image, nullptr); }
+            if (si.memory != VK_NULL_HANDLE) { vkFreeMemory(device, si.memory, nullptr); }
+        }
+        imgs.clear();
+    };
+    destroy_images(gbuffer_images);
+    destroy_images(denoise_ping[0]);
+    destroy_images(denoise_ping[1]);
 }
 
 void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
-    const RtPushConstants& pc)
+    const RtPushConstants& pc, bool leave_image_general)
 {
     auto image = storage_images[frame_idx].image;
 
@@ -1136,17 +1337,83 @@ void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 3);
     }
 
-    // Transition to SHADER_READ_ONLY so the composite fragment shader can sample it.
-    VkImageMemoryBarrier to_read{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_GENERAL, .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = image,
-        .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+    // Transition to SHADER_READ_ONLY so the composite fragment shader can sample it -- unless the
+    // denoiser will run next, in which case leave it in GENERAL for the à-trous final write.
+    if (!leave_image_general)
+    {
+        VkImageMemoryBarrier to_read{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_GENERAL, .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = image,
+            .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_read);
+    }
+}
+
+void RayTracingContext::recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx)
+{
+    if (gbuffer_images.empty() || atrous_pipeline == VK_NULL_HANDLE) { return; }
+
+    // The raygen just wrote the accumulator and the G-buffer (RT shader stage). Make those visible
+    // to the à-trous compute reads. The display image is still GENERAL (recordTrace was asked to
+    // leave it so); the final pass writes it here.
+    VkImageMemoryBarrier to_compute[2] = {
+        { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .pNext = nullptr,
+          .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+          .oldLayout = VK_IMAGE_LAYOUT_GENERAL, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+          .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+          .image = accum_image.image, .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 } },
+        { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .pNext = nullptr,
+          .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+          .oldLayout = VK_IMAGE_LAYOUT_GENERAL, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+          .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+          .image = gbuffer_images[frame_idx].image, .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 } },
     };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_read);
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 2, to_compute);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, atrous_pipeline);
+    uint32_t gx = (extent.width + 7) / 8, gy = (extent.height + 7) / 8;
+
+    // Edge-stopping falloffs. Colour is permissive (HDR radiance is noisy); normal/depth are tight
+    // so silhouettes and depth discontinuities stop the blur. Constant across passes here.
+    for (uint32_t pass = 0; pass < ATROUS_PASSES; ++pass)
+    {
+        AtrousPush push{
+            .dims_x = static_cast<int32_t>(extent.width),
+            .dims_y = static_cast<int32_t>(extent.height),
+            .step_width = 1 << pass, // 1, 2, 4
+            .c_phi = 4.0f, .n_phi = 0.1f, .p_phi = 0.5f,
+            .tonemap = (pass + 1u == ATROUS_PASSES) ? 1u : 0u, // final pass tonemaps to the display
+        };
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, atrous_pipeline_layout,
+            0, 1, &atrous_sets[frame_idx * ATROUS_PASSES + pass], 0, nullptr);
+        vkCmdPushConstants(cmd, atrous_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(push), &push);
+        vkCmdDispatch(cmd, gx, gy, 1);
+
+        // Serialize this pass's writes before the next pass reads the same ping buffer (or, for the
+        // final pass, before the composite samples the display image).
+        bool last = (pass + 1u == ATROUS_PASSES);
+        VkImageMemoryBarrier b{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+            .dstAccessMask = last ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_SHADER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .newLayout = last ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = last ? storage_images[frame_idx].image
+                          : denoise_ping[pass % 2][frame_idx].image,
+            .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            last ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &b);
+    }
 }
 
 void RayTracingContext::readTimings(uint32_t frame_idx)
@@ -1179,6 +1446,11 @@ void RayTracingContext::destroy()
     if (composite_set_layout)      { vkDestroyDescriptorSetLayout(device, composite_set_layout, nullptr); }
     if (composite_pool)            { vkDestroyDescriptorPool(device, composite_pool, nullptr); }
     if (composite_sampler)         { vkDestroySampler(device, composite_sampler, nullptr); }
+
+    if (atrous_pipeline)        { vkDestroyPipeline(device, atrous_pipeline, nullptr); }
+    if (atrous_pipeline_layout) { vkDestroyPipelineLayout(device, atrous_pipeline_layout, nullptr); }
+    if (atrous_set_layout)      { vkDestroyDescriptorSetLayout(device, atrous_set_layout, nullptr); }
+    if (atrous_pool)            { vkDestroyDescriptorPool(device, atrous_pool, nullptr); }
 
     if (rt_pipeline)        { vkDestroyPipeline(device, rt_pipeline, nullptr); }
     if (rt_pipeline_layout) { vkDestroyPipelineLayout(device, rt_pipeline_layout, nullptr); }
