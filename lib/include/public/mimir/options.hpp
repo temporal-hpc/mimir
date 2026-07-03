@@ -125,6 +125,12 @@ struct ViewerOptions
     float3 specular_color = { 1.f, 1.f, 1.f };
     float specular_power = 32.f;
     float ambient_strength = .05f;
+
+    // Path-tracing workload knobs (only used when light_model == LightModel::PathTracing;
+    // ignored by the raster light models). See DESIGN_pathtracing.md §6.
+    unsigned int pt_samples_per_pixel = 1; // rays per pixel per frame (--spp)
+    unsigned int pt_max_bounces       = 4; // max path depth (--bounces)
+    unsigned int pt_subdivisions      = 1; // icosphere tessellation: 0=20,1=80,2=320 tris (--subdiv)
 };
 
 } // namespace mimir

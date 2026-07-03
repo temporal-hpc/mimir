@@ -90,6 +90,16 @@ VkShaderStageFlagBits getVulkanShaderFlag(SlangStage stage)
         case SLANG_STAGE_VERTEX:   return VK_SHADER_STAGE_VERTEX_BIT;
         case SLANG_STAGE_GEOMETRY: return VK_SHADER_STAGE_GEOMETRY_BIT;
         case SLANG_STAGE_FRAGMENT: return VK_SHADER_STAGE_FRAGMENT_BIT;
+        case SLANG_STAGE_COMPUTE:  return VK_SHADER_STAGE_COMPUTE_BIT;
+        // Ray tracing stages (LightModel::PathTracing). Slang compiles these to the
+        // matching SPIR-V RT execution models; the RT pipeline builder groups them
+        // into raygen/miss/hit shader groups + SBT.
+        case SLANG_STAGE_RAY_GENERATION: return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        case SLANG_STAGE_INTERSECTION:   return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+        case SLANG_STAGE_ANY_HIT:        return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+        case SLANG_STAGE_CLOSEST_HIT:    return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+        case SLANG_STAGE_MISS:           return VK_SHADER_STAGE_MISS_BIT_KHR;
+        case SLANG_STAGE_CALLABLE:       return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
         default:                   return VK_SHADER_STAGE_ALL_GRAPHICS;
     }
 }

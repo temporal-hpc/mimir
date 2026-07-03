@@ -15,6 +15,7 @@ target_sources(mimir
         src/interop.cpp
         src/metrics.cpp
         src/pipeline.cpp
+        src/raytracing.cpp
         src/remote.cpp
         src/transport_tcp.cpp
         src/transport_quic.cpp

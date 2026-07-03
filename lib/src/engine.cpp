@@ -813,8 +813,14 @@ View *MimirInstance::createView(ViewDescription *desc)
                 marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
                 break;
             case LightModel::PathTracing:
-                spdlog::warn("LightModel::PathTracing is not implemented yet; "
-                             "rendering with Phong raster instead");
+                // Markers are path-traced via the RT pipeline; the Sphere3D raster mode is
+                // kept as the pipeline built for this view so RT-incapable devices still
+                // render (drawElements is skipped for the RT path, see renderFrame).
+                if (!rt_enabled)
+                {
+                    spdlog::warn("LightModel::PathTracing requested but device is not "
+                                 "RT-capable; rendering with Phong raster instead");
+                }
                 marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
                 break;
         }
@@ -1063,6 +1069,24 @@ void MimirInstance::initVulkan()
         vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
     });
 
+    // Path tracing (LightModel::PathTracing): build the resolution-independent RT context
+    // (BLAS/TLAS/pipeline/SBT) once, before initGraphics() so the per-frame storage images
+    // and composite pipeline are created there. Requires an RT-capable device; otherwise the
+    // instance silently renders the raster fallback (createView emits the warning).
+    rt_enabled = (options.light_model == LightModel::PathTracing)
+              && supportsRayTracing(physical_device.handle);
+    if (rt_enabled)
+    {
+        auto submit = [this](std::function<void(VkCommandBuffer)> fn) {
+            immediateSubmit(std::move(fn));
+        };
+        raytracing = RayTracingContext::make(device, physical_device.handle,
+            physical_device.memory.memoryProperties, submit,
+            options.pt_subdivisions, /*max_recursion=*/2
+        );
+        deletors.context.add([this]{ raytracing.destroy(); });
+    }
+
     initGraphics();
     createSyncObjects();
     // CUDA compute events are context-lifetime (not swapchain-lifetime): they outlive
@@ -1284,6 +1308,14 @@ void MimirInstance::initGraphics()
             vkDestroyImageView(device, framebuffers.image_views[i], nullptr);
             vkDestroyFramebuffer(device, framebuffers.handles[i], nullptr);
         });
+    }
+
+    // Path-tracing frame resources (storage images + composite pipeline) depend on the
+    // render target extent/render pass, so they are (re)built here and freed on rebuild.
+    if (rt_enabled)
+    {
+        raytracing.createFrameResources(swapchain.extent, swapchain.image_count, render_pass);
+        deletors.graphics.add([this]{ raytracing.destroyFrameResources(); });
     }
 }
 
@@ -1544,6 +1576,34 @@ void MimirInstance::renderFrame(bool advance_interop)
     validation::checkVulkan(vkBeginCommandBuffer(cmd, &cmd_info));
     graphics_monitor.startRenderWatch(device, cmd, frame_idx);
 
+    // Path tracing: trace primary rays into this frame's storage image BEFORE the raster
+    // render pass (vkCmdTraceRaysKHR cannot run inside a render pass). The composite pass
+    // below samples the result. Raster light models skip this entirely.
+    if (rt_enabled)
+    {
+        RtPushConstants pc{};
+        // For a LookAt camera, matrices.view = translate(pos) * rotmat is the camera-to-world
+        // transform, so its columns are the camera basis in world space (col3=pos, col0/1/2=
+        // right/up/forward). Pass them directly for a plain pinhole raygen.
+        const auto& v = camera.matrices.view;
+        pc.cam_pos     = glm::vec4(glm::vec3(v[3]), 1.f);
+        pc.cam_right   = glm::vec4(glm::normalize(glm::vec3(v[0])), 0.f);
+        pc.cam_up      = glm::vec4(glm::normalize(glm::vec3(v[1])), 0.f);
+        pc.cam_forward = glm::vec4(glm::normalize(glm::vec3(v[2])), 0.f);
+        pc.tan_half_fov = std::tan(glm::radians(camera.fov) * 0.5f);
+        pc.aspect       = (float)swapchain.extent.width / (float)swapchain.extent.height;
+        auto lp = options.light_pos;
+        auto bg = options.background_color;
+        pc.sun_dir     = glm::vec4(lp.x, lp.y, lp.z, 0.f);
+        // Path-traced sky/environment = the instance background color (w = intensity), so a
+        // simulation controls the backdrop (incl. black) with the same knob as the raster modes.
+        pc.sky_color   = glm::vec4(bg.x, bg.y, bg.z, 1.0f);
+        pc.frame_index = static_cast<uint32_t>(render_timeline);
+        pc.spp         = options.pt_samples_per_pixel;
+        pc.bounces     = options.pt_max_bounces;
+        raytracing.recordTrace(cmd, frame_idx, pc);
+    }
+
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
     std::memcpy(clear_values[0].color.float32, &options.background_color.x, sizeof(options.background_color));
@@ -1562,7 +1622,10 @@ void MimirInstance::renderFrame(bool advance_interop)
     // Render pass
     vkCmdBeginRenderPass(cmd, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-    drawElements(frame_idx);
+    // Path tracing composites the ray-traced storage image over a fullscreen triangle;
+    // raster light models draw the view geometry. The ImGui HUD renders on top of both.
+    if (rt_enabled) { raytracing.recordComposite(cmd, frame_idx); }
+    else            { drawElements(frame_idx); }
     if (!isHeadless()) { gui::render(cmd); }
     vkCmdEndRenderPass(cmd);
 

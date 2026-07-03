@@ -97,6 +97,21 @@ CSV layout; PT rows come only from benchmark_mimir. The comparison story becomes
    only from benchmark_mimir.
 2. **Scene extras**: interior cube walls (5 diffuse walls, camera side open).
 3. **PT home**: mimir engine feature.
+4. **Traversal API: RT pipeline + SBT** (not ray query), confirmed 2026-07-02 (later
+   session). Both APIs bind the same `VK_KHR_acceleration_structure` hardware and both
+   inherit the driver's software-traversal fallback on non-RT GPUs (the "runs on any
+   GPU, just slower" behavior — same mechanism that runs DXR on Pascal). Ray query is
+   the simpler single-compute-shader route and marginally faster for this one-material
+   scene, but RT pipeline + SBT (raygen/miss/closesthit + shader binding table) gives
+   per-material shader dispatch, hardware recursion, and callables — the machinery
+   future users need for complex multi-material scenes. mimir is built to be prepared
+   for that. This also matches the OptiX programming model (raygen/miss/closesthit +
+   SBT records) the author already works in. Non-RT-*extension* GPUs still fall back to
+   Phong raster; RT support stays optional at device-pick time so raster modes run
+   everywhere.
+5. **PT workload CLI**: `--spp N` and `--bounces N` as separate, order-independent
+   flags (matches the existing `--k` / `--epsilon` style and §6), not positional args
+   after `--light-model path-tracing`. Ignored unless the light model is path-tracing.
 
 ### 8.1 Public API: `LightModel`
 

@@ -20,6 +20,7 @@
 #include "interop.hpp"
 #include "metrics.hpp"
 #include "pipeline.hpp"
+#include "raytracing.hpp"
 #include "swapchain.hpp"
 #include "window.hpp"
 
@@ -134,6 +135,13 @@ struct MimirInstance
     // Benchmarking
     metrics::GraphicsMonitor graphics_monitor;
     metrics::ComputeMonitor compute_monitor;
+
+    // Path tracing (LightModel::PathTracing). rt_enabled is true only when the instance
+    // requested path tracing AND the device is RT-capable; otherwise the engine renders
+    // the raster fallback (createView warns). The context is built once in initVulkan; its
+    // extent-dependent frame resources are (re)built in initGraphics.
+    bool rt_enabled = false;
+    RayTracingContext raytracing{};
 
     static MimirInstance make(ViewerOptions opts);
     static MimirInstance make(int width, int height);
