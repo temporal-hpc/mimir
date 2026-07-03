@@ -48,7 +48,6 @@ struct PointsInput {
     float        orbit_speed = 0.f;          // --orbit-speed DEG/S: scripted auto-orbit (0=off)
     float        cam_speed   = 3.f;          // --cam-speed U/S: WASD move speed
     float        sensitivity = 0.1f;         // --sensitivity DEG/PX: mouse-look sensitivity
-    bool         invert_y    = false;        // --invert-mouse-y: flip vertical mouse-look axis
 };
 
 // Parse --background as "G" (grey level) or "R,G,B" in [0,1].
@@ -237,7 +236,6 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.show_panel          = input.display;
     opts.camera_control      = input.fly ? CameraControl::Fly : CameraControl::Orbit;
     opts.mouse_sensitivity   = input.sensitivity;
-    opts.invert_mouse_y      = input.invert_y;
     opts.camera_move_speed   = input.cam_speed;
     opts.orbit_speed         = input.orbit_speed;
 
@@ -553,8 +551,6 @@ static void usage(const char* prog)
         "                     orbit drag (left=rotate, right=zoom, middle=pan).\n"
         "  --cam-speed U/S    WASD move speed in world units/second     (default: 3)\n"
         "  --sensitivity D/PX Mouse-look degrees per pixel              (default: 0.1)\n"
-        "  --invert-mouse-y   Flight-sim vertical mouse-look (push forward = look down; default\n"
-        "                     is standard FPS, push forward = look up)\n"
         "  --orbit-speed D/S  Scripted auto-orbit around the scene at D deg/s for input-free\n"
         "                     reproducible runs; overrides manual control (default: 0 = off)\n"
         "  Path-tracing only (--light-model path-tracing):\n"
@@ -584,7 +580,6 @@ int main(int argc, char* argv[])
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
         if (a == "--fly") { input.fly = true; continue; } // valueless flag
-        if (a == "--invert-mouse-y") { input.invert_y = true; continue; } // valueless flag
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
