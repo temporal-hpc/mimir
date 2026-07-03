@@ -172,11 +172,20 @@ void missMain(inout Payload payload)
 void closestHitMain(inout Payload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
     // BLAS vertices lie on a unit sphere centered at the object origin, so the smooth normal is
-    // the normalized object-space hit position. Phase 2 instances carry no rotation (uniform
-    // scale + translation), so the object normal equals the world normal; a proper normal-matrix
-    // transform lands with cube rotation in Phase 3.
+    // the normalized object-space hit position.
     float3 obj_pos = ObjectRayOrigin() + RayTCurrent() * ObjectRayDirection();
-    payload.normal   = normalize(obj_pos);
+    float3 obj_n   = normalize(obj_pos);
+
+    // Transform the object-space normal to world space with the normal matrix, i.e. the
+    // inverse-transpose of the object->world matrix. Normals transform by inverse-transpose so
+    // that non-uniform scale / rotation keeps them perpendicular to the surface (a plain
+    // ObjectToWorld would shear them off the surface). WorldToObject3x4() is already the inverse
+    // of ObjectToWorld, so mul(obj_n, worldToObject) == transpose(worldToObject) * obj_n gives the
+    // inverse-transpose product without an explicit transpose. Renormalize (scale changes length).
+    // The current spheres carry only uniform scale + translation, so this reduces to the identity
+    // rotation here, but it's the correct general form for rotated / non-uniformly scaled geometry.
+    float3x3 world_to_object = (float3x3)WorldToObject3x4();
+    payload.normal   = normalize(mul(obj_n, world_to_object));
     payload.position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
     payload.albedo   = float3(pc.albedo_r, pc.albedo_g, pc.albedo_b);
     payload.hit_t    = RayTCurrent();
