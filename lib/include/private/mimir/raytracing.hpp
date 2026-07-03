@@ -59,9 +59,9 @@ struct RtPushConstants
     uint32_t frame_index = 0;
     uint32_t spp = 1;
     uint32_t bounces = 4;
-    uint32_t pad0 = 0;
-    uint32_t pad1 = 0;
-    uint32_t pad2 = 0;
+    float albedo_r = 0.82f; // particle surface color (--pcolor); packed into the former pad slots
+    float albedo_g = 0.82f; // so the struct stays at the 128-byte guaranteed push-constant limit
+    float albedo_b = 0.88f;
 };
 
 // Path-tracing render context (LightModel::PathTracing). Owns the icosphere BLAS, the
@@ -102,6 +102,7 @@ struct RayTracingContext
     VkBuffer position_buffer = VK_NULL_HANDLE; // interop positions (owned by the view, not us)
     uint32_t particle_count = 0;
     float particle_radius = 0.f;
+    glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
     AccelStruct scene_tlas[FRAMES];       // per-frame TLAS
     RtBuffer instance_buffers[FRAMES];    // per-frame VkAccelerationStructureInstanceKHR[]
     RtBuffer tlas_scratch[FRAMES];        // persistent per-frame build scratch
@@ -163,7 +164,7 @@ struct RayTracingContext
     // tightly-packed float3) drives a per-frame TLAS of icosphere instances of the given world
     // radius. Allocates the per-frame instance buffers/TLAS/scratch, wires the instance-writer
     // and RT (TLAS) descriptors, and builds an initial TLAS. Call once after view creation.
-    void bindScene(VkBuffer positions, uint32_t particle_count, float radius);
+    void bindScene(VkBuffer positions, uint32_t particle_count, float radius, glm::vec4 color);
 
     // Record the per-frame scene update for this frame: dispatch the instance-writer compute
     // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a

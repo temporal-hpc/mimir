@@ -6,6 +6,7 @@
 #include <functional> // std::function
 #include <string> // std::string
 #include <thread> // std::thread
+#include <chrono> // std::chrono (camera frame timing)
 #include <vector> // std::vector
 
 #include <mimir/options.hpp>
@@ -124,6 +125,9 @@ struct MimirInstance
     std::vector<View*> views;
     GlfwContext window_context;
     Camera camera;
+    // Wall-clock timestamp of the previous updateCamera() call, for frame-rate-independent
+    // fly movement / auto-orbit. Zero-initialized; the first update seeds it and moves nothing.
+    std::chrono::steady_clock::time_point last_camera_time{};
 
     // Deletion queues organized by lifetime
     struct {
@@ -204,6 +208,9 @@ struct MimirInstance
     // the CUDA-Vulkan interop timeline wait/signal (used for one frame per compute iteration in
     // synchronized mode); otherwise it is a plain frame that does not touch the interop timeline.
     void renderFrame(bool advance_interop = false);
+    // Advance the interactive camera once per frame: WASD fly movement (Fly mode) or the scripted
+    // auto-orbit (orbit_speed > 0). Computes its own frame dt. No-op without a window.
+    void updateCamera();
     void drawElements(uint32_t image_idx);
     void waitKernelStart();
     void signalKernelFinish();

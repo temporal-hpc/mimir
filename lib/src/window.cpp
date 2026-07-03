@@ -6,6 +6,8 @@
 #include "mimir/camera.hpp"
 #include "mimir/validation.hpp"
 
+#include <algorithm> // std::clamp
+
 namespace mimir::validation
 {
 
@@ -57,10 +59,28 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
     auto app = getHandler(window);
     auto& ctx = app->window_context;
 
-    // Compute displacements from previously registered position
     auto new_x = static_cast<float>(xpos);
-    auto dx = ctx.mouse_pos.x - new_x;
     auto new_y = static_cast<float>(ypos);
+
+    // Fly camera: captured mouse-look. Steer yaw/pitch by the raw cursor delta (clamped pitch to
+    // avoid gimbal flip). Signs match the orbit drag below so the feel is consistent.
+    if (app->options.camera_control == CameraControl::Fly && ctx.cursor_captured)
+    {
+        if (ctx.first_mouse) { ctx.mouse_pos = { new_x, new_y }; ctx.first_mouse = false; return; }
+        float raw_dx = new_x - ctx.mouse_pos.x;
+        float raw_dy = new_y - ctx.mouse_pos.y;
+        ctx.mouse_pos = { new_x, new_y };
+
+        float sens = app->options.mouse_sensitivity;
+        app->camera.rotation.y += raw_dx * sens;   // yaw:  mouse right -> look right
+        app->camera.rotation.x += -raw_dy * sens;  // pitch: mouse up   -> look up
+        app->camera.rotation.x = std::clamp(app->camera.rotation.x, -89.9f, 89.9f);
+        app->camera.updateViewMatrix();
+        return;
+    }
+
+    // Compute displacements from previously registered position
+    auto dx = ctx.mouse_pos.x - new_x;
     auto dy = ctx.mouse_pos.y - new_y;
 
     if (ctx.mouse_buttons.left) // Rotation
@@ -133,6 +153,16 @@ void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int 
         glfwSetWindowShouldClose(window, GL_TRUE);
         glfwPollEvents();
     }
+    // Fly camera: TAB toggles cursor capture (locked for mouse-look vs. free for the ImGui HUD).
+    if (key == GLFW_KEY_TAB && action == GLFW_PRESS
+        && app->options.camera_control == CameraControl::Fly)
+    {
+        auto& ctx = app->window_context;
+        ctx.cursor_captured = !ctx.cursor_captured;
+        ctx.first_mouse = true; // avoid a look jump on the next delta after (re)capturing
+        glfwSetInputMode(window, GLFW_CURSOR,
+            ctx.cursor_captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    }
 }
 
 void windowCloseCallback(GLFWwindow *window)
@@ -170,6 +200,8 @@ GlfwContext GlfwContext::make(WindowOptions options, void *engine)
         .mouse_pos        = { .x = 0.f, .y = 0.f },
         .mouse_buttons    = { .left = false, .right = false, .middle = false },
         .resize_requested = false,
+        .cursor_captured  = false,
+        .first_mouse      = true,
     };
 }
 

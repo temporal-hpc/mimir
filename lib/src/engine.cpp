@@ -183,7 +183,9 @@ void MimirInstance::prepare()
         {
             if (view->desc.type == ViewType::Markers && view->vb_count > 0)
             {
-                raytracing.bindScene(view->vbo[0], view->draw_count, view->desc.default_size);
+                auto c = view->desc.default_color; // particle albedo for PT (also --pcolor)
+                raytracing.bindScene(view->vbo[0], view->draw_count, view->desc.default_size,
+                    glm::vec4(c.x, c.y, c.z, c.w));
                 break;
             }
         }
@@ -191,6 +193,15 @@ void MimirInstance::prepare()
         {
             spdlog::warn("Path tracing: no Markers view found to bind; RT frames will be empty");
         }
+    }
+
+    // Fly camera starts with the cursor captured for immediate mouse-look (TAB frees it for the
+    // HUD). Skipped in headless (no window).
+    if (window_context.window && options.camera_control == CameraControl::Fly)
+    {
+        window_context.cursor_captured = true;
+        window_context.first_mouse = true;
+        glfwSetInputMode(window_context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     }
 }
 
@@ -207,6 +218,7 @@ void MimirInstance::displayAsync()
         while(!window_context.shouldClose())
         {
             window_context.processEvents();
+            updateCamera();
             if (options.present.enable_interop_sync)
             {
                 auto requested = std::atomic_ref<uint64_t>(render_request).load(std::memory_order_acquire);
@@ -233,6 +245,58 @@ void MimirInstance::displayAsync()
         std::atomic_ref<bool>(running).store(false, std::memory_order_release);
         vkDeviceWaitIdle(device);
     });
+}
+
+void MimirInstance::updateCamera()
+{
+    if (window_context.window == nullptr) { return; } // headless: nothing to drive
+
+    auto now = std::chrono::steady_clock::now();
+    if (last_camera_time.time_since_epoch().count() == 0)
+    {
+        last_camera_time = now; // seed on the first call; move nothing this frame
+        return;
+    }
+    float dt = std::chrono::duration<float>(now - last_camera_time).count();
+    last_camera_time = now;
+    dt = std::min(dt, 0.1f); // clamp so a stall (resize, breakpoint) can't fling the camera
+
+    // Scripted auto-orbit: circle the scene origin, always looking at it. Overrides manual input.
+    if (options.orbit_speed > 0.f)
+    {
+        const glm::vec3 center(0.f);
+        glm::vec3 rel = camera.position - center;
+        float ang = glm::radians(options.orbit_speed * dt);
+        float c = std::cos(ang), s = std::sin(ang);
+        glm::vec3 rot(rel.x * c + rel.z * s, rel.y, -rel.x * s + rel.z * c); // rotate about +Y
+        camera.setLookAt(center + rot, center, glm::vec3(0.f, 1.f, 0.f));
+        return;
+    }
+
+    // Fly camera: WASD moves along the current view basis (mouse-look is in the cursor callback).
+    // Only while the cursor is captured, so interacting with the HUD never drifts the camera.
+    if (options.camera_control == CameraControl::Fly && window_context.cursor_captured)
+    {
+        auto* w = window_context.window;
+        glm::vec3 fwd   = glm::vec3(camera.matrices.view[2]); // world look direction
+        glm::vec3 right = glm::vec3(camera.matrices.view[0]);
+        const glm::vec3 world_up(0.f, 1.f, 0.f);
+
+        glm::vec3 dir(0.f);
+        if (glfwGetKey(w, GLFW_KEY_W) == GLFW_PRESS) { dir += fwd; }
+        if (glfwGetKey(w, GLFW_KEY_S) == GLFW_PRESS) { dir -= fwd; }
+        if (glfwGetKey(w, GLFW_KEY_D) == GLFW_PRESS) { dir += right; }
+        if (glfwGetKey(w, GLFW_KEY_A) == GLFW_PRESS) { dir -= right; }
+        if (glfwGetKey(w, GLFW_KEY_E) == GLFW_PRESS
+         || glfwGetKey(w, GLFW_KEY_SPACE) == GLFW_PRESS) { dir += world_up; }
+        if (glfwGetKey(w, GLFW_KEY_Q) == GLFW_PRESS
+         || glfwGetKey(w, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) { dir -= world_up; }
+
+        if (glm::dot(dir, dir) > 0.f)
+        {
+            camera.translate(glm::normalize(dir) * (options.camera_move_speed * dt));
+        }
+    }
 }
 
 void MimirInstance::prepareViews()
@@ -292,6 +356,7 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
     while(!window_context.shouldClose())
     {
         window_context.processEvents();
+        updateCamera();
         gui::draw(camera, options, views, gui_callback);
         renderFrame(/*advance_interop=*/interop);
 
@@ -1624,6 +1689,9 @@ void MimirInstance::renderFrame(bool advance_interop)
         pc.frame_index = static_cast<uint32_t>(render_timeline);
         pc.spp         = options.pt_samples_per_pixel;
         pc.bounces     = options.pt_max_bounces;
+        pc.albedo_r    = raytracing.particle_color.r; // particle surface color (--pcolor)
+        pc.albedo_g    = raytracing.particle_color.g;
+        pc.albedo_b    = raytracing.particle_color.b;
         // Rebuild this frame's TLAS from the live interop positions, then trace it.
         raytracing.recordUpdateScene(cmd, frame_idx);
         raytracing.recordTrace(cmd, frame_idx, pc);

@@ -20,9 +20,9 @@ struct PushConstants
     uint frame_index;
     uint spp;
     uint bounces;
-    uint pad0;
-    uint pad1;
-    uint pad2;
+    float albedo_r; // particle surface color (--pcolor)
+    float albedo_g;
+    float albedo_b;
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -178,6 +178,6 @@ void closestHitMain(inout Payload payload, in BuiltInTriangleIntersectionAttribu
     float3 obj_pos = ObjectRayOrigin() + RayTCurrent() * ObjectRayDirection();
     payload.normal   = normalize(obj_pos);
     payload.position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-    payload.albedo   = float3(0.82, 0.82, 0.88);
+    payload.albedo   = float3(pc.albedo_r, pc.albedo_g, pc.albedo_b);
     payload.hit_t    = RayTCurrent();
 }

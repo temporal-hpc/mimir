@@ -60,7 +60,7 @@ int main(int argc, char** argv)
             }}
         },
         .layout        = Layout::make(n),
-        .default_color = { 1.f, 1.f, 1.f, 1.f },
+        .default_color = { 0.90f, 0.50f, 0.20f, 1.f }, // warm orange: verifies --pcolor -> PT albedo
         .default_size  = 0.12f, // world radius of each icosphere instance
     };
     ViewHandle view = nullptr;

@@ -67,6 +67,12 @@ enum class LightModel { None, Phong, PathTracing };
 
 enum class PresentMode { Immediate, TripleBuffering, VSync };
 
+// On-screen camera interaction. Orbit keeps the historical drag controls (left-drag = rotate,
+// right-drag = zoom, middle-drag = pan). Fly is a captured-mouse-look FPS camera: the cursor is
+// locked and WASD flies (Q/E or Space/LCtrl for down/up), with a key to release the cursor for
+// the ImGui HUD. Ignored in headless/scripted auto-orbit runs.
+enum class CameraControl { Orbit, Fly };
+
 struct PresentOptions
 {
     // Sets frame presentation scheme used by the engine instance.
@@ -131,6 +137,14 @@ struct ViewerOptions
     unsigned int pt_samples_per_pixel = 1; // rays per pixel per frame (--spp)
     unsigned int pt_max_bounces       = 4; // max path depth (--bounces)
     unsigned int pt_subdivisions      = 1; // icosphere tessellation: 0=20,1=80,2=320 tris (--subdiv)
+
+    // Camera interaction (on-screen only; see CameraControl).
+    CameraControl camera_control = CameraControl::Orbit;
+    float mouse_sensitivity   = 0.1f; // degrees of yaw/pitch per pixel of mouse motion (Fly)
+    float camera_move_speed   = 3.f;  // world units/second for WASD movement (Fly)
+    // Scripted auto-orbit for reproducible, input-free runs (e.g. benchmarks): the camera circles
+    // the scene origin at this angular speed in degrees/second. >0 overrides manual control; 0 off.
+    float orbit_speed         = 0.f;
 };
 
 } // namespace mimir

@@ -84,4 +84,21 @@ void Camera::translate(glm::vec3 delta)
     updateViewMatrix();
 }
 
+void Camera::setLookAt(glm::vec3 eye, glm::vec3 center, glm::vec3 world_up)
+{
+    // Build camera-to-world directly (right-handed, matching the euler LookAt: at rotation 0,
+    // right=+x, up=+y, forward=+z). right = up x forward keeps the +x handedness.
+    glm::vec3 fwd   = glm::normalize(center - eye);
+    glm::vec3 right = glm::normalize(glm::cross(world_up, fwd));
+    glm::vec3 up    = glm::cross(fwd, right);
+
+    glm::mat4 m(1.f);
+    m[0] = glm::vec4(right, 0.f);
+    m[1] = glm::vec4(up,    0.f);
+    m[2] = glm::vec4(fwd,   0.f);
+    m[3] = glm::vec4(eye,   1.f);
+    matrices.view = m;
+    this->position = eye;
+}
+
 } // namespace mimir

@@ -41,6 +41,13 @@ struct PointsInput {
     unsigned int pt_bounces  = 4;            // max path depth (--bounces; effective in Phase 2)
     unsigned int pt_subdiv   = 1;            // icosphere tessellation 0/1/2 (--subdiv)
     float3       background  = { 0.f, 0.f, 0.f }; // window/environment color (--background)
+    float3       pcolor      = { 0.82f, 0.82f, 0.88f }; // particle color (--pcolor)
+    // Camera: interactive fly (WASD + captured mouse-look) vs the default orbit drag controls,
+    // and a scripted auto-orbit for reproducible input-free runs.
+    bool         fly         = false;        // --fly: FPS fly camera
+    float        orbit_speed = 0.f;          // --orbit-speed DEG/S: scripted auto-orbit (0=off)
+    float        cam_speed   = 3.f;          // --cam-speed U/S: WASD move speed
+    float        sensitivity = 0.1f;         // --sensitivity DEG/PX: mouse-look sensitivity
 };
 
 // Parse --background as "G" (grey level) or "R,G,B" in [0,1].
@@ -219,6 +226,10 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.present.enable_interop_sync       = input.enable_interop_sync;
     opts.present.enable_fps_limit  = false;  // always uncapped
     opts.show_panel          = input.display;
+    opts.camera_control      = input.fly ? CameraControl::Fly : CameraControl::Orbit;
+    opts.mouse_sensitivity   = input.sensitivity;
+    opts.camera_move_speed   = input.cam_speed;
+    opts.orbit_speed         = input.orbit_speed;
 
     InstanceHandle instance = nullptr;
     createInstance(opts, &instance);
@@ -253,7 +264,7 @@ BenchmarkResult runExperiment(PointsInput input)
                 }}
             },
             .layout        = Layout::make((unsigned int)n),
-            .default_color = { 1.f, 1.f, 1.f, 1.f },
+            .default_color = { input.pcolor.x, input.pcolor.y, input.pcolor.z, 1.f },
             .default_size  = size,
             .linewidth     = 0.f,
             .scale         = { 1.f, 1.f, 1.f },
@@ -525,6 +536,15 @@ static void usage(const char* prog)
         "  --background C     Window/environment color: grey 'G' or 'R,G,B' in [0,1]\n"
         "                     (default: 0 = black). Under path-tracing this is also the\n"
         "                     sky/miss and ambient fill; black = sun-only lighting.\n"
+        "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1] (default: light grey)\n"
+        "  Camera (on-screen):\n"
+        "  --fly              FPS fly camera: captured mouse-look + WASD (Q/E or Space/LCtrl\n"
+        "                     for down/up); TAB releases the cursor for the HUD. Default is\n"
+        "                     orbit drag (left=rotate, right=zoom, middle=pan).\n"
+        "  --cam-speed U/S    WASD move speed in world units/second     (default: 3)\n"
+        "  --sensitivity D/PX Mouse-look degrees per pixel              (default: 0.1)\n"
+        "  --orbit-speed D/S  Scripted auto-orbit around the scene at D deg/s for input-free\n"
+        "                     reproducible runs; overrides manual control (default: 0 = off)\n"
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing) (default: 1)\n"
         "  --bounces N        Max path depth                          (default: 4)\n"
@@ -548,6 +568,7 @@ int main(int argc, char* argv[])
     {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
+        if (a == "--fly") { input.fly = true; continue; } // valueless flag
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
@@ -564,6 +585,10 @@ int main(int argc, char* argv[])
             else if (a == "--bounces")      input.pt_bounces = (unsigned int)std::stoul(v);
             else if (a == "--subdiv")       input.pt_subdiv = (unsigned int)std::stoul(v);
             else if (a == "--background")   input.background = parseColor(v);
+            else if (a == "--pcolor")       input.pcolor = parseColor(v);
+            else if (a == "--orbit-speed")  input.orbit_speed = std::stof(v);
+            else if (a == "--cam-speed")    input.cam_speed = std::stof(v);
+            else if (a == "--sensitivity")  input.sensitivity = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

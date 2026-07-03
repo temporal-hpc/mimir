@@ -27,6 +27,10 @@ struct Camera
     void setRotation(glm::vec3 rotation);
     void rotate(glm::vec3 delta);
     void translate(glm::vec3 delta);
+    // Point the camera at `center` from `eye`, building the same camera-to-world view matrix
+    // (columns = right/up/forward, translation = eye) that the LookAt updateViewMatrix produces.
+    // Used by the scripted auto-orbit; leaves `rotation` untouched.
+    void setLookAt(glm::vec3 eye, glm::vec3 center, glm::vec3 world_up);
 };
 
 static_assert(std::is_default_constructible_v<Camera>);

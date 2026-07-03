@@ -846,11 +846,12 @@ void RayTracingContext::createFrameResources(VkExtent2D new_extent, VkRenderPass
     }
 }
 
-void RayTracingContext::bindScene(VkBuffer positions, uint32_t count, float radius)
+void RayTracingContext::bindScene(VkBuffer positions, uint32_t count, float radius, glm::vec4 color)
 {
     position_buffer = positions;
     particle_count  = count;
     particle_radius = radius;
+    particle_color  = color;
 
     // Per-frame instance buffer (written by the compute writer, read by the TLAS build) and
     // per-frame TLAS + scratch. Instance buffer needs STORAGE (compute write),
