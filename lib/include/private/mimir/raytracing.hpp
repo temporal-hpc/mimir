@@ -74,6 +74,10 @@ struct RayTracingContext
 {
     using SubmitFn = std::function<void(std::function<void(VkCommandBuffer)>)>;
 
+    // Frames in flight for per-frame PT resources (storage image, TLAS, instance buffer).
+    // Must match the engine's MAX_FRAMES_IN_FLIGHT; frame indices are render_timeline % this.
+    static constexpr uint32_t FRAMES = 3;
+
     VkDevice device = VK_NULL_HANDLE;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties mem_props{};
@@ -84,15 +88,30 @@ struct RayTracingContext
     // One-time GPU submit callback (engine's immediateSubmit) used for AS builds/transitions.
     SubmitFn submit;
 
-    // Icosphere geometry + acceleration structures
+    // Icosphere geometry + bottom-level acceleration structure (one, built once)
     RtBuffer vertex_buffer;
     RtBuffer index_buffer;
     uint32_t index_count = 0;
     uint32_t vertex_count = 0;
     AccelStruct blas;
-    AccelStruct tlas;
-    RtBuffer instance_buffer;
-    uint32_t instance_count = 0;
+
+    // Dynamic scene (Phase 2): a per-frame TLAS rebuilt each frame from the live interop
+    // position buffer. Bound after view creation via bindScene(). Per-frame (indexed by
+    // frame-in-flight) so a frame's TLAS/instances are never overwritten while still in use.
+    bool scene_bound = false;
+    VkBuffer position_buffer = VK_NULL_HANDLE; // interop positions (owned by the view, not us)
+    uint32_t particle_count = 0;
+    float particle_radius = 0.f;
+    AccelStruct scene_tlas[FRAMES];       // per-frame TLAS
+    RtBuffer instance_buffers[FRAMES];    // per-frame VkAccelerationStructureInstanceKHR[]
+    RtBuffer tlas_scratch[FRAMES];        // persistent per-frame build scratch
+
+    // Instance-writer compute (fills instance_buffers[frame] from position_buffer)
+    VkDescriptorSetLayout iw_set_layout = VK_NULL_HANDLE;
+    VkPipelineLayout iw_pipeline_layout = VK_NULL_HANDLE;
+    VkPipeline iw_pipeline = VK_NULL_HANDLE;
+    VkDescriptorPool iw_pool = VK_NULL_HANDLE;
+    VkDescriptorSet iw_sets[FRAMES] = {};
 
     // Ray-tracing pipeline + shader binding table
     VkDescriptorSetLayout rt_set_layout = VK_NULL_HANDLE;
@@ -135,11 +154,21 @@ struct RayTracingContext
         uint32_t subdiv, uint32_t max_recursion);
 
     // (Re)build the extent-dependent frame resources: storage images + composite pipeline,
-    // and (re)point the RT/composite descriptor sets at the new images.
-    void createFrameResources(VkExtent2D extent, uint32_t frame_count,
-        VkRenderPass render_pass);
+    // and (re)point the storage-image/composite descriptor bindings at the new images.
+    void createFrameResources(VkExtent2D extent, VkRenderPass render_pass);
     // Destroy the extent-dependent frame resources (call on swapchain rebuild).
     void destroyFrameResources();
+
+    // Bind the dynamic scene: the interop position buffer (VkBuffer, particle_count points of
+    // tightly-packed float3) drives a per-frame TLAS of icosphere instances of the given world
+    // radius. Allocates the per-frame instance buffers/TLAS/scratch, wires the instance-writer
+    // and RT (TLAS) descriptors, and builds an initial TLAS. Call once after view creation.
+    void bindScene(VkBuffer positions, uint32_t particle_count, float radius);
+
+    // Record the per-frame scene update for this frame: dispatch the instance-writer compute
+    // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a
+    // render pass, before recordTrace. No-op if no scene is bound.
+    void recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx);
 
     // Record the ray-trace for the given frame into its storage image (adds the layout
     // barriers around vkCmdTraceRaysKHR). Must be recorded OUTSIDE a render pass.

@@ -112,6 +112,17 @@ CSV layout; PT rows come only from benchmark_mimir. The comparison story becomes
 5. **PT workload CLI**: `--spp N` and `--bounces N` as separate, order-independent
    flags (matches the existing `--k` / `--epsilon` style and §6), not positional args
    after `--light-model path-tracing`. Ignored unless the light model is path-tracing.
+6. **Instance writer: Vulkan compute shader, not CUDA** (refines §4), confirmed
+   2026-07-03. The per-frame `VkAccelerationStructureInstanceKHR` array is written by an
+   engine-owned Vulkan compute shader that reads the interop position buffer in place,
+   rather than a CUDA kernel. Rationale: keeps mimir CUDA-kernel-free and the PT feature
+   reusable by any sample that supplies an interop position buffer (no per-sample RT/CUDA
+   code); a single Vulkan timeline (compute -> AS build -> trace, ordered by barriers in
+   one command buffer) instead of an extra CUDA->Vulkan handshake; no duplication of the
+   64-byte instance layout in CUDA. The zero-copy interop story is preserved: CUDA still
+   writes positions zero-copy, and the compute shader consumes them without a copy. The
+   interop timeline wait moves to the COMPUTE stage for PT (the instance writer, not the
+   vertex shader, is the first GPU consumer of positions).
 
 ### 8.1 Public API: `LightModel`
 

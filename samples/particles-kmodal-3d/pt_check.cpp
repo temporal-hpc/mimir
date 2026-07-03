@@ -1,9 +1,12 @@
-// Headless Phase-1 verification for LightModel::PathTracing: renders the static icosphere
-// grid to an offscreen frame and writes it to a PPM so the result can be inspected without a
-// window. Not part of the benchmark; a throwaway acceptance check.
+// Headless verification for LightModel::PathTracing. Fills the interop position buffer with a
+// deterministic grid, renders the scene (per-frame TLAS built from those positions) to a PPM.
+// Not part of the benchmark; a throwaway acceptance check for Phase 2's dynamic scene path.
 #include <mimir/mimir.hpp>
 
+#include <cuda_runtime_api.h>
+
 #include <cstdio>
+#include <vector>
 
 using namespace mimir;
 
@@ -22,13 +25,27 @@ int main(int argc, char** argv)
     InstanceHandle engine = nullptr;
     createInstance(opts, &engine);
 
-    // A minimal interop Markers view so the engine's uniform-buffer/view machinery has a view
-    // to size against (the RT path traces the static grid regardless of these positions; the
-    // buffer is never written). Mirrors the benchmark's view setup.
-    constexpr unsigned int n = 64;
+    // A 5x5x5 grid of particles in [-1,1]^3, driving the dynamic TLAS.
+    constexpr int N = 5;
+    constexpr unsigned int n = N * N * N;
     float* d_pos = nullptr;
     AllocHandle pos_alloc{};
     allocLinear(engine, (void**)&d_pos, sizeof(float) * 3 * n, &pos_alloc);
+
+    std::vector<float> host(3 * n);
+    unsigned int idx = 0;
+    for (int z = 0; z < N; ++z)
+    for (int y = 0; y < N; ++y)
+    for (int x = 0; x < N; ++x)
+    {
+        auto coord = [](int i){ return -1.f + 2.f * (float(i) + 0.5f) / float(N); };
+        host[3 * idx + 0] = coord(x);
+        host[3 * idx + 1] = coord(y);
+        host[3 * idx + 2] = coord(z);
+        idx++;
+    }
+    cudaMemcpy(d_pos, host.data(), sizeof(float) * 3 * n, cudaMemcpyHostToDevice);
+    cudaDeviceSynchronize();
 
     ViewDescription desc{
         .type       = ViewType::Markers,
@@ -42,7 +59,7 @@ int main(int argc, char** argv)
         },
         .layout        = Layout::make(n),
         .default_color = { 1.f, 1.f, 1.f, 1.f },
-        .default_size  = 0.02f,
+        .default_size  = 0.12f, // world radius of each icosphere instance
     };
     ViewHandle view = nullptr;
     createView(engine, &desc, &view);

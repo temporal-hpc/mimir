@@ -174,6 +174,24 @@ void MimirInstance::prepare()
     initUniformBuffers();
     createViewPipelines();
     updateDescriptorSets();
+
+    // Path tracing: bind the scene to the first Markers view's interop position buffer so the
+    // per-frame TLAS follows the live particles. Done once, after views/pipelines exist.
+    if (rt_enabled && !raytracing.scene_bound)
+    {
+        for (auto* view : views)
+        {
+            if (view->desc.type == ViewType::Markers && view->vb_count > 0)
+            {
+                raytracing.bindScene(view->vbo[0], view->draw_count, view->desc.default_size);
+                break;
+            }
+        }
+        if (!raytracing.scene_bound)
+        {
+            spdlog::warn("Path tracing: no Markers view found to bind; RT frames will be empty");
+        }
+    }
 }
 
 void MimirInstance::displayAsync()
@@ -892,6 +910,8 @@ View *MimirInstance::createView(ViewDescription *desc)
                 vb_size, getSourceSize(attr.source)
             );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            // Path tracing reads positions as an SSBO in the instance-writer compute shader.
+            if (rt_enabled) { vb_usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; }
             VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
@@ -1314,7 +1334,7 @@ void MimirInstance::initGraphics()
     // render target extent/render pass, so they are (re)built here and freed on rebuild.
     if (rt_enabled)
     {
-        raytracing.createFrameResources(swapchain.extent, swapchain.image_count, render_pass);
+        raytracing.createFrameResources(swapchain.extent, render_pass);
         deletors.graphics.add([this]{ raytracing.destroyFrameResources(); });
     }
 }
@@ -1525,7 +1545,10 @@ void MimirInstance::renderFrame(bool advance_interop)
         // interop.timeline_value was always 0 (never updated), so the GPU wait was a no-op;
         // use wait_value here to pass the correct expected CUDA signal value.
         waits.push_back(interop.vk_semaphore);
-        stages.push_back(VK_PIPELINE_STAGE_VERTEX_INPUT_BIT);
+        // The first GPU consumer of the interop positions is the vertex shader for raster, but
+        // the instance-writer compute for path tracing; gate the wait on the right stage.
+        stages.push_back(rt_enabled
+            ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_VERTEX_INPUT_BIT);
         signals.push_back(interop.vk_semaphore);
         wait_values.push_back(wait_value);
         signal_values.push_back(signal_value);
@@ -1601,6 +1624,8 @@ void MimirInstance::renderFrame(bool advance_interop)
         pc.frame_index = static_cast<uint32_t>(render_timeline);
         pc.spp         = options.pt_samples_per_pixel;
         pc.bounces     = options.pt_max_bounces;
+        // Rebuild this frame's TLAS from the live interop positions, then trace it.
+        raytracing.recordUpdateScene(cmd, frame_idx);
         raytracing.recordTrace(cmd, frame_idx, pc);
     }
 
