@@ -13,7 +13,8 @@ int main(int argc, char** argv)
     opts.render_mode      = RenderMode::Headless;
     opts.light_model      = LightModel::PathTracing;
     opts.window.size      = { 512, 512 };
-    opts.background_color  = { 0.f, 0.f, 0.f, 1.f }; // black so any traced pixels stand out
+    opts.background_color  = { 0.f, 0.f, 0.f, 1.f }; // black, like the benchmark
+    opts.light_pos         = { -0.4082f, 0.4082f, -0.8165f }; // match benchmark PT world sun
     opts.present.enable_fps_limit = false;
 
     InstanceHandle engine = nullptr;

@@ -189,12 +189,14 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.window.size         = { input.win_width, input.win_height };
     opts.light_model         = input.light_model;
     // Sun coming from a diagonal behind-and-above the camera, so the home view is lit
-    // like the datoviz baseline. Eye forward = -z, so +z lights the camera-facing side,
-    // +y is overhead, -x is to the left. This is the SAME normalized direction fed to
-    // benchmark_datoviz (dvz_sphere_light_pos, w=0), so both samples share one sun.
-    // marker.slang uses dot(normal, light_pos) WITHOUT normalizing, so it must stay unit
-    // length or it also scales diffuse brightness.
-    opts.light_pos           = { -0.4082f, 0.4082f, 0.8165f }; // normalize({-1, 1, 2})
+    // like the datoviz baseline. The raster (Phong) path transforms light_pos into eye
+    // space where +z faces the camera; the path tracer uses it as a raw WORLD direction,
+    // where the camera-facing side has normal -z. So the two need opposite z signs to
+    // light the same (visible) side. marker.slang uses dot(normal, light_pos) WITHOUT
+    // normalizing, so it must stay unit length or it also scales diffuse brightness.
+    opts.light_pos           = (input.light_model == LightModel::PathTracing)
+        ? float3{ -0.4082f, 0.4082f, -0.8165f }  // world-space: from behind the camera
+        : float3{ -0.4082f, 0.4082f,  0.8165f }; // eye-space (Phong/datoviz): normalize({-1,1,2})
     opts.background_color    = { 0.f, 0.f, 0.f, 1.f };
     opts.present.mode              = input.present;
     opts.present.enable_interop_sync       = input.enable_interop_sync;
