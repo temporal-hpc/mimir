@@ -45,23 +45,26 @@ struct AccelStruct
 // Push constants shared by the raygen/closest-hit/miss shaders (must match pathtrace.slang).
 // The camera is passed as an explicit world-space basis (extracted from the LookAt
 // camera-to-world matrix) so the raygen does a plain pinhole projection, avoiding mimir's
-// pre-transposed glm/slang matrix convention. 120 bytes, within the 128-byte guaranteed limit.
+// pre-transposed glm/slang matrix convention. The particle albedo (--pcolor) is packed into the
+// otherwise-unused camera-basis w lanes so the struct stays within the 128-byte guaranteed
+// push-constant limit (120 bytes here).
 struct RtPushConstants
 {
-    glm::vec4 cam_pos;     // camera world position (w unused)
-    glm::vec4 cam_right;   // world-space camera basis (w unused)
-    glm::vec4 cam_up;
-    glm::vec4 cam_forward;
-    glm::vec4 sun_dir;     // world-space direction TO the sun (normalized); w unused
+    glm::vec4 cam_pos;     // xyz camera world position; w unused
+    glm::vec4 cam_right;   // xyz world-space camera basis; w = albedo_r
+    glm::vec4 cam_up;      // xyz ...                     ; w = albedo_g
+    glm::vec4 cam_forward; // xyz ...                     ; w = albedo_b
+    glm::vec4 sun_dir;     // xyz world-space direction TO the sun (normalized); w unused
     glm::vec4 sky_color;   // environment/background color; w = intensity
     float tan_half_fov = 0.f; // tan(vertical_fov / 2)
     float aspect = 1.f;       // width / height
     uint32_t frame_index = 0;
     uint32_t spp = 1;
     uint32_t bounces = 4;
-    float albedo_r = 0.82f; // particle surface color (--pcolor); packed into the former pad slots
-    float albedo_g = 0.82f; // so the struct stays at the 128-byte guaranteed push-constant limit
-    float albedo_b = 0.88f;
+    // Temporal accumulation: number of frames already averaged into the accumulator image (0 on
+    // the first frame after a reset). The engine resets to 0 on camera motion or a new simulation
+    // iteration, then increments; the raygen keeps a running HDR mean so static views converge.
+    uint32_t accum_frame = 0;
 };
 
 // Path-tracing render context (LightModel::PathTracing). Owns the icosphere BLAS, the
@@ -144,8 +147,13 @@ struct RayTracingContext
         VkImageView view = VK_NULL_HANDLE;
     };
     std::vector<StorageImage> storage_images;
+    // Persistent HDR temporal-accumulation image (RGBA32F), one shared across frames in flight:
+    // the raygen keeps a running mean of the pre-tonemap radiance here so a static view converges.
+    // Extent-dependent (rebuilt on resize, which also restarts accumulation). Bound at RT binding 2.
+    StorageImage accum_image;
     VkExtent2D extent{};
     static constexpr VkFormat storage_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    static constexpr VkFormat accum_format   = VK_FORMAT_R32G32B32A32_SFLOAT;
     uint32_t max_recursion = 2;
 
     // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*4 timestamps (per frame:

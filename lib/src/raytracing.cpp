@@ -374,8 +374,8 @@ void recordTlasBuild(RayTracingContext& ctx, VkCommandBuffer cmd, AccelStruct& t
 
 void createRtPipeline(RayTracingContext& ctx)
 {
-    // Descriptor set layout: TLAS + storage image.
-    VkDescriptorSetLayoutBinding bindings[2] = {
+    // Descriptor set layout: TLAS + display storage image + persistent accumulator image.
+    VkDescriptorSetLayoutBinding bindings[3] = {
         { .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
           .descriptorCount = 1,
           .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR,
@@ -383,10 +383,13 @@ void createRtPipeline(RayTracingContext& ctx)
         { .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
           .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
           .pImmutableSamplers = nullptr },
+        { .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+          .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
+          .pImmutableSamplers = nullptr },
     };
     VkDescriptorSetLayoutCreateInfo set_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = nullptr, .flags = 0, .bindingCount = 2, .pBindings = bindings,
+        .pNext = nullptr, .flags = 0, .bindingCount = 3, .pBindings = bindings,
     };
     validation::checkVulkan(vkCreateDescriptorSetLayout(
         ctx.device, &set_info, nullptr, &ctx.rt_set_layout));
@@ -518,10 +521,11 @@ void createRtPipeline(RayTracingContext& ctx)
     ctx.hit_region.deviceAddress    = base + ctx.raygen_region.size + ctx.miss_region.size;
     ctx.callable_region = {};
 
-    // Descriptor pool sized for a few frames in flight (TLAS + storage image + composite).
+    // Descriptor pool sized for a few frames in flight (TLAS + two storage images per set:
+    // the display image and the shared accumulator).
     VkDescriptorPoolSize rt_pool_sizes[2] = {
         { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 8 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 8 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16 },
     };
     VkDescriptorPoolCreateInfo rt_pool_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -826,6 +830,41 @@ void RayTracingContext::createFrameResources(VkExtent2D new_extent, VkRenderPass
         si.view = createImageView(device, si.image, params, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
+    // Persistent HDR accumulator (single image, shared across frames in flight). Higher precision
+    // (RGBA32F) than the display images because it holds a running mean over many frames. It is
+    // never discarded between frames, so it is transitioned to GENERAL once here and kept there;
+    // recordTrace only inserts a read/write barrier. A fresh image resets accumulation on resize.
+    {
+        ImageParams params{
+            .type = VK_IMAGE_TYPE_2D, .format = accum_format,
+            .extent = { extent.width, extent.height, 1 },
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = VK_IMAGE_USAGE_STORAGE_BIT,
+            .levels = 1,
+        };
+        accum_image.image = createImage(device, physical_device, params);
+        VkMemoryRequirements req{};
+        vkGetImageMemoryRequirements(device, accum_image.image, &req);
+        accum_image.memory = allocateMemory(device, mem_props, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        validation::checkVulkan(vkBindImageMemory(device, accum_image.image, accum_image.memory, 0));
+        accum_image.view = createImageView(device, accum_image.image, params, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        // One-time UNDEFINED -> GENERAL transition (contents are discarded; the first traced frame
+        // runs with accum_frame == 0, which overwrites rather than reads the buffer).
+        submit([&](VkCommandBuffer cmd) {
+            VkImageMemoryBarrier to_general{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .pNext = nullptr,
+                .srcAccessMask = 0, .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = accum_image.image,
+                .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+            };
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 0, nullptr, 0, nullptr, 1, &to_general);
+        });
+    }
+
     // (Re)build the composite pipeline for this extent/render pass.
     if (composite_pipeline != VK_NULL_HANDLE)
     {
@@ -841,21 +880,29 @@ void RayTracingContext::createFrameResources(VkExtent2D new_extent, VkRenderPass
             .sampler = VK_NULL_HANDLE, .imageView = storage_images[i].view,
             .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
         };
+        VkDescriptorImageInfo accum_info{
+            .sampler = VK_NULL_HANDLE, .imageView = accum_image.view,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+        };
         VkDescriptorImageInfo sampled_info{
             .sampler = composite_sampler, .imageView = storage_images[i].view,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
-        VkWriteDescriptorSet writes[2] = {
+        VkWriteDescriptorSet writes[3] = {
             { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
               .dstSet = rt_sets[i], .dstBinding = 1, .dstArrayElement = 0,
               .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
               .pImageInfo = &storage_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
             { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
+              .dstSet = rt_sets[i], .dstBinding = 2, .dstArrayElement = 0,
+              .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+              .pImageInfo = &accum_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
               .dstSet = composite_sets[i], .dstBinding = 0, .dstArrayElement = 0,
               .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
               .pImageInfo = &sampled_info, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
         };
-        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
     }
 }
 
@@ -986,6 +1033,11 @@ void RayTracingContext::destroyFrameResources()
         if (si.memory != VK_NULL_HANDLE) { vkFreeMemory(device, si.memory, nullptr); }
     }
     storage_images.clear();
+
+    if (accum_image.view != VK_NULL_HANDLE)   { vkDestroyImageView(device, accum_image.view, nullptr); }
+    if (accum_image.image != VK_NULL_HANDLE)  { vkDestroyImage(device, accum_image.image, nullptr); }
+    if (accum_image.memory != VK_NULL_HANDLE) { vkFreeMemory(device, accum_image.memory, nullptr); }
+    accum_image = {};
 }
 
 void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
@@ -1004,6 +1056,21 @@ void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
     };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
         VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 0, nullptr, 0, nullptr, 1, &to_general);
+
+    // The accumulator persists across frames and is read+written by the raygen every frame. With
+    // frames in flight this creates a cross-frame RAW/WAW hazard on a single shared image, so serialize
+    // each frame's accumulator access after the previous frame's (same queue, submission-ordered).
+    VkImageMemoryBarrier accum_barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = accum_image.image,
+        .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 0, nullptr, 0, nullptr, 1, &accum_barrier);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rt_pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,

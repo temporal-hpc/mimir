@@ -6,28 +6,34 @@
 // animates every frame, so this is antialiasing + noise reduction, not accumulation).
 
 // Must match mimir::RtPushConstants (raytracing.hpp). Camera is an explicit world-space basis
-// so the raygen is a plain pinhole (sidesteps mimir's pre-transposed matrix convention).
+// so the raygen is a plain pinhole (sidesteps mimir's pre-transposed matrix convention). The
+// particle albedo (--pcolor) is packed into the otherwise-unused basis w lanes so the struct
+// stays within the 128-byte guaranteed push-constant limit (120 bytes here).
 struct PushConstants
 {
-    float4 cam_pos;     // camera world position
-    float4 cam_right;   // world-space camera basis
-    float4 cam_up;
-    float4 cam_forward;
-    float4 sun_dir;     // world-space direction TO the sun (normalized)
+    float4 cam_pos;     // xyz camera world position; w unused
+    float4 cam_right;   // xyz world-space camera basis; w = albedo_r
+    float4 cam_up;      // xyz ...                     ; w = albedo_g
+    float4 cam_forward; // xyz ...                     ; w = albedo_b
+    float4 sun_dir;     // xyz world-space direction TO the sun (normalized); w unused
     float4 sky_color;   // xyz environment/background color, w = intensity
     float tan_half_fov;
     float aspect;
     uint frame_index;
     uint spp;
     uint bounces;
-    float albedo_r; // particle surface color (--pcolor)
-    float albedo_g;
-    float albedo_b;
+    uint accum_frame;   // temporal accumulation: # of frames already averaged (0 = first/reset)
 };
 [[vk::push_constant]] PushConstants pc;
 
+// Particle surface albedo, unpacked from the camera-basis w lanes.
+float3 pcAlbedo() { return float3(pc.cam_right.w, pc.cam_up.w, pc.cam_forward.w); }
+
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure tlas;
-[[vk::binding(1, 0)]] RWTexture2D<float4> image;
+[[vk::binding(1, 0)]] RWTexture2D<float4> image; // display output (tonemapped), composited to screen
+// Persistent HDR running-mean accumulator (shared across frames in flight, RGBA32F). Holds the
+// pre-tonemap radiance averaged over accum_frame+1 frames; reset by restarting from accum_frame 0.
+[[vk::binding(2, 0)]] RWTexture2D<float4> accum;
 
 static const float PI = 3.14159265;
 static const float SUN_INTENSITY = 3.0; // radiance scale of the directional sun
@@ -136,7 +142,7 @@ void raygenMain()
     uint seed = (pixel.x * 1973u + pixel.y * 9277u + pc.frame_index * 26699u) | 1u;
     uint spp  = max(pc.spp, 1u);
 
-    float3 accum = float3(0.0);
+    float3 sample_sum = float3(0.0);
     for (uint s = 0; s < spp; ++s)
     {
         // Jitter the pixel by [-0.5,0.5] for antialiasing (no jitter when spp == 1).
@@ -148,14 +154,30 @@ void raygenMain()
         float3 dir = normalize(pc.cam_forward.xyz
                    + ndc.x * pc.tan_half_fov * pc.aspect * pc.cam_right.xyz
                    + (-ndc.y) * pc.tan_half_fov * pc.cam_up.xyz);
-        accum += tracePath(pc.cam_pos.xyz, dir, seed);
+        sample_sum += tracePath(pc.cam_pos.xyz, dir, seed);
     }
 
-    // Average, tone map (Reinhard) so the bright sun compresses into range, then gamma.
-    float3 color = accum / float(spp);
-    color = color / (1.0 + color);
-    color = pow(saturate(color), float3(1.0 / 2.2));
-    image[pixel] = float4(color, 1.0);
+    // This frame's raw HDR radiance (mean over spp), pre-tonemap.
+    float3 color = sample_sum / float(spp);
+
+    // Temporal accumulation: keep a running mean of the HDR radiance across frames. accum_frame
+    // is the number of frames already averaged into the buffer (0 on the first frame after a
+    // reset, which the host triggers on any camera move or a new simulation iteration). A static
+    // view therefore converges (noise falls as 1/sqrt(N)); a changing scene restarts from scratch.
+    uint n = pc.accum_frame;
+    float3 mean;
+    if (n == 0u) { mean = color; }
+    else
+    {
+        float3 prev = accum[pixel].xyz;
+        mean = (prev * float(n) + color) / float(n + 1u);
+    }
+    accum[pixel] = float4(mean, 1.0);
+
+    // Tone map (Reinhard) so the bright sun compresses into range, then gamma, for display.
+    float3 disp = mean / (1.0 + mean);
+    disp = pow(saturate(disp), float3(1.0 / 2.2));
+    image[pixel] = float4(disp, 1.0);
 }
 
 [shader("miss")]
@@ -187,6 +209,6 @@ void closestHitMain(inout Payload payload, in BuiltInTriangleIntersectionAttribu
     float3x3 world_to_object = (float3x3)WorldToObject3x4();
     payload.normal   = normalize(mul(obj_n, world_to_object));
     payload.position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-    payload.albedo   = float3(pc.albedo_r, pc.albedo_g, pc.albedo_b);
+    payload.albedo   = pcAlbedo();
     payload.hit_t    = RayTCurrent();
 }

@@ -147,6 +147,14 @@ struct MimirInstance
     bool rt_enabled = false;
     RayTracingContext raytracing{};
 
+    // Temporal-accumulation state (path tracing). pt_accum_frame is the running count of frames
+    // already averaged into the accumulator; it resets to 0 whenever the scene may have changed --
+    // a new simulation iteration (advance_interop) or any camera movement (detected by comparing
+    // the view matrix / fov against the previous frame). See renderFrame.
+    uint32_t pt_accum_frame = 0;
+    glm::mat4 pt_last_view{0.f};
+    float pt_last_fov = -1.f;
+
     static MimirInstance make(ViewerOptions opts);
     static MimirInstance make(int width, int height);
 

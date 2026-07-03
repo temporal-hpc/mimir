@@ -1686,10 +1686,12 @@ void MimirInstance::renderFrame(bool advance_interop)
         // transform, so its columns are the camera basis in world space (col3=pos, col0/1/2=
         // right/up/forward). Pass them directly for a plain pinhole raygen.
         const auto& v = camera.matrices.view;
+        // Particle surface albedo (--pcolor) rides in the unused camera-basis w lanes so the push
+        // constant stays within the 128-byte guaranteed limit (see RtPushConstants / pathtrace.slang).
         pc.cam_pos     = glm::vec4(glm::vec3(v[3]), 1.f);
-        pc.cam_right   = glm::vec4(glm::normalize(glm::vec3(v[0])), 0.f);
-        pc.cam_up      = glm::vec4(glm::normalize(glm::vec3(v[1])), 0.f);
-        pc.cam_forward = glm::vec4(glm::normalize(glm::vec3(v[2])), 0.f);
+        pc.cam_right   = glm::vec4(glm::normalize(glm::vec3(v[0])), raytracing.particle_color.r);
+        pc.cam_up      = glm::vec4(glm::normalize(glm::vec3(v[1])), raytracing.particle_color.g);
+        pc.cam_forward = glm::vec4(glm::normalize(glm::vec3(v[2])), raytracing.particle_color.b);
         pc.tan_half_fov = std::tan(glm::radians(camera.fov) * 0.5f);
         pc.aspect       = (float)swapchain.extent.width / (float)swapchain.extent.height;
         auto lp = options.light_pos;
@@ -1701,9 +1703,18 @@ void MimirInstance::renderFrame(bool advance_interop)
         pc.frame_index = static_cast<uint32_t>(render_timeline);
         pc.spp         = options.pt_samples_per_pixel;
         pc.bounces     = options.pt_max_bounces;
-        pc.albedo_r    = raytracing.particle_color.r; // particle surface color (--pcolor)
-        pc.albedo_g    = raytracing.particle_color.g;
-        pc.albedo_b    = raytracing.particle_color.b;
+
+        // Temporal accumulation: restart the running mean from zero whenever the scene may have
+        // changed -- a new simulation iteration (advance_interop consumes one compute step) or any
+        // camera motion (view matrix or fov differs from last frame). Otherwise keep accumulating so
+        // a static view converges. A resize recreates the accumulator, so it self-resets there too.
+        bool cam_moved = camera.matrices.view != pt_last_view || camera.fov != pt_last_fov;
+        pt_last_view = camera.matrices.view;
+        pt_last_fov  = camera.fov;
+        if (advance_interop || cam_moved) { pt_accum_frame = 0; }
+        pc.accum_frame = pt_accum_frame;
+        pt_accum_frame++;
+
         // Rebuild this frame's TLAS from the live interop positions, then trace it.
         raytracing.recordUpdateScene(cmd, frame_idx);
         raytracing.recordTrace(cmd, frame_idx, pc);
