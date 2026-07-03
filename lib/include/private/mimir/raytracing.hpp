@@ -45,15 +45,13 @@ struct AccelStruct
 // Push constants shared by the raygen/closest-hit/miss shaders (must match pathtrace.slang).
 // The camera is passed as an explicit world-space basis (extracted from the LookAt
 // camera-to-world matrix) so the raygen does a plain pinhole projection, avoiding mimir's
-// pre-transposed glm/slang matrix convention. The particle albedo (--pcolor) is packed into the
-// otherwise-unused camera-basis w lanes so the struct stays within the 128-byte guaranteed
-// push-constant limit (120 bytes here).
+// pre-transposed glm/slang matrix convention. 120 bytes, within the 128-byte guaranteed limit.
 struct RtPushConstants
 {
     glm::vec4 cam_pos;     // xyz camera world position; w unused
-    glm::vec4 cam_right;   // xyz world-space camera basis; w = albedo_r
-    glm::vec4 cam_up;      // xyz ...                     ; w = albedo_g
-    glm::vec4 cam_forward; // xyz ...                     ; w = albedo_b
+    glm::vec4 cam_right;   // xyz world-space camera basis; w unused
+    glm::vec4 cam_up;      // xyz ...
+    glm::vec4 cam_forward; // xyz ...
     glm::vec4 sun_dir;     // xyz world-space direction TO the sun (normalized); w unused
     glm::vec4 sky_color;   // environment/background color; w = intensity
     float tan_half_fov = 0.f; // tan(vertical_fov / 2)
@@ -65,6 +63,18 @@ struct RtPushConstants
     // the first frame after a reset). The engine resets to 0 on camera motion or a new simulation
     // iteration, then increments; the raygen keeps a running HDR mean so static views converge.
     uint32_t accum_frame = 0;
+};
+
+// Per-material surface parameters, stored as shader-record data in each SBT hit record (must match
+// MaterialData in pathtrace.slang: float3 albedo + float emission, 16 bytes). The SBT holds one hit
+// record per registered material; an instance's shaderBindingTableRecordOffset picks which record
+// (material) it shades with, so a single closest-hit shader serves many materials. This is the
+// multi-material SBT the library exposes; the particles sample registers one material, but the
+// machinery supports several (e.g. emissive area lights alongside diffuse surfaces).
+struct MaterialData
+{
+    glm::vec3 albedo{0.82f, 0.82f, 0.88f}; // diffuse reflectance
+    float emission = 0.f;                  // 0 = lambertian; >0 emits albedo*emission
 };
 
 // Path-tracing render context (LightModel::PathTracing). Owns the icosphere BLAS, the
@@ -127,6 +137,16 @@ struct RayTracingContext
     VkStridedDeviceAddressRegionKHR hit_region{};
     VkStridedDeviceAddressRegionKHR callable_region{};
 
+    // Multi-material shader binding table. The hit region holds one record per registered material
+    // (each = the closest-hit group handle followed by that material's MaterialData shader record).
+    // An instance's shaderBindingTableRecordOffset selects its record, so many materials share one
+    // closest-hit shader. The particles sample keeps instance_material_count == 1 (every instance
+    // uses material 0), but the SBT is built for all `materials`, so the capability is always live.
+    std::vector<MaterialData> materials;
+    uint32_t instance_material_count = 1; // # of materials instances cycle through (writer: idx % this)
+    uint32_t shader_handle_size = 0;      // rt_props.shaderGroupHandleSize (record handle prefix size)
+    VkDeviceSize sbt_hit_records_offset = 0; // byte offset of the first hit record within sbt_buffer
+
     // Descriptor pool + per-frame RT sets (binding 0 = TLAS, binding 1 = storage image)
     VkDescriptorPool rt_pool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> rt_sets;
@@ -166,9 +186,16 @@ struct RayTracingContext
 
     // Build the resolution-independent context: loads the RT API, queries properties,
     // builds the icosphere BLAS and a static grid TLAS, and creates the RT pipeline + SBT.
+    // `materials` seeds the multi-material SBT (one hit record each); if empty a single default
+    // diffuse material is used. bindScene overwrites material 0's albedo with the view color.
     static RayTracingContext make(VkDevice device, VkPhysicalDevice gpu,
         VkPhysicalDeviceMemoryProperties mem_props, SubmitFn submit,
-        uint32_t subdiv, uint32_t max_recursion);
+        uint32_t subdiv, uint32_t max_recursion,
+        std::vector<MaterialData> materials = {});
+
+    // Rewrite material `index`'s shader-record data into the SBT hit record (host-visible buffer).
+    // Setup-time only (no in-flight frames): used by bindScene to push the view color into material 0.
+    void updateMaterial(uint32_t index);
 
     // (Re)build the extent-dependent frame resources: storage images + composite pipeline,
     // and (re)point the storage-image/composite descriptor bindings at the new images.

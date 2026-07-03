@@ -6,15 +6,14 @@
 // animates every frame, so this is antialiasing + noise reduction, not accumulation).
 
 // Must match mimir::RtPushConstants (raytracing.hpp). Camera is an explicit world-space basis
-// so the raygen is a plain pinhole (sidesteps mimir's pre-transposed matrix convention). The
-// particle albedo (--pcolor) is packed into the otherwise-unused basis w lanes so the struct
-// stays within the 128-byte guaranteed push-constant limit (120 bytes here).
+// so the raygen is a plain pinhole (sidesteps mimir's pre-transposed matrix convention). 120
+// bytes, within the 128-byte guaranteed push-constant limit.
 struct PushConstants
 {
     float4 cam_pos;     // xyz camera world position; w unused
-    float4 cam_right;   // xyz world-space camera basis; w = albedo_r
-    float4 cam_up;      // xyz ...                     ; w = albedo_g
-    float4 cam_forward; // xyz ...                     ; w = albedo_b
+    float4 cam_right;   // xyz world-space camera basis; w unused
+    float4 cam_up;      // xyz ...
+    float4 cam_forward; // xyz ...
     float4 sun_dir;     // xyz world-space direction TO the sun (normalized); w unused
     float4 sky_color;   // xyz environment/background color, w = intensity
     float tan_half_fov;
@@ -26,8 +25,16 @@ struct PushConstants
 };
 [[vk::push_constant]] PushConstants pc;
 
-// Particle surface albedo, unpacked from the camera-basis w lanes.
-float3 pcAlbedo() { return float3(pc.cam_right.w, pc.cam_up.w, pc.cam_forward.w); }
+// Per-material shader-record data, laid out in each SBT hit record after the group handle. The
+// instance's shaderBindingTableRecordOffset selects which record (hence which material) a hit
+// uses, so different instances can carry different surface parameters from one closest-hit shader.
+// Must match mimir::MaterialData (raytracing.hpp): float3 albedo + float emission (16 bytes).
+struct MaterialData
+{
+    float3 albedo;   // diffuse reflectance
+    float  emission; // 0 = plain lambertian; >0 emits albedo*emission as radiance (area light)
+};
+[[vk::shader_record]] ConstantBuffer<MaterialData> material;
 
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure tlas;
 [[vk::binding(1, 0)]] RWTexture2D<float4> image; // display output (tonemapped), composited to screen
@@ -44,7 +51,8 @@ struct Payload
     float  hit_t;    // >= 0 on hit (distance), < 0 on miss
     float3 normal;   // world-space surface normal at the hit
     float3 position; // world-space hit position
-    float3 albedo;   // surface albedo at the hit
+    float3 albedo;   // surface albedo at the hit (from the hit material's SBT record)
+    float3 emission; // emitted radiance at the hit (albedo*emission; 0 for non-emissive materials)
 };
 
 // PCG hash for cheap per-sample jitter and hemisphere sampling (stateful; advance each draw).
@@ -116,6 +124,9 @@ float3 tracePath(float3 origin, float3 dir, inout uint seed)
             radiance += throughput * payload.color;
             break;
         }
+
+        // Emissive materials add their own radiance regardless of external lighting (area lights).
+        radiance += throughput * payload.emission;
 
         // Direct sun with a shadow ray.
         float ndotl = max(dot(payload.normal, sun), 0.0);
@@ -209,6 +220,9 @@ void closestHitMain(inout Payload payload, in BuiltInTriangleIntersectionAttribu
     float3x3 world_to_object = (float3x3)WorldToObject3x4();
     payload.normal   = normalize(mul(obj_n, world_to_object));
     payload.position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-    payload.albedo   = pcAlbedo();
+    // Surface parameters come from this instance's material (its SBT hit record), so different
+    // instances shade differently through the same closest-hit shader.
+    payload.albedo   = material.albedo;
+    payload.emission = material.albedo * material.emission;
     payload.hit_t    = RayTCurrent();
 }

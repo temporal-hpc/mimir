@@ -22,6 +22,7 @@ struct PushConstants
     float radius;    // per-instance uniform scale (world radius)
     uint blas_ref_lo;
     uint blas_ref_hi;
+    uint material_count; // # of SBT materials to cycle instances through (1 = all use material 0)
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -47,7 +48,11 @@ void writeInstancesMain(uint3 tid : SV_DispatchThreadID)
     inst.row1 = float4(0.0, r, 0.0, py);
     inst.row2 = float4(0.0, 0.0, r, pz);
     inst.instanceCustomIndex_mask = (i & 0xFFFFFFu) | (0xFFu << 24);       // mask = 0xFF
-    inst.sbtOffset_flags          = (0x1u << 24);  // VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE
+    // sbtRecordOffset selects this instance's material (SBT hit record). Cycle instances across the
+    // registered materials; material_count == 1 makes every instance use material 0 (single material).
+    uint mat = (pc.material_count > 1u) ? (i % pc.material_count) : 0u;
+    inst.sbtOffset_flags          = (mat & 0xFFFFFFu)
+        | (0x1u << 24);  // VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE
     inst.blas_ref_lo              = pc.blas_ref_lo;
     inst.blas_ref_hi              = pc.blas_ref_hi;
     instances[i] = inst;

@@ -1174,9 +1174,17 @@ void MimirInstance::initVulkan()
         auto submit = [this](std::function<void(VkCommandBuffer)> fn) {
             immediateSubmit(std::move(fn));
         };
+        // Register the multi-material SBT. Material 0 is the particle surface (bindScene sets its
+        // albedo from the view color); material 1 is a spare emissive slot that demonstrates the
+        // library supports several materials in one SBT. The particles keep instance_material_count
+        // == 1 (every instance uses material 0), so the extra slot costs one tiny idle hit record.
+        std::vector<MaterialData> materials = {
+            MaterialData{ .albedo = { 0.82f, 0.82f, 0.88f }, .emission = 0.f }, // diffuse (particles)
+            MaterialData{ .albedo = { 1.00f, 0.85f, 0.55f }, .emission = 4.f }, // spare emissive light
+        };
         raytracing = RayTracingContext::make(device, physical_device.handle,
             physical_device.memory.memoryProperties, submit,
-            options.pt_subdivisions, /*max_recursion=*/2
+            options.pt_subdivisions, /*max_recursion=*/2, std::move(materials)
         );
         deletors.context.add([this]{ raytracing.destroy(); });
     }
@@ -1686,12 +1694,12 @@ void MimirInstance::renderFrame(bool advance_interop)
         // transform, so its columns are the camera basis in world space (col3=pos, col0/1/2=
         // right/up/forward). Pass them directly for a plain pinhole raygen.
         const auto& v = camera.matrices.view;
-        // Particle surface albedo (--pcolor) rides in the unused camera-basis w lanes so the push
-        // constant stays within the 128-byte guaranteed limit (see RtPushConstants / pathtrace.slang).
+        // Particle albedo is no longer in the push constants: it lives in the SBT material record
+        // (bindScene copies the view color into material 0), so the basis w lanes are unused.
         pc.cam_pos     = glm::vec4(glm::vec3(v[3]), 1.f);
-        pc.cam_right   = glm::vec4(glm::normalize(glm::vec3(v[0])), raytracing.particle_color.r);
-        pc.cam_up      = glm::vec4(glm::normalize(glm::vec3(v[1])), raytracing.particle_color.g);
-        pc.cam_forward = glm::vec4(glm::normalize(glm::vec3(v[2])), raytracing.particle_color.b);
+        pc.cam_right   = glm::vec4(glm::normalize(glm::vec3(v[0])), 0.f);
+        pc.cam_up      = glm::vec4(glm::normalize(glm::vec3(v[1])), 0.f);
+        pc.cam_forward = glm::vec4(glm::normalize(glm::vec3(v[2])), 0.f);
         pc.tan_half_fov = std::tan(glm::radians(camera.fov) * 0.5f);
         pc.aspect       = (float)swapchain.extent.width / (float)swapchain.extent.height;
         auto lp = options.light_pos;

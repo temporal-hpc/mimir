@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>     // std::max
 #include <cstring>       // std::memcpy
 #include <cmath>         // std::sqrt
 #include <filesystem>    // std::filesystem
@@ -484,19 +485,28 @@ void createRtPipeline(RayTracingContext& ctx)
 
     for (auto& stage : stages) { vkDestroyShaderModule(ctx.device, stage.module, nullptr); }
 
-    // ---- Shader binding table ----
+    // ---- Shader binding table (multi-material) ----
+    // Layout: [raygen][miss][hit_0 .. hit_{N-1}]. Each hit record = the closest-hit group handle
+    // followed by that material's MaterialData shader record, so the hit stride must fit both.
     uint32_t handle_size = ctx.rt_props.shaderGroupHandleSize;
     uint32_t handle_aligned = static_cast<uint32_t>(
         alignUp(handle_size, ctx.rt_props.shaderGroupHandleAlignment));
     uint32_t base_align = ctx.rt_props.shaderGroupBaseAlignment;
     uint32_t group_count = static_cast<uint32_t>(groups.size());
+    uint32_t material_count = static_cast<uint32_t>(ctx.materials.size());
+    ctx.shader_handle_size = handle_size;
+
+    uint32_t hit_stride = static_cast<uint32_t>(
+        alignUp(handle_size + sizeof(MaterialData), ctx.rt_props.shaderGroupHandleAlignment));
 
     ctx.raygen_region.stride = alignUp(handle_aligned, base_align);
     ctx.raygen_region.size   = ctx.raygen_region.stride;
     ctx.miss_region.stride   = handle_aligned;
     ctx.miss_region.size     = alignUp(handle_aligned, base_align);
-    ctx.hit_region.stride    = handle_aligned;
-    ctx.hit_region.size      = alignUp(handle_aligned, base_align);
+    ctx.hit_region.stride    = hit_stride;
+    // Region size covers all material records; align up to the base alignment so the region is
+    // self-contained (nothing follows it, but keep the invariant that regions are base-aligned).
+    ctx.hit_region.size      = alignUp(VkDeviceSize(hit_stride) * material_count, base_align);
 
     std::vector<uint8_t> handles(group_count * handle_size);
     validation::checkVulkan(ctx.api.getShaderGroupHandles(ctx.device, ctx.rt_pipeline,
@@ -506,19 +516,25 @@ void createRtPipeline(RayTracingContext& ctx)
     ctx.sbt_buffer = makeBuffer(ctx, sbt_size,
         VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         HOST_VISIBLE, true);
+    ctx.sbt_hit_records_offset = ctx.raygen_region.size + ctx.miss_region.size;
 
     std::vector<uint8_t> sbt(sbt_size, 0);
     auto handle_at = [&](uint32_t group){ return handles.data() + group * handle_size; };
-    std::memcpy(sbt.data(), handle_at(0), handle_size); // raygen
-    std::memcpy(sbt.data() + ctx.raygen_region.size, handle_at(1), handle_size); // miss
-    std::memcpy(sbt.data() + ctx.raygen_region.size + ctx.miss_region.size,
-        handle_at(2), handle_size); // hit
+    std::memcpy(sbt.data(), handle_at(0), handle_size);                         // raygen (group 0)
+    std::memcpy(sbt.data() + ctx.raygen_region.size, handle_at(1), handle_size);// miss   (group 1)
+    // One hit record per material: the (single) closest-hit group handle + the material's data.
+    for (uint32_t m = 0; m < material_count; ++m)
+    {
+        uint8_t* rec = sbt.data() + ctx.sbt_hit_records_offset + VkDeviceSize(m) * hit_stride;
+        std::memcpy(rec, handle_at(2), handle_size);                    // closest-hit group (group 2)
+        std::memcpy(rec + handle_size, &ctx.materials[m], sizeof(MaterialData)); // shader record data
+    }
     uploadBuffer(ctx.device, ctx.sbt_buffer, sbt.data(), sbt_size);
 
     VkDeviceAddress base = ctx.sbt_buffer.address;
     ctx.raygen_region.deviceAddress = base;
     ctx.miss_region.deviceAddress   = base + ctx.raygen_region.size;
-    ctx.hit_region.deviceAddress    = base + ctx.raygen_region.size + ctx.miss_region.size;
+    ctx.hit_region.deviceAddress    = base + ctx.sbt_hit_records_offset;
     ctx.callable_region = {};
 
     // Descriptor pool sized for a few frames in flight (TLAS + two storage images per set:
@@ -668,13 +684,15 @@ VkPipeline buildCompositePipeline(RayTracingContext& ctx, VkRenderPass render_pa
 
 // ---- Instance-writer compute pipeline --------------------------------------------
 
-// Push constants for pathtrace_instances.slang (16 bytes): count, radius, BLAS ref lo/hi.
+// Push constants for pathtrace_instances.slang (20 bytes): count, radius, BLAS ref lo/hi,
+// and the number of materials instances cycle through (writer sets sbtRecordOffset = idx % this).
 struct InstanceWriterPush
 {
     uint32_t count;
     float radius;
     uint32_t blas_ref_lo;
     uint32_t blas_ref_hi;
+    uint32_t material_count;
 };
 
 void createInstanceWriter(RayTracingContext& ctx)
@@ -762,7 +780,7 @@ void allocateDescriptorSets(RayTracingContext& ctx)
 
 RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     VkPhysicalDeviceMemoryProperties mem_props, SubmitFn submit,
-    uint32_t subdiv, uint32_t max_recursion)
+    uint32_t subdiv, uint32_t max_recursion, std::vector<MaterialData> materials)
 {
     RayTracingContext ctx{};
     ctx.device = device;
@@ -771,6 +789,11 @@ RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     ctx.submit = std::move(submit);
     ctx.api = RayTracingApi::load(device);
     ctx.max_recursion = max_recursion;
+
+    // Seed the multi-material SBT. At least one material always exists (material 0 = the particle
+    // surface, whose albedo bindScene later overwrites with the view color).
+    ctx.materials = std::move(materials);
+    if (ctx.materials.empty()) { ctx.materials.push_back(MaterialData{}); }
 
     // Query RT pipeline + acceleration-structure properties (SBT strides, scratch align).
     ctx.rt_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
@@ -906,12 +929,35 @@ void RayTracingContext::createFrameResources(VkExtent2D new_extent, VkRenderPass
     }
 }
 
+void RayTracingContext::updateMaterial(uint32_t index)
+{
+    if (index >= materials.size() || sbt_buffer.memory == VK_NULL_HANDLE) { return; }
+    // The material data sits right after the group handle in this material's hit record. The SBT
+    // buffer is host-visible + coherent, so a plain mapped write suffices (setup-time, no in-flight
+    // frames). We map only this record's data slice.
+    VkDeviceSize offset = sbt_hit_records_offset
+        + VkDeviceSize(index) * hit_region.stride + shader_handle_size;
+    void* mapped = nullptr;
+    validation::checkVulkan(vkMapMemory(device, sbt_buffer.memory, offset,
+        sizeof(MaterialData), 0, &mapped));
+    std::memcpy(mapped, &materials[index], sizeof(MaterialData));
+    vkUnmapMemory(device, sbt_buffer.memory);
+}
+
 void RayTracingContext::bindScene(VkBuffer positions, uint32_t count, float radius, glm::vec4 color)
 {
     position_buffer = positions;
     particle_count  = count;
     particle_radius = radius;
     particle_color  = color;
+
+    // Material 0 is the particle surface: adopt the view color as its albedo and push it into the
+    // SBT hit record. Other registered materials keep their configured data.
+    if (!materials.empty())
+    {
+        materials[0].albedo = glm::vec3(color);
+        updateMaterial(0);
+    }
 
     // Per-frame instance buffer (written by the compute writer, read by the TLAS build) and
     // per-frame TLAS + scratch. Instance buffer needs STORAGE (compute write),
@@ -982,6 +1028,7 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
         .count = particle_count, .radius = particle_radius,
         .blas_ref_lo = static_cast<uint32_t>(blas.address & 0xFFFFFFFFu),
         .blas_ref_hi = static_cast<uint32_t>(blas.address >> 32),
+        .material_count = std::max(instance_material_count, 1u),
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline_layout,
