@@ -42,8 +42,15 @@ struct HudData {
     float        render_ms;
     float        gpu_watts;
     char         gpu_name[256];
-    float        gpu_total_gb;
-    float        buf_mb;
+    float        gpu_total_gb;  // total VRAM (NVML)
+    // VRAM used (NVML) dismembered so the sub-parts sum to it. External/CUDA are anchored on
+    // measured NVML checkpoints at startup; Render/Vulkan are computed; Mimir is the remainder.
+    float        vram_used_mb;
+    float        vram_external_mb;  // measured: NVML used before we touch the GPU (other processes)
+    float        cuda_ctx_mb;       // measured: CUDA context reservation (cudaFree(0) checkpoint)
+    float        buf_mb;            // computed: our CUDA sim device buffers (2 x uint8 interop grid)
+    float        render_mb;         // computed: extra render geometry (0: image view reads the grid)
+    float        vulkan_mb;         // computed: Vulkan render targets (swapchain + depth)
     int          grid_w, grid_h;
     float        density;
     uint32_t     seed;
@@ -152,13 +159,38 @@ void formatResults(CAInput input, BenchmarkResult result)
 // Experiment
 // ---------------------------------------------------------------------------
 
+// Whole-GPU VRAM in use right now (NVML "used"), in MB. Lazily nvmlInit()s its own device handle
+// so it can be sampled at startup checkpoints -- BEFORE GPUPowerBegin(), which starts the energy
+// measurement window later and must not be moved. NVML refcounts init(), so this coexists with it.
+static double sampleVramUsedMB()
+{
+    static nvmlDevice_t dev = nullptr;
+    if (dev == nullptr)
+    {
+        if (nvmlInit() != NVML_SUCCESS) return 0.0;
+        if (nvmlDeviceGetHandleByIndex(0, &dev) != NVML_SUCCESS) { dev = nullptr; return 0.0; }
+    }
+    nvmlMemory_v2_t mi;
+    mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+    return (nvmlDeviceGetMemoryInfo_v2(dev, &mi) == NVML_SUCCESS)
+             ? (double)mi.used / (1024.0 * 1024.0) : 0.0;
+}
+
 BenchmarkResult runExperiment(CAInput input)
 {
     const int    W = input.ca.width;
     const int    H = input.ca.height;
     const size_t N = (size_t)W * H;
 
+    // VRAM checkpoint #1: before we touch the GPU -- baseline held by other processes.
+    const double vram_external = sampleVramUsedMB();
+
     checkCuda(cudaSetDevice(0));
+    // VRAM checkpoint #2: force the primary CUDA context to exist (cudaFree(0)) and measure its
+    // reservation on its own, before our buffers or the mimir/Vulkan renderer are created.
+    checkCuda(cudaFree(0));
+    double cuda_ctx_mb = sampleVramUsedMB() - vram_external;
+    if (cuda_ctx_mb < 0.0) cuda_ctx_mb = 0.0;
 
     // Mimir instance.
     ViewerOptions opts{};
@@ -234,9 +266,16 @@ BenchmarkResult runExperiment(CAInput input)
 
     if (input.display)
     {
-        // GPU name/VRAM need NVML, which is only initialized later by GPUPowerBegin(); they are
-        // filled in after that call. buf_mb needs no NVML, so set it here.
-        hud.buf_mb = (float)((2 * N) / (1024.0 * 1024.0));  // 2 × uint8 interop grid
+        // GPU name/total-VRAM need NVML (filled after GPUPowerBegin below). The VRAM breakdown is
+        // ready now: external + cuda_ctx are measured (checkpoints), buf + render + vulkan computed.
+        hud.vram_external_mb = (float)vram_external;
+        hud.cuda_ctx_mb      = (float)cuda_ctx_mb;
+        hud.buf_mb    = (float)((2 * N) / (1024.0 * 1024.0));  // 2 × uint8 interop grid
+        hud.render_mb = 0.f;  // image view samples the interop grid directly; no extra geometry
+        // Vulkan render targets mimir's swapchain allocates, no MSAA: 3 swapchain (B8G8R8A8, 4 B)
+        // + 1 depth (D32_SFLOAT, 4 B), each win_width*win_height.
+        const double px = (double)input.win_width * (double)input.win_height;
+        hud.vulkan_mb = (float)(px * 4.0 * (3 + 1) / (1024.0 * 1024.0));
 
         setGuiCallback(instance, [&hud, &quit_flag]() {
             auto& io = ImGui::GetIO();
@@ -267,8 +306,32 @@ BenchmarkResult runExperiment(CAInput input)
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Density");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f", hud.density);
                 ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Buffers");
+                // VRAM used (NVML, whole GPU) fully dismembered; the six sub-lines sum to it by
+                // construction. External + CUDA ctx are anchored on measured NVML checkpoints;
+                // CUDA buf + Render + Vulkan are computed; Mimir is the remainder (mimir's own
+                // device structures: uniforms, pipelines, descriptor/vertex buffers).
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM used");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vram_used_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  External procs");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vram_external_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  CUDA context");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.cuda_ctx_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  CUDA buffers");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f MB", hud.buf_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Render geometry");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.3f MB", hud.render_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Vulkan targets");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vulkan_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Mimir structs");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB",
+                    hud.vram_used_mb - hud.vram_external_mb - hud.cuda_ctx_mb
+                    - hud.buf_mb - hud.render_mb - hud.vulkan_mb);
                 ImGui::EndTable();
             }
             ImGui::Separator();
@@ -384,6 +447,10 @@ BenchmarkResult runExperiment(CAInput input)
             hud.fps        = (i == 0) ? new_fps   : 0.9f * hud.fps        + 0.1f * new_fps;
             float watts    = (float)getGPUCurrentPower();
             hud.gpu_watts  = (i == 0) ? watts     : 0.9f * hud.gpu_watts  + 0.1f * watts;
+
+            // Live VRAM-in-use (NVML), sampled every 30 frames to keep the query off the hot path.
+            if (i == 0 || (i % 30) == 0)
+                hud.vram_used_mb = (float)sampleVramUsedMB();
             frame_start    = now;
             ++frame_count;
         }

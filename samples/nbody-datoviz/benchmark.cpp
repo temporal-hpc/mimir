@@ -367,8 +367,15 @@ struct HudData
     float        render_ms;    // dvz_scene_step: H2D staging write + D2D upload + draw (inseparable)
     float        gpu_watts;
     char         gpu_name[256];
-    float        gpu_total_gb;
-    float        buf_total_mb;
+    float        gpu_total_gb;  // total VRAM (NVML)
+    // VRAM used (NVML) dismembered so the sub-parts sum to it. External/CUDA are anchored on
+    // measured NVML checkpoints at startup; Render/Vulkan are computed; Datoviz is the remainder.
+    float        vram_used_mb;
+    float        vram_external_mb;  // measured: NVML used before we touch the GPU (other processes)
+    float        cuda_ctx_mb;       // measured: CUDA context reservation (cudaFree(0) checkpoint)
+    float        buf_total_mb;      // computed: our CUDA sim device buffers (dPos x2 + dVel + d_pos3)
+    float        render_mb;         // computed: datoviz marker vertices (pos + size + color)
+    float        vulkan_mb;         // computed: Vulkan render targets (swapchain + depth + staging)
 };
 
 static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
@@ -378,7 +385,18 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_begin("Performance", 0);
     dvz_gui_text("GPU        %s",       hud->gpu_name);
     dvz_gui_text("VRAM       %.1f GB",  hud->gpu_total_gb);
-    dvz_gui_text("Buffers    %.1f MB",  hud->buf_total_mb);
+    // VRAM used (NVML, whole GPU) fully dismembered; the six sub-lines sum to it by construction.
+    // External + CUDA ctx are anchored on measured NVML checkpoints; CUDA buf + Render + Vulkan are
+    // computed; Datoviz is the remainder = datoviz's own device structures (buffer pools/pipelines).
+    float datoviz_mb = hud->vram_used_mb - hud->vram_external_mb - hud->cuda_ctx_mb
+                     - hud->buf_total_mb - hud->render_mb - hud->vulkan_mb;
+    dvz_gui_text("VRAM used         %.0f MB", hud->vram_used_mb);
+    dvz_gui_text("  External procs  %.0f MB", hud->vram_external_mb); // other processes (measured)
+    dvz_gui_text("  CUDA context    %.0f MB", hud->cuda_ctx_mb);      // CUDA runtime reserve (measured)
+    dvz_gui_text("  CUDA buffers    %.1f MB", hud->buf_total_mb);     // our sim device buffers (computed)
+    dvz_gui_text("  Render geometry %.1f MB", hud->render_mb);        // datoviz marker vertices (computed)
+    dvz_gui_text("  Vulkan targets  %.0f MB", hud->vulkan_mb);        // swapchain + depth + staging
+    dvz_gui_text("  Datoviz structs %.0f MB", datoviz_mb);           // datoviz buffer pools/pipelines
     dvz_gui_text("");
     dvz_gui_text("Bodies     %u",       hud->n);
     dvz_gui_text("Frame      %d",       hud->frame);
@@ -446,11 +464,35 @@ static DatovizContext setupDatoviz(BenchmarkInput input, const float *initial_po
     return ctx;
 }
 
+// Whole-GPU VRAM in use right now (NVML "used"), in MB. Lazily nvmlInit()s its own device handle
+// so it can be sampled at startup checkpoints -- BEFORE GPUPowerBegin(), which starts the energy
+// measurement window later and must not be moved. NVML refcounts init(), so this coexists with it.
+static double sampleVramUsedMB()
+{
+    static nvmlDevice_t dev = nullptr;
+    if (dev == nullptr)
+    {
+        if (nvmlInit() != NVML_SUCCESS) return 0.0;
+        if (nvmlDeviceGetHandleByIndex(0, &dev) != NVML_SUCCESS) { dev = nullptr; return 0.0; }
+    }
+    nvmlMemory_v2_t mi;
+    mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+    return (nvmlDeviceGetMemoryInfo_v2(dev, &mi) == NVML_SUCCESS)
+             ? (double)mi.used / (1024.0 * 1024.0) : 0.0;
+}
+
 BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 {
+    // VRAM checkpoint #1: before we touch the GPU -- baseline held by other processes.
+    const double vram_external = sampleVramUsedMB();
 
     const int device_id = 0;
     checkCuda(cudaSetDevice(device_id));
+    // VRAM checkpoint #2: force the primary CUDA context to exist (cudaFree(0)) and measure its
+    // reservation on its own, before our buffers or the Vulkan renderer are created.
+    checkCuda(cudaFree(0));
+    double cuda_ctx_mb = sampleVramUsedMB() - vram_external;
+    if (cuda_ctx_mb < 0.0) cuda_ctx_mb = 0.0;
     constexpr unsigned int block_size = 256;
 
     const unsigned int n = input.body_count;
@@ -518,7 +560,18 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
         nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
         hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
-        hud.buf_total_mb = (float)((3 * nbody_memsize + 2 * vec3_memsize) / (1024.0 * 1024.0));
+        // VRAM breakdown: external + cuda_ctx are measured (checkpoints), the rest computed.
+        hud.vram_external_mb = (float)vram_external;
+        hud.cuda_ctx_mb      = (float)cuda_ctx_mb;
+        // Device sim buffers (VRAM only): dPos[0]+dPos[1]+dVel (float4) + d_pos3 (float3). The
+        // pinned host h_pos3 is host RAM, not VRAM, so it is excluded.
+        hud.buf_total_mb = (float)((3 * nbody_memsize + vec3_memsize) / (1024.0 * 1024.0));
+        // datoviz marker vertices: 1/particle, position(12) + size(4) + color(4).
+        hud.render_mb = (float)((double)n * (sizeof(float3) + sizeof(float) + 4) / (1024.0 * 1024.0));
+        // Vulkan render targets datoviz's canvas allocates, no MSAA: 3 swapchain + 1 staging color
+        // (B8G8R8A8, 4 B) + 3 depth (D32_SFLOAT, 4 B), each width*height.
+        const double px = (double)input.width * (double)input.height;
+        hud.vulkan_mb = (float)(px * 4.0 * (4 + 3) / (1024.0 * 1024.0));
     }
     auto loop_start = clk::now();
 
@@ -576,6 +629,8 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 }
                 float watts   = (float)getGPUCurrentPower();
                 hud.gpu_watts = (frame_count == 1) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
+                if (frame_count == 1 || (frame_count % 30) == 0)
+                    hud.vram_used_mb = (float)sampleVramUsedMB();
             }
         }
         delete[] host.force;
@@ -643,6 +698,8 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 }
                 float watts   = (float)getGPUCurrentPower();
                 hud.gpu_watts = (frame_count == 1) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
+                if (frame_count == 1 || (frame_count % 30) == 0)
+                    hud.vram_used_mb = (float)sampleVramUsedMB();
             }
         }
     }

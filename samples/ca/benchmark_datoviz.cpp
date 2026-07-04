@@ -65,8 +65,15 @@ struct HudData {
     float        render_ms;    // dvz_scene_step: H2D + D2D + draw (inseparable)
     float        gpu_watts;
     char         gpu_name[256];
-    float        gpu_total_gb;
-    float        buf_mb;
+    float        gpu_total_gb;  // total VRAM (NVML)
+    // VRAM used (NVML) dismembered so the sub-parts sum to it. External/CUDA are anchored on
+    // measured NVML checkpoints at startup; Render/Vulkan are computed; Datoviz is the remainder.
+    float        vram_used_mb;
+    float        vram_external_mb;  // measured: NVML used before we touch the GPU (other processes)
+    float        cuda_ctx_mb;       // measured: CUDA context reservation (cudaFree(0) checkpoint)
+    float        buf_mb;            // computed: our CUDA sim device buffers (2 x uint8 grid)
+    float        render_mb;         // computed: datoviz's R8 grid texture (dvz_image)
+    float        vulkan_mb;         // computed: Vulkan render targets (swapchain + depth + staging)
     int          grid_w, grid_h;
     float        density;
     uint32_t     seed;
@@ -223,7 +230,18 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("Grid       %d x %d",  hud->grid_w, hud->grid_h);
     dvz_gui_text("Seed       %u",       hud->seed);
     dvz_gui_text("Density    %.2f",     hud->density);
-    dvz_gui_text("Buffers    %.1f MB",  hud->buf_mb);
+    // VRAM used (NVML, whole GPU) fully dismembered; the six sub-lines sum to it by construction.
+    // External + CUDA ctx are anchored on measured NVML checkpoints; CUDA buf + Render + Vulkan are
+    // computed; Datoviz is the remainder = datoviz's own device structures (buffer pools/pipelines).
+    float datoviz_mb = hud->vram_used_mb - hud->vram_external_mb - hud->cuda_ctx_mb
+                     - hud->buf_mb - hud->render_mb - hud->vulkan_mb;
+    dvz_gui_text("VRAM used         %.0f MB", hud->vram_used_mb);
+    dvz_gui_text("  External procs  %.0f MB", hud->vram_external_mb); // other processes (measured)
+    dvz_gui_text("  CUDA context    %.0f MB", hud->cuda_ctx_mb);      // CUDA runtime reserve (measured)
+    dvz_gui_text("  CUDA buffers    %.1f MB", hud->buf_mb);           // our sim device buffers (computed)
+    dvz_gui_text("  Render geometry %.1f MB", hud->render_mb);        // R8 grid texture (computed)
+    dvz_gui_text("  Vulkan targets  %.0f MB", hud->vulkan_mb);        // swapchain + depth + staging
+    dvz_gui_text("  Datoviz structs %.0f MB", datoviz_mb);           // datoviz buffer pools/pipelines
     dvz_gui_text("");
     dvz_gui_text("Frame      %d",        hud->frame);
     dvz_gui_text("FPS        %.1f",      hud->fps);
@@ -286,13 +304,38 @@ static DatovizContext setupDatoviz(CAInput input, const uint8_t* initial_pixels,
 // Experiment
 // ---------------------------------------------------------------------------
 
+// Whole-GPU VRAM in use right now (NVML "used"), in MB. Lazily nvmlInit()s its own device handle
+// so it can be sampled at startup checkpoints -- BEFORE GPUPowerBegin(), which starts the energy
+// measurement window later and must not be moved. NVML refcounts init(), so this coexists with it.
+static double sampleVramUsedMB()
+{
+    static nvmlDevice_t dev = nullptr;
+    if (dev == nullptr)
+    {
+        if (nvmlInit() != NVML_SUCCESS) return 0.0;
+        if (nvmlDeviceGetHandleByIndex(0, &dev) != NVML_SUCCESS) { dev = nullptr; return 0.0; }
+    }
+    nvmlMemory_v2_t mi;
+    mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+    return (nvmlDeviceGetMemoryInfo_v2(dev, &mi) == NVML_SUCCESS)
+             ? (double)mi.used / (1024.0 * 1024.0) : 0.0;
+}
+
 BenchmarkResult runExperiment(CAInput input)
 {
     const int    W = input.ca.width;
     const int    H = input.ca.height;
     const size_t N = (size_t)W * H;
 
+    // VRAM checkpoint #1: before we touch the GPU -- baseline held by other processes.
+    const double vram_external = sampleVramUsedMB();
+
     checkCuda(cudaSetDevice(0));
+    // VRAM checkpoint #2: force the primary CUDA context to exist (cudaFree(0)) and measure its
+    // reservation on its own, before our buffers or the Vulkan renderer are created.
+    checkCuda(cudaFree(0));
+    double cuda_ctx_mb = sampleVramUsedMB() - vram_external;
+    if (cuda_ctx_mb < 0.0) cuda_ctx_mb = 0.0;
 
     // Two ping-pong CA grid buffers (uint8, plain CUDA).
     uint8_t* d_grid[2] = {};
@@ -326,10 +369,18 @@ BenchmarkResult runExperiment(CAInput input)
         dvz_app_gui(ctx.app, dvz_figure_id(ctx.figure), hudCallback, &hud);
         dvz_app_on_keyboard(ctx.app, keyCallback, &quit_flag);
 
-        // GPU name/VRAM need NVML, which is only initialized later by GPUPowerBegin(); they are
-        // filled in after that call. buf_mb needs no NVML, so set it here.
-        // 2 x uint8 grid + pinned uint8 buffer
-        hud.buf_mb = (float)((2 * N + N) / (1024.0 * 1024.0));
+        // GPU name/total-VRAM need NVML (filled after GPUPowerBegin below). The VRAM breakdown is
+        // ready now: external + cuda_ctx are measured (checkpoints), buf + render + vulkan computed.
+        hud.vram_external_mb = (float)vram_external;
+        hud.cuda_ctx_mb      = (float)cuda_ctx_mb;
+        // 2 x uint8 device grid (VRAM only; the pinned host buffer is host RAM, not VRAM).
+        hud.buf_mb    = (float)((2 * N) / (1024.0 * 1024.0));
+        // datoviz's R8_UNORM grid texture (dvz_image), grid_w x grid_h x 1 byte.
+        hud.render_mb = (float)((double)N / (1024.0 * 1024.0));
+        // Vulkan render targets datoviz's canvas allocates, no MSAA: 3 swapchain + 1 staging color
+        // (B8G8R8A8, 4 B) + 3 depth (D32_SFLOAT, 4 B), each win_width*win_height.
+        const double px = (double)input.win_width * (double)input.win_height;
+        hud.vulkan_mb = (float)(px * 4.0 * (4 + 3) / (1024.0 * 1024.0));
     }
 
     // CUDA events for GoL compute timing.
@@ -410,6 +461,10 @@ BenchmarkResult runExperiment(CAInput input)
             }
             float watts   = (float)getGPUCurrentPower();
             hud.gpu_watts = (frame_count == 1) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
+
+            // Live VRAM-in-use (NVML), sampled every 30 frames to keep the query off the hot path.
+            if (frame_count == 1 || (frame_count % 30) == 0)
+                hud.vram_used_mb = (float)sampleVramUsedMB();
         }
     }
 
