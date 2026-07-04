@@ -339,9 +339,15 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
     {
         // Lit sphere impostors (ray-sphere point sprites with Phong lighting and
         // per-fragment depth) — same technique as mimir's Sphere3D marker mode.
-        // dvz_sphere_size is the sphere diameter in NDC units; mimir's Sphere3D
-        // uses radius = size/100 world units, so size/50 gives the same geometry
-        // (the [-1,1]^3 domain maps 1:1 to NDC under the arcball).
+        //
+        // Size matching (the divisor is /100, not /50): mimir's default_size is the sphere
+        // *world radius* (size/100), drawn by a geometry-shader impostor billboard that projects
+        // geometrically. datoviz's dvz_sphere_size feeds graphics_sphere.frag, where the sphere
+        // fills the whole point sprite (discard if dist>1), so the on-screen diameter is
+        // gl_PointSize = s * viewport.y * proj[1][1] / w. That formula uses the FULL viewport
+        // height where a correct projection uses viewport.y/2, so datoviz draws a sphere exactly
+        // 2x larger on screen than mimir for the same world size. Halving it (size/100 instead of
+        // size/50) cancels that factor and makes datoviz match mimir 1:1.
         ctx.visual = dvz_sphere(ctx.batch, DVZ_SPHERE_FLAGS_LIGHTING);
         dvz_sphere_alloc(ctx.visual, n);
         // Directional sun (w=0 -> lighting.glsl normalizes light.pos and ignores
@@ -351,7 +357,7 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
         vec4 sun_dir = { -0.4082f, 0.4082f, 0.8165f, 0.f }; // normalize({-1, 1, 2}), w=0
         dvz_sphere_light_pos(ctx.visual, 0, sun_dir);
         dvz_sphere_position(ctx.visual, 0, n, (vec3*)initial_pos3, 0);
-        std::vector<float> sizes(n, input.size_px / 50.f);
+        std::vector<float> sizes(n, input.size_px / 100.f);
         dvz_sphere_size(ctx.visual, 0, n, sizes.data(), 0);
         dvz_sphere_color(ctx.visual, 0, n, colors.data(), 0);
     }
