@@ -37,6 +37,13 @@ static inline double ms_since(clk::time_point t0)
 // Input / output structs
 // ---------------------------------------------------------------------------
 
+// datoviz raster geometry selected by --light-model. All three are single-vertex point sprites
+// (equal vertex cost); they differ only in the fragment shader and depth behavior:
+//   Point  = dvz_point:  antialiased filled disc, no lighting, no depth write (early-Z intact) -- cheapest
+//   Disc   = dvz_marker: SDF disc + AA,           no lighting, no depth write (early-Z intact)
+//   Sphere = dvz_sphere: ray-sphere + Phong + per-fragment gl_FragDepth (early-Z defeated)      -- costliest
+enum class DvzMode { Point, Disc, Sphere };
+
 struct PointsInput {
     int          win_width  = 1920;
     int          win_height = 1080;
@@ -45,7 +52,7 @@ struct PointsInput {
     bool         vsync      = true;  // real display vsync (DVZ_CANVAS_FLAGS_VSYNC)
     bool         display    = true;
     float        size_px    = 5.f;   // marker size in pixels (same as benchmark_mimir --size)
-    bool         sphere3d   = false; // lit sphere impostors instead of flat discs
+    DvzMode      mode       = DvzMode::Disc; // render geometry (see DvzMode)
     float3       background = { 0.f, 0.f, 0.f };       // panel background color (--background)
     float3       pcolor     = { 1.f, 1.f, 1.f };       // particle color (--pcolor)
     bool         fly        = false;                   // --fly: FPS fly camera instead of arcball
@@ -70,13 +77,14 @@ static void toDvzColor(float3 c, DvzColor out)
     out[0] = q(c.x); out[1] = q(c.y); out[2] = q(c.z); out[3] = 255;
 }
 
-// Map --light-model none|phong|path-tracing onto datoviz's raster geometry.
-// datoviz is the raster baseline (DESIGN_pathtracing.md §7): 'none' -> flat discs,
+// Map --light-model onto datoviz's raster geometry. datoviz is the raster baseline
+// (DESIGN_pathtracing.md §7): 'point' -> dvz_point, 'none' -> flat disc markers,
 // 'phong' -> lit sphere impostors, 'path-tracing' is unavailable and exits.
-static bool parseLightModelSphere(const std::string& v)
+static DvzMode parseLightModelMode(const std::string& v)
 {
-    if (v == "none")  return false;
-    if (v == "phong") return true;
+    if (v == "point") return DvzMode::Point;
+    if (v == "none")  return DvzMode::Disc;
+    if (v == "phong") return DvzMode::Sphere;
     if (v == "path-tracing")
     {
         fprintf(stderr,
@@ -84,7 +92,7 @@ static bool parseLightModelSphere(const std::string& v)
             "run benchmark_mimir --light-model path-tracing instead.\n");
         exit(EXIT_FAILURE);
     }
-    fprintf(stderr, "Unknown --light-model '%s' (use none|phong|path-tracing)\n", v.c_str());
+    fprintf(stderr, "Unknown --light-model '%s' (use point|none|phong|path-tracing)\n", v.c_str());
     exit(EXIT_FAILURE);
 }
 
@@ -335,7 +343,7 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
         colors[i][0] = pc[0]; colors[i][1] = pc[1]; colors[i][2] = pc[2]; colors[i][3] = pc[3];
     }
 
-    if (input.sphere3d)
+    if (input.mode == DvzMode::Sphere)
     {
         // Lit sphere impostors (ray-sphere point sprites with Phong lighting and
         // per-fragment depth) — same technique as mimir's Sphere3D marker mode.
@@ -360,6 +368,18 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
         std::vector<float> sizes(n, input.size_px / 100.f);
         dvz_sphere_size(ctx.visual, 0, n, sizes.data(), 0);
         dvz_sphere_color(ctx.visual, 0, n, colors.data(), 0);
+    }
+    else if (input.mode == DvzMode::Point)
+    {
+        // Cheapest path: raw point sprites (dvz_point). The fragment shader is just an
+        // antialiased filled disc (no SDF shape machinery, no lighting, no gl_FragDepth), so
+        // early-Z stays intact. Size is gl_PointSize in pixels, same as the disc marker.
+        ctx.visual = dvz_point(ctx.batch, 0);
+        dvz_point_alloc(ctx.visual, n);
+        dvz_point_position(ctx.visual, 0, n, (vec3*)initial_pos3, 0);
+        std::vector<float> sizes(n, input.size_px);
+        dvz_point_size(ctx.visual, 0, n, sizes.data(), 0);
+        dvz_point_color(ctx.visual, 0, n, colors.data(), 0);
     }
     else
     {
@@ -487,8 +507,12 @@ BenchmarkResult runExperiment(PointsInput input)
 
             // --- H2H: pinned host -> datoviz's internal heap copy (CPU memcpy) ---
             auto t_h2h = clk::now();
-            if (input.sphere3d) dvz_sphere_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0);
-            else                dvz_marker_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0);
+            switch (input.mode)
+            {
+            case DvzMode::Sphere: dvz_sphere_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
+            case DvzMode::Point:  dvz_point_position (ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
+            case DvzMode::Disc:   dvz_marker_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
+            }
             float h2h_ms = (float)ms_since(t_h2h);
 
             total_d2h += d2h_ms;
@@ -596,7 +620,8 @@ static void usage(const char* prog)
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
         "  --size S           Marker size in pixels                 (default: 5)\n"
         "                     Same meaning as benchmark_mimir --size.\n"
-        "  --light-model M    none         = flat disc markers (dvz_marker),\n"
+        "  --light-model M    point        = raw point sprites (dvz_point), cheapest,\n"
+        "                     none         = flat disc markers (dvz_marker),\n"
         "                     phong        = lit sphere impostors (dvz_sphere),\n"
         "                     path-tracing = unavailable (datoviz is the raster\n"
         "                                    baseline; exits)      (default: none)\n"
@@ -647,7 +672,7 @@ int main(int argc, char* argv[])
             if      (a == "--vsync")       input.vsync    = (bool)std::stoi(v);
             else if (a == "--display")     input.display  = (bool)std::stoi(v);
             else if (a == "--size")        input.size_px  = std::stof(v);
-            else if (a == "--light-model") input.sphere3d = parseLightModelSphere(v);
+            else if (a == "--light-model") input.mode = parseLightModelMode(v);
             else if (a == "--k")           input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")     input.pts.epsilon = std::stof(v);
             else if (a == "--background")  input.background = parseColor(v);
