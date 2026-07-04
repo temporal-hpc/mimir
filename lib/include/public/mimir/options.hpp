@@ -22,6 +22,17 @@ struct PerformanceMetrics
         // positions (instance writer + build), and to trace the frame (vkCmdTraceRays), in ms.
         float tlas_build;
         float trace;
+        // Last-frame CPU-side phase breakdown of the render thread (ms). Unlike `pipeline` (the
+        // GPU render-pass timestamp), these cover the parts of a frame the GPU timestamp misses:
+        //   wait   = blocked on the frame fence + swapchain acquire (GPU / present backpressure)
+        //   record = CPU command-buffer recording
+        //   submit = vkQueueSubmit + vkQueuePresentKHR
+        float wait;
+        float record;
+        float submit;
+        // True end-to-end GPU frame latency (submit -> fence signalled), lockstep interop only.
+        // The honest measure of a frame's GPU cost when the render-pass timestamp under-reports.
+        float gpu;
     } times;
 
     struct {

@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -45,7 +46,29 @@ struct PointsInput {
     bool         display    = true;
     float        size_px    = 5.f;   // marker size in pixels (same as benchmark_mimir --size)
     bool         sphere3d   = false; // lit sphere impostors instead of flat discs
+    float3       background = { 0.f, 0.f, 0.f };       // panel background color (--background)
+    float3       pcolor     = { 1.f, 1.f, 1.f };       // particle color (--pcolor)
+    bool         fly        = false;                   // --fly: FPS fly camera instead of arcball
 };
+
+// Parse --background/--pcolor as "G" (grey level) or "R,G,B" in [0,1]. Mirrors benchmark_mimir.
+static float3 parseColor(const std::string& v)
+{
+    float r = 0.f, g = 0.f, b = 0.f;
+    if (std::sscanf(v.c_str(), "%f,%f,%f", &r, &g, &b) == 3) { return { r, g, b }; }
+    float grey = std::stof(v);
+    return { grey, grey, grey };
+}
+
+// Convert a [0,1] float3 color into datoviz's 8-bit RGBA (cvec4), opaque.
+static void toDvzColor(float3 c, DvzColor out)
+{
+    auto q = [](float x) -> uint8_t {
+        float v = x < 0.f ? 0.f : (x > 1.f ? 1.f : x);
+        return (uint8_t)(v * 255.f + 0.5f);
+    };
+    out[0] = q(c.x); out[1] = q(c.y); out[2] = q(c.z); out[3] = 255;
+}
 
 // Map --light-model none|phong|path-tracing onto datoviz's raster geometry.
 // datoviz is the raster baseline (DESIGN_pathtracing.md §7): 'none' -> flat discs,
@@ -82,6 +105,7 @@ struct HudData {
     uint32_t     seed;
     unsigned int k;
     float        epsilon;
+    bool         fly;          // --fly active: show the fly-camera controls hint
 };
 
 // Mirrors mimir's PerformanceMetrics so CSV columns line up.
@@ -110,7 +134,8 @@ struct DatovizContext {
     DvzScene*   scene;
     DvzFigure*  figure;
     DvzPanel*   panel;
-    DvzArcball* arcball;
+    DvzArcball* arcball;   // 3D interactivity when --fly is off (null otherwise)
+    DvzFly*     fly;       // FPS fly camera when --fly is on (null otherwise)
     DvzVisual*  visual;
 };
 
@@ -238,8 +263,11 @@ static void keyCallback(DvzApp* /*app*/, DvzId /*window_id*/, DvzKeyboardEvent* 
 static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
 {
     auto* hud = static_cast<HudData*>(ev->user_data);
-    dvz_gui_pos((vec2){10, 10}, (vec2){0, 0});
-    dvz_gui_begin("Performance", 0);
+    // Borderless overlay in the top-right corner, matching benchmark_mimir's Performance HUD.
+    dvz_gui_corner(DVZ_DIALOG_CORNER_TOP_RIGHT, (vec2){10, 10});
+    dvz_gui_begin("Performance", DVZ_DIALOG_FLAGS_OVERLAY);
+
+    // Hardware / run parameters (same fields and order as benchmark_mimir).
     dvz_gui_text("GPU        %s",       hud->gpu_name);
     dvz_gui_text("Device     %s",       hud->gpu_device);
     dvz_gui_text("VRAM       %.1f GB",  hud->gpu_total_gb);
@@ -249,6 +277,11 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("Epsilon    %.4f",     hud->epsilon);
     dvz_gui_text("Buffers    %.1f MB",  hud->buf_mb);
     dvz_gui_text("");
+
+    // Per-frame timing. Unlike mimir (zero-copy, so Transfer is N/A) datoviz actually pays the
+    // Device->Host->datoviz transfer, so those sub-metrics carry real values here. Conversely the
+    // datoviz Render is a single opaque dvz_scene_step (H2D staging + D2D upload + draw are
+    // inseparable), so it has no GPU-frame/Wait/Record/Submit breakdown like mimir's Render.
     dvz_gui_text("Frame      %d",        hud->frame);
     dvz_gui_text("FPS        %.1f",      hud->fps);
     dvz_gui_text("Compute    %.2f ms",   hud->compute_ms);
@@ -256,8 +289,15 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("    Pack   %.2f ms",   hud->pack_ms);
     dvz_gui_text("    D2H    %.2f ms",   hud->d2h_ms);
     dvz_gui_text("    H2H    %.2f ms",   hud->h2h_ms);
-    dvz_gui_text("Render     %.2f ms (H2D + D2D + draw)", hud->render_ms);
+    dvz_gui_text("Render     %.2f ms",   hud->render_ms);
+    dvz_gui_text("    (H2D + D2D + draw, inseparable)");
     dvz_gui_text("Power      %.1f W",   hud->gpu_watts);
+
+    if (hud->fly)
+    {
+        dvz_gui_text("");
+        dvz_gui_text("Fly: arrows move, drag look, wheel zoom");
+    }
     dvz_gui_end();
 }
 
@@ -276,12 +316,23 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
     if (input.vsync) fig_flags |= DVZ_CANVAS_FLAGS_VSYNC;
     ctx.figure  = dvz_figure(ctx.scene, input.win_width, input.win_height, fig_flags);
     ctx.panel   = dvz_panel_default(ctx.figure);
-    ctx.arcball = dvz_panel_arcball(ctx.panel, 0); // 3D interactivity
+    // --fly selects datoviz's FPS fly camera (matching benchmark_mimir --fly); otherwise the
+    // default arcball trackball. FIXED_UP keeps a world up-vector, like mimir's fly camera.
+    if (input.fly) { ctx.fly = dvz_panel_fly(ctx.panel, DVZ_FLY_FLAGS_FIXED_UP); }
+    else           { ctx.arcball = dvz_panel_arcball(ctx.panel, 0); }
 
+    // Panel background (--background): fill all four corners with the same color.
+    DvzColor bg; toDvzColor(input.background, bg);
+    DvzColor corners[4] = { {bg[0],bg[1],bg[2],bg[3]}, {bg[0],bg[1],bg[2],bg[3]},
+                            {bg[0],bg[1],bg[2],bg[3]}, {bg[0],bg[1],bg[2],bg[3]} };
+    dvz_panel_background(ctx.panel, corners);
+
+    // Particle color (--pcolor), applied uniformly to every point.
+    DvzColor pc; toDvzColor(input.pcolor, pc);
     std::vector<DvzColor> colors(n);
     for (unsigned int i = 0; i < n; i++)
     {
-        colors[i][0] = 255; colors[i][1] = 255; colors[i][2] = 255; colors[i][3] = 255;
+        colors[i][0] = pc[0]; colors[i][1] = pc[1]; colors[i][2] = pc[2]; colors[i][3] = pc[3];
     }
 
     if (input.sphere3d)
@@ -356,6 +407,7 @@ BenchmarkResult runExperiment(PointsInput input)
     hud.seed    = input.pts.seed;
     hud.k       = input.pts.k;
     hud.epsilon = input.pts.epsilon;
+    hud.fly     = input.fly;
 
     if (input.display)
     {
@@ -549,6 +601,12 @@ static void usage(const char* prog)
         "                     The walk is mean-reverting, so clusters keep this\n"
         "                     stddev over time. Centers are seed-deterministic;\n"
         "                     same cloud as benchmark_mimir for equal args.\n"
+        "  --background C     Panel background color: grey 'G' or 'R,G,B' in [0,1]\n"
+        "                     (default: 0 = black)\n"
+        "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1]\n"
+        "                     (default: 1 = white)\n"
+        "  --fly              FPS fly camera (dvz_panel_fly, fixed up-vector) instead\n"
+        "                     of the default arcball; matches benchmark_mimir --fly.\n"
         "\n"
         "(datoviz has no present-mode selection; the mimir --present flag has no\n"
         " datoviz equivalent, so it is intentionally absent here.)\n"
@@ -574,6 +632,7 @@ int main(int argc, char* argv[])
     {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
+        if (a == "--fly") { input.fly = true; continue; } // valueless flag
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
@@ -585,6 +644,8 @@ int main(int argc, char* argv[])
             else if (a == "--light-model") input.sphere3d = parseLightModelSphere(v);
             else if (a == "--k")           input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")     input.pts.epsilon = std::stof(v);
+            else if (a == "--background")  input.background = parseColor(v);
+            else if (a == "--pcolor")      input.pcolor = parseColor(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

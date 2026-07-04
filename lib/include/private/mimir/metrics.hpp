@@ -45,6 +45,22 @@ struct GraphicsMonitor
     // Number of nanoseconds per timestamp tick, used to get measure in time units.
     float timestamp_period;
 
+    // Last-frame CPU-side phase breakdown of renderFrame (milliseconds). These partition the
+    // render thread's per-frame wall time -- which the GPU render-pass timestamp
+    // (total_pipeline_time) does NOT, since it brackets only the render-pass commands. Together
+    // they explain where a frame's time actually goes:
+    //   wait   = blocked on the frame fence + swapchain acquire (GPU / present backpressure)
+    //   record = CPU command-buffer recording (scene update + draw calls)
+    //   submit = vkQueueSubmit + vkQueuePresentKHR
+    float last_wait_ms   = 0.f;
+    float last_record_ms = 0.f;
+    float last_submit_ms = 0.f;
+    // True end-to-end GPU frame latency: wall time from just before vkQueueSubmit until this
+    // frame's fence signals (the command buffer finished on the GPU). Measured only in lockstep
+    // interop mode, where an extra host fence wait is free. This captures GPU work that the
+    // render-pass timestamp (total_pipeline_time) can miss, and is the honest "where Render goes".
+    float last_gpu_ms    = 0.f;
+
     using TimePoint = std::chrono::time_point<std::chrono::high_resolution_clock>;
     // Start/stop points in host for measuring frame time.
     TimePoint frame_start, frame_end;

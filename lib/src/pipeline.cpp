@@ -488,8 +488,17 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
     //     stages = shader_builder.loadExternalShaders(device, ext_shaders);
     // }
 
+    // SphereMesh markers are opaque triangle icospheres: alpha blending is unnecessary (there
+    // are no soft impostor edges to feather) and, worse, it forces every fragment to be shaded
+    // and blended in draw order, defeating the early-Z rejection that makes the mesh path cheap.
+    // Disable blending so the depth test can discard occluded fragments before the fragment stage.
+    bool sphere_mesh = params.type == ViewType::Markers
+        && std::holds_alternative<MarkerOptions>(params.options)
+        && std::get<MarkerOptions>(params.options).render_mode
+               == MarkerOptions::RenderMode::SphereMesh;
+
     VkPipelineColorBlendAttachmentState color_blend{
-        .blendEnable         = VK_TRUE,
+        .blendEnable         = sphere_mesh ? VK_FALSE : VK_TRUE,
         .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
         .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .colorBlendOp        = VK_BLEND_OP_ADD,

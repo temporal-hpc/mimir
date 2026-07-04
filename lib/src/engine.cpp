@@ -1689,6 +1689,11 @@ void MimirInstance::renderFrame(bool advance_interop)
     auto frame_sync = sync_data[frame_idx];
     auto fence = frame_sync.frame_fence;
 
+    // CPU-side phase breakdown of this frame (see GraphicsMonitor::last_*_ms). The "wait" phase
+    // spans the fence wait + swapchain acquire, where the render thread blocks on GPU / present
+    // backpressure -- typically the dominant, and otherwise unmeasured, part of a frame.
+    auto phase_clock = std::chrono::steady_clock::now();
+
     // Wait for fence of frame i to end, then immediately reset it for further use
     validation::checkVulkan(vkWaitForFences(device, 1, &fence, VK_TRUE, frame_timeout));
     validation::checkVulkan(vkResetFences(device, 1, &fence));
@@ -1700,6 +1705,9 @@ void MimirInstance::renderFrame(bool advance_interop)
     static uint64_t signal_value = 1;
 
     bool advance_timeline = false;
+    // Interop-semaphore value the GPU submit waits on (CUDA's compute-done signal). Captured so
+    // the GPU-frame measurement below can tell whether CUDA was already finished at submit time.
+    uint64_t interop_wait_target = 0;
     // On-screen frames synchronize with swapchain acquire/present through binary semaphores;
     // headless frames have neither, relying on the frame fence (and the interop timeline).
     std::vector<VkSemaphore> waits;
@@ -1732,6 +1740,7 @@ void MimirInstance::renderFrame(bool advance_interop)
         signals.push_back(interop.vk_semaphore);
         wait_values.push_back(wait_value);
         signal_values.push_back(signal_value);
+        interop_wait_target = wait_value;
         advance_timeline = true;
     }
 
@@ -1768,6 +1777,14 @@ void MimirInstance::renderFrame(bool advance_interop)
         // Read back this frame_idx's PT timestamps (written last time it was in flight) before
         // recordUpdateScene resets them below.
         if (rt_enabled) { raytracing.readTimings(frame_idx); }
+    }
+
+    // End of the wait phase; the record phase covers command-buffer recording below.
+    {
+        auto now = std::chrono::steady_clock::now();
+        graphics_monitor.last_wait_ms =
+            std::chrono::duration<float, std::milli>(now - phase_clock).count();
+        phase_clock = now;
     }
 
     // Retrieve a command buffer and start recording to it
@@ -1865,6 +1882,14 @@ void MimirInstance::renderFrame(bool advance_interop)
         signal_value += 2;
     }
 
+    // End of the record phase; the submit phase covers vkQueueSubmit + vkQueuePresentKHR below.
+    {
+        auto now = std::chrono::steady_clock::now();
+        graphics_monitor.last_record_ms =
+            std::chrono::duration<float, std::milli>(now - phase_clock).count();
+        phase_clock = now;
+    }
+
     // Fill submit waits & signals info. The timeline submit info is only needed when this
     // frame carries the interop timeline semaphore (advance_timeline); plain frames submit
     // with binary semaphores alone.
@@ -1895,6 +1920,18 @@ void MimirInstance::renderFrame(bool advance_interop)
         .pSignalSemaphores    = signals.data(),
     };
 
+    // Is CUDA already finished at submit time? If the interop semaphore has already reached the
+    // value this submit waits on, the GPU will not idle on it, so the GPU-frame measurement below
+    // is pure render work with no CUDA wait folded in. (Read before submit; non-blocking.)
+    bool cuda_ready_at_submit = true;
+    if (advance_interop)
+    {
+        uint64_t interop_now = 0;
+        validation::checkVulkan(
+            vkGetSemaphoreCounterValue(device, interop.vk_semaphore, &interop_now));
+        cuda_ready_at_submit = interop_now >= interop_wait_target;
+    }
+
     // Execute command buffer using image as attachment in framebuffer
     validation::checkVulkan(vkQueueSubmit(graphics.queue, 1, &submit_info, fence));
 
@@ -1918,6 +1955,34 @@ void MimirInstance::renderFrame(bool advance_interop)
         {
             recreateGraphics();
             window_context.resize_requested = false;
+        }
+    }
+
+    // Close the submit phase (before any optional fps-limit stall, which is not real render work).
+    graphics_monitor.last_submit_ms =
+        std::chrono::duration<float, std::milli>(
+            std::chrono::steady_clock::now() - phase_clock).count();
+
+    // In lockstep interop mode the render thread produces exactly one frame per compute step and
+    // then blocks polling for the next request, so waiting on this frame's fence here is free and
+    // does not perturb render_ms (the GPU->CUDA interop signal is GPU-side, independent of this
+    // host wait). It yields the true end-to-end GPU frame latency -- the honest measure of where
+    // Render's wall time goes, which the narrow render-pass timestamp can under-report. The fence
+    // is left signaled; the next reuse of this frame_idx waits (instantly) and resets it as usual.
+    //
+    // Only record the sample when CUDA was already done at submit (cuda_ready_at_submit): otherwise
+    // the GPU would have idled on the interop semaphore waiting for the compute kernel, and that
+    // wait would be folded into the measurement. Skipping keeps GPU frame pure render work, never
+    // CUDA-wait time. In steady-state lockstep the render displays the *previous* step's positions,
+    // so the kernel is already finished and samples are essentially always recorded.
+    if (advance_interop)
+    {
+        validation::checkVulkan(vkWaitForFences(device, 1, &fence, VK_TRUE, frame_timeout));
+        if (cuda_ready_at_submit)
+        {
+            graphics_monitor.last_gpu_ms =
+                std::chrono::duration<float, std::milli>(
+                    std::chrono::steady_clock::now() - phase_clock).count();
         }
     }
 
@@ -2145,6 +2210,10 @@ PerformanceMetrics MimirInstance::getMetrics()
             .pipeline = (float)graphics_monitor.total_pipeline_time,
             .tlas_build = rt_enabled ? (float)raytracing.last_tlas_ms : 0.f,
             .trace      = rt_enabled ? (float)raytracing.last_trace_ms : 0.f,
+            .wait   = graphics_monitor.last_wait_ms,
+            .record = graphics_monitor.last_record_ms,
+            .submit = graphics_monitor.last_submit_ms,
+            .gpu    = graphics_monitor.last_gpu_ms,
         },
         .devmem = {
             .usage  = formatMemory(memory.usage).data,

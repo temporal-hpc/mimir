@@ -79,6 +79,10 @@ struct HudData {
     float        pipeline_ms;    // GPU render-pass time (raster draw / PT composite) -- all modes
     float        tlas_ms;        // path tracing: per-frame TLAS rebuild (sub-metric of Render)
     float        trace_ms;       // path tracing: per-frame ray trace  (sub-metric of Render)
+    float        wait_ms;        // CPU blocked on fence + swapchain acquire (GPU/present backpressure)
+    float        record_ms;      // CPU command-buffer recording
+    float        submit_ms;      // CPU vkQueueSubmit + vkQueuePresentKHR
+    float        gpu_ms;         // true end-to-end GPU frame latency (submit -> fence signalled)
     bool         path_tracing;   // show the TLAS/Trace sub-metrics only under path tracing
     bool         fly;            // Fly camera active: show the TAB (release cursor) hint
     float        gpu_watts;
@@ -388,11 +392,17 @@ BenchmarkResult runExperiment(PointsInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
-                // GPU render sub-costs (indented, like Transfer's Pack/D2H/H2H). These are the
-                // timestamped GPU passes inside Render; the remainder of Render (present, the HUD,
-                // and interop wait) is CPU-side wall time and is not separately measured, so the
-                // sub-rows do NOT sum to Render. Path tracing adds the TLAS build + trace passes;
-                // every mode shows the render-pass GPU time (raster draw, or the PT composite).
+                // Render sub-costs (indented, like Transfer's Pack/D2H/H2H). Render is the render
+                // thread's wall time per frame. "GPU frame" is the true end-to-end GPU latency
+                // (submit -> fence signalled) and normally accounts for essentially all of Render
+                // in lockstep interop mode. It is measured only on frames where CUDA had already
+                // finished at submit time, so it is pure render work with no compute-wait folded in.
+                // The CPU phases (Wait/Record/Submit) show the render thread does NOT block on the
+                // CPU -- the cost is the GPU executing the draw, which the compute thread then waits
+                // on through the interop handshake (that wait is what Render measures).
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    GPU frame");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.gpu_ms);
                 if (hud.path_tracing) {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    TLAS build");
@@ -402,9 +412,14 @@ BenchmarkResult runExperiment(PointsInput input)
                     ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.trace_ms);
                 }
                 ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(hud.path_tracing ? "    Composite" : "    Pipeline");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.pipeline_ms);
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Wait (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.wait_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Record (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.record_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Submit (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.submit_ms);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Power");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
@@ -490,6 +505,10 @@ BenchmarkResult runExperiment(PointsInput input)
             // ray-tracing passes under path tracing.
             auto gt = getMetrics(instance).times;
             hud.pipeline_ms = (i == 0) ? gt.pipeline : 0.9f * hud.pipeline_ms + 0.1f * gt.pipeline;
+            hud.wait_ms     = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
+            hud.record_ms   = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
+            hud.submit_ms   = (i == 0) ? gt.submit : 0.9f * hud.submit_ms + 0.1f * gt.submit;
+            hud.gpu_ms      = (i == 0) ? gt.gpu    : 0.9f * hud.gpu_ms    + 0.1f * gt.gpu;
             if (hud.path_tracing)
             {
                 hud.tlas_ms  = (i == 0) ? gt.tlas_build : 0.9f * hud.tlas_ms  + 0.1f * gt.tlas_build;
