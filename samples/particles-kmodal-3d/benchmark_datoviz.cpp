@@ -14,11 +14,14 @@
 // The simulation already produces tightly packed float3 positions, so no pack
 // kernel is needed (pack_time is always 0 — same as benchmark_mimir).
 
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <datoviz.h>
@@ -33,16 +36,25 @@ static inline double ms_since(clk::time_point t0)
     return std::chrono::duration<double, std::milli>(clk::now() - t0).count();
 }
 
+// datoviz's vec3 is a raw float[3] (cglm), which can't be a std::vector element (not assignable).
+// Vec3 is a layout-identical wrapper we can store in vectors and cast to vec3* at the datoviz calls.
+using Vec3 = std::array<float, 3>;
+
 // ---------------------------------------------------------------------------
 // Input / output structs
 // ---------------------------------------------------------------------------
 
-// datoviz raster geometry selected by --light-model. All three are single-vertex point sprites
-// (equal vertex cost); they differ only in the fragment shader and depth behavior:
+// datoviz raster geometry selected by --light-model. Point/Disc/Sphere are single-vertex point
+// sprites (equal vertex cost); they differ only in the fragment shader and depth behavior:
 //   Point  = dvz_point:  antialiased filled disc, no lighting, no depth write (early-Z intact) -- cheapest
 //   Disc   = dvz_marker: SDF disc + AA,           no lighting, no depth write (early-Z intact)
-//   Sphere = dvz_sphere: ray-sphere + Phong + per-fragment gl_FragDepth (early-Z defeated)      -- costliest
-enum class DvzMode { Point, Disc, Sphere };
+//   Sphere = dvz_sphere: ray-sphere + Phong + per-fragment gl_FragDepth (early-Z defeated)
+//   Mesh   = dvz_mesh:   real lit triangle icospheres, mimir's phong-mesh geometry. datoviz has no
+//                        per-instance streaming, so all N spheres live in ONE merged mesh and every
+//                        vertex position is re-expanded and re-uploaded each frame (N*V verts). This
+//                        is datoviz's most efficient mesh path and is inherently far costlier than
+//                        mimir's zero-copy instanced draw -- it exists to quantify exactly that gap.
+enum class DvzMode { Point, Disc, Sphere, Mesh };
 
 struct PointsInput {
     int          win_width  = 1920;
@@ -53,6 +65,7 @@ struct PointsInput {
     bool         display    = true;
     float        size_px    = 5.f;   // marker size in pixels (same as benchmark_mimir --size)
     DvzMode      mode       = DvzMode::Disc; // render geometry (see DvzMode)
+    uint32_t     subdiv     = 2;             // icosphere subdivisions for phong-mesh (--subdiv), matches mimir
     float3       background = { 0.f, 0.f, 0.f };       // panel background color (--background)
     float3       pcolor     = { 1.f, 1.f, 1.f };       // particle color (--pcolor)
     bool         fly        = false;                   // --fly: FPS fly camera instead of arcball
@@ -77,14 +90,75 @@ static void toDvzColor(float3 c, DvzColor out)
     out[0] = q(c.x); out[1] = q(c.y); out[2] = q(c.z); out[3] = 255;
 }
 
+// Build a unit icosphere (vertex positions double as normals) using the SAME midpoint-subdivision
+// geometry as mimir's ensureSphereMesh(), so datoviz's mesh spheres match mimir's phong-mesh
+// triangle-for-triangle. subdiv 0/1/2 -> 12/42/162 verts, 20/80/320 faces.
+static void buildIcosphere(uint32_t subdiv, std::vector<Vec3>& out_verts, std::vector<DvzIndex>& out_idx)
+{
+    struct V3 { float x, y, z; };
+    auto norm = [](V3 v) { float l = std::sqrt(v.x*v.x + v.y*v.y + v.z*v.z); return V3{v.x/l, v.y/l, v.z/l}; };
+    const float t = (1.f + std::sqrt(5.f)) / 2.f;
+    std::vector<V3> verts = {
+        {-1,t,0},{1,t,0},{-1,-t,0},{1,-t,0}, {0,-1,t},{0,1,t},
+        {0,-1,-t},{0,1,-t}, {t,0,-1},{t,0,1},{-t,0,-1},{-t,0,1},
+    };
+    for (auto& v : verts) { v = norm(v); }
+    struct Tri { uint32_t a, b, c; };
+    std::vector<Tri> faces = {
+        {0,11,5},{0,5,1},{0,1,7},{0,7,10},{0,10,11}, {1,5,9},{5,11,4},{11,10,2},{10,7,6},{7,1,8},
+        {3,9,4},{3,4,2},{3,2,6},{3,6,8},{3,8,9}, {4,9,5},{2,4,11},{6,2,10},{8,6,7},{9,8,1},
+    };
+    for (uint32_t s = 0; s < subdiv; ++s)
+    {
+        std::unordered_map<uint64_t, uint32_t> cache;
+        auto midpoint = [&](uint32_t a, uint32_t b) -> uint32_t {
+            uint64_t key = a < b ? ((uint64_t)a << 32 | b) : ((uint64_t)b << 32 | a);
+            auto it = cache.find(key);
+            if (it != cache.end()) { return it->second; }
+            V3 m = norm(V3{ (verts[a].x+verts[b].x)*0.5f, (verts[a].y+verts[b].y)*0.5f, (verts[a].z+verts[b].z)*0.5f });
+            uint32_t idx = (uint32_t)verts.size(); verts.push_back(m); cache.emplace(key, idx); return idx;
+        };
+        std::vector<Tri> next; next.reserve(faces.size() * 4);
+        for (const auto& f : faces) {
+            uint32_t a = midpoint(f.a, f.b), b = midpoint(f.b, f.c), c = midpoint(f.c, f.a);
+            next.push_back({f.a,a,c}); next.push_back({f.b,b,a}); next.push_back({f.c,c,b}); next.push_back({a,b,c});
+        }
+        faces.swap(next);
+    }
+    out_verts.resize(verts.size());
+    for (size_t i = 0; i < verts.size(); ++i) { out_verts[i][0]=verts[i].x; out_verts[i][1]=verts[i].y; out_verts[i][2]=verts[i].z; }
+    out_idx.clear(); out_idx.reserve(faces.size() * 3);
+    for (const auto& f : faces) { out_idx.push_back(f.a); out_idx.push_back(f.b); out_idx.push_back(f.c); }
+}
+
+// Expand N sphere centers into N*V vertex positions (template scaled by radius + center). This is
+// the per-frame "pack" datoviz's mesh path forces because it has no per-instance streaming.
+static void expandMesh(const std::vector<Vec3>& tmpl, const vec3* centers, uint32_t n, float radius, Vec3* out)
+{
+    const uint32_t V = (uint32_t)tmpl.size();
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        const float cx = centers[i][0], cy = centers[i][1], cz = centers[i][2];
+        Vec3* dst = out + (size_t)i * V;
+        for (uint32_t k = 0; k < V; ++k)
+        {
+            dst[k][0] = cx + tmpl[k][0] * radius;
+            dst[k][1] = cy + tmpl[k][1] * radius;
+            dst[k][2] = cz + tmpl[k][2] * radius;
+        }
+    }
+}
+
 // Map --light-model onto datoviz's raster geometry. datoviz is the raster baseline
 // (DESIGN_pathtracing.md §7): 'point' -> dvz_point, 'none' -> flat disc markers,
-// 'phong' -> lit sphere impostors, 'path-tracing' is unavailable and exits.
+// 'phong' -> lit sphere impostors, 'phong-mesh' -> lit triangle icospheres (merged mesh),
+// 'path-tracing' is unavailable and exits.
 static DvzMode parseLightModelMode(const std::string& v)
 {
-    if (v == "point") return DvzMode::Point;
-    if (v == "none")  return DvzMode::Disc;
-    if (v == "phong") return DvzMode::Sphere;
+    if (v == "point")      return DvzMode::Point;
+    if (v == "none")       return DvzMode::Disc;
+    if (v == "phong")      return DvzMode::Sphere;
+    if (v == "phong-mesh") return DvzMode::Mesh;
     if (v == "path-tracing")
     {
         fprintf(stderr,
@@ -92,7 +166,7 @@ static DvzMode parseLightModelMode(const std::string& v)
             "run benchmark_mimir --light-model path-tracing instead.\n");
         exit(EXIT_FAILURE);
     }
-    fprintf(stderr, "Unknown --light-model '%s' (use point|none|phong|path-tracing)\n", v.c_str());
+    fprintf(stderr, "Unknown --light-model '%s' (use point|none|phong|phong-mesh|path-tracing)\n", v.c_str());
     exit(EXIT_FAILURE);
 }
 
@@ -101,15 +175,22 @@ struct HudData {
     int          frame;
     float        fps;
     float        compute_ms;
-    float        pack_ms;      // always 0 — positions are already packed float3
+    float        pack_ms;      // phong-mesh: center -> N*V vertex expansion; 0 for point-sprite modes
     float        d2h_ms;       // cudaMemcpy Device->Host (PCIe DMA)
     float        h2h_ms;       // dvz_marker_position (pinned host -> datoviz internal heap copy)
     float        render_ms;    // dvz_scene_step: H2D + D2D + draw (inseparable)
     float        gpu_watts;
     char         gpu_name[256];
     char         gpu_device[64];   // "N (CC major.minor)"
-    float        gpu_total_gb;
-    float        buf_mb;
+    float        gpu_total_gb;  // total VRAM (NVML)
+    // VRAM used (NVML) dismembered so the sub-parts sum to it. External/CUDA are anchored on
+    // measured NVML checkpoints at startup; Render is computed; Graphics is the remainder.
+    float        vram_used_mb;      // VRAM in use right now (NVML, all processes on the GPU)
+    float        vram_external_mb;  // measured: NVML used before we touch the GPU (other processes)
+    float        cuda_ctx_mb;       // measured: CUDA context reservation (checkpoint delta - buf)
+    float        buf_mb;            // computed: our CUDA sim device buffers (d_pos + rng + clusters)
+    float        render_mb;         // computed: our datoviz render geometry (mode-dependent)
+    float        vulkan_mb;         // computed: Vulkan render targets (swapchain + depth + staging)
     uint32_t     seed;
     unsigned int k;
     float        epsilon;
@@ -145,6 +226,11 @@ struct DatovizContext {
     DvzArcball* arcball;   // 3D interactivity when --fly is off (null otherwise)
     DvzFly*     fly;       // FPS fly camera when --fly is on (null otherwise)
     DvzVisual*  visual;
+    // phong-mesh only: unit icosphere template (positions == normals), shared by all N spheres.
+    std::vector<Vec3> tmpl_verts;
+    // Device-side geometry we hand datoviz (the per-vertex/-index attribute buffers), in bytes.
+    // This is the "extra VRAM" the chosen render mode costs; the mesh mode dwarfs the others.
+    double render_bytes = 0.0;
 };
 
 // ---------------------------------------------------------------------------
@@ -283,7 +369,19 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     dvz_gui_text("Seed       %u",       hud->seed);
     dvz_gui_text("Modes k    %u",       hud->k);
     dvz_gui_text("Epsilon    %.4f",     hud->epsilon);
-    dvz_gui_text("Buffers    %.1f MB",  hud->buf_mb);
+    // VRAM used (NVML, whole GPU) fully dismembered; the six sub-lines sum to it by construction.
+    // External + CUDA ctx are anchored on measured NVML checkpoints (before GPU touch / after
+    // forcing the CUDA context); CUDA buf + Render + Vulkan are computed from known sizes; Datoviz
+    // is the remainder = datoviz's own device structures (buffer pools, uniforms, pipelines, imgui).
+    float datoviz_mb = hud->vram_used_mb - hud->vram_external_mb - hud->cuda_ctx_mb
+                     - hud->buf_mb - hud->render_mb - hud->vulkan_mb;
+    dvz_gui_text("VRAM used         %.0f MB", hud->vram_used_mb);
+    dvz_gui_text("  External procs  %.0f MB", hud->vram_external_mb); // other processes (measured)
+    dvz_gui_text("  CUDA context    %.0f MB", hud->cuda_ctx_mb);      // CUDA runtime reserve (measured)
+    dvz_gui_text("  CUDA buffers    %.0f MB", hud->buf_mb);           // our sim device buffers (computed)
+    dvz_gui_text("  Render geometry %.0f MB", hud->render_mb);        // our geometry (computed)
+    dvz_gui_text("  Vulkan targets  %.0f MB", hud->vulkan_mb);        // swapchain + depth + staging
+    dvz_gui_text("  Datoviz structs %.0f MB", datoviz_mb);           // datoviz buffer pools/pipelines
     dvz_gui_text("");
 
     // Per-frame timing. Unlike mimir (zero-copy, so Transfer is N/A) datoviz actually pays the
@@ -368,6 +466,8 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
         std::vector<float> sizes(n, input.size_px / 100.f);
         dvz_sphere_size(ctx.visual, 0, n, sizes.data(), 0);
         dvz_sphere_color(ctx.visual, 0, n, colors.data(), 0);
+        // 1 vertex/particle: position(12) + size(4) + color(4).
+        ctx.render_bytes = (double)n * (sizeof(vec3) + sizeof(float) + sizeof(DvzColor));
     }
     else if (input.mode == DvzMode::Point)
     {
@@ -380,6 +480,70 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
         std::vector<float> sizes(n, input.size_px);
         dvz_point_size(ctx.visual, 0, n, sizes.data(), 0);
         dvz_point_color(ctx.visual, 0, n, colors.data(), 0);
+        // 1 vertex/particle: position(12) + size(4) + color(4).
+        ctx.render_bytes = (double)n * (sizeof(vec3) + sizeof(float) + sizeof(DvzColor));
+    }
+    else if (input.mode == DvzMode::Mesh)
+    {
+        // Real lit triangle icospheres — mimir's phong-mesh geometry. datoviz's mesh visual is
+        // per-vertex only (no instancing), so we build ONE merged mesh of N icospheres: static
+        // normals/indices/colors uploaded once here, positions re-expanded and re-uploaded every
+        // frame (the loop's pack + h2h stages). radius = size/100, matching mimir's default_size.
+        std::vector<DvzIndex> tmpl_idx;
+        buildIcosphere(input.subdiv, ctx.tmpl_verts, tmpl_idx);
+        const uint32_t V  = (uint32_t)ctx.tmpl_verts.size();
+        const uint32_t I  = (uint32_t)tmpl_idx.size();
+        const uint32_t un = n;
+        const float radius = input.size_px / 100.f;
+
+        fprintf(stderr, "phong-mesh: icosphere subdiv %u (%u verts, %u tris) x %u spheres = "
+            "%.1f M verts; per-frame position upload ~%.0f MB\n",
+            input.subdiv, V, I / 3, un, (double)un * V / 1e6,
+            (double)un * V * sizeof(vec3) / (1024.0 * 1024.0));
+
+        // DVZ_VISUAL_FLAGS_INDEXED is REQUIRED for datoviz to honor the index buffer; without it
+        // the mesh is drawn non-indexed (vertices in order), mangling every triangle.
+        ctx.visual = dvz_mesh(ctx.batch, DVZ_MESH_FLAGS_LIGHTING | DVZ_VISUAL_FLAGS_INDEXED);
+        dvz_mesh_alloc(ctx.visual, un * V, un * I);
+
+        // Device geometry: N spheres each get their own V verts / I indices (datoviz can't
+        // instance). The vertex buffer is baked into the FULL interleaved DvzMeshColorVertex, so we
+        // pay for every attribute the mesh shader declares even though we only fill pos/normal/color:
+        //   pos(12)+normal(12)+color(4)+value(4)+d_left(12)+d_right(12)+contour(4) = 60 B/vertex.
+        // (The persistent staging copy datoviz keeps is host RAM -- VMA_MEMORY_USAGE_CPU_ONLY -- so
+        // it is NOT counted here; buffers are not duplicated per swapchain image either.)
+        const uint32_t kMeshVertexStride = 60; // sizeof(DvzMeshColorVertex)
+        ctx.render_bytes = (double)un * V * kMeshVertexStride
+                         + (double)un * I * sizeof(DvzIndex);
+
+        // Static per-vertex data, uploaded once (only positions change per frame). Each temporary
+        // is scoped so it frees before the next big allocation, capping peak host memory.
+        {
+            std::vector<DvzIndex> idx((size_t)un * I);
+            for (uint32_t s = 0; s < un; ++s)
+                for (uint32_t k = 0; k < I; ++k) idx[(size_t)s * I + k] = tmpl_idx[k] + s * V;
+            dvz_mesh_index(ctx.visual, 0, un * I, idx.data(), 0);
+        }
+        {
+            std::vector<Vec3> nrm((size_t)un * V);
+            for (uint32_t s = 0; s < un; ++s)
+                for (uint32_t k = 0; k < V; ++k) nrm[(size_t)s * V + k] = ctx.tmpl_verts[k];
+            dvz_mesh_normal(ctx.visual, 0, un * V, (vec3*)nrm.data(), 0);
+        }
+        {
+            std::vector<DvzColor> mcol((size_t)un * V);
+            for (auto& c : mcol) { c[0]=pc[0]; c[1]=pc[1]; c[2]=pc[2]; c[3]=pc[3]; }
+            dvz_mesh_color(ctx.visual, 0, un * V, mcol.data(), 0);
+        }
+
+        vec4 sun_dir = { -0.4082f, 0.4082f, 0.8165f, 0.f }; // same shared sun as Sphere mode
+        dvz_mesh_light_pos(ctx.visual, 0, sun_dir);
+
+        {
+            std::vector<Vec3> init_pos((size_t)un * V);
+            expandMesh(ctx.tmpl_verts, (vec3*)initial_pos3, un, radius, init_pos.data());
+            dvz_mesh_position(ctx.visual, 0, un * V, (vec3*)init_pos.data(), 0);
+        }
     }
     else
     {
@@ -393,6 +557,8 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
         std::vector<float> sizes(n, input.size_px);
         dvz_marker_size(ctx.visual, 0, n, sizes.data(), 0);
         dvz_marker_color(ctx.visual, 0, n, colors.data(), 0);
+        // 1 vertex/particle: position(12) + size(4) + color(4).
+        ctx.render_bytes = (double)n * (sizeof(vec3) + sizeof(float) + sizeof(DvzColor));
     }
 
     dvz_panel_visual(ctx.panel, ctx.visual, 0);
@@ -403,12 +569,37 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
 // Experiment
 // ---------------------------------------------------------------------------
 
+// Whole-GPU VRAM in use right now (NVML "used"), in MB. Lazily nvmlInit()s its own device handle
+// so it can be sampled at startup checkpoints -- BEFORE GPUPowerBegin(), which starts the energy
+// measurement window later and must not be moved. NVML refcounts init(), so this coexists with it.
+static double sampleVramUsedMB()
+{
+    static nvmlDevice_t dev = nullptr;
+    if (dev == nullptr)
+    {
+        if (nvmlInit() != NVML_SUCCESS) return 0.0;
+        if (nvmlDeviceGetHandleByIndex(0, &dev) != NVML_SUCCESS) { dev = nullptr; return 0.0; }
+    }
+    nvmlMemory_v2_t mi;
+    mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+    return (nvmlDeviceGetMemoryInfo_v2(dev, &mi) == NVML_SUCCESS)
+             ? (double)mi.used / (1024.0 * 1024.0) : 0.0;
+}
+
 BenchmarkResult runExperiment(PointsInput input)
 {
     const size_t n         = input.pts.count;
     const size_t pos_bytes = sizeof(float) * 3 * n;
 
+    // VRAM checkpoint #1: before we touch the GPU -- baseline held by other processes.
+    const double vram_external = sampleVramUsedMB();
+
     checkCuda(cudaSetDevice(0));
+    // VRAM checkpoint #2: force the primary CUDA context to exist (cudaFree(0)) and measure its
+    // reservation on its own, before any of our buffers or the Vulkan renderer are created.
+    checkCuda(cudaFree(0));
+    double cuda_ctx_mb = sampleVramUsedMB() - vram_external;
+    if (cuda_ctx_mb < 0.0) cuda_ctx_mb = 0.0;
 
     // Plain (non-interop) device buffer: this is the whole point of the comparison.
     float* d_pos = nullptr;
@@ -424,6 +615,10 @@ BenchmarkResult runExperiment(PointsInput input)
 
     // Prime the pinned buffer for datoviz visual creation.
     checkCuda(cudaMemcpy(h_pos, d_pos, pos_bytes, cudaMemcpyDeviceToHost));
+
+    // Our sim device buffers (VRAM only; the pinned host buffer is host RAM): d_pos + rng + clusters.
+    const double cuda_buf_mb =
+        (double)(pos_bytes + rngStatesBytes(rng) + clusterBytes(clusters, n)) / (1024.0 * 1024.0);
 
     std::atomic<bool> quit_flag{false};
 
@@ -441,10 +636,17 @@ BenchmarkResult runExperiment(PointsInput input)
         dvz_app_gui(ctx.app, dvz_figure_id(ctx.figure), hudCallback, &hud);
         dvz_app_on_keyboard(ctx.app, keyCallback, &quit_flag);
 
-        // GPU name/VRAM need NVML, which is only initialized later by GPUPowerBegin(); they are
-        // filled in after that call. buf_mb and the CUDA device info need no NVML.
-        hud.buf_mb = (float)((2 * pos_bytes + rngStatesBytes(rng) + clusterBytes(clusters, n))
-            / (1024.0 * 1024.0));
+        // GPU name/total-VRAM need NVML (filled after GPUPowerBegin below). The VRAM breakdown is
+        // ready now: external + cuda_ctx are measured (checkpoints), buf + render are computed.
+        hud.vram_external_mb = (float)vram_external;
+        hud.cuda_ctx_mb      = (float)cuda_ctx_mb;
+        hud.buf_mb           = (float)cuda_buf_mb;                        // device sim buffers
+        hud.render_mb        = (float)(ctx.render_bytes / (1024.0 * 1024.0));
+        // Vulkan render targets datoviz's canvas allocates (render_utils.h / canvas.c), no MSAA:
+        // 3 swapchain + 1 staging color images (B8G8R8A8, 4 B) + 3 depth images (D32_SFLOAT, 4 B),
+        // each width*height. Everything else on the graphics side is datoviz's own structures.
+        const double px = (double)input.win_width * (double)input.win_height;
+        hud.vulkan_mb = (float)(px * 4.0 * (4 /*color*/ + 3 /*depth*/) / (1024.0 * 1024.0));
         int device_id = -1;
         checkCuda(cudaGetDevice(&device_id));
         cudaDeviceProp prop{};
@@ -459,10 +661,16 @@ BenchmarkResult runExperiment(PointsInput input)
     checkCuda(cudaEventCreate(&cstop));
 
     float total_compute  = 0.f;
+    float total_pack     = 0.f;   // phong-mesh: per-frame center -> N*V vertex expansion (0 otherwise)
     float total_d2h      = 0.f;
     float total_h2h      = 0.f;
     float total_graphics = 0.f;
     size_t frame_count   = 0;
+
+    // phong-mesh reuses this buffer each frame for the expanded (N*V) vertex positions.
+    std::vector<Vec3> mesh_expanded;
+    if (input.display && input.mode == DvzMode::Mesh)
+        mesh_expanded.resize(n * ctx.tmpl_verts.size());
 
     GPUPowerBegin("gpu", 100);
     printSystemInfo(input, rngStatesBytes(rng), clusterBytes(clusters, n));
@@ -505,18 +713,41 @@ BenchmarkResult runExperiment(PointsInput input)
             checkCuda(cudaMemcpy(h_pos, d_pos, pos_bytes, cudaMemcpyDeviceToHost));
             float d2h_ms = (float)ms_since(t_d2h);
 
-            // --- H2H: pinned host -> datoviz's internal heap copy (CPU memcpy) ---
-            auto t_h2h = clk::now();
-            switch (input.mode)
+            // --- Pack (phong-mesh only): expand N centers into N*V vertex positions on the CPU.
+            // This is the price of datoviz having no per-instance streaming; it keeps D2H to just
+            // the N centers (so only the unavoidable N*V H2D crosses PCIe, not a needless round
+            // trip). Zero for the point-sprite modes, whose positions are already render-ready. ---
+            float pack_ms = 0.f;
+            float h2h_ms  = 0.f;
+            if (input.mode == DvzMode::Mesh)
             {
-            case DvzMode::Sphere: dvz_sphere_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
-            case DvzMode::Point:  dvz_point_position (ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
-            case DvzMode::Disc:   dvz_marker_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
-            }
-            float h2h_ms = (float)ms_since(t_h2h);
+                const uint32_t V = (uint32_t)ctx.tmpl_verts.size();
+                auto t_pack = clk::now();
+                expandMesh(ctx.tmpl_verts, (vec3*)h_pos, (uint32_t)n, input.size_px / 100.f, mesh_expanded.data());
+                pack_ms = (float)ms_since(t_pack);
 
-            total_d2h += d2h_ms;
-            total_h2h += h2h_ms;
+                // --- H2H: expanded verts -> datoviz's internal heap copy (N*V, not N) ---
+                auto t_h2h = clk::now();
+                dvz_mesh_position(ctx.visual, 0, (uint32_t)n * V, (vec3*)mesh_expanded.data(), 0);
+                h2h_ms = (float)ms_since(t_h2h);
+            }
+            else
+            {
+                // --- H2H: pinned host -> datoviz's internal heap copy (CPU memcpy) ---
+                auto t_h2h = clk::now();
+                switch (input.mode)
+                {
+                case DvzMode::Sphere: dvz_sphere_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
+                case DvzMode::Point:  dvz_point_position (ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
+                case DvzMode::Disc:   dvz_marker_position(ctx.visual, 0, (uint32_t)n, (vec3*)h_pos, 0); break;
+                case DvzMode::Mesh:   break; // handled above
+                }
+                h2h_ms = (float)ms_since(t_h2h);
+            }
+
+            total_pack += pack_ms;
+            total_d2h  += d2h_ms;
+            total_h2h  += h2h_ms;
 
             // --- Render: dvz_scene_step = H2D staging write + D2D upload + draw ---
             // These GPU/CPU operations are inseparable via the datoviz public API.
@@ -536,10 +767,10 @@ BenchmarkResult runExperiment(PointsInput input)
             total_graphics += graphics_ms;
             ++frame_count;
 
-            float frame_total = compute_ms + d2h_ms + h2h_ms + graphics_ms;
+            float frame_total = compute_ms + pack_ms + d2h_ms + h2h_ms + graphics_ms;
             hud.frame      = (int)frame_count;
             hud.compute_ms = compute_ms;
-            hud.pack_ms    = 0.f;
+            hud.pack_ms    = pack_ms;
             hud.d2h_ms     = d2h_ms;
             hud.h2h_ms     = h2h_ms;
             hud.render_ms  = graphics_ms;
@@ -549,6 +780,17 @@ BenchmarkResult runExperiment(PointsInput input)
             }
             float watts   = (float)getGPUCurrentPower();
             hud.gpu_watts = (frame_count == 1) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
+
+            // Live VRAM-in-use (NVML), sampled every 30 frames to keep the query off the hot path.
+            // Post-init this is stable; comparing it against buf_mb+render_mb tells us how much of
+            // the used VRAM our own buffers account for (the rest is driver/Vulkan/other processes).
+            if (frame_count == 1 || (frame_count % 30) == 0)
+            {
+                nvmlMemory_v2_t used_mi;
+                used_mi.version = (unsigned int)(sizeof(used_mi) | (2 << 24U));
+                if (nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &used_mi) == NVML_SUCCESS)
+                    hud.vram_used_mb = (float)(used_mi.used / (1024.0 * 1024.0));
+            }
         }
     }
 
@@ -579,7 +821,7 @@ BenchmarkResult runExperiment(PointsInput input)
     metrics.times.pipeline = 0.f;
     metrics.devmem.usage   = (float)nvml.used;
     metrics.devmem.budget  = (float)nvml.total;
-    metrics.transfer.pack  = 0.f;
+    metrics.transfer.pack  = total_pack / 1000.f;   // phong-mesh vertex expansion (0 otherwise)
     metrics.transfer.d2h   = total_d2h / 1000.f;
     metrics.transfer.h2h   = total_h2h / 1000.f;
 
@@ -623,10 +865,16 @@ static void usage(const char* prog)
         "  --light-model M    point        = raw point sprites (dvz_point), cheapest,\n"
         "                     none         = flat disc markers (dvz_marker),\n"
         "                     phong        = lit sphere impostors (dvz_sphere),\n"
+        "                     phong-mesh   = lit triangle icospheres (dvz_mesh), mimir's\n"
+        "                                    phong-mesh geometry; one merged N-sphere mesh,\n"
+        "                                    positions re-uploaded every frame (no instancing\n"
+        "                                    in datoviz) -- costly, for comparison only,\n"
         "                     path-tracing = unavailable (datoviz is the raster\n"
         "                                    baseline; exits)      (default: none)\n"
         "                     'phong' matches benchmark_mimir --light-model phong: the\n"
         "                     sphere radius is size/100 in [-1,1] domain units.\n"
+        "  --subdiv N         Icosphere subdivisions for phong-mesh   (default: 2)\n"
+        "                     0/1/2 = 20/80/320 triangles per sphere; matches mimir --subdiv.\n"
         "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
         "  --epsilon E        Per-axis stddev of each mode          (default: 0.05)\n"
         "                     The walk is mean-reverting, so clusters keep this\n"
@@ -673,6 +921,7 @@ int main(int argc, char* argv[])
             else if (a == "--display")     input.display  = (bool)std::stoi(v);
             else if (a == "--size")        input.size_px  = std::stof(v);
             else if (a == "--light-model") input.mode = parseLightModelMode(v);
+            else if (a == "--subdiv")      input.subdiv = (uint32_t)std::stoul(v);
             else if (a == "--k")           input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")     input.pts.epsilon = std::stof(v);
             else if (a == "--background")  input.background = parseColor(v);

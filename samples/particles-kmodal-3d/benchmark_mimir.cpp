@@ -59,14 +59,19 @@ static float3 parseColor(const std::string& v)
     return { grey, grey, grey };
 }
 
-// Parse --light-model none|phong|path-tracing into the instance-wide LightModel.
+// Parse --light-model point|none|phong|phong-mesh|path-tracing into the instance-wide LightModel.
 static LightModel parseLightModel(const std::string& v)
 {
+    // 'point' is an alias for 'none': mimir's Flat2D disc SDF (length(P*(size+1)) - size/2, AA=1)
+    // is byte-for-byte the same disc datoviz's dvz_point draws, so mimir needs no separate point
+    // primitive. Accepting the token gives menu parity with benchmark_datoviz --light-model point
+    // and a 1:1 point-vs-point comparison.
+    if (v == "point")        return LightModel::None;
     if (v == "none")         return LightModel::None;
     if (v == "phong")        return LightModel::Phong;
     if (v == "phong-mesh")   return LightModel::PhongMesh;
     if (v == "path-tracing") return LightModel::PathTracing;
-    fprintf(stderr, "Unknown --light-model '%s' (use none|phong|path-tracing)\n", v.c_str());
+    fprintf(stderr, "Unknown --light-model '%s' (use point|none|phong|phong-mesh|path-tracing)\n", v.c_str());
     exit(EXIT_FAILURE);
 }
 
@@ -88,8 +93,15 @@ struct HudData {
     float        gpu_watts;
     char         gpu_name[256];
     char         gpu_device[64];   // "N (CC major.minor)"
-    float        gpu_total_gb;
-    float        buf_mb;
+    float        gpu_total_gb;  // total VRAM (NVML)
+    // VRAM used (NVML) dismembered so the sub-parts sum to it. External/CUDA are anchored on
+    // measured NVML checkpoints at startup; Render is computed; Graphics is the remainder.
+    float        vram_used_mb;      // VRAM in use right now (NVML, all processes on the GPU)
+    float        vram_external_mb;  // measured: NVML used before we touch the GPU (other processes)
+    float        cuda_ctx_mb;       // measured: CUDA context reservation (checkpoint delta - buf)
+    float        buf_mb;            // computed: our CUDA sim device buffers (interop d_pos+rng+clusters)
+    float        render_mb;         // computed: instanced icosphere template (N-independent, tiny)
+    float        vulkan_mb;         // computed: Vulkan render targets (swapchain + depth)
     uint32_t     seed;
     unsigned int k;
     float        epsilon;
@@ -216,12 +228,37 @@ void formatResults(PointsInput input, BenchmarkResult result)
 // Experiment
 // ---------------------------------------------------------------------------
 
+// Whole-GPU VRAM in use right now (NVML "used"), in MB. Lazily nvmlInit()s its own device handle
+// so it can be sampled at startup checkpoints -- BEFORE GPUPowerBegin(), which starts the energy
+// measurement window later and must not be moved. NVML refcounts init(), so this coexists with it.
+static double sampleVramUsedMB()
+{
+    static nvmlDevice_t dev = nullptr;
+    if (dev == nullptr)
+    {
+        if (nvmlInit() != NVML_SUCCESS) return 0.0;
+        if (nvmlDeviceGetHandleByIndex(0, &dev) != NVML_SUCCESS) { dev = nullptr; return 0.0; }
+    }
+    nvmlMemory_v2_t mi;
+    mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
+    return (nvmlDeviceGetMemoryInfo_v2(dev, &mi) == NVML_SUCCESS)
+             ? (double)mi.used / (1024.0 * 1024.0) : 0.0;
+}
+
 BenchmarkResult runExperiment(PointsInput input)
 {
     const size_t n         = input.pts.count;
     const size_t pos_bytes = sizeof(float) * 3 * n;
 
+    // VRAM checkpoint #1: before we touch the GPU -- baseline held by other processes.
+    const double vram_external = sampleVramUsedMB();
+
     checkCuda(cudaSetDevice(0));
+    // VRAM checkpoint #2: force the primary CUDA context to exist (cudaFree(0)) and measure its
+    // reservation on its own, before our buffers or the mimir/Vulkan renderer are created.
+    checkCuda(cudaFree(0));
+    double cuda_ctx_mb = sampleVramUsedMB() - vram_external;
+    if (cuda_ctx_mb < 0.0) cuda_ctx_mb = 0.0;
 
     // Mimir instance.
     ViewerOptions opts{};
@@ -316,10 +353,33 @@ BenchmarkResult runExperiment(PointsInput input)
 
     if (input.display)
     {
-        // GPU name/VRAM need NVML, which is only initialized later by GPUPowerBegin(); they are
-        // filled in after that call. buf_mb and the CUDA device info need no NVML.
+        // GPU name/total-VRAM need NVML (filled after GPUPowerBegin below). The VRAM breakdown is
+        // ready now: external + cuda_ctx are measured (checkpoints), buf + render are computed.
+        hud.vram_external_mb = (float)vram_external;
+        hud.cuda_ctx_mb      = (float)cuda_ctx_mb;
         hud.buf_mb = (float)((pos_bytes + rngStatesBytes(rng) + clusterBytes(clusters, n))
             / (1024.0 * 1024.0));
+        // Render-geometry VRAM. The mesh light models draw ONE shared icosphere template
+        // (positions double as normals: vec3/vertex + uint32/index) instanced across all N
+        // particles, so it is uploaded exactly once and does NOT scale with N -- the whole point
+        // vs datoviz, which needs N copies. Point-sprite modes (None/Phong) have no mesh template.
+        // V = 10*4^s + 2 verts, I = 60*4^s indices (same midpoint-subdivided icosphere as the lib).
+        double render_bytes = 0.0;
+        if (input.light_model == LightModel::PhongMesh ||
+            input.light_model == LightModel::PathTracing)
+        {
+            const double f = (double)(1u << (2 * input.pt_subdiv)); // 4^subdiv
+            const double V = 10.0 * f + 2.0;
+            const double I = 60.0 * f;
+            render_bytes = V * sizeof(float) * 3 + I * sizeof(uint32_t);
+        }
+        hud.render_mb = (float)(render_bytes / (1024.0 * 1024.0));
+        // Vulkan render targets mimir's swapchain allocates, no MSAA: image_count swapchain images
+        // (B8G8R8A8, 4 B) + 1 depth image (VK_FORMAT_D32_SFLOAT, 4 B), each width*height. mimir's
+        // swapchain is minImageCount+1, effectively 3 on desktop. Everything else on the graphics
+        // side is mimir's own structures. (No full-res staging copy on-screen, unlike datoviz.)
+        const double px = (double)input.win_width * (double)input.win_height;
+        hud.vulkan_mb = (float)(px * 4.0 * (3 /*swapchain*/ + 1 /*depth*/) / (1024.0 * 1024.0));
         int device_id = -1;
         checkCuda(cudaGetDevice(&device_id));
         cudaDeviceProp prop{};
@@ -350,6 +410,34 @@ BenchmarkResult runExperiment(PointsInput input)
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f GB", hud.gpu_total_gb);
                 ImGui::TableNextRow();
+                // VRAM used (NVML, whole GPU) fully dismembered; the six sub-lines sum to it by
+                // construction. External + CUDA ctx are anchored on measured NVML checkpoints
+                // (before GPU touch / after forcing the CUDA context); CUDA buf + Render + Vulkan
+                // are computed from known sizes; Mimir is the remainder = mimir's own device
+                // structures (uniforms, pipelines, descriptor/vertex buffers).
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM used");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vram_used_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  External procs");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vram_external_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  CUDA context");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.cuda_ctx_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  CUDA buffers");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.buf_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Render geometry");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.3f MB", hud.render_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Vulkan targets");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vulkan_mb);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Mimir structs");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB",
+                    hud.vram_used_mb - hud.vram_external_mb - hud.cuda_ctx_mb
+                    - hud.buf_mb - hud.render_mb - hud.vulkan_mb);
+                ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Points");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.points);
                 ImGui::TableNextRow();
@@ -361,9 +449,6 @@ BenchmarkResult runExperiment(PointsInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Epsilon");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.4f", hud.epsilon);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Buffers");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f MB", hud.buf_mb);
                 ImGui::EndTable();
             }
             ImGui::Separator();
@@ -516,6 +601,17 @@ BenchmarkResult runExperiment(PointsInput input)
             }
             float watts    = (float)getGPUCurrentPower();
             hud.gpu_watts  = (i == 0) ? watts     : 0.9f * hud.gpu_watts  + 0.1f * watts;
+
+            // Live VRAM-in-use (NVML), sampled every 30 frames to keep the query off the hot path.
+            // Comparing it against Buffers (CUDA+Render) shows how much of the used VRAM our own
+            // allocations account for; the rest is the Vulkan framebuffers/depth/swapchain + driver.
+            if (i == 0 || (i % 30) == 0)
+            {
+                nvmlMemory_v2_t used_mi;
+                used_mi.version = (unsigned int)(sizeof(used_mi) | (2 << 24U));
+                if (nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &used_mi) == NVML_SUCCESS)
+                    hud.vram_used_mb = (float)(used_mi.used / (1024.0 * 1024.0));
+            }
             frame_start    = now;
             ++frame_count;
         }
@@ -590,7 +686,9 @@ static void usage(const char* prog)
         "  --size S           Marker size in pixels (none) or /100 world radius\n"
         "                     (phong/path-tracing)                  (default: 5)\n"
         "                     In 'none' mode, same meaning as benchmark_datoviz --size.\n"
-        "  --light-model M    none         = unlit Flat2D discs (datoviz-comparable),\n"
+        "  --light-model M    point        = alias for none (mimir's Flat2D disc already\n"
+        "                                    matches datoviz's dvz_point exactly),\n"
+        "                     none         = unlit Flat2D discs (datoviz-comparable),\n"
         "                     phong        = lit Sphere3D impostors (datoviz-comparable),\n"
         "                     phong-mesh   = lit instanced icosphere meshes (--subdiv, mimir-only;\n"
         "                                    cheaper than impostors, matches path-tracing geometry),\n"
