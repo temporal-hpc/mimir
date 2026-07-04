@@ -147,6 +147,15 @@ struct MimirInstance
     bool rt_enabled = false;
     RayTracingContext raytracing{};
 
+    // Shared template icosphere for the instanced mesh marker mode (LightModel::PhongMesh /
+    // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is
+    // created; every such view instances this one unit-sphere mesh, transformed per particle in the
+    // vertex shader. index_count == 0 means it has not been built yet.
+    VkBuffer sphere_vbo = VK_NULL_HANDLE;   // unit icosphere vertex positions (= normals), float3
+    VkBuffer sphere_ibo = VK_NULL_HANDLE;   // triangle indices, uint32
+    uint32_t sphere_index_count = 0;
+    void ensureSphereMesh(); // build sphere_vbo/ibo once (uses ViewerOptions::pt_subdivisions)
+
     // Temporal-accumulation state (path tracing). pt_accum_frame is the running count of frames
     // already averaged into the accumulator; it resets to 0 whenever the scene may have changed --
     // a new simulation iteration (advance_interop) or any camera movement (detected by comparing

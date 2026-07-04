@@ -18,6 +18,9 @@
 #include <algorithm> // std::max
 #include <chrono> // std::chrono
 #include <set> // std::set
+#include <unordered_map> // std::unordered_map (icosphere edge cache)
+#include <cmath> // std::sqrt
+#include <cstring> // std::memcpy
 
 namespace mimir
 {
@@ -665,6 +668,76 @@ AttributeDescription MimirInstance::makeImageDomain()
     };
 }
 
+void MimirInstance::ensureSphereMesh()
+{
+    if (sphere_index_count > 0) { return; } // already built (persists for the instance lifetime)
+
+    // Unit icosphere (vertex positions double as normals). Same midpoint-subdivision geometry the
+    // path tracer builds for its BLAS, so mesh raster and path tracing render matching spheres.
+    const float t = (1.f + std::sqrt(5.f)) / 2.f;
+    std::vector<glm::vec3> verts = {
+        {-1,t,0},{1,t,0},{-1,-t,0},{1,-t,0}, {0,-1,t},{0,1,t},
+        {0,-1,-t},{0,1,-t}, {t,0,-1},{t,0,1},{-t,0,-1},{-t,0,1},
+    };
+    for (auto& v : verts) { v = glm::normalize(v); }
+    std::vector<glm::uvec3> faces = {
+        {0,11,5},{0,5,1},{0,1,7},{0,7,10},{0,10,11}, {1,5,9},{5,11,4},{11,10,2},{10,7,6},{7,1,8},
+        {3,9,4},{3,4,2},{3,2,6},{3,6,8},{3,8,9}, {4,9,5},{2,4,11},{6,2,10},{8,6,7},{9,8,1},
+    };
+    for (uint32_t s = 0; s < options.pt_subdivisions; ++s)
+    {
+        std::unordered_map<uint64_t, uint32_t> cache;
+        auto midpoint = [&](uint32_t a, uint32_t b) -> uint32_t {
+            uint64_t key = a < b ? ((uint64_t)a << 32 | b) : ((uint64_t)b << 32 | a);
+            auto it = cache.find(key);
+            if (it != cache.end()) { return it->second; }
+            auto m = glm::normalize((verts[a] + verts[b]) * 0.5f);
+            auto idx = static_cast<uint32_t>(verts.size());
+            verts.push_back(m); cache.emplace(key, idx); return idx;
+        };
+        std::vector<glm::uvec3> next; next.reserve(faces.size() * 4);
+        for (const auto& f : faces) {
+            uint32_t a = midpoint(f.x, f.y), b = midpoint(f.y, f.z), c = midpoint(f.z, f.x);
+            next.push_back({f.x,a,c}); next.push_back({f.y,b,a});
+            next.push_back({f.z,c,b}); next.push_back({a,b,c});
+        }
+        faces.swap(next);
+    }
+    std::vector<uint32_t> indices; indices.reserve(faces.size() * 3);
+    for (const auto& f : faces) { indices.insert(indices.end(), {f.x, f.y, f.z}); }
+
+    VkDeviceSize vsize = verts.size() * sizeof(glm::vec3);
+    VkDeviceSize isize = indices.size() * sizeof(uint32_t);
+    auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto available = physical_device.memory.memoryProperties;
+    VkMemoryRequirements memreq{};
+
+    sphere_vbo = createBuffer(device, vsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    vkGetBufferMemoryRequirements(device, sphere_vbo, &memreq);
+    auto vbo_mem = allocateMemory(device, available, memreq, flags);
+    validation::checkVulkan(vkBindBufferMemory(device, sphere_vbo, vbo_mem, 0));
+
+    sphere_ibo = createBuffer(device, isize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    vkGetBufferMemoryRequirements(device, sphere_ibo, &memreq);
+    auto ibo_mem = allocateMemory(device, available, memreq, flags);
+    validation::checkVulkan(vkBindBufferMemory(device, sphere_ibo, ibo_mem, 0));
+
+    void* p = nullptr;
+    vkMapMemory(device, vbo_mem, 0, vsize, 0, &p); std::memcpy(p, verts.data(), vsize);
+    vkUnmapMemory(device, vbo_mem);
+    vkMapMemory(device, ibo_mem, 0, isize, 0, &p); std::memcpy(p, indices.data(), isize);
+    vkUnmapMemory(device, ibo_mem);
+
+    sphere_index_count = static_cast<uint32_t>(indices.size());
+    VkBuffer vbo = sphere_vbo, ibo = sphere_ibo;
+    deletors.views.add([=,this]{
+        vkFreeMemory(device, vbo_mem, nullptr); vkDestroyBuffer(device, vbo, nullptr);
+        vkFreeMemory(device, ibo_mem, nullptr); vkDestroyBuffer(device, ibo, nullptr);
+    });
+    spdlog::info("Mesh markers: icosphere subdiv {} ({} tris) built for instanced raster",
+        options.pt_subdivisions, sphere_index_count / 3);
+}
+
 LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
@@ -900,6 +973,9 @@ View *MimirInstance::createView(ViewDescription *desc)
             case LightModel::Phong:
                 marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
                 break;
+            case LightModel::PhongMesh:
+                marker_opts.render_mode = MarkerOptions::RenderMode::SphereMesh;
+                break;
             case LightModel::PathTracing:
                 // Markers are path-traced via the RT pipeline; the Sphere3D raster mode is
                 // kept as the pipeline built for this view so RT-incapable devices still
@@ -1019,6 +1095,32 @@ View *MimirInstance::createView(ViewDescription *desc)
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             view.vbo[view.vb_count++] = createAttributeBuffer(memsize, vb_usage, memory);
         }
+    }
+
+    // Instanced mesh markers: rebind so the shared template icosphere is the per-vertex geometry
+    // (binding 0) and the interop particle positions -- currently vbo[0] -- become per-instance data
+    // (binding 1). The draw becomes one indexed instance of the icosphere per particle. This is the
+    // sample's mesh-sphere path (LightModel::PhongMesh); the positions stay the same zero-copy
+    // interop buffer, so nothing extra is streamed per frame.
+    if (view.desc.type == ViewType::Markers
+        && std::holds_alternative<MarkerOptions>(view.desc.options)
+        && std::get<MarkerOptions>(view.desc.options).render_mode
+               == MarkerOptions::RenderMode::SphereMesh
+        && view.vb_count >= 1)
+    {
+        ensureSphereMesh();
+        VkBuffer instance_positions = view.vbo[0]; // interop particle centers (per-instance)
+        uint32_t particle_count     = view.draw_count;
+        view.vbo[0]        = sphere_vbo;           // binding 0: unit icosphere vertices
+        view.offsets[0]    = 0;
+        view.vbo[1]        = instance_positions;   // binding 1: particle centers
+        view.offsets[1]    = 0;
+        view.vb_count      = 2;
+        view.ibo           = sphere_ibo;
+        view.index_type    = VK_INDEX_TYPE_UINT32;
+        view.use_ibo       = true;
+        view.draw_count    = sphere_index_count;   // template icosphere indices
+        view.instance_count = particle_count;      // one instance per particle
     }
 
     auto handle = new View(view);
@@ -1854,22 +1956,14 @@ void MimirInstance::drawElements(uint32_t image_idx)
 
         if (view->use_ibo) // Index buffer exists, bind it and perform indexed draw
         {
+            // instance_count > 1 for SphereMesh markers (one icosphere instance per particle).
             vkCmdBindIndexBuffer(cmd, view->ibo, 0, view->index_type);
-            vkCmdDrawIndexed(cmd, view->draw_count, 1, 0, 0, 0);
+            vkCmdDrawIndexed(cmd, view->draw_count, view->instance_count, 0, 0, 0);
         }
         else // Perform regular draw with bound vertex buffers
         {
-            // Instanced rendering is not currently supported
-            uint32_t instance_count = 1;
             uint32_t first_vertex = 0;
-            // uint32_t scenario_count = view->params.offsets.size();
-            // uint32_t scenario_idx = view->params.options.scenario_index;
-            // if (scenario_idx < scenario_count)
-            // {
-            //     vertex_count = view->params.sizes[scenario_idx];
-            //     first_vertex = view->params.offsets[scenario_idx];
-            // }
-            vkCmdDraw(cmd, view->draw_count, instance_count, first_vertex, 0);
+            vkCmdDraw(cmd, view->draw_count, view->instance_count, first_vertex, 0);
         }
     }
 }

@@ -105,10 +105,25 @@ VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
     };
 }
 
-VkPipelineInputAssemblyStateCreateInfo getInputAssemblyInfo(ViewType type)
+VkPipelineInputAssemblyStateCreateInfo getInputAssemblyInfo(const ViewDescription& desc)
 {
+    // Mesh markers draw an indexed triangle icosphere per instance, not point sprites.
+    if (desc.type == ViewType::Markers
+        && std::holds_alternative<MarkerOptions>(desc.options)
+        && std::get<MarkerOptions>(desc.options).render_mode
+               == MarkerOptions::RenderMode::SphereMesh)
+    {
+        return VkPipelineInputAssemblyStateCreateInfo{
+            .sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+            .pNext    = nullptr,
+            .flags    = 0,
+            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            .primitiveRestartEnable = VK_FALSE,
+        };
+    }
+
     VkPrimitiveTopology topology;
-    switch (type)
+    switch (desc.type)
     {
         // Markers require a single point position as marker centroid
         // Same as voxels
@@ -184,6 +199,15 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
                 // Flat 2D point sprites: vertex + fragment only, no geometry stage.
                 // No domain/shape/style specializations — disc clipping is built in.
                 compile.module_path = "shaders/marker_flat.slang";
+                compile.entrypoints = {"vertexMain", "fragmentMain"};
+            }
+            else if (options.render_mode == MarkerOptions::RenderMode::SphereMesh)
+            {
+                // Instanced triangle icosphere: vertex + fragment only (no geometry stage, no
+                // per-fragment ray-sphere, no shader depth write). Fixed vertex inputs (template
+                // vertex + per-instance center), so no attribute specializations.
+                compile.specializations.clear();
+                compile.module_path = "shaders/marker_mesh.slang";
                 compile.entrypoints = {"vertexMain", "fragmentMain"};
             }
             else
@@ -352,6 +376,27 @@ VertexDescription getVertexDescription(const ViewDescription desc)
     vert.binding.reserve(attr_count);
     vert.attribute.reserve(attr_count);
 
+    // Instanced mesh markers use a fixed two-binding layout, independent of the view attributes:
+    //   binding 0 (per-vertex)   = unit icosphere template positions (location 0)
+    //   binding 1 (per-instance) = interop particle centers          (location 1)
+    // The shader (marker_mesh.slang) reads these via [[vk::location(0/1)]].
+    if (desc.type == ViewType::Markers
+        && std::holds_alternative<MarkerOptions>(desc.options)
+        && std::get<MarkerOptions>(desc.options).render_mode
+               == MarkerOptions::RenderMode::SphereMesh)
+    {
+        constexpr uint32_t vec3_stride = static_cast<uint32_t>(sizeof(glm::vec3));
+        vert.binding = {
+            { .binding = 0, .stride = vec3_stride, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX },
+            { .binding = 1, .stride = vec3_stride, .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE },
+        };
+        vert.attribute = {
+            { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
+            { .location = 1, .binding = 1, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
+        };
+        return vert;
+    }
+
     spdlog::trace("Adding vertex description");
     uint32_t binding = 0;
     for (auto &[type, attr] : desc.attributes)
@@ -471,7 +516,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
     PipelineInfo info{
         .shader_stages          = stages,
         .vertex_input_info      = getVertexDescription(params),
-        .input_assembly         = getInputAssemblyInfo(params.type),
+        .input_assembly         = getInputAssemblyInfo(params),
         .rasterizer             = getRasterizationInfo(params.type),
         .depth_stencil          = getDepthInfo(params),
         .color_blend_attachment = color_blend,

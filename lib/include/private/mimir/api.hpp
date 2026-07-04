@@ -60,6 +60,9 @@ struct View
     VkPipeline pipeline;
     // Number of vertices or indices to draw; derived from element count in view description.
     uint32_t draw_count;
+    // Instances to draw (default 1). >1 for instanced marker meshes: draw_count is the template
+    // icosphere's index count and instance_count is the particle count (SphereMesh render mode).
+    uint32_t instance_count = 1;
     // Number of vertex buffers in the view.
     uint32_t vb_count;
     // Array of vertex buffer objects associated to the view.

@@ -63,11 +63,16 @@ enum class RenderMode { Local, Headless, Remote };
 
 // Selects how the scene is shaded, instance-wide.
 // None        = unlit raster; markers draw as flat 2D point-sprite discs.
-// Phong       = lit raster; markers draw as ray-sphere impostors with Blinn-Phong.
+// Phong       = lit raster; markers draw as ray-sphere impostors with Blinn-Phong (the
+//               datoviz-comparable lit-sphere technique).
+// PhongMesh   = lit raster; markers draw as instanced triangle icospheres (same geometry as
+//               PathTracing, tessellation from pt_subdivisions). Cheaper than impostors at high
+//               resolution (early-Z, no per-fragment ray-sphere) and geometry-matched to path
+//               tracing. mimir-only: datoviz has no per-instance mesh path (keep it on Phong).
 // PathTracing = Vulkan ray-traced path tracing (requires an RT-capable GPU; markers
 //               become instanced triangle icospheres). In development — currently
 //               falls back to Phong raster with a warning. See DESIGN_pathtracing.md.
-enum class LightModel { None, Phong, PathTracing };
+enum class LightModel { None, Phong, PhongMesh, PathTracing };
 
 enum class PresentMode { Immediate, TripleBuffering, VSync };
 

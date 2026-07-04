@@ -64,6 +64,7 @@ static LightModel parseLightModel(const std::string& v)
 {
     if (v == "none")         return LightModel::None;
     if (v == "phong")        return LightModel::Phong;
+    if (v == "phong-mesh")   return LightModel::PhongMesh;
     if (v == "path-tracing") return LightModel::PathTracing;
     fprintf(stderr, "Unknown --light-model '%s' (use none|phong|path-tracing)\n", v.c_str());
     exit(EXIT_FAILURE);
@@ -571,7 +572,9 @@ static void usage(const char* prog)
         "                     (phong/path-tracing)                  (default: 5)\n"
         "                     In 'none' mode, same meaning as benchmark_datoviz --size.\n"
         "  --light-model M    none         = unlit Flat2D discs (datoviz-comparable),\n"
-        "                     phong        = lit Sphere3D impostors,\n"
+        "                     phong        = lit Sphere3D impostors (datoviz-comparable),\n"
+        "                     phong-mesh   = lit instanced icosphere meshes (--subdiv, mimir-only;\n"
+        "                                    cheaper than impostors, matches path-tracing geometry),\n"
         "                     path-tracing = Vulkan RT (falls back to phong for now)\n"
         "                                                            (default: none)\n"
         "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
@@ -646,6 +649,10 @@ int main(int argc, char* argv[])
     if (pos.size() >= 3)   input.pts.count = (unsigned int)std::stoul(pos[2]);
     if (pos.size() >= 4)   input.pts.seed  = (uint32_t)std::stoul(pos[3]);
     if (pos.size() >= 5)   input.iter_count = std::stoi(pos[4]);
+
+    // Mesh spheres default to a smoother tessellation than path tracing's default; --subdiv still
+    // overrides (pt_subdiv==1 is the struct default, i.e. not explicitly set on the CLI).
+    if (input.light_model == LightModel::PhongMesh && input.pt_subdiv == 1) { input.pt_subdiv = 2; }
 
     auto result = runExperiment(input);
     formatResults(input, result);

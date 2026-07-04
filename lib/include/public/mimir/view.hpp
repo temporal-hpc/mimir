@@ -117,18 +117,21 @@ struct MarkerOptions
         Ellipse,
     };
 
-    // Sphere3D: geometry shader expands each point into a quad; fragment shader does
-    //           ray-sphere intersection + Blinn-Phong lighting + custom depth write.
-    //           Full 3D appearance, ~4-6× more GPU work than Flat2D.
-    // Flat2D:   Native point sprites (gl_PointSize/gl_PointCoord); fragment shader
-    //           clips to a disc using point-coord distance only. No geometry shader,
-    //           no lighting, no custom depth — comparable cost to datoviz.
-    enum class RenderMode { Sphere3D, Flat2D };
+    // Sphere3D:   geometry shader expands each point into a quad; fragment shader does
+    //             ray-sphere intersection + Blinn-Phong lighting + custom depth write.
+    //             Full 3D appearance, ~4-6× more GPU work than Flat2D.
+    // Flat2D:     Native point sprites (gl_PointSize/gl_PointCoord); fragment shader
+    //             clips to a disc using point-coord distance only. No geometry shader,
+    //             no lighting, no custom depth — comparable cost to datoviz.
+    // SphereMesh: instanced triangle icosphere per point, Blinn-Phong in the fragment shader.
+    //             No geometry shader, no per-fragment ray-sphere, no shader depth write, so
+    //             early-Z culls overdraw — much cheaper than Sphere3D at high resolution.
+    enum class RenderMode { Sphere3D, Flat2D, SphereMesh };
 
     Shape      shape;
     // Engine-managed: derived from ViewerOptions::light_model at createView time
-    // (None -> Flat2D, Phong -> Sphere3D). Do not set directly; choose the shading
-    // through the instance-wide light model instead.
+    // (None -> Flat2D, Phong -> Sphere3D, PhongMesh -> SphereMesh). Do not set directly; choose
+    // the shading through the instance-wide light model instead.
     RenderMode render_mode = RenderMode::Sphere3D;
 
     static MarkerOptions defaults() {
