@@ -75,6 +75,7 @@ struct HudData {
     float        fps;
     float        compute_ms;
     float        render_ms;
+    float        pipeline_ms;    // GPU render-pass time (raster draw / PT composite) -- all modes
     float        tlas_ms;        // path tracing: per-frame TLAS rebuild (sub-metric of Render)
     float        trace_ms;       // path tracing: per-frame ray trace  (sub-metric of Render)
     bool         path_tracing;   // show the TLAS/Trace sub-metrics only under path tracing
@@ -386,10 +387,12 @@ BenchmarkResult runExperiment(PointsInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
+                // GPU render sub-costs (indented, like Transfer's Pack/D2H/H2H). These are the
+                // timestamped GPU passes inside Render; the remainder of Render (present, the HUD,
+                // and interop wait) is CPU-side wall time and is not separately measured, so the
+                // sub-rows do NOT sum to Render. Path tracing adds the TLAS build + trace passes;
+                // every mode shows the render-pass GPU time (raster draw, or the PT composite).
                 if (hud.path_tracing) {
-                    // GPU cost of the two ray-tracing passes within Render (the rest is the
-                    // fullscreen composite, ImGui, present, and interop wait -- so these do not
-                    // sum to Render).
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    TLAS build");
                     ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.tlas_ms);
@@ -397,6 +400,10 @@ BenchmarkResult runExperiment(PointsInput input)
                     ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Trace");
                     ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.trace_ms);
                 }
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(hud.path_tracing ? "    Composite" : "    Pipeline");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.pipeline_ms);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Power");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
@@ -477,12 +484,15 @@ BenchmarkResult runExperiment(PointsInput input)
             hud.frame      = i;
             hud.compute_ms = (i == 0) ? kernel_ms : 0.9f * hud.compute_ms + 0.1f * kernel_ms;
             hud.fps        = (i == 0) ? new_fps   : 0.9f * hud.fps        + 0.1f * new_fps;
+            // GPU-timestamped render sub-costs (components within Render), same EMA smoothing.
+            // pipeline is the render-pass GPU time for every light model; tlas/trace are the extra
+            // ray-tracing passes under path tracing.
+            auto gt = getMetrics(instance).times;
+            hud.pipeline_ms = (i == 0) ? gt.pipeline : 0.9f * hud.pipeline_ms + 0.1f * gt.pipeline;
             if (hud.path_tracing)
             {
-                // GPU-timestamped ray-tracing passes (sub-costs within Render), same EMA smoothing.
-                auto pt = getMetrics(instance).times;
-                hud.tlas_ms  = (i == 0) ? pt.tlas_build : 0.9f * hud.tlas_ms  + 0.1f * pt.tlas_build;
-                hud.trace_ms = (i == 0) ? pt.trace      : 0.9f * hud.trace_ms + 0.1f * pt.trace;
+                hud.tlas_ms  = (i == 0) ? gt.tlas_build : 0.9f * hud.tlas_ms  + 0.1f * gt.tlas_build;
+                hud.trace_ms = (i == 0) ? gt.trace      : 0.9f * hud.trace_ms + 0.1f * gt.trace;
             }
             float watts    = (float)getGPUCurrentPower();
             hud.gpu_watts  = (i == 0) ? watts     : 0.9f * hud.gpu_watts  + 0.1f * watts;
