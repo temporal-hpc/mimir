@@ -10,6 +10,8 @@
 #include "mimir/validation.hpp"
 #include "mimir/shader_types.hpp"
 
+#include <glm/gtc/matrix_transform.hpp> // glm::lookAt (fly camera world-to-view)
+
 #include <atomic> // std::atomic_ref
 #include <iostream>
 #include <fstream> // std::ofstream
@@ -1934,10 +1936,33 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
         auto& view = views[view_idx];
         if (!view->desc.visible) { continue; }
 
+        // The raster pipeline consumes matrices.view as a trackball (orientation pivots the scene
+        // about the world origin). For the fly camera we instead feed it a proper world-to-view so
+        // rotation pivots about the eye = free-look. camera.matrices.view is camera-to-world with
+        // columns right/up/fwd and eye in column 3; glm::lookAt gives the matching world-to-view
+        // (translation in column 3, where the shaders read it). The path tracer reads
+        // camera.matrices.view itself (not this UBO copy), so it is unaffected.
+        //
+        // glm::lookAt's right = cross(fwd, up) is the opposite sign of mimir's right = cross(up, fwd)
+        // that the WASD/mouse-look input assumes, so the image comes out mirrored left-right (yaw and
+        // strafe inverted). We un-mirror in CLIP space (negate the projection's X), NOT in the view:
+        // lighting is computed in view space and must stay a proper (non-reflected) frame, or the
+        // sphere impostors' normals stop agreeing with their positions and the shading inverts. The
+        // raster pipeline uses cull=NONE, so the reversed triangle winding from the flip is harmless.
+        glm::mat4 raster_view = camera.matrices.view;
+        glm::mat4 raster_proj = camera.matrices.perspective;
+        if (options.camera_control == CameraControl::Fly)
+        {
+            glm::vec3 fwd = glm::vec3(camera.matrices.view[2]);
+            glm::vec3 eye = glm::vec3(camera.matrices.view[3]);
+            raster_view = glm::lookAt(eye, eye + fwd, glm::vec3(0.f, 1.f, 0.f));
+            raster_proj[0][0] = -raster_proj[0][0];
+        }
+
         ModelViewProjection mvp{
             .model = view->translation * view->rotation * view->scale,
-            .view  = camera.matrices.view,
-            .proj  = camera.matrices.perspective,
+            .view  = raster_view,
+            .proj  = raster_proj,
             .all   = mvp.proj * mvp.view * mvp.model,
             .inv_model = glm::inverse(mvp.model),
             .inv_view  = glm::inverse(mvp.view),
@@ -1954,6 +1979,11 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
         auto bg = options.background_color;
         auto extent = view->desc.layout;
         auto lp = options.light_pos;
+        // The fly camera feeds the raster a proper glm::lookAt world-to-view, which is inverse-
+        // related to mimir's old trackball view convention that light_pos was authored against. The
+        // marker shader lights in view space via a direction (w=0), so negating light_pos flips it
+        // back to the intended side (otherwise the blob is lit from behind / backlit).
+        if (options.camera_control == CameraControl::Fly) { lp = { -lp.x, -lp.y, -lp.z }; }
         auto lc = options.light_color;
         auto sc = options.specular_color;
         SceneUniforms su{
