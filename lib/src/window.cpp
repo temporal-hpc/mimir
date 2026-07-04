@@ -120,6 +120,20 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action,[[maybe_unus
 
     // Perform action only if GUI does not want mouse input (e.g. not hovering over a menu item)
     if (ImGui::GetIO().WantCaptureMouse) { return; }
+
+    // Fly camera: a left click in the 3D view (re)captures the cursor for mouse-look. This recovers
+    // if the initial capture in prepare() never engaged -- e.g. under Wayland GLFW_CURSOR_DISABLED
+    // only grabs the pointer once the window has pointer focus, so a window that opened unfocused
+    // would otherwise sit in orbit-drag. Clicking the scene now always enters the fly camera.
+    if (app->options.camera_control == CameraControl::Fly && !ctx.cursor_captured
+        && button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+    {
+        ctx.cursor_captured = true;
+        ctx.first_mouse = true; // avoid a look jump on the next delta
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        return; // consume the click so it doesn't also start an orbit rotation
+    }
+
     ctx.mouse_buttons = {
         .left   = handleMouseButton(button, action, GLFW_MOUSE_BUTTON_LEFT),
         .right  = handleMouseButton(button, action, GLFW_MOUSE_BUTTON_RIGHT),
