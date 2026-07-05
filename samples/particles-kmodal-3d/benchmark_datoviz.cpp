@@ -359,7 +359,7 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
     auto* hud = static_cast<HudData*>(ev->user_data);
     // Borderless overlay in the top-right corner, matching benchmark_mimir's Performance HUD.
     dvz_gui_corner(DVZ_DIALOG_CORNER_TOP_RIGHT, (vec2){10, 10});
-    dvz_gui_begin("Performance", DVZ_DIALOG_FLAGS_OVERLAY);
+    dvz_gui_begin("Datoviz - particles-kmodal-3d", DVZ_DIALOG_FLAGS_OVERLAY);
 
     // Hardware / run parameters (same fields and order as benchmark_mimir).
     dvz_gui_text("GPU        %s",       hud->gpu_name);

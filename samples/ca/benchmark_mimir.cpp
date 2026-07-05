@@ -194,6 +194,7 @@ BenchmarkResult runExperiment(CAInput input)
 
     // Mimir instance.
     ViewerOptions opts{};
+    opts.window.title        = "Mimir - ca";
     opts.window.size         = { input.win_width, input.win_height };
     opts.background_color    = { 0.f, 0.f, 0.f, 1.f };
     opts.present.mode              = input.present;

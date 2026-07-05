@@ -382,7 +382,7 @@ static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
 {
     auto* hud = static_cast<HudData*>(ev->user_data);
     dvz_gui_pos((vec2){10, 10}, (vec2){0, 0});
-    dvz_gui_begin("Performance", 0);
+    dvz_gui_begin("Datoviz - nbody", 0);
     dvz_gui_text("GPU        %s",       hud->gpu_name);
     dvz_gui_text("VRAM       %.1f GB",  hud->gpu_total_gb);
     // VRAM used (NVML, whole GPU) fully dismembered; the six sub-lines sum to it by construction.

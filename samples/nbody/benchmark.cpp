@@ -390,6 +390,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     if (input.display == false) { input.width = input.height = 1; }
 
     ViewerOptions options{};
+    options.window.title = "Mimir - nbody";
     options.window.size = {input.width, input.height}; // Starting window size
     options.background_color = {0.f, 0.f, 0.f, 1.f};
     options.present.mode = input.present;

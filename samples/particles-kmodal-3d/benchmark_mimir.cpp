@@ -262,6 +262,7 @@ BenchmarkResult runExperiment(PointsInput input)
 
     // Mimir instance.
     ViewerOptions opts{};
+    opts.window.title        = "Mimir - particles-kmodal-3d";
     opts.window.size         = { input.win_width, input.win_height };
     opts.light_model         = input.light_model;
     // Sun coming from a diagonal behind-and-above the camera, so the home view is lit
