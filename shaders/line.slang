@@ -3,6 +3,7 @@ import uniforms;
 import position; // IPosition
 import color; // IColor
 import size; // ISize
+import texcoord; // ITexcoord (optional screen-space shift for billboarded overlays)
 
 struct VertexOutput
 {
@@ -11,11 +12,20 @@ struct VertexOutput
 };
 
 [shader("vertex")]
-VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize>(P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE)
+VertexOutput vertexMain<P:IPosition, C:IColor, S:ISize, T:ITexcoord>(
+    P in_pos: POSITION, C in_color: COLOR, S in_size: PSIZE, T in_shift: TEXCOORD)
 {
     VertexOutput output;
-    float4 pos = in_pos.getPosition();
-    output.pos   = mul(pos, mvp.all);
+    float4 pos  = in_pos.getPosition();
+    float4 clip = mul(pos, mvp.all);
+    // Optional screen-space shift (TexcoordDefault = 0 for plain world-space lines), applied
+    // after projection so shifted geometry always faces the camera (billboard). Same math as
+    // datoviz's transform_shift (2*shift/viewport, not scaled by w), so gizmos built this way
+    // render identically in both: +x right, +y up, on-screen pixels = shift / clip.w.
+    float2 shift = in_shift.getTexcoord();
+    clip.x += 2.0 * shift.x / scene.resolution.x;
+    clip.y -= 2.0 * shift.y / scene.resolution.y; // Vulkan clip y grows downward
+    output.pos   = clip;
     output.color = in_color.getColor();
     //output.size  = in_size.getSize();
 

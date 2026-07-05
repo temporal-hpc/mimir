@@ -182,6 +182,10 @@ struct ViewDescription
     float linewidth      = 1.f;
     // Antialias magnitude.
     float antialias      = 0.f;
+    // Depth test/write against the rest of the scene. Disable for overlay-style views
+    // (e.g. orientation gizmos) that must stay visible through scene geometry; draw order
+    // is view creation order, so create overlays last.
+    bool depth_test      = true;
     // Dataset translation applied to the positions of all its elements.
     float3 position      = {0.f, 0.f, 0.f};
     // Dataset rotation, applied after translation.

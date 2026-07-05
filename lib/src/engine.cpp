@@ -48,14 +48,14 @@ uint32_t getAlignedSize(size_t original_size, size_t min_alignment)
 }
 
 // Creates a camera initialized with sensible defaults
-Camera defaultCamera(int width, int height)
+Camera defaultCamera(int width, int height, float fov)
 {
     auto camera = Camera::make();
     camera.type           = Camera::CameraType::LookAt;
     camera.rotation_speed = 0.5f;
     camera.setPosition(glm::vec3(0.f, 0.f, -2.85f));
     camera.setRotation(glm::vec3(0.f, 0.f, 0.f));
-    camera.setPerspective(40.f, (float)width / (float)height, 0.1f, 10000.f);
+    camera.setPerspective(fov, (float)width / (float)height, 0.1f, 10000.f);
     return camera;
 }
 
@@ -132,7 +132,7 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
         engine.window_context = GlfwContext::make(engine.options.window, &engine);
         engine.deletors.context.add([&] { engine.window_context.clean(); });
     }
-    engine.camera = defaultCamera(width, height);
+    engine.camera = defaultCamera(width, height, engine.options.camera_fov);
 
     engine.initVulkan();
 
@@ -283,9 +283,13 @@ void MimirInstance::updateCamera()
     if (options.camera_control == CameraControl::Fly && window_context.cursor_captured)
     {
         auto* w = window_context.window;
-        glm::vec3 fwd   = glm::vec3(camera.matrices.view[2]); // world look direction
-        glm::vec3 right = glm::vec3(camera.matrices.view[0]);
+        glm::vec3 fwd = glm::vec3(camera.matrices.view[2]); // world look direction
         const glm::vec3 world_up(0.f, 1.f, 0.f);
+        // Screen-right in world space. NOT matrices.view[0]: setLookAt stores right = up x fwd,
+        // which is the OPPOSITE of the glm::lookAt basis the raster now renders with, so using
+        // it would invert A/D. cross(fwd, up) matches what the viewer sees (pitch is clamped to
+        // +-89.9 deg, so fwd never parallels world_up and the cross is well-defined).
+        glm::vec3 right = glm::normalize(glm::cross(fwd, world_up));
 
         glm::vec3 dir(0.f);
         if (glfwGetKey(w, GLFW_KEY_W) == GLFW_PRESS) { dir += fwd; }
@@ -1810,11 +1814,14 @@ void MimirInstance::renderFrame(bool advance_interop)
         // right/up/forward). Pass them directly for a plain pinhole raygen.
         const auto& v = camera.matrices.view;
         // Particle albedo is no longer in the push constants: it lives in the SBT material record
-        // (bindScene copies the view color into material 0), so the basis w lanes are unused.
+        // (bindScene copies the view color into material 0). The basis w lanes instead carry
+        // ViewerOptions::light_color, which scales the PT sun (pathtrace.slang's
+        // SUN_RADIANCE_PER_UNIT) so the same light knob drives raster and path-traced modes.
+        auto lc = options.light_color;
         pc.cam_pos     = glm::vec4(glm::vec3(v[3]), 1.f);
-        pc.cam_right   = glm::vec4(glm::normalize(glm::vec3(v[0])), 0.f);
-        pc.cam_up      = glm::vec4(glm::normalize(glm::vec3(v[1])), 0.f);
-        pc.cam_forward = glm::vec4(glm::normalize(glm::vec3(v[2])), 0.f);
+        pc.cam_right   = glm::vec4(glm::normalize(glm::vec3(v[0])), lc.x);
+        pc.cam_up      = glm::vec4(glm::normalize(glm::vec3(v[1])), lc.y);
+        pc.cam_forward = glm::vec4(glm::normalize(glm::vec3(v[2])), lc.z);
         pc.tan_half_fov = std::tan(glm::radians(camera.fov) * 0.5f);
         pc.aspect       = (float)swapchain.extent.width / (float)swapchain.extent.height;
         auto lp = options.light_pos;
@@ -2102,12 +2109,10 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
         // (translation in column 3, where the shaders read it). The path tracer reads
         // camera.matrices.view itself (not this UBO copy), so it is unaffected.
         //
-        // glm::lookAt's right = cross(fwd, up) is the opposite sign of mimir's right = cross(up, fwd)
-        // that the WASD/mouse-look input assumes, so the image comes out mirrored left-right (yaw and
-        // strafe inverted). We un-mirror in CLIP space (negate the projection's X), NOT in the view:
-        // lighting is computed in view space and must stay a proper (non-reflected) frame, or the
-        // sphere impostors' normals stop agreeing with their positions and the shading inverts. The
-        // raster pipeline uses cull=NONE, so the reversed triangle winding from the flip is harmless.
+        // glm::lookAt is a proper (non-reflected) world-to-view, so world chirality is preserved:
+        // an eye at (0,0,4) looking down -z sees +x on screen right, exactly like the orbit
+        // trackball at its home view (and like datoviz). The fly input paths (mouse yaw in
+        // window.cpp, WASD strafe in updateCamera) are written against this same convention.
         glm::mat4 raster_view = camera.matrices.view;
         glm::mat4 raster_proj = camera.matrices.perspective;
         if (options.camera_control == CameraControl::Fly)
@@ -2115,7 +2120,6 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
             glm::vec3 fwd = glm::vec3(camera.matrices.view[2]);
             glm::vec3 eye = glm::vec3(camera.matrices.view[3]);
             raster_view = glm::lookAt(eye, eye + fwd, glm::vec3(0.f, 1.f, 0.f));
-            raster_proj[0][0] = -raster_proj[0][0];
         }
 
         ModelViewProjection mvp{
@@ -2137,12 +2141,10 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
 
         auto bg = options.background_color;
         auto extent = view->desc.layout;
+        // light_pos needs no per-mode adjustment: the fly camera's glm::lookAt view matches the
+        // orbit trackball view at the shared home pose (eye (0,0,4) looking -z => identity
+        // rotation), so the marker shader's world->view light transform lights both the same.
         auto lp = options.light_pos;
-        // The fly camera feeds the raster a proper glm::lookAt world-to-view, which is inverse-
-        // related to mimir's old trackball view convention that light_pos was authored against. The
-        // marker shader lights in view space via a direction (w=0), so negating light_pos flips it
-        // back to the intended side (otherwise the blob is lit from behind / backlit).
-        if (options.camera_control == CameraControl::Fly) { lp = { -lp.x, -lp.y, -lp.z }; }
         auto lc = options.light_color;
         auto sc = options.specular_color;
         SceneUniforms su{

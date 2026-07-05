@@ -43,7 +43,7 @@ VkPipelineDepthStencilStateCreateInfo getDepthInfo(const ViewDescription& desc)
     bool flat2d = desc.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(desc.options)
         && std::get<MarkerOptions>(desc.options).render_mode == MarkerOptions::RenderMode::Flat2D;
-    bool use_depth = !flat2d;
+    bool use_depth = !flat2d && desc.depth_test;
     bool depth_test = use_depth;
     bool depth_write = use_depth;
 
@@ -85,9 +85,13 @@ PipelineBuilder PipelineBuilder::make(VkPipelineLayout layout, VkExtent2D extent
     };
 }
 
-VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
+VkPipelineRasterizationStateCreateInfo getRasterizationInfo(const ViewDescription& desc)
 {
-    auto poly_mode = (type == ViewType::Edges)? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+    auto poly_mode = (desc.type == ViewType::Edges)? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+    // Rasterized line width in pixels (line-mode pipelines; >1 requires the wideLines device
+    // feature, enabled at device creation). Views that don't rasterize lines often set
+    // linewidth 0 for their shaders, so clamp to the Vulkan minimum of 1.
+    float line_width = desc.linewidth > 1.f ? desc.linewidth : 1.f;
     return VkPipelineRasterizationStateCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .pNext = nullptr,
@@ -101,7 +105,7 @@ VkPipelineRasterizationStateCreateInfo getRasterizationInfo(ViewType type)
         .depthBiasConstantFactor = 0.f,
         .depthBiasClamp          = 0.f,
         .depthBiasSlopeFactor    = 0.f,
-        .lineWidth               = 1.f,
+        .lineWidth               = line_width,
     };
 }
 
@@ -183,6 +187,10 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         {AttributeType::Color, "ColorDefault"},
         {AttributeType::Size, "SizeDefault"},
     };
+    // line.slang (Edges) declares a 4th attribute generic: an optional screen-space shift used
+    // to billboard overlay geometry (see texcoord.slang). Other view shaders declare only the
+    // three attribute generics above, so only Edges defaults the extra one.
+    if (desc.type == ViewType::Edges) { specs.emplace(AttributeType::Texcoord, "TexcoordDefault"); }
 
     // Get the list of specialization names
     for (auto &[type, attr] : desc.attributes) { specs[type] = getSpecializationName(type, attr); }
@@ -434,8 +442,13 @@ VertexDescription getVertexDescription(const ViewDescription desc)
                 .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
             });
 
+            // Locations are assigned sequentially over the PRESENT attributes (in enum order,
+            // since desc.attributes is an ordered map): slang numbers varying inputs the same
+            // way, in shader parameter order skipping the empty *Default specializations, so
+            // e.g. Position+Color+Texcoord lands on 0,1,2 on both sides. Using the enum VALUE
+            // here instead would desync from the shader whenever the set has gaps.
             vert.attribute.push_back(VkVertexInputAttributeDescription{
-                .location = static_cast<uint32_t>(type),
+                .location = binding,
                 .binding  = binding,
                 .format   = getVulkanFormat(attr.format),
                 .offset   = 0,
@@ -454,7 +467,7 @@ VertexDescription getVertexDescription(const ViewDescription desc)
             });
 
             vert.attribute.push_back(VkVertexInputAttributeDescription{
-                .location = static_cast<uint32_t>(type),
+                .location = binding, // sequential, matching slang's varying order (see above)
                 .binding  = binding,
                 .format   = VK_FORMAT_R32_SINT,
                 .offset   = 0,
@@ -526,7 +539,7 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
         .shader_stages          = stages,
         .vertex_input_info      = getVertexDescription(params),
         .input_assembly         = getInputAssemblyInfo(params),
-        .rasterizer             = getRasterizationInfo(params.type),
+        .rasterizer             = getRasterizationInfo(params),
         .depth_stencil          = getDepthInfo(params),
         .color_blend_attachment = color_blend,
         .multisampling          = multisampling,

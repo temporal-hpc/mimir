@@ -11,9 +11,9 @@
 struct PushConstants
 {
     float4 cam_pos;     // xyz camera world position; w unused
-    float4 cam_right;   // xyz world-space camera basis; w unused
-    float4 cam_up;      // xyz ...
-    float4 cam_forward; // xyz ...
+    float4 cam_right;   // xyz world-space camera basis; w = light_color R (sun tint/intensity)
+    float4 cam_up;      // xyz ...                       w = light_color G
+    float4 cam_forward; // xyz ...                       w = light_color B
     float4 sun_dir;     // xyz world-space direction TO the sun (normalized); w unused
     float4 sky_color;   // xyz environment/background color, w = intensity
     float tan_half_fov;
@@ -47,7 +47,10 @@ struct MaterialData
 [[vk::binding(3, 0)]] RWTexture2D<float4> gbuffer;
 
 static const float PI = 3.14159265;
-static const float SUN_INTENSITY = 3.0; // radiance scale of the directional sun
+// Sun radiance per unit of ViewerOptions::light_color (delivered in the camera-basis w lanes),
+// so the same light knob drives the raster Phong modes and the path tracer. At the library
+// default light_color (0.5 grey) this reproduces the historical fixed sun radiance of 3.0.
+static const float SUN_RADIANCE_PER_UNIT = 6.0;
 
 struct Payload
 {
@@ -110,6 +113,9 @@ float3 tracePath(float3 origin, float3 dir, inout uint seed,
     float3 radiance   = float3(0.0);
     float3 throughput = float3(1.0);
     float3 sun = normalize(pc.sun_dir.xyz);
+    // Sun radiance = light_color (basis w lanes, see PushConstants) x the per-unit scale.
+    float3 sun_radiance = SUN_RADIANCE_PER_UNIT
+        * float3(pc.cam_right.w, pc.cam_up.w, pc.cam_forward.w);
     g_normal = float3(0.0);
     g_depth  = 1e4; // miss sentinel (far)
 
@@ -144,7 +150,7 @@ float3 tracePath(float3 origin, float3 dir, inout uint seed,
         float ndotl = max(dot(payload.normal, sun), 0.0);
         if (ndotl > 0.0 && !sunOccluded(payload.position + payload.normal * 1e-3, sun))
         {
-            radiance += throughput * payload.albedo * ndotl * SUN_INTENSITY;
+            radiance += throughput * payload.albedo * ndotl * sun_radiance;
         }
 
         // Diffuse bounce (lambertian): throughput *= albedo, new cosine-weighted direction.

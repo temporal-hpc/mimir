@@ -75,7 +75,10 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
         // Standard FPS mouse-look. Screen y grows downward so a forward mouse push has raw_dy < 0,
         // and rotation.x++ pitches the view DOWN (forward is (0,-sinθ,cosθ)); adding raw_dy thus
         // turns a forward push into a rotation.x decrease = look up.
-        app->camera.rotation.y += raw_dx * sens; // yaw:   mouse right   -> look right
+        // Yaw is SUBTRACTED: setFlyLook's forward (sinθ,·,cosθ) turns toward -screen-right as
+        // rotation.y grows under the proper (non-mirrored) glm::lookAt view the raster renders
+        // with, so mouse right must decrease it to look right.
+        app->camera.rotation.y -= raw_dx * sens; // yaw:   mouse right   -> look right
         app->camera.rotation.x += raw_dy * sens; // pitch: mouse forward -> look up
         app->camera.rotation.x = std::clamp(app->camera.rotation.x, -89.9f, 89.9f);
         // Roll-free FPS rebuild (keeps the horizon level for any pitch/yaw), not the euler path.

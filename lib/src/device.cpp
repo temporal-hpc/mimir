@@ -382,6 +382,7 @@ VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_fam
     VkPhysicalDeviceFeatures device_features{};
     device_features.samplerAnisotropy = VK_TRUE;
     device_features.fillModeNonSolid  = VK_TRUE; // Enable wireframe
+    device_features.wideLines         = VK_TRUE; // Rasterized line width > 1 (ViewDescription::linewidth)
     device_features.geometryShader    = VK_TRUE;
     device_features.shaderFloat64     = VK_TRUE;
 

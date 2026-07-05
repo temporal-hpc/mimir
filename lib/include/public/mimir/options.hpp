@@ -147,6 +147,9 @@ struct ViewerOptions
     float4 background_color = {.5f, .5f, .5f, 1.f};
 
     float3 light_pos = { 0.f, 0.f, -1.f };
+    // Light color/intensity, applied across ALL light models: the raster Phong modes use it as
+    // the sun's diffuse/specular intensity, and path tracing scales its sun radiance by it
+    // (radiance = 6 * light_color, so this 0.5 default keeps PT's historical 3.0).
     float3 light_color = { .5f, .5f, .5f };
     float3 specular_color = { 1.f, 1.f, 1.f };
     float specular_power = 32.f;
@@ -161,6 +164,11 @@ struct ViewerOptions
     // edge-avoiding wavelet filter (runs on any GPU). Edge-stopping is guided by the first-hit
     // normal/depth G-buffer, so noise is smoothed while silhouettes and shading edges survive.
     bool pt_denoise = false;
+
+    // Vertical field of view of the perspective camera, in degrees. Datoviz-comparable
+    // samples set 45 to match datoviz's fixed GLM_PI_4 perspective, so both libraries
+    // frame the same domain identically.
+    float camera_fov = 40.f;
 
     // Camera interaction (on-screen only; see CameraControl).
     CameraControl camera_control = CameraControl::Orbit;

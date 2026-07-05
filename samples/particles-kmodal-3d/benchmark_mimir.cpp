@@ -14,6 +14,7 @@
 
 #include <imgui.h>
 
+#include "axes_gizmo.hpp"
 #include "kmodal_sim.cuh"
 #include "nvmlPower.hpp"
 #include "validation.hpp"
@@ -45,6 +46,7 @@ struct PointsInput {
     // Camera: interactive fly (WASD + captured mouse-look) vs the default orbit drag controls,
     // and a scripted auto-orbit for reproducible input-free runs.
     bool         fly         = false;        // --fly: FPS fly camera
+    bool         axes        = false;        // --axes: draw the XYZ orientation triad
     float        orbit_speed = 0.f;          // --orbit-speed DEG/S: scripted auto-orbit (0=off)
     float        cam_speed   = 3.f;          // --cam-speed U/S: WASD move speed
     float        sensitivity = 0.1f;         // --sensitivity DEG/PX: mouse-look sensitivity
@@ -274,10 +276,19 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.light_pos           = (input.light_model == LightModel::PathTracing)
         ? float3{ -0.4082f, 0.4082f, -0.8165f }  // world-space: from behind the camera
         : float3{ -0.4082f, 0.4082f,  0.8165f }; // eye-space (Phong/datoviz): normalize({-1,1,2})
+    // Match datoviz's effective sun intensity. mimir's Phong diffuse is light_color * ndotl
+    // (default light_color is half-grey), while datoviz uses a WHITE light scaled by its
+    // default material diffuse of 0.75 — so mimir's default renders the same --pcolor visibly
+    // darker. 0.75 grey equalizes the diffuse term; the ambient terms already nearly agree
+    // (mimir flat 0.2 vs datoviz 0.2-0.25 view-modulated).
+    opts.light_color         = { 0.75f, 0.75f, 0.75f };
     opts.background_color    = { input.background.x, input.background.y, input.background.z, 1.f };
     opts.pt_samples_per_pixel = input.pt_spp;
     opts.pt_max_bounces       = input.pt_bounces;
     opts.pt_subdivisions      = input.pt_subdiv;
+    // datoviz's perspective projection is hardcoded to GLM_PI_4 (45° vertical); match it so
+    // both benchmarks frame the [-1,1]^3 domain identically (mimir's default is 40°).
+    opts.camera_fov          = 45.f;
     opts.present.mode              = input.present;
     opts.present.enable_interop_sync       = input.enable_interop_sync;
     opts.present.enable_fps_limit  = false;  // always uncapped
@@ -328,8 +339,95 @@ BenchmarkResult runExperiment(PointsInput input)
         ViewHandle view = nullptr;
         createView(instance, &desc, &view);
 
-        // Points live in [-1,1]^3; pull the camera back so the cube fits the frame.
-        setCameraPosition(instance, { 0.f, 0.f, -4.f });
+        // Points live in [-1,1]^3; pull the camera back so the cube fits the frame, from the
+        // same home view as datoviz (effective eye (0,0,+4) looking down -z, +y up, +x right).
+        if (input.fly)
+        {
+            // Fly: position IS the eye and rotation.y is yaw (0 = +z, 180 = -z). Eye (0,0,4)
+            // yawed 180° looks down -z into the domain — identical to the orbit home below and
+            // to datoviz's fly camera (which also starts at (0,0,4) looking along -z).
+            setCameraPosition(instance, { 0.f, 0.f, 4.f });
+            setCameraRotation(instance, { 0.f, 180.f, 0.f });
+        }
+        else
+        {
+            // Orbit: the trackball view uses position as a scene translation, so z=-4 pushes
+            // the scene back 4 units = effective eye at (0,0,+4) looking at the origin.
+            setCameraPosition(instance, { 0.f, 0.f, -4.f });
+        }
+
+        // --axes: world-space XYZ orientation triad with letter labels (see axes_gizmo.hpp;
+        // shared with benchmark_datoviz so both draw the identical gizmo). Drawn with the
+        // Edges pipeline, which rasterizes triangles in POLYGON_MODE_LINE: each segment is a
+        // degenerate (start,end,end) triangle whose outline is exactly that segment.
+        if (input.axes)
+        {
+            const auto segs = makeAxesGizmo();
+            const unsigned int axis_verts = (unsigned int)segs.size() * 3;
+            std::vector<float3> apos;   apos.reserve(axis_verts);
+            std::vector<float4> acol;   acol.reserve(axis_verts);
+            std::vector<float2> ashift; ashift.reserve(axis_verts);
+            for (const auto& s : segs)
+            {
+                const float3 a{ s.ax, s.ay, s.az }, b{ s.bx, s.by, s.bz };
+                const float2 sa{ s.sax, s.say },    sb{ s.sbx, s.sby };
+                const float4 c{ s.r, s.g, s.b, 1.f };
+                apos.push_back(a); acol.push_back(c); ashift.push_back(sa);
+                apos.push_back(b); acol.push_back(c); ashift.push_back(sb);
+                apos.push_back(b); acol.push_back(c); ashift.push_back(sb);
+            }
+            const size_t apos_bytes   = apos.size() * sizeof(float3);
+            const size_t acol_bytes   = acol.size() * sizeof(float4);
+            const size_t ashift_bytes = ashift.size() * sizeof(float2);
+            float3* d_apos   = nullptr;
+            float4* d_acol   = nullptr;
+            float2* d_ashift = nullptr;
+            AllocHandle apos_alloc{}, acol_alloc{}, ashift_alloc{};
+            allocLinear(instance, (void**)&d_apos, apos_bytes, &apos_alloc);
+            allocLinear(instance, (void**)&d_acol, acol_bytes, &acol_alloc);
+            allocLinear(instance, (void**)&d_ashift, ashift_bytes, &ashift_alloc);
+            checkCuda(cudaMemcpy(d_apos, apos.data(), apos_bytes, cudaMemcpyHostToDevice));
+            checkCuda(cudaMemcpy(d_acol, acol.data(), acol_bytes, cudaMemcpyHostToDevice));
+            checkCuda(cudaMemcpy(d_ashift, ashift.data(), ashift_bytes, cudaMemcpyHostToDevice));
+
+            ViewDescription axes_desc{
+                .type       = ViewType::Edges,
+                .options    = MeshOptions::defaults(),
+                .domain     = DomainType::Domain3D,
+                .attributes = {
+                    { AttributeType::Position, AttributeDescription{
+                        .source = apos_alloc,
+                        .size   = axis_verts,
+                        .format = FormatDescription::make<float3>(),
+                    }},
+                    { AttributeType::Color, AttributeDescription{
+                        .source = acol_alloc,
+                        .size   = axis_verts,
+                        .format = FormatDescription::make<float4>(),
+                    }},
+                    // Per-vertex screen-space pixel shift: billboards the letter strokes
+                    // (0 on the axis-line vertices). See line.slang / axes_gizmo.hpp.
+                    { AttributeType::Texcoord, AttributeDescription{
+                        .source = ashift_alloc,
+                        .size   = axis_verts,
+                        .format = FormatDescription::make<float2>(),
+                    }},
+                },
+                .layout        = Layout::make(axis_verts),
+                .default_color = { 1.f, 1.f, 1.f, 1.f },
+                .default_size  = 1.f,
+                // Rasterized line width in pixels (wideLines); same boldness as the datoviz
+                // gizmo's dvz_segment_linewidth.
+                .linewidth     = 3.f,
+                // Overlay: no depth test, so the triad and its labels stay readable even
+                // when a particle cluster sits right on an axis (same as the datoviz side,
+                // which disables depth via dvz_visual_depth).
+                .depth_test    = false,
+                .scale         = { 1.f, 1.f, 1.f },
+            };
+            ViewHandle axes_view = nullptr;
+            createView(instance, &axes_desc, &axes_view);
+        }
     }
     else
     {
@@ -704,6 +802,9 @@ static void usage(const char* prog)
         "                     (default: 0 = black). Under path-tracing this is also the\n"
         "                     sky/miss and ambient fill; black = sun-only lighting.\n"
         "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1] (default: light grey)\n"
+        "  --axes             Draw the world +XYZ orientation triad at the origin\n"
+        "                     (X=red, Y=green, Z=blue; letter labels at the tips) as an\n"
+        "                     unlit depth-free overlay. Same triad as benchmark_datoviz.\n"
         "  Camera (on-screen):\n"
         "  --fly              FPS fly camera: captured mouse-look + WASD (Q/E or Space/LCtrl\n"
         "                     for down/up); TAB releases the cursor for the HUD. Default is\n"
@@ -738,7 +839,8 @@ int main(int argc, char* argv[])
     {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
-        if (a == "--fly") { input.fly = true; continue; } // valueless flag
+        if (a == "--fly")  { input.fly  = true; continue; } // valueless flags
+        if (a == "--axes") { input.axes = true; continue; }
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)

@@ -49,9 +49,9 @@ struct AccelStruct
 struct RtPushConstants
 {
     glm::vec4 cam_pos;     // xyz camera world position; w unused
-    glm::vec4 cam_right;   // xyz world-space camera basis; w unused
-    glm::vec4 cam_up;      // xyz ...
-    glm::vec4 cam_forward; // xyz ...
+    glm::vec4 cam_right;   // xyz world-space camera basis; w = light_color R (PT sun tint)
+    glm::vec4 cam_up;      // xyz ...                       w = light_color G
+    glm::vec4 cam_forward; // xyz ...                       w = light_color B
     glm::vec4 sun_dir;     // xyz world-space direction TO the sun (normalized); w unused
     glm::vec4 sky_color;   // environment/background color; w = intensity
     float tan_half_fov = 0.f; // tan(vertical_fov / 2)

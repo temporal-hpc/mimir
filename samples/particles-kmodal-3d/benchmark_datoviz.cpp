@@ -26,6 +26,7 @@
 
 #include <datoviz.h>
 
+#include "axes_gizmo.hpp"
 #include "kmodal_sim.cuh"
 #include "nvmlPower.hpp"
 #include "validation.hpp"
@@ -69,6 +70,7 @@ struct PointsInput {
     float3       background = { 0.f, 0.f, 0.f };       // panel background color (--background)
     float3       pcolor     = { 1.f, 1.f, 1.f };       // particle color (--pcolor)
     bool         fly        = false;                   // --fly: FPS fly camera instead of arcball
+    bool         axes       = false;                   // --axes: draw the XYZ orientation triad
 };
 
 // Parse --background/--pcolor as "G" (grey level) or "R,G,B" in [0,1]. Mirrors benchmark_mimir.
@@ -562,6 +564,38 @@ static DatovizContext setupDatoviz(PointsInput input, const float* initial_pos3,
     }
 
     dvz_panel_visual(ctx.panel, ctx.visual, 0);
+
+    // --axes: world XYZ orientation triad with letter labels (see axes_gizmo.hpp; shared with
+    // benchmark_mimir so both draw the identical gizmo), rendered with dvz_segment.
+    if (input.axes)
+    {
+        const auto segs = makeAxesGizmo();
+        const uint32_t n_segs = (uint32_t)segs.size();
+        std::vector<Vec3>     ini(n_segs), ter(n_segs);
+        std::vector<DvzColor> col(n_segs);
+        // Screen-space pixel shifts (dx0,dy0,dx1,dy1): billboard the letter strokes around
+        // their anchors (0 on the axis lines). See axes_gizmo.hpp.
+        std::vector<std::array<float, 4>> shifts(n_segs);
+        std::vector<float>    widths(n_segs, 3.f); // same boldness as the mimir gizmo's linewidth
+        for (uint32_t i = 0; i < n_segs; ++i)
+        {
+            const auto& s = segs[i];
+            ini[i]    = { s.ax, s.ay, s.az };
+            ter[i]    = { s.bx, s.by, s.bz };
+            shifts[i] = { s.sax, s.say, s.sbx, s.sby };
+            toDvzColor({ s.r, s.g, s.b }, col[i]);
+        }
+        DvzVisual* axes = dvz_segment(ctx.batch, 0);
+        // Overlay: no depth test, so the triad and its labels stay readable even when a
+        // particle cluster sits right on an axis (same as the mimir side's depth_test=false).
+        dvz_visual_depth(axes, DVZ_DEPTH_TEST_DISABLE);
+        dvz_segment_alloc(axes, n_segs);
+        dvz_segment_position(axes, 0, n_segs, (vec3*)ini.data(), (vec3*)ter.data(), 0);
+        dvz_segment_shift(axes, 0, n_segs, (vec4*)shifts.data(), 0);
+        dvz_segment_color(axes, 0, n_segs, col.data(), 0);
+        dvz_segment_linewidth(axes, 0, n_segs, widths.data(), 0);
+        dvz_panel_visual(ctx.panel, axes, 0);
+    }
     return ctx;
 }
 
@@ -886,6 +920,9 @@ static void usage(const char* prog)
         "                     (default: 1 = white)\n"
         "  --fly              FPS fly camera (dvz_panel_fly, fixed up-vector) instead\n"
         "                     of the default arcball; matches benchmark_mimir --fly.\n"
+        "  --axes             Draw the world +XYZ orientation triad at the origin\n"
+        "                     (X=red, Y=green, Z=blue; letter labels at the tips) as an\n"
+        "                     unlit depth-free overlay. Same triad as benchmark_mimir.\n"
         "\n"
         "(datoviz has no present-mode selection; the mimir --present flag has no\n"
         " datoviz equivalent, so it is intentionally absent here.)\n"
@@ -911,7 +948,8 @@ int main(int argc, char* argv[])
     {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
-        if (a == "--fly") { input.fly = true; continue; } // valueless flag
+        if (a == "--fly")  { input.fly  = true; continue; } // valueless flags
+        if (a == "--axes") { input.axes = true; continue; }
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
