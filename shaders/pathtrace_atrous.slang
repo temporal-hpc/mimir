@@ -12,6 +12,11 @@ struct PushConstants
     float n_phi;     // normal edge-stopping falloff
     float p_phi;     // depth edge-stopping falloff
     uint tonemap;    // 1 = tonemap+gamma the output (final pass to the display image), 0 = keep HDR
+    // Backdrop colour (= ViewerOptions::background_color, already scaled by intensity). On the final
+    // pass, primary-miss pixels take this display-referred value instead of the tonemapped sky, so a
+    // white background stays white -- matching the raster clear and the non-denoised path. Scalars
+    // (not a float4) to avoid push-constant vec alignment padding.
+    float sky_r, sky_g, sky_b;
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -61,8 +66,15 @@ void atrousMain(uint3 tid : SV_DispatchThreadID)
     float3 result = (wsum > 0.0) ? sum / wsum : c_center;
     if (pc.tonemap != 0u)
     {
-        result = result / (1.0 + result);          // Reinhard, matching the non-denoised path
-        result = pow(saturate(result), float3(1.0 / 2.2));
+        if (d_center >= 1e4)  // primary ray missed -> show the backdrop at display value (white=white)
+        {
+            result = saturate(float3(pc.sky_r, pc.sky_g, pc.sky_b));
+        }
+        else
+        {
+            result = result / (1.0 + result);          // Reinhard, matching the non-denoised path
+            result = pow(saturate(result), float3(1.0 / 2.2));
+        }
     }
     out_color[p] = float4(result, 1.0);
 }

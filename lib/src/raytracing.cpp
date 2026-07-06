@@ -762,7 +762,7 @@ void createInstanceWriter(RayTracingContext& ctx)
 
 // ---- À-trous denoiser compute pipeline -------------------------------------------
 
-// Push constants for pathtrace_atrous.slang (28 bytes). Must match its PushConstants.
+// Push constants for pathtrace_atrous.slang (40 bytes). Must match its PushConstants.
 struct AtrousPush
 {
     int32_t dims_x;
@@ -772,6 +772,8 @@ struct AtrousPush
     float n_phi;
     float p_phi;
     uint32_t tonemap;
+    // Backdrop colour (background * intensity); the final pass shows it on primary-miss pixels.
+    float sky_r, sky_g, sky_b;
 };
 
 void createAtrousPipeline(RayTracingContext& ctx)
@@ -1291,6 +1293,10 @@ void RayTracingContext::destroyFrameResources()
 void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
     const RtPushConstants& pc, bool leave_image_general)
 {
+    // Capture the backdrop (background * intensity) for recordDenoise's final tone-map pass, which
+    // shows it on primary-miss pixels just like the non-denoised raygen path.
+    backdrop_color = glm::vec3(pc.sky_color) * pc.sky_color.w;
+
     auto image = storage_images[frame_idx].image;
 
     // Transition the storage image to GENERAL for raygen writes (contents discarded).
@@ -1389,6 +1395,7 @@ void RayTracingContext::recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx)
             .step_width = 1 << pass, // 1, 2, 4
             .c_phi = 4.0f, .n_phi = 0.1f, .p_phi = 0.5f,
             .tonemap = (pass + 1u == ATROUS_PASSES) ? 1u : 0u, // final pass tonemaps to the display
+            .sky_r = backdrop_color.r, .sky_g = backdrop_color.g, .sky_b = backdrop_color.b,
         };
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, atrous_pipeline_layout,
             0, 1, &atrous_sets[frame_idx * ATROUS_PASSES + pass], 0, nullptr);

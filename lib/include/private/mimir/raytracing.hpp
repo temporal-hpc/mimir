@@ -200,6 +200,9 @@ struct RayTracingContext
     float timestamp_period = 0.f; // nanoseconds per tick (0 = timestamps unsupported, disabled)
     double last_tlas_ms = 0.0;    // instance-writer + TLAS build time, last completed frame
     double last_trace_ms = 0.0;   // vkCmdTraceRays time, last completed frame
+    // Backdrop colour (background * intensity) captured from the last recordTrace push constants, so
+    // recordDenoise's final à-trous pass can show it on primary-miss pixels (see pathtrace_atrous).
+    glm::vec3 backdrop_color{0.f};
 
     // Build the resolution-independent context: loads the RT API, queries properties,
     // builds the icosphere BLAS and a static grid TLAS, and creates the RT pipeline + SBT.

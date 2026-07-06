@@ -210,9 +210,21 @@ void raygenMain()
     }
     accum[pixel] = float4(mean, 1.0);
 
-    // Tone map (Reinhard) so the bright sun compresses into range, then gamma, for display.
-    float3 disp = mean / (1.0 + mean);
-    disp = pow(saturate(disp), float3(1.0 / 2.2));
+    // Display. A primary ray that missed all geometry shows the backdrop at its display-referred
+    // value -- exactly the raster clear color, so --background 1.0 is truly white -- instead of the
+    // Reinhard-tonemapped sky (which would compress 1.0 -> ~0.73 grey). Display-only: bounce rays
+    // that escape to the sky still deposit HDR environment light on surfaces (see tracePath), so the
+    // light transport is unchanged. g_depth holds the miss sentinel (1e4) for a primary miss.
+    float3 disp;
+    if (g_depth >= 1e4)
+    {
+        disp = saturate(pc.sky_color.xyz * pc.sky_color.w);
+    }
+    else
+    {
+        disp = mean / (1.0 + mean);                    // Reinhard tone map (compresses the bright sun)
+        disp = pow(saturate(disp), float3(1.0 / 2.2)); // gamma
+    }
     image[pixel] = float4(disp, 1.0);
 }
 
