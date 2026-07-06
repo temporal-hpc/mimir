@@ -290,7 +290,9 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.present.mode              = input.present;
     opts.present.enable_interop_sync       = input.enable_interop_sync;
     opts.present.enable_fps_limit  = false;  // always uncapped
-    opts.show_panel          = input.display;
+    // The Performance HUD (setGuiCallback) draws regardless of show_panel; keep the engine's
+    // scene-parameters panel hidden by default (Ctrl+G shows it, F1 toggles ALL GUI windows).
+    opts.show_panel          = false;
     opts.camera_control      = input.fly ? CameraControl::Fly : CameraControl::Orbit;
     opts.mouse_sensitivity   = input.sensitivity;
     opts.camera_move_speed   = input.cam_speed;
@@ -816,6 +818,9 @@ static void usage(const char* prog)
         "  --bounces N        Max path depth                          (default: 4)\n"
         "                     (indirect bounces take effect in Phase 2)\n"
         "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris (default: 1)\n"
+        "\n"
+        "Keys: F1 toggles the HUD (and every other GUI window) for clean screenshots;\n"
+        "      Ctrl+G shows the engine scene-parameters panel; Ctrl+W/Ctrl+Q quit.\n"
         "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"

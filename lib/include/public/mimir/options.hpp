@@ -134,6 +134,11 @@ struct ViewerOptions
     // Frame presentation options associated to the engine instance.
     PresentOptions present  = PresentOptions::makeDefault();
 
+    // Master GUI switch: when false, NO ImGui windows are drawn (engine panel, metrics/demo
+    // windows, and the setGuiCallback overlay), leaving a clean viewport for screenshots.
+    // Toggled at runtime with F1.
+    bool show_gui           = true;
+
     // Show/hide the control panel for camera/scene/view data.
     bool show_panel         = false;
 

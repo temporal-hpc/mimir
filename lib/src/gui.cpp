@@ -140,6 +140,14 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
+    // Master switch (F1): render an empty GUI frame so every window -- engine panel and the
+    // user callback overlay alike -- disappears at once (clean-viewport screenshots).
+    if (!opts.show_gui)
+    {
+        ImGui::Render();
+        return;
+    }
+
     if (opts.show_demo_window) { ImGui::ShowDemoWindow(); }
     if (opts.show_metrics) { ImGui::ShowMetricsWindow(); }
 
@@ -196,8 +204,11 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
         // Add tabs for showing view parameters
         for (size_t i = 0; i < views.size(); ++i) { addViewGUI(views[i], i); }
         ImGui::End();
-        callback(); // Display user-provided addons
     }
+
+    // User-provided GUI (e.g. the benchmarks' Performance HUD), independent of the engine's
+    // scene-parameters panel: Ctrl+G toggles the panel alone, F1 hides everything.
+    callback();
 
     ImGui::Render();
 }

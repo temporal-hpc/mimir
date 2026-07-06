@@ -341,6 +341,10 @@ void formatResults(PointsInput input, BenchmarkResult result)
 // Keyboard callback — Ctrl+W closes the window
 // ---------------------------------------------------------------------------
 
+// HUD visibility, toggled with F1 (clean-viewport screenshots). Written by the keyboard
+// callback, read by the GUI callback.
+static std::atomic<bool> g_show_hud{true};
+
 static void keyCallback(DvzApp* /*app*/, DvzId /*window_id*/, DvzKeyboardEvent* ev)
 {
     if (ev->type == DVZ_KEYBOARD_EVENT_PRESS
@@ -350,6 +354,10 @@ static void keyCallback(DvzApp* /*app*/, DvzId /*window_id*/, DvzKeyboardEvent* 
         auto* flag = static_cast<std::atomic<bool>*>(ev->user_data);
         flag->store(true);
     }
+    if (ev->type == DVZ_KEYBOARD_EVENT_PRESS && ev->key == DVZ_KEY_F1)
+    {
+        g_show_hud.store(!g_show_hud.load());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +366,7 @@ static void keyCallback(DvzApp* /*app*/, DvzId /*window_id*/, DvzKeyboardEvent* 
 
 static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
 {
+    if (!g_show_hud.load()) { return; }
     auto* hud = static_cast<HudData*>(ev->user_data);
     // Borderless overlay in the top-right corner, matching benchmark_mimir's Performance HUD.
     dvz_gui_corner(DVZ_DIALOG_CORNER_TOP_RIGHT, (vec2){10, 10});
@@ -929,6 +938,7 @@ static void usage(const char* prog)
         "Rendering GPU: defaults to Vulkan device 0 to match the CUDA device; if your\n"
         "        CUDA and Vulkan device orders differ, set DVZ_GPU=<idx> to the Vulkan\n"
         "        index of the CUDA GPU.\n"
+        "Keys: F1 toggles the HUD for clean screenshots; Ctrl+W quits.\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
         "        Columns match benchmark_mimir; pack_time is 0 (positions are already\n"

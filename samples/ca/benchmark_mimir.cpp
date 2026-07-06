@@ -40,8 +40,13 @@ struct HudData {
     float        fps;
     float        compute_ms;
     float        render_ms;
+    float        wait_ms;        // CPU blocked on fence + swapchain acquire (GPU/present backpressure)
+    float        record_ms;      // CPU command-buffer recording
+    float        submit_ms;      // CPU vkQueueSubmit + vkQueuePresentKHR
+    float        gpu_ms;         // true end-to-end GPU frame latency (submit -> fence signalled)
     float        gpu_watts;
     char         gpu_name[256];
+    char         gpu_device[64];   // "N (CC major.minor)"
     float        gpu_total_gb;  // total VRAM (NVML)
     // VRAM used (NVML) dismembered so the sub-parts sum to it. External/CUDA are anchored on
     // measured NVML checkpoints at startup; Render/Vulkan are computed; Mimir is the remainder.
@@ -200,7 +205,9 @@ BenchmarkResult runExperiment(CAInput input)
     opts.present.mode              = input.present;
     opts.present.enable_interop_sync       = input.enable_interop_sync;
     opts.present.enable_fps_limit  = false;  // always uncapped
-    opts.show_panel          = input.display;
+    // The Performance HUD (setGuiCallback) draws regardless of show_panel; keep the engine's
+    // scene-parameters panel hidden by default (Ctrl+G shows it, F1 toggles ALL GUI windows).
+    opts.show_panel          = false;
 
     InstanceHandle instance = nullptr;
     createInstance(opts, &instance);
@@ -277,6 +284,12 @@ BenchmarkResult runExperiment(CAInput input)
         // + 1 depth (D32_SFLOAT, 4 B), each win_width*win_height.
         const double px = (double)input.win_width * (double)input.win_height;
         hud.vulkan_mb = (float)(px * 4.0 * (3 + 1) / (1024.0 * 1024.0));
+        int device_id = -1;
+        checkCuda(cudaGetDevice(&device_id));
+        cudaDeviceProp prop{};
+        checkCuda(cudaGetDeviceProperties(&prop, device_id));
+        snprintf(hud.gpu_device, sizeof(hud.gpu_device), "%d (CC %d.%d)",
+            device_id, prop.major, prop.minor);
 
         setGuiCallback(instance, [&hud, &quit_flag]() {
             auto& io = ImGui::GetIO();
@@ -294,6 +307,9 @@ BenchmarkResult runExperiment(CAInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("GPU");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_name);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Device");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_device);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f GB", hud.gpu_total_gb);
@@ -361,6 +377,21 @@ BenchmarkResult runExperiment(CAInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
+                // Render sub-costs (same breakdown as particles-kmodal-3d): "GPU frame" is the
+                // true end-to-end GPU latency (submit -> fence signalled); Wait/Record/Submit are
+                // the render thread's CPU phases, showing the CPU does not bottleneck the frame.
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    GPU frame");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.gpu_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Wait (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.wait_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Record (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.record_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Submit (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.submit_ms);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Power");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
@@ -446,6 +477,13 @@ BenchmarkResult runExperiment(CAInput input)
             hud.frame      = i;
             hud.compute_ms = (i == 0) ? kernel_ms : 0.9f * hud.compute_ms + 0.1f * kernel_ms;
             hud.fps        = (i == 0) ? new_fps   : 0.9f * hud.fps        + 0.1f * new_fps;
+            // Render sub-costs from the engine (GPU frame latency + CPU phases), same EMA
+            // smoothing as the rest of the HUD.
+            auto gt = getMetrics(instance).times;
+            hud.wait_ms    = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
+            hud.record_ms  = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
+            hud.submit_ms  = (i == 0) ? gt.submit : 0.9f * hud.submit_ms + 0.1f * gt.submit;
+            hud.gpu_ms     = (i == 0) ? gt.gpu    : 0.9f * hud.gpu_ms    + 0.1f * gt.gpu;
             float watts    = (float)getGPUCurrentPower();
             hud.gpu_watts  = (i == 0) ? watts     : 0.9f * hud.gpu_watts  + 0.1f * watts;
 
@@ -523,6 +561,9 @@ static void usage(const char* prog)
         "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
         "                     NOT vsync; gates compute/render on the shared buffer.\n"
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
+        "\n"
+        "Keys: F1 toggles the HUD (and every other GUI window) for clean screenshots;\n"
+        "      Ctrl+G shows the engine scene-parameters panel; Ctrl+W/Ctrl+Q quit.\n"
         "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"

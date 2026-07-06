@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib> // setenv
 #include <cstring>
 #include <string>
 #include <vector>
@@ -65,6 +66,7 @@ struct HudData {
     float        render_ms;    // dvz_scene_step: H2D + D2D + draw (inseparable)
     float        gpu_watts;
     char         gpu_name[256];
+    char         gpu_device[64];   // "N (CC major.minor)"
     float        gpu_total_gb;  // total VRAM (NVML)
     // VRAM used (NVML) dismembered so the sub-parts sum to it. External/CUDA are anchored on
     // measured NVML checkpoints at startup; Render/Vulkan are computed; Datoviz is the remainder.
@@ -205,6 +207,10 @@ void formatResults(CAInput input, BenchmarkResult result)
 // Keyboard callback — Ctrl+W closes the window
 // ---------------------------------------------------------------------------
 
+// HUD visibility, toggled with F1 (clean-viewport screenshots). Written by the keyboard
+// callback, read by the GUI callback.
+static std::atomic<bool> g_show_hud{true};
+
 static void keyCallback(DvzApp* /*app*/, DvzId /*window_id*/, DvzKeyboardEvent* ev)
 {
     if (ev->type == DVZ_KEYBOARD_EVENT_PRESS
@@ -214,6 +220,10 @@ static void keyCallback(DvzApp* /*app*/, DvzId /*window_id*/, DvzKeyboardEvent* 
         auto* flag = static_cast<std::atomic<bool>*>(ev->user_data);
         flag->store(true);
     }
+    if (ev->type == DVZ_KEYBOARD_EVENT_PRESS && ev->key == DVZ_KEY_F1)
+    {
+        g_show_hud.store(!g_show_hud.load());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -222,10 +232,13 @@ static void keyCallback(DvzApp* /*app*/, DvzId /*window_id*/, DvzKeyboardEvent* 
 
 static void hudCallback(DvzApp* /*app*/, DvzId /*canvas_id*/, DvzGuiEvent* ev)
 {
+    if (!g_show_hud.load()) { return; }
     auto* hud = static_cast<HudData*>(ev->user_data);
-    dvz_gui_pos((vec2){10, 10}, (vec2){0, 0});
-    dvz_gui_begin("Datoviz - ca", 0);
+    // Borderless overlay in the top-right corner, matching the mimir benchmarks' HUD.
+    dvz_gui_corner(DVZ_DIALOG_CORNER_TOP_RIGHT, (vec2){10, 10});
+    dvz_gui_begin("Datoviz - ca", DVZ_DIALOG_FLAGS_OVERLAY);
     dvz_gui_text("GPU        %s",       hud->gpu_name);
+    dvz_gui_text("Device     %s",       hud->gpu_device);
     dvz_gui_text("VRAM       %.1f GB",  hud->gpu_total_gb);
     dvz_gui_text("Grid       %d x %d",  hud->grid_w, hud->grid_h);
     dvz_gui_text("Seed       %u",       hud->seed);
@@ -406,6 +419,12 @@ BenchmarkResult runExperiment(CAInput input)
         mi.version = (unsigned int)(sizeof(mi) | (2 << 24U));
         nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
         hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+        int device_id = -1;
+        checkCuda(cudaGetDevice(&device_id));
+        cudaDeviceProp prop{};
+        checkCuda(cudaGetDeviceProperties(&prop, device_id));
+        snprintf(hud.gpu_device, sizeof(hud.gpu_device), "%d (CC %d.%d)",
+            device_id, prop.major, prop.minor);
     }
 
     auto loop_start = clk::now();
@@ -535,6 +554,7 @@ static void usage(const char* prog)
         "\n"
         "(datoviz has no present-mode selection; the mimir --present flag has no\n"
         " datoviz equivalent, so it is intentionally absent here.)\n"
+        "Keys: F1 toggles the HUD for clean screenshots; Ctrl+W quits.\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
         "        Columns match benchmark_mimir plus pack_time, d2h_time, h2h_time.\n"
@@ -569,6 +589,12 @@ int main(int argc, char* argv[])
     if (pos.size() >= 5)   input.ca.seed    = (uint32_t)std::stoul(pos[4]);
     if (pos.size() >= 6)   input.ca.density = std::stof(pos[5]);
     if (pos.size() >= 7)   input.iter_count = std::stoi(pos[6]);
+
+    // CUDA runs on device 0; render on the same GPU instead of datoviz's own "best GPU"
+    // pick, which can land on a different card in multi-GPU systems (the benchmark would
+    // then measure cross-GPU traffic, and the pick may lack a swapchain). Vulkan and CUDA
+    // enumeration order can still differ; set DVZ_GPU=<idx> explicitly if they do.
+    setenv("DVZ_GPU", "0", /*overwrite=*/0);
 
     auto result = runExperiment(input);
     formatResults(input, result);

@@ -153,6 +153,12 @@ void framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[m
 void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int action, int mods)
 {
     auto app = getHandler(window);
+    // Master GUI toggle: F1 shows/hides EVERY ImGui window (engine panel + sample HUD overlay),
+    // leaving a clean viewport for screenshots.
+    if (key == GLFW_KEY_F1 && action == GLFW_PRESS)
+    {
+        app->options.show_gui = !app->options.show_gui;
+    }
     // Toggle info panel
     if (key == GLFW_KEY_G && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {

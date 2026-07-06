@@ -339,8 +339,13 @@ struct HudData {
     float        fps           = 0.f;
     float        compute_ms    = 0.f;
     float        render_ms     = 0.f;
+    float        wait_ms       = 0.f;  // CPU blocked on fence + swapchain acquire (backpressure)
+    float        record_ms     = 0.f;  // CPU command-buffer recording
+    float        submit_ms     = 0.f;  // CPU vkQueueSubmit + vkQueuePresentKHR
+    float        gpu_ms        = 0.f;  // true end-to-end GPU frame latency (submit -> fence)
     float        gpu_watts     = 0.f;
     char         gpu_name[256] = {};
+    char         gpu_device[64] = {};  // "N (CC major.minor)"
     float        gpu_total_gb  = 0.f;  // total VRAM (NVML)
     // VRAM used (NVML) dismembered so the sub-parts sum to it. External/CUDA are anchored on
     // measured NVML checkpoints at startup; Render/Vulkan are computed; Mimir is the remainder.
@@ -371,8 +376,6 @@ static double sampleVramUsedMB()
 
 BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 {
-    params.point_size /= 5.f;
-
     // VRAM checkpoint #1: before we touch the GPU -- baseline held by other processes.
     const double vram_external = sampleVramUsedMB();
 
@@ -392,11 +395,18 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     ViewerOptions options{};
     options.window.title = "Mimir - nbody";
     options.window.size = {input.width, input.height}; // Starting window size
+    // Cheapest possible particles: LightModel::None draws markers as UNLIT native point
+    // sprites (Flat2D: no geometry shader, no lighting, no custom depth) -- the same cost
+    // class as datoviz's flat disc markers in samples/nbody-datoviz. The library default
+    // (Phong) would render ray-traced sphere impostors instead.
+    options.light_model = LightModel::None;
     options.background_color = {0.f, 0.f, 0.f, 1.f};
     options.present.mode = input.present;
     options.present.enable_interop_sync = input.enable_interop_sync;
     options.present.enable_fps_limit = false;  // always uncapped
-    options.show_panel = input.display; // required for setGuiCallback to fire
+    // The Performance HUD (setGuiCallback) draws regardless of show_panel; keep the engine's
+    // scene-parameters panel hidden by default (Ctrl+G shows it, F1 toggles ALL GUI windows).
+    options.show_panel = false;
 
     InstanceHandle instance = nullptr;
     createInstance(options, &instance);
@@ -428,7 +438,11 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
             .layout        = Layout::make(input.body_count),
             .visible       = true,
             .default_color = {1.f, 1.f, 1.f, 1.f},
-            .default_size  = params.point_size / 5.f,
+            // Under LightModel::None markers are native point sprites sized in PIXELS
+            // (params.point_size is a world-space unit for the lit sphere modes and does
+            // not apply). 3 px matches nbody-datoviz's MARKER_SIZE_PX for a fair visual
+            // and cost comparison.
+            .default_size  = 3.f,
             .linewidth     = 0.f,
             .scale         = {1.f, 1.f, 1.f},
         };
@@ -442,14 +456,6 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     {
         checkCuda(cudaMalloc((void**)&device.dPos[0], nbody_memsize));
         checkCuda(cudaMalloc((void**)&device.dPos[1], nbody_memsize));
-    }
-
-    // Decrease the time step further based on the number of bodies
-    // This is to prevent making them move outside the camera area
-    if (input.body_count <= 10000)
-    {
-        params.time_step /= 1000.f;
-        setCameraPosition(instance, {0.f, 0.f, -1.3f});
     }
 
     // Initialize simulation
@@ -484,6 +490,9 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("GPU");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_name);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Device");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_device);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f GB", hud.gpu_total_gb);
@@ -545,6 +554,21 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
+                // Render sub-costs (same breakdown as particles-kmodal-3d): "GPU frame" is the
+                // true end-to-end GPU latency (submit -> fence signalled); Wait/Record/Submit are
+                // the render thread's CPU phases, showing the CPU does not bottleneck the frame.
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    GPU frame");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.gpu_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Wait (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.wait_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Record (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.record_ms);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Submit (cpu)");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.submit_ms);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Power");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
@@ -561,6 +585,10 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
         nvmlDeviceGetName(getNvmlDevice(), hud.gpu_name, sizeof(hud.gpu_name));
         hud.gpu_total_gb = (float)(mi.total / (1024.0 * 1024.0 * 1024.0));
+        cudaDeviceProp prop{};
+        checkCuda(cudaGetDeviceProperties(&prop, device_id));
+        snprintf(hud.gpu_device, sizeof(hud.gpu_device), "%d (CC %d.%d)",
+            device_id, prop.major, prop.minor);
         // VRAM breakdown: external + cuda_ctx are measured (checkpoints), the rest computed.
         hud.vram_external_mb = (float)vram_external;
         hud.cuda_ctx_mb      = (float)cuda_ctx_mb;
@@ -617,6 +645,11 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 hud.frame      = i;
                 hud.compute_ms = ms(t1 - t0).count();
                 hud.fps        = (i == 0) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
+                auto gt = getMetrics(instance).times;
+                hud.wait_ms   = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
+                hud.record_ms = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
+                hud.submit_ms = (i == 0) ? gt.submit : 0.9f * hud.submit_ms + 0.1f * gt.submit;
+                hud.gpu_ms    = (i == 0) ? gt.gpu    : 0.9f * hud.gpu_ms    + 0.1f * gt.gpu;
                 float watts    = (float)getGPUCurrentPower();
                 hud.gpu_watts  = (i == 0) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
                 if (i == 0 || (i % 30) == 0) hud.vram_used_mb = (float)sampleVramUsedMB();
@@ -669,6 +702,13 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 hud.frame      = i;
                 hud.compute_ms = kernel_ms;
                 hud.fps        = (i == 0) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
+                // Render sub-costs from the engine (GPU frame latency + CPU phases), same EMA
+                // smoothing as the rest of the HUD.
+                auto gt = getMetrics(instance).times;
+                hud.wait_ms   = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
+                hud.record_ms = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
+                hud.submit_ms = (i == 0) ? gt.submit : 0.9f * hud.submit_ms + 0.1f * gt.submit;
+                hud.gpu_ms    = (i == 0) ? gt.gpu    : 0.9f * hud.gpu_ms    + 0.1f * gt.gpu;
                 float watts    = (float)getGPUCurrentPower();
                 hud.gpu_watts  = (i == 0) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
                 if (i == 0 || (i % 30) == 0) hud.vram_used_mb = (float)sampleVramUsedMB();
@@ -734,6 +774,9 @@ static void usage(const char *prog)
         "                     NOT vsync; gates compute/render on the shared buffer.\n"
         "  --display N        1 = open window, 0 = simulate only    (default: 1)\n"
         "  --use-cpu N        1 = CPU integrator, 0 = GPU kernel     (default: 0)\n"
+        "\n"
+        "Keys: F1 toggles the HUD (and every other GUI window) for clean screenshots;\n"
+        "      Ctrl+G shows the engine scene-parameters panel; Ctrl+Q quits.\n"
         "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "\n"
