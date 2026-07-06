@@ -1809,19 +1809,42 @@ void MimirInstance::renderFrame(bool advance_interop)
     if (rt_enabled)
     {
         RtPushConstants pc{};
-        // For a LookAt camera, matrices.view = translate(pos) * rotmat is the camera-to-world
-        // transform, so its columns are the camera basis in world space (col3=pos, col0/1/2=
-        // right/up/forward). Pass them directly for a plain pinhole raygen.
+        // The raygen needs the world-space basis of the camera the raster pass shows on screen
+        // (screen-right, screen-up, view direction, eye). matrices.view holds different things
+        // depending on which path last wrote it, so derive the basis per mode:
+        //  - Fly and scripted auto-orbit write it via setLookAt: camera-to-world with col3 = eye,
+        //    col2 = forward, col1 = screen-up -- but col0 = up x fwd is the OPPOSITE of
+        //    screen-right (the same trap as the WASD handler in updateCamera), so negate it.
+        //  - Manual orbit (trackball) writes translate(pos) * rotmat, which the raster consumes
+        //    directly as world-to-view. The camera basis is its inverse: rows of R are the
+        //    world axes of view space, eye = -R^T * pos, and the view direction is -z in view
+        //    space (the projection maps clip.w = -z_view).
         const auto& v = camera.matrices.view;
+        glm::vec3 eye, cam_right, cam_up, cam_fwd;
+        if (options.camera_control == CameraControl::Fly || options.orbit_speed > 0.f)
+        {
+            eye       =  glm::vec3(v[3]);
+            cam_right = -glm::vec3(v[0]);
+            cam_up    =  glm::vec3(v[1]);
+            cam_fwd   =  glm::vec3(v[2]);
+        }
+        else
+        {
+            glm::mat3 rt = glm::transpose(glm::mat3(v)); // R^T: its columns are the rows of R
+            eye       = -(rt * glm::vec3(v[3]));
+            cam_right =  rt[0];
+            cam_up    =  rt[1];
+            cam_fwd   = -rt[2];
+        }
         // Particle albedo is no longer in the push constants: it lives in the SBT material record
         // (bindScene copies the view color into material 0). The basis w lanes instead carry
         // ViewerOptions::light_color, which scales the PT sun (pathtrace.slang's
         // SUN_RADIANCE_PER_UNIT) so the same light knob drives raster and path-traced modes.
         auto lc = options.light_color;
-        pc.cam_pos     = glm::vec4(glm::vec3(v[3]), 1.f);
-        pc.cam_right   = glm::vec4(glm::normalize(glm::vec3(v[0])), lc.x);
-        pc.cam_up      = glm::vec4(glm::normalize(glm::vec3(v[1])), lc.y);
-        pc.cam_forward = glm::vec4(glm::normalize(glm::vec3(v[2])), lc.z);
+        pc.cam_pos     = glm::vec4(eye, 1.f);
+        pc.cam_right   = glm::vec4(glm::normalize(cam_right), lc.x);
+        pc.cam_up      = glm::vec4(glm::normalize(cam_up), lc.y);
+        pc.cam_forward = glm::vec4(glm::normalize(cam_fwd), lc.z);
         pc.tan_half_fov = std::tan(glm::radians(camera.fov) * 0.5f);
         pc.aspect       = (float)swapchain.extent.width / (float)swapchain.extent.height;
         auto lp = options.light_pos;

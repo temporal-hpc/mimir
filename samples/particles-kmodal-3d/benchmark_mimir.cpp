@@ -267,15 +267,13 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.window.title        = "Mimir - particles-kmodal-3d";
     opts.window.size         = { input.win_width, input.win_height };
     opts.light_model         = input.light_model;
-    // Sun coming from a diagonal behind-and-above the camera, so the home view is lit
-    // like the datoviz baseline. The raster (Phong) path transforms light_pos into eye
-    // space where +z faces the camera; the path tracer uses it as a raw WORLD direction,
-    // where the camera-facing side has normal -z. So the two need opposite z signs to
-    // light the same (visible) side. marker.slang uses dot(normal, light_pos) WITHOUT
-    // normalizing, so it must stay unit length or it also scales diffuse brightness.
-    opts.light_pos           = (input.light_model == LightModel::PathTracing)
-        ? float3{ -0.4082f, 0.4082f, -0.8165f }  // world-space: from behind the camera
-        : float3{ -0.4082f, 0.4082f,  0.8165f }; // eye-space (Phong/datoviz): normalize({-1,1,2})
+    // Sun coming from a diagonal behind-and-above the camera (screen-left), so the home view
+    // is lit like the datoviz baseline: normalize({-1,1,2}) in world space. Both light models
+    // take the same world-space direction TO the light: the raster (Phong) path rotates it
+    // into eye space with the view matrix, the path tracer traces shadow rays along it
+    // directly. marker.slang uses dot(normal, light_pos) WITHOUT normalizing, so it must stay
+    // unit length or it also scales diffuse brightness.
+    opts.light_pos           = { -0.4082f, 0.4082f, 0.8165f };
     // Match datoviz's effective sun intensity. mimir's Phong diffuse is light_color * ndotl
     // (default light_color is half-grey), while datoviz uses a WHITE light scaled by its
     // default material diffuse of 0.75 — so mimir's default renders the same --pcolor visibly
