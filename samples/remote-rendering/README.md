@@ -20,10 +20,26 @@ run `mimir-client <host> <port>` against your own server without rebuilding the 
 
 ## What it renders
 
-A **3D Brownian-motion point cloud**: `point_count` particles start at random positions in the unit
-cube and each frame take a small Gaussian random-walk step (drawn with cuRAND, clamped to the cube),
-drawn as shaded sphere impostors. It's continuously moving, which keeps the encoder honest, and the
-particle buffer lives on the GPU via mimir's CUDA interop.
+The **k-modal 3D point cloud** — the same simulation the
+[`particles-kmodal-3d`](../particles-kmodal-3d/) benchmark renders locally, so the remote client
+sees an identical view. `point_count` particles start in a k-cluster gaussian mixture in the
+`[-1,1]³` cube and each frame take a mean-reverting (Ornstein–Uhlenbeck) random-walk step drawn with
+cuRAND — the clusters keep their blobby "cheese" shape indefinitely while the points jiggle. It's
+continuously moving, which keeps the encoder honest, and the particle buffer lives on the GPU via
+mimir's CUDA interop (no per-frame host round-trip).
+
+The **render path is selectable** with `--light-model`, so the client can view the simulation as:
+
+| `--light-model` | What the client sees                                            |
+|-----------------|-----------------------------------------------------------------|
+| `none` / `point`| Unlit pixel-sized discs (cheapest)                              |
+| `phong`         | Lit sphere impostors (default)                                  |
+| `phong-mesh`    | Lit instanced icosphere meshes (`--subdiv` tessellation)        |
+| `path-tracing`  | Vulkan ray tracing (`--spp`, `--bounces`)                       |
+
+The lighting (sun direction, `--pcolor`, `--background`) and camera framing match
+`particles-kmodal-3d/benchmark_mimir`, so a phong / phong-mesh / path-traced remote frame looks the
+same as its local counterpart.
 
 ## Building
 
@@ -70,15 +86,26 @@ Binaries land in `samples/remote-rendering/build/`. Run them from there.
 ## Running
 
 ```
-rr-server [port] [width] [height] [point_count] [h264] [transport] [token]
+rr-server [port] [width] [height] [point_count] [h264] [transport] [token] [options]
 rr-client [host] [port] [token] [auto|quic|tcp] [frames]
 ```
+
+`rr-server` also takes named options after the positional args — `--light-model`, `--spp`,
+`--bounces`, `--subdiv`, `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`
+(run `./rr-server --help` for the full list).
 
 ### Local, raw frames (simplest, no optional deps)
 
 ```sh
-./rr-server 9000 1280 720 10000 0          # raw, TCP
+./rr-server 9000 1280 720 10000 0          # raw, TCP, phong (default)
 ./rr-client 127.0.0.1 9000                 # interactive window
+```
+
+### Pick a render path
+
+```sh
+./rr-server 9000 1280 720 50000 1 --light-model phong-mesh       # instanced meshes
+./rr-server 9000 1280 720 50000 1 --light-model path-tracing --spp 2   # Vulkan RT
 ```
 
 ### Local, H.264 over TCP
