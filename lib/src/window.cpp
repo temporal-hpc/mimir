@@ -174,8 +174,9 @@ void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int 
     {
         app->options.show_metrics = !app->options.show_metrics;
     }
-    // Trigger exit (useful when window is undecorated)
-    if (key == GLFW_KEY_Q && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
+    // Trigger exit (useful when window is undecorated). Ctrl+Q and Ctrl+W both close.
+    if ((key == GLFW_KEY_Q || key == GLFW_KEY_W)
+        && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {
         glfwSetWindowShouldClose(window, GL_TRUE);
         glfwPollEvents();
