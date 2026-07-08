@@ -7,8 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GCC_VERSION=""
 BUILD_DIR="$SCRIPT_DIR/build"
 BUILD_TYPE="Release"
-ENABLE_REMOTE=OFF
-ENABLE_QUIC=OFF
+ENABLE_REMOTE=ON
+ENABLE_QUIC=ON
 HEADLESS=OFF
 JOBS=$(nproc)
 
@@ -28,10 +28,10 @@ Options:
   --gcc <version>    GCC version to use as the CUDA host compiler (e.g. 14).
                      Required on systems where the default GCC exceeds CUDA's
                      supported version (e.g. Arch Linux with GCC 16).
-  --remote           Enable H.264 remote streaming (MIMIR_ENABLE_REMOTE=ON).
-                     Requires: ffmpeg (libavcodec, libavutil, libswscale).
-  --quic             Enable QUIC transport (MIMIR_ENABLE_QUIC=ON).
-                     Requires: ngtcp2 + OpenSSL.
+  --no-remote        Disable H.264 remote streaming (on by default; needs ffmpeg:
+                     libavcodec, libavutil, libswscale — degrades to raw frames if missing).
+  --no-quic          Disable the QUIC transport (on by default; needs ngtcp2 + OpenSSL —
+                     degrades to TCP-only if missing). Transport/codec are runtime choices.
   --headless         Build without X11/display support (for HPC nodes / containers
                      with no display stack). rr-server still works; windowed samples won't.
   --debug            Build in Debug mode (default: Release).
@@ -49,8 +49,10 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --gcc)        GCC_VERSION="$2";  shift 2 ;;
-        --remote)     ENABLE_REMOTE=ON;  shift ;;
-        --quic)       ENABLE_QUIC=ON;    shift ;;
+        --remote)     ENABLE_REMOTE=ON;  shift ;; # accepted for compatibility (now the default)
+        --quic)       ENABLE_QUIC=ON;    shift ;; # accepted for compatibility (now the default)
+        --no-remote)  ENABLE_REMOTE=OFF; shift ;;
+        --no-quic)    ENABLE_QUIC=OFF;   shift ;;
         --headless)   HEADLESS=ON;       shift ;;
         --debug)      BUILD_TYPE=Debug;  shift ;;
         --build-dir)  BUILD_DIR="$2";    shift 2 ;;

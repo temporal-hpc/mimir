@@ -8,12 +8,14 @@
 // replaced behind the same surface.
 
 #include "mimir/engine.hpp"
+#include "mimir/framelimit.hpp" // getTargetFrameTime (optional --fps session cap)
 #include "mimir/remote_protocol.hpp"
 #include "mimir/transport.hpp"
 #include "mimir/validation.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio> // benchmark stats CSV
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -89,6 +91,7 @@ struct H264Encoder
             av_opt_set(ctx->priv_data, "tune", "ll", 0);       // nvenc: low latency
             av_opt_set(ctx->priv_data, "preset", "p4", 0);     // nvenc preset (balanced)
             av_opt_set(ctx->priv_data, "delay", "0", 0);       // emit each frame immediately
+            av_opt_set(ctx->priv_data, "forced-idr", "1", 0);  // forced I frames become real IDRs
         }
         else
         {
@@ -153,6 +156,10 @@ struct H264Encoder
     }
 
     bool last_keyframe = false; // whether the most recent encode produced an IDR/keyframe AU
+    // When set, the next encoded frame is forced to be an IDR (a decode restart point). Used
+    // when a client on the unreliable datagram path lost a frame, or when the server itself
+    // dropped one under congestion; cleared once consumed.
+    bool force_idr = false;
 
     // Drains encoded packets into out. Returns false on a fatal encoder error.
     bool drain(std::vector<unsigned char>& out)
@@ -178,6 +185,8 @@ struct H264Encoder
         const uint8_t *src[4] = { bgra, nullptr, nullptr, nullptr };
         int stride[4] = { width * 4, 0, 0, 0 };
         sws_scale(sws, src, stride, 0, height, frame->data, frame->linesize);
+        frame->pict_type = force_idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+        force_idr = false;
         frame->pts = pts++;
         if (avcodec_send_frame(ctx, frame) < 0) { return false; }
         return drain(out);
@@ -201,6 +210,7 @@ struct H264Encoder
             av_frame_free(&hwf);
             return false;
         }
+        if (force_idr) { hwf->pict_type = AV_PICTURE_TYPE_I; force_idr = false; }
         hwf->pts = pts++;
         int r = avcodec_send_frame(ctx, hwf);
         av_frame_free(&hwf);
@@ -219,6 +229,7 @@ struct H264Encoder
         if (hw_device) { av_buffer_unref(&hw_device); } // nulls hw_device
         zero_copy = false;
         last_keyframe = false;
+        force_idr = false;
         pts = 0;
     }
 
@@ -236,23 +247,108 @@ struct H264Encoder
 } // namespace
 
 void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute,
-    size_t max_iters, bool use_h264, remote::TransportKind kind, std::string token)
+    size_t max_iters, bool use_h264, remote::TransportKind kind, std::string token,
+    int bitrate_kbps, std::string stats_csv, int target_fps)
 {
     prepare();
+
+    // By default no minimum frame time is imposed on the streaming loop. The fps limiter is a
+    // windowed-present option (defaults to 60), but here there is no display to pace: sessions
+    // run at the natural render+encode+send rate, throttled only by real backpressure (TCP) or
+    // shed by the datagram drop policy (QUIC). An explicit target_fps > 0 re-enables the cap —
+    // useful to hold a fixed bandwidth budget, since the encoder's rate control budgets bits
+    // per frame at its configured framerate.
+    if (target_fps > 0)
+    {
+        options.present.enable_fps_limit  = true;
+        options.present.target_fps        = target_fps;
+        options.present.target_frame_time = getTargetFrameTime(true, target_fps);
+    }
+    else
+    {
+        options.present.enable_fps_limit = false;
+    }
+    // Rate-control framerate for the encoder: the cap when set, the conventional 60 otherwise.
+    const int encoder_fps = target_fps > 0 ? target_fps : 60;
 
     size_t total_iter = 0;
     bool stop = false;
 
-    // Reconnect loop: serve one client at a time, then wait for the next. A fresh transport and
-    // encoder are built per session, so a newly-joined client always starts on a clean IDR
-    // (keyframe-on-join). listen* blocks for a client; nullptr means a fatal socket/bind error.
+    // Optional benchmark log: one row per telemetry window, mirroring the [stats] lines, with
+    // time relative to server start (sessions from the reconnect loop share the file).
+    FILE *csv = nullptr;
+    if (!stats_csv.empty())
+    {
+        csv = fopen(stats_csv.c_str(), "w");
+        if (csv) { fprintf(csv, "time_s,frame,fps,kbps,encode_ms\n"); }
+        else { spdlog::warn("remote: cannot open stats csv '{}'", stats_csv); }
+    }
+    const auto serve_start = std::chrono::steady_clock::now();
+
+    // Bind the listener once; nullptr means a fatal bind error (port taken, no QUIC support).
+    // From here on the simulation is sovereign: it advances continuously whether or not anyone
+    // is watching, and clients attach/detach without ever pausing it — the long-running-job
+    // monitoring model (connect from home, look around, disconnect, reconnect tomorrow).
+    auto listener = (kind == remote::TransportKind::Quic)
+        ? remote::makeQuicListener(port, token)
+        : remote::makeTcpListener(port, token);
+    if (!listener)
+    {
+        if (csv) { fclose(csv); }
+        return;
+    }
+    spdlog::info("remote: simulation runs with or without a viewer; "
+        "clients may connect and disconnect at any time");
+
+    size_t unwatched_iters = 0; // sim steps advanced since the last viewer left
+
+    // Unwatched proof-of-life: a [sim] progress line every few seconds while nobody is
+    // connected (step count + free-run rate). While a client is connected the step counter
+    // rides the once-per-second [stats] line instead, so nothing floods.
+    constexpr auto kSimLogPeriod = std::chrono::seconds(2);
+    auto sim_log_time  = std::chrono::steady_clock::now();
+    size_t sim_log_iter = total_iter;
+
     while (!stop)
     {
-        std::unique_ptr<remote::Transport> transport =
-            (kind == remote::TransportKind::Quic)? remote::listenQuic(port, token)
-                                                 : remote::listenTcp(port, token);
-        if (!transport) { break; }
+        if (max_iters != 0 && total_iter >= max_iters) { break; }
 
+        // No viewer: check for a dialing client, then advance the simulation at full speed —
+        // skipping render/encode entirely (the fps limiter lives in renderFrame, so unwatched
+        // compute is not throttled either).
+        std::unique_ptr<remote::Transport> transport = listener->poll();
+        if (!transport)
+        {
+            compute(); ++total_iter; pt_scene_dirty = true; ++unwatched_iters;
+            const auto sim_now = std::chrono::steady_clock::now();
+            if (sim_now - sim_log_time >= kSimLogPeriod)
+            {
+                const double secs = std::chrono::duration<double>(sim_now - sim_log_time).count();
+                const double rate = static_cast<double>(total_iter - sim_log_iter) / secs;
+                if (max_iters != 0)
+                {
+                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {:.0f} steps/s | no viewer",
+                        total_iter, max_iters,
+                        100.0 * static_cast<double>(total_iter) / static_cast<double>(max_iters),
+                        rate);
+                }
+                else
+                {
+                    spdlog::info("[sim] step {} | {:.0f} steps/s | no viewer", total_iter, rate);
+                }
+                sim_log_time = sim_now;
+                sim_log_iter = total_iter;
+            }
+            continue;
+        }
+        if (unwatched_iters > 0)
+        {
+            spdlog::info("remote: simulation advanced {} steps while unwatched", unwatched_iters);
+            unwatched_iters = 0;
+        }
+
+        // A client connected: build a fresh session. The encoder is rebuilt per session, so a
+        // newly-joined client always starts on a clean IDR (keyframe-on-join).
         uint32_t width  = swapchain.extent.width;
         uint32_t height = swapchain.extent.height;
 
@@ -262,7 +358,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         H264Encoder encoder;
         if (use_h264)
         {
-            if (encoder.init(static_cast<int>(width), static_cast<int>(height), 60, 8000))
+            if (encoder.init(static_cast<int>(width), static_cast<int>(height), encoder_fps, bitrate_kbps))
             {
                 codec = remote::Codec::H264;
             }
@@ -281,6 +377,22 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             .codec  = static_cast<uint32_t>(codec),
         };
         if (!transport->sendVideo(&hello, sizeof(hello))) { continue; } // client vanished; re-listen
+
+        // Unreliable video: when the client negotiated QUIC DATAGRAM support, H.264 frames go
+        // out as never-retransmitted datagrams (a lost frame is skipped; the client requests an
+        // IDR to resume). Raw frames stay on the reliable stream: at ~8 MB each, any single lost
+        // fragment would discard the whole frame, so unreliability buys nothing there. Hello,
+        // Stats and re-Hello always use the reliable stream.
+        const bool dgram_video = (codec == remote::Codec::H264) && transport->unreliableVideoReady();
+        if (dgram_video)
+        {
+            spdlog::info("remote: video over unreliable QUIC datagrams "
+                "(lost frames are dropped, never retransmitted)");
+        }
+
+        // Newest client input/heartbeat timestamp, echoed once in the next frame so the client
+        // can measure end-to-end latency on its own clock.
+        uint32_t latest_stamp = 0;
 
         bool paused = false;
         bool client_gone = false;
@@ -308,10 +420,12 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             if (!transport->pollControl(events)) { client_gone = true; break; }
             bool quit = false;
             bool want_resize = false;
+            bool want_idr = false;
             int resize_w = 0, resize_h = 0;
             const auto speed = camera.rotation_speed;
             for (const auto& ev : events)
             {
+                if (ev.stamp_ms != 0) { latest_stamp = ev.stamp_ms; } // newest wins (in order)
                 switch (static_cast<remote::ControlKind>(ev.kind))
                 {
                     case remote::ControlKind::CameraRotate:
@@ -329,10 +443,17 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         resize_w = static_cast<int>(ev.a);
                         resize_h = static_cast<int>(ev.b);
                         break;
+                    case remote::ControlKind::RequestKeyframe:
+                        want_idr = true; break;
                     default: break;
                 }
             }
             if (quit) { break; }
+#ifdef MIMIR_HAVE_FFMPEG
+            if (want_idr && codec == remote::Codec::H264) { encoder.force_idr = true; }
+#else
+            (void)want_idr; // raw frames are always self-contained
+#endif
 
             // Apply a requested resolution change: rebuild the offscreen targets and encoder, then
             // re-announce the geometry to the client via a framed Hello (FRAME_HELLO). This is a
@@ -355,7 +476,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
 #ifdef MIMIR_HAVE_FFMPEG
                     if (codec == remote::Codec::H264)
                     {
-                        ok = encoder.reinit(static_cast<int>(width), static_cast<int>(height), 60, 8000);
+                        ok = encoder.reinit(static_cast<int>(width), static_cast<int>(height), encoder_fps, bitrate_kbps);
                     }
 #endif
                     remote::Hello rehello{
@@ -366,7 +487,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         .codec  = static_cast<uint32_t>(codec),
                     };
                     remote::FrameHeader hh{ .size = static_cast<uint32_t>(sizeof(rehello)),
-                        .flags = remote::FRAME_HELLO };
+                        .flags = remote::FRAME_HELLO, .echo_stamp = 0 };
                     if (!ok || !transport->sendVideo(&hh, sizeof(hh))
                             || !transport->sendVideo(&rehello, sizeof(rehello)))
                     {
@@ -376,7 +497,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
             }
 
-            if (!paused) { compute(); ++total_iter; }
+            if (!paused) { compute(); ++total_iter; pt_scene_dirty = true; }
             renderFrame();
             vkDeviceWaitIdle(device); // ensure the frame is finished before readback
 
@@ -436,21 +557,46 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 ++timed_count;
             }
 
-            remote::FrameHeader header{ .size = static_cast<uint32_t>(payload_size), .flags = flags };
-            if (!transport->sendVideo(&header, sizeof(header)) ||
-                !transport->sendVideo(payload, payload_size))
+            // Echo the newest client stamp on exactly one frame (0 = nothing new to echo).
+            const uint32_t echo = latest_stamp;
+            latest_stamp = 0;
+
+            bool sent_this = true;
+            if (dgram_video)
             {
-                client_gone = true; break;
+                if (!transport->sendVideoUnreliable(payload, payload_size, flags, echo))
+                {
+                    // Congestion backlog: the transport dropped the frame instead of queueing
+                    // latency. The client sees a frame-id gap; make the next frame an IDR so it
+                    // can resume decoding without waiting for its keyframe request round trip.
+#ifdef MIMIR_HAVE_FFMPEG
+                    encoder.force_idr = true;
+#endif
+                    sent_this = false;
+                }
+            }
+            else
+            {
+                remote::FrameHeader header{ .size = static_cast<uint32_t>(payload_size),
+                    .flags = flags, .echo_stamp = echo };
+                if (!transport->sendVideo(&header, sizeof(header)) ||
+                    !transport->sendVideo(payload, payload_size))
+                {
+                    client_gone = true; break;
+                }
             }
 
             // Telemetry: once per second, report fps / bitrate / mean encode time to the client
             // and print the same summary to the server terminal.
-            ++win_frames; ++session_frames;
-            win_bytes += payload_size;
-            win_enc_us += enc_ms * 1000.0;
+            if (sent_this)
+            {
+                ++win_frames; ++session_frames;
+                win_bytes += payload_size;
+                win_enc_us += enc_ms * 1000.0;
+            }
             const auto now = std::chrono::steady_clock::now();
             const double elapsed = std::chrono::duration<double>(now - win_start).count();
-            if (elapsed >= 1.0)
+            if (elapsed >= 1.0 && win_frames > 0)
             {
                 remote::Stats st{
                     .frames    = static_cast<uint32_t>(session_frames),
@@ -458,13 +604,42 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .kbps      = static_cast<uint32_t>(static_cast<double>(win_bytes) * 8.0 / 1000.0 / elapsed),
                     .encode_us = static_cast<uint32_t>(win_enc_us / static_cast<double>(win_frames)),
                 };
-                spdlog::info("[stats] frame {:6d} | {:5.1f} fps | {:6d} kbps | {:5.0f} µs encode",
+                // Per-frame sizes: what the render produced vs. what actually went on the wire.
+                // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
+                const double raw_frame_kb  = static_cast<double>(width) * height * 4.0 / 1000.0;
+                const double sent_frame_kb = static_cast<double>(win_bytes)
+                    / static_cast<double>(win_frames) / 1000.0;
+                // The sim step count rides this line while a client is connected (the [sim]
+                // heartbeat covers the unwatched periods).
+                char step_str[64];
+                if (max_iters != 0)
+                {
+                    snprintf(step_str, sizeof(step_str), "%zu of %zu", total_iter, max_iters);
+                }
+                else
+                {
+                    snprintf(step_str, sizeof(step_str), "%zu", total_iter);
+                }
+                spdlog::info("[stats] step {} | frame {:6d} | {:5.1f} fps | {:6d} kbps | "
+                    "{:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller)",
+                    step_str,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
-                    static_cast<double>(st.encode_us));
+                    static_cast<double>(st.encode_us) / 1000.0,
+                    codec == remote::Codec::H264 ? "encode" : "readback",
+                    raw_frame_kb, sent_frame_kb,
+                    sent_frame_kb > 0.0 ? raw_frame_kb / sent_frame_kb : 0.0);
+                if (csv)
+                {
+                    fprintf(csv, "%.3f,%u,%.1f,%u,%.3f\n",
+                        std::chrono::duration<double>(now - serve_start).count(),
+                        st.frames, static_cast<double>(st.fps_milli) / 1000.0, st.kbps,
+                        static_cast<double>(st.encode_us) / 1000.0);
+                    fflush(csv);
+                }
                 remote::FrameHeader sh{ .size = static_cast<uint32_t>(sizeof(st)),
-                    .flags = remote::FRAME_STATS };
+                    .flags = remote::FRAME_STATS, .echo_stamp = 0 };
                 if (!transport->sendVideo(&sh, sizeof(sh)) || !transport->sendVideo(&st, sizeof(st)))
                 {
                     client_gone = true; break;
@@ -487,10 +662,15 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 path, timed_count, enc_sum_ms / static_cast<double>(timed_count),
                 enc_min_ms, enc_max_ms);
         }
-        spdlog::info("remote: client session ended after {} frames ({}) — simulation paused, waiting for next client",
+        spdlog::info("remote: client session ended after {} frames ({}) — simulation continues unwatched",
             session_frames, client_gone ? "disconnected" : "client quit");
-        // Loop back to listen for the next client (reconnect), unless max_iters stopped us.
+        // Restart the heartbeat window so the first unwatched [sim] rate isn't averaged over
+        // the session's (throttled) streaming period.
+        sim_log_time = std::chrono::steady_clock::now();
+        sim_log_iter = total_iter;
+        // Loop back: free-run the simulation and keep polling for the next client.
     }
+    if (csv) { fclose(csv); }
 }
 
 } // namespace mimir

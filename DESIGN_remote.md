@@ -237,6 +237,69 @@ and `ControlSource` sit above this and never know which transport is active.
 A pre-stream **handshake/auth** (shared token or similar) gates a connection before any frames
 flow. Details TBD; the seam is the control stream's first message.
 
+### Unreliable video: QUIC DATAGRAM (implemented)
+Reliable QUIC streams retransmit like TCP, so the two transports would only differ in
+congestion-control details. To make them genuinely complementary, H.264 frames over QUIC ride
+**unreliable QUIC DATAGRAM frames (RFC 9221)** instead of a stream:
+- Each encoded frame is fragmented into ~1150-byte datagrams headed by `DatagramFrag`
+  (`frame_id`, `offset`, `frame_bytes`, `flags`, `echo_stamp`); the client reassembles by
+  offset. **Nothing is ever retransmitted**: TCP = never corrupts but may stall; QUIC = never
+  stalls but may drop.
+- Loss recovery: a frame-id gap or an incomplete frame marks a loss; the client discards
+  P-frames until the next IDR and sends `ControlKind::RequestKeyframe` (rate-limited to one
+  per 200 ms). The server forces the encoder's next frame to an IDR (`forced-idr` on NVENC).
+- Server-side drop policy: if the previous frame's datagrams are still queued when the next is
+  ready (congestion), the stale fragments and the new frame are both dropped and the next
+  encode is forced to an IDR — latency stays bounded instead of building a send queue.
+- Hello / Stats / re-Hello stay on the reliable stream. Raw (uncompressed) frames also stay on
+  the stream: at ~8 MB/frame any single lost fragment would void the whole frame.
+- Negotiated via the QUIC transport parameter `max_datagram_frame_size`; if the peer doesn't
+  advertise it, video transparently uses the reliable stream as before.
+
+### End-to-end latency measurement (implemented)
+Every `ControlMsg` carries a client steady-clock ms stamp, and the client emits a
+`ControlKind::None` heartbeat every 50 ms so latency is sampled without interaction. The server
+echoes the newest stamp exactly once in the next frame (`FrameHeader::echo_stamp` /
+`DatagramFrag::echo_stamp`); the client subtracts on its own clock — **no clock sync needed**.
+The rr-client prints mean/p95 per stats window; the full time series is recorded by the
+benchmark mode below.
+
+### Continuous simulation: the server never waits (implemented)
+The simulation is sovereign. `serveRemote` binds its listener once, then free-runs the compute
+loop; a non-blocking `Listener::poll()` between steps picks up dialing clients. While unwatched,
+rendering/encoding are skipped entirely (and the fps limiter lives in `renderFrame`), so the
+sim advances at full speed — orders of magnitude faster than the streamed 60 fps. A client
+connecting starts a session (fresh encoder = keyframe-on-join); disconnecting just drops back
+to free-running. This is the long-running-job monitoring model: a days-long simulation can be
+visited from home, left, and revisited the next day, without ever pausing. One client at a
+time; extra connection attempts wait in the socket backlog until the active session ends.
+Proof of life in the logs: unwatched, a `[sim] step N [of M] | X steps/s | no viewer` heartbeat
+every 2 s; watched, the step counter rides the once-per-second `[stats]` line instead.
+
+No minimum frame time is imposed while streaming either: `serveRemote` disables the windowed
+fps limiter (a present-path default of 60), so sessions run at the natural render+encode+send
+rate — throttled only by real backpressure (TCP) or shed by the datagram drop policy (QUIC).
+Uncapping cut loopback end-to-end latency from ~28 ms to ~8 ms (the 16.7 ms stall sat in the
+input→frame path). Note the wire rate then scales with achieved fps (NVENC budgets bits per
+frame at its configured 60 fps), so on fast links kbps exceeds the --bitrate target
+proportionally. For a fixed bandwidth budget, rr-server `--fps N` (serveRemote's `fps`
+parameter) re-enables the cap and sets the encoder's rate-control framerate to match, so
+--bitrate is honored exactly at that cadence.
+
+### Reproducible benchmark (`--benchmark <csv>`, implemented)
+For cross-site comparisons both binaries take `--benchmark <csv>` (no CSV appears anywhere in
+a normal, non-benchmarking invocation):
+- **rr-server `--benchmark <csv>`**: writes its per-second telemetry
+  (`time_s,frame,fps,kbps,encode_ms`) on the server machine, as a cross-check/backup.
+- **rr-client `--benchmark <csv>`**: replaces the mouse with a deterministic 20 s script at a
+  60 Hz control cadence — 3 s idle, 6 s orbit (~360°), 3 s zoom into the cloud, 3 s look
+  around inside, 3 s zoom out, 2 s idle — then quits, writing the per-second time series
+  (`time_s,fps,kbps,server_ms,decode_ms,lat_{mean,p50,p95,max}_ms,lost,ctrl_events,phase`).
+  The `phase` column labels the script phases so plots can shade interaction intervals. The
+  same control stream is emitted every run, so runs against different servers/links are
+  directly comparable. The client CSV alone suffices for plots: the server-side columns
+  (fps/kbps/server_ms) arrive relayed in the Stats telemetry.
+
 ## 6. Client design (`mimir-client`, new native executable)
 
 A small standalone app (its own target under `samples/` or a top-level `client/`), not linked

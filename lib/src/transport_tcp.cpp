@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -58,7 +59,7 @@ bool recvAll(int fd, void *buf, size_t len)
 class TcpTransport final : public Transport
 {
 public:
-    TcpTransport(int listen_fd, int client_fd) : listen_fd_(listen_fd), client_fd_(client_fd)
+    explicit TcpTransport(int client_fd) : client_fd_(client_fd)
     {
         receiver_ = std::thread([this]
         {
@@ -78,7 +79,8 @@ public:
         shutdown(client_fd_, SHUT_RDWR);
         if (receiver_.joinable()) { receiver_.join(); }
         close(client_fd_);
-        close(listen_fd_);
+        // The listening socket outlives the session: it belongs to the TcpListener, which keeps
+        // accepting the next client while the server's simulation continues.
     }
 
     bool sendVideo(const void *data, size_t len) override
@@ -96,7 +98,6 @@ public:
     }
 
 private:
-    int listen_fd_ = -1;
     int client_fd_ = -1;
     std::atomic<bool> alive_{true};
     std::mutex mutex_;
@@ -104,9 +105,49 @@ private:
     std::thread receiver_;
 };
 
+// Persistent accept socket, polled non-blockingly from the server's simulation loop.
+class TcpListener final : public Listener
+{
+public:
+    TcpListener(int listen_fd, std::string token) : listen_fd_(listen_fd), token_(std::move(token)) {}
+    ~TcpListener() override { close(listen_fd_); }
+
+    std::unique_ptr<Transport> poll() override
+    {
+        pollfd pfd{ listen_fd_, POLLIN, 0 };
+        if (::poll(&pfd, 1, 0) <= 0 || !(pfd.revents & POLLIN)) { return nullptr; }
+        int client = accept(listen_fd_, nullptr, nullptr);
+        if (client < 0) { return nullptr; }
+        int one = 1;
+        setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)); // low latency
+
+        // The client sends an AuthMsg as the very first control-channel bytes; validate before
+        // accepting the session so unauthorized clients never get a stream. The read is bounded
+        // so a stalling client can only briefly pause the simulation loop, not hang it.
+        timeval auth_timeout{ 2, 0 };
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &auth_timeout, sizeof(auth_timeout));
+        AuthMsg auth{};
+        if (!recvAll(client, &auth, sizeof(auth)) || !authOk(auth, token_))
+        {
+            spdlog::warn("remote(tcp): client rejected (bad token or handshake)");
+            shutdown(client, SHUT_RDWR);
+            close(client);
+            return nullptr; // keep listening; the next poll may find a valid client
+        }
+        timeval no_timeout{ 0, 0 };
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &no_timeout, sizeof(no_timeout));
+        spdlog::info("remote(tcp): client connected and authenticated");
+        return std::make_unique<TcpTransport>(client);
+    }
+
+private:
+    int listen_fd_ = -1;
+    std::string token_;
+};
+
 } // namespace
 
-std::unique_ptr<Transport> listenTcp(uint16_t port, const std::string& token)
+std::unique_ptr<Listener> makeTcpListener(uint16_t port, const std::string& token)
 {
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0) { spdlog::error("remote(tcp): failed to create socket"); return nullptr; }
@@ -124,31 +165,8 @@ std::unique_ptr<Transport> listenTcp(uint16_t port, const std::string& token)
         return nullptr;
     }
     listen(listen_fd, 1);
-    spdlog::info("remote(tcp): waiting for a client on port {}", port);
-
-    // Accept clients until one authenticates, rejecting bad ones without giving up the socket
-    // (so a wrong-token client can't end the server's reconnect loop). Only a real accept()
-    // failure is fatal.
-    for (;;)
-    {
-        int client = accept(listen_fd, nullptr, nullptr);
-        if (client < 0) { spdlog::error("remote(tcp): accept failed"); close(listen_fd); return nullptr; }
-        int one = 1;
-        setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)); // low latency
-
-        // The client sends an AuthMsg as the very first control-channel bytes; validate before
-        // accepting the session so unauthorized clients never get a stream.
-        AuthMsg auth{};
-        if (!recvAll(client, &auth, sizeof(auth)) || !authOk(auth, token))
-        {
-            spdlog::warn("remote(tcp): client rejected (bad token or handshake)");
-            shutdown(client, SHUT_RDWR);
-            close(client);
-            continue; // keep listening for a valid client
-        }
-        spdlog::info("remote(tcp): client connected and authenticated");
-        return std::make_unique<TcpTransport>(listen_fd, client);
-    }
+    spdlog::info("remote(tcp): listening on port {}", port);
+    return std::make_unique<TcpListener>(listen_fd, token);
 }
 
 } // namespace mimir::remote

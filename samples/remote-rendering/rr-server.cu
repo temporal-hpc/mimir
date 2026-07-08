@@ -70,10 +70,22 @@ static void usage(const char *prog)
         "  --seed N           RNG seed for positions/walk                     (default: 12345)\n"
         "  --k N              Gaussian modes (clusters) at init               (default: 8)\n"
         "  --epsilon E        Per-axis stddev of each mode                    (default: 0.05)\n"
+        "  --bitrate N        H.264 target bitrate in kbps (h264 = 1 only)    (default: 8000)\n"
+        "                     Path tracing without --denoise is temporally noisy and needs\n"
+        "                     much more (e.g. 40000+) or interiors smear/ghost under motion.\n"
+        "  --benchmark F      Write per-second server telemetry to CSV file F\n"
+        "                     (time_s,frame,fps,kbps,encode_ms). Pair with the client's\n"
+        "                     --benchmark scripted camera to replicate runs across servers.\n"
+        "  --fps N            Cap the streamed session at N fps and honor --bitrate at that\n"
+        "                     cadence (default: 0 = uncapped; the session runs at the natural\n"
+        "                     render+encode+send rate, paced only by the link and client, and\n"
+        "                     the wire rate scales with the achieved fps).\n"
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
         "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris     (default: 1)\n"
+        "  --denoise          Denoise each frame before display/encode; also makes the\n"
+        "                     stream H.264-friendly at low bitrates (temporally stable)\n"
         "\n"
         "Examples:\n"
         "  # Minimal -- raw, TCP, phong:\n"
@@ -110,6 +122,10 @@ int main(int argc, char *argv[])
     unsigned int pt_bounces = 4;
     unsigned int pt_subdiv  = 1;
     bool subdiv_set         = false;
+    bool pt_denoise         = false;
+    int bitrate_kbps        = 8000;
+    int fps_cap             = 0;
+    std::string bench_csv   = "";
 
     // Split argv into positional (port width height ...) and named (--opt value) tokens. The
     // seven historical positional args stay compatible with the earlier rr-server CLI/README.
@@ -118,6 +134,7 @@ int main(int argc, char *argv[])
     {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
+        if (a == "--denoise") { pt_denoise = true; continue; } // flag, takes no value
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
@@ -133,6 +150,9 @@ int main(int argc, char *argv[])
             else if (a == "--spp")         pt_spp = (unsigned int)std::stoul(v);
             else if (a == "--bounces")     pt_bounces = (unsigned int)std::stoul(v);
             else if (a == "--subdiv")    { pt_subdiv = (unsigned int)std::stoul(v); subdiv_set = true; }
+            else if (a == "--bitrate")     bitrate_kbps = std::stoi(v);
+            else if (a == "--benchmark")   bench_csv = v;
+            else if (a == "--fps")         fps_cap = std::stoi(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { posv.push_back(a); }
@@ -166,6 +186,7 @@ int main(int argc, char *argv[])
     options.pt_samples_per_pixel = pt_spp;
     options.pt_max_bounces       = pt_bounces;
     options.pt_subdivisions      = pt_subdiv;
+    options.pt_denoise           = pt_denoise;
     // Match datoviz/particles-kmodal-3d framing of the [-1,1]^3 domain (45 deg vertical FOV).
     options.camera_fov        = 45.f;
 
@@ -226,7 +247,8 @@ int main(int argc, char *argv[])
     serveRemote(instance, port, [&]{
         launchIntegrate3D(d_pos, point_count, clusters, rng);
         checkCuda(cudaDeviceSynchronize());
-    }, 0, use_h264, transport, token.c_str());
+    }, 0, use_h264, transport, token.c_str(), bitrate_kbps,
+        bench_csv.empty() ? nullptr : bench_csv.c_str(), fps_cap);
 
     destroyClusters(clusters);
     destroyRngStates(rng);

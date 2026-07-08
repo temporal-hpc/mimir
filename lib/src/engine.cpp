@@ -393,7 +393,7 @@ void MimirInstance::renderHeadless(std::function<void(void)> func, size_t iter_c
     auto frames = std::max<size_t>(iter_count, 1);
     for (size_t i = 0; i < frames; ++i)
     {
-        if (i < iter_count) { func(); }
+        if (i < iter_count) { func(); pt_scene_dirty = true; }
         renderFrame();
     }
     vkDeviceWaitIdle(device);
@@ -1858,13 +1858,15 @@ void MimirInstance::renderFrame(bool advance_interop)
         pc.bounces     = options.pt_max_bounces;
 
         // Temporal accumulation: restart the running mean from zero whenever the scene may have
-        // changed -- a new simulation iteration (advance_interop consumes one compute step) or any
-        // camera motion (view matrix or fov differs from last frame). Otherwise keep accumulating so
-        // a static view converges. A resize recreates the accumulator, so it self-resets there too.
+        // changed -- a new simulation iteration (advance_interop consumes one compute step;
+        // pt_scene_dirty is the equivalent signal from the host-lockstep headless/remote loops) or
+        // any camera motion (view matrix or fov differs from last frame). Otherwise keep
+        // accumulating so a static view converges. A resize recreates the accumulator too.
         bool cam_moved = camera.matrices.view != pt_last_view || camera.fov != pt_last_fov;
         pt_last_view = camera.matrices.view;
         pt_last_fov  = camera.fov;
-        if (advance_interop || cam_moved) { pt_accum_frame = 0; }
+        if (advance_interop || pt_scene_dirty || cam_moved) { pt_accum_frame = 0; }
+        pt_scene_dirty = false;
         pc.accum_frame = pt_accum_frame;
         pt_accum_frame++;
 

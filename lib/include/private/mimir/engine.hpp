@@ -163,6 +163,10 @@ struct MimirInstance
     uint32_t pt_accum_frame = 0;
     glm::mat4 pt_last_view{0.f};
     float pt_last_fov = -1.f;
+    // Set by the host-lockstep loops (renderHeadless, serveRemote) after running a compute step,
+    // since they render with advance_interop=false and would otherwise never report a scene
+    // change to the accumulator. Consumed (cleared) by the next renderFrame.
+    bool pt_scene_dirty = false;
 
     static MimirInstance make(ViewerOptions opts);
     static MimirInstance make(int width, int height);
@@ -209,13 +213,14 @@ struct MimirInstance
     void freeFrameCudaBuffer();
     // Writes the most recently rendered offscreen frame to a binary PPM (P6) file.
     void saveFrameToPpm(const char *path);
-    // Streams rendered frames over TCP to a single connected client and applies the
-    // control events it sends back (camera, pause). Renders headless; blocks until the
-    // client disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited).
+    // Runs the workload continuously (with or without a viewer) and streams rendered frames
+    // to a connected client, applying the control events it sends back (camera, pause).
+    // Renders headless; returns once max_iters compute steps elapse (0 = run forever).
     void serveRemote(uint16_t port, std::function<void(void)> compute, size_t max_iters,
         bool use_h264 = false,
         remote::TransportKind kind = remote::TransportKind::Tcp,
-        std::string token = {});
+        std::string token = {}, int bitrate_kbps = 8000, std::string stats_csv = {},
+        int target_fps = 0);
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 

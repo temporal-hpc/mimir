@@ -49,6 +49,7 @@ namespace mimir::remote
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -155,6 +156,43 @@ public:
         return alive_.load();
     }
 
+    bool unreliableVideoReady() const override { return dgram_ok_.load(); }
+
+    // Queues one video frame as DatagramFrag-headed QUIC datagrams. Drop-don't-queue policy:
+    // if the I/O thread has not flushed the previous frame yet (congestion), the stale fragments
+    // AND this frame are discarded and false is returned, keeping latency bounded — exactly the
+    // behavior that distinguishes this path from the reliable stream.
+    bool sendVideoUnreliable(const void *data, size_t len, uint32_t flags, uint32_t echo_stamp) override
+    {
+        if (!alive_.load() || !dgram_ok_.load() || len == 0) { return false; }
+        const uint32_t id = dgram_frame_id_++; // ids advance even for dropped frames (gap = loss)
+        bool queued = false;
+        {
+            std::lock_guard<std::mutex> lock(out_mutex_);
+            if (!dgrams_.empty()) { dgrams_.clear(); }
+            else
+            {
+                // Fragment payload sized so header+payload rides one ~1200-byte datagram, well
+                // inside the default 1452-byte UDP payload after QUIC packet overhead.
+                constexpr size_t kFrag = 1150;
+                auto *p = static_cast<const uint8_t*>(data);
+                for (size_t off = 0; off < len; off += kFrag)
+                {
+                    const size_t n = std::min(kFrag, len - off);
+                    DatagramFrag h{ id, static_cast<uint32_t>(off), static_cast<uint32_t>(len),
+                        flags, echo_stamp };
+                    std::vector<uint8_t> d(sizeof(h) + n);
+                    std::memcpy(d.data(), &h, sizeof(h));
+                    std::memcpy(d.data() + sizeof(h), p + off, n);
+                    dgrams_.push_back(std::move(d));
+                }
+                queued = true;
+            }
+        }
+        wake();
+        return queued;
+    }
+
     // Builds the connection from the client's first datagram and starts the I/O thread. Blocks
     // until the handshake completes (or fails / times out). Returns false on failure.
     bool start(int fd, int wake_fd, const std::string& token,
@@ -243,9 +281,13 @@ private:
         return 0;
     }
 
-    static int handshakeCompletedCb(ngtcp2_conn*, void *user_data)
+    static int handshakeCompletedCb(ngtcp2_conn *conn, void *user_data)
     {
         auto *t = self(user_data);
+        // Datagram video is usable only if the client advertised RFC 9221 support with room for
+        // our fragment size (header + 1150 payload).
+        const ngtcp2_transport_params *rp = ngtcp2_conn_get_remote_transport_params(conn);
+        t->dgram_ok_.store(rp != nullptr && rp->max_datagram_frame_size >= 1200);
         {
             std::lock_guard<std::mutex> lock(t->handshake_mutex_);
             t->handshake_done_.store(true);
@@ -380,6 +422,7 @@ private:
         params.initial_max_streams_bidi       = 0;
         params.initial_max_stream_data_uni    = 16 * 1024 * 1024;   // ample for video frames
         params.initial_max_data               = 64 * 1024 * 1024;
+        params.max_datagram_frame_size        = 65535;              // accept RFC 9221 datagrams
         params.original_dcid_present           = 1;
         params.original_dcid.datalen = vc.dcidlen;                  // DCID from client's Initial
         std::memcpy(params.original_dcid.data, vc.dcid, vc.dcidlen);
@@ -440,12 +483,47 @@ private:
         ngtcp2_pkt_info pi{};
         const ngtcp2_tstamp ts = now_ns();
 
+        bool dgram_blocked = false; // congestion-limited this pump; retry on the next wakeup
+
         for (;;)
         {
             if (video_stream_ == -1 && handshake_done_.load())
             {
                 int64_t sid = -1;
                 if (ngtcp2_conn_open_uni_stream(conn_, &sid, nullptr) == 0) { video_stream_ = sid; }
+            }
+
+            // Video datagrams first: they are the latency-critical payload, and unlike stream
+            // bytes they are congestion-controlled but never retransmitted.
+            {
+                std::unique_lock<std::mutex> dlock(out_mutex_);
+                if (!dgram_blocked && !dgrams_.empty() && handshake_done_.load())
+                {
+                    ngtcp2_vec dvec{ dgrams_.front().data(), dgrams_.front().size() };
+                    int accepted = 0;
+                    ngtcp2_ssize nwrite = ngtcp2_conn_writev_datagram(conn_, &ps.path, &pi,
+                        buf, sizeof(buf), &accepted, NGTCP2_WRITE_DATAGRAM_FLAG_MORE, 0, &dvec, 1, ts);
+                    if (nwrite == NGTCP2_ERR_WRITE_MORE)
+                    {
+                        if (accepted) { dgrams_.pop_front(); }
+                        else { dgram_blocked = true; } // defensive: avoid spinning
+                        continue;
+                    }
+                    if (nwrite < 0)
+                    {
+                        // This datagram can never go out (peer limit changed / too large): drop it
+                        // rather than wedging the pump; the client recovers via keyframe request.
+                        spdlog::warn("remote(quic): writev_datagram: {}",
+                            ngtcp2_strerror(static_cast<int>(nwrite)));
+                        dgrams_.pop_front();
+                        continue;
+                    }
+                    if (accepted) { dgrams_.pop_front(); }
+                    if (nwrite == 0) { dgram_blocked = true; continue; } // cwnd-limited
+                    dlock.unlock();
+                    if (send(fd_, buf, static_cast<size_t>(nwrite), 0) < 0) { return false; }
+                    continue;
+                }
             }
 
             int64_t stream_id = -1;
@@ -548,6 +626,11 @@ private:
     int64_t video_stream_ = -1;
     std::string token_;                    // expected auth token (empty = accept any)
 
+    // Unreliable video (QUIC DATAGRAM) state.
+    std::atomic<bool> dgram_ok_{false};    // peer negotiated RFC 9221 with usable size
+    uint32_t dgram_frame_id_ = 0;          // render-thread only (sendVideoUnreliable caller)
+    std::deque<std::vector<uint8_t>> dgrams_; // pending datagrams, guarded by out_mutex_
+
     std::atomic<bool> alive_{true};
     std::atomic<bool> handshake_done_{false};
     std::atomic<bool> auth_done_{false};
@@ -588,65 +671,98 @@ int bindUdp(uint16_t port)
 }
 } // namespace
 
-std::unique_ptr<Transport> listenQuic(uint16_t port, const std::string& token)
+namespace
 {
-    // A persistent unconnected "listener" socket waits for the next client's QUIC Initial and
-    // cheaply drops stray packets (e.g. retransmits from a just-rejected client are short-header
-    // 1-RTT packets, which decode_version_cid rejects) without spinning up a connection. Only the
-    // listener bind is fatal; failed/unauthorized clients just leave us waiting for the next.
+// Persistent unconnected "listener" socket, polled non-blockingly from the server's simulation
+// loop. It waits for a client's QUIC Initial and cheaply drops stray packets (e.g. retransmits
+// from a just-rejected client are short-header 1-RTT packets, which decode_version_cid rejects)
+// without spinning up a connection. The listener socket outlives sessions: each session gets its
+// own connected socket on the same port (SO_REUSEPORT), so the kernel routes that peer's
+// datagrams to the session while the listener keeps catching new clients' Initials.
+class QuicListener final : public Listener
+{
+public:
+    QuicListener(int listen_fd, std::string token) : listen_fd_(listen_fd), token_(std::move(token)) {}
+    ~QuicListener() override { close(listen_fd_); }
+
+    std::unique_ptr<Transport> poll() override
+    {
+        for (;;)
+        {
+            pollfd pfd{ listen_fd_, POLLIN, 0 };
+            if (::poll(&pfd, 1, 0) <= 0 || !(pfd.revents & POLLIN)) { return nullptr; }
+
+            uint8_t first[65536];
+            sockaddr_storage remote{};
+            socklen_t remote_len = sizeof(remote);
+            ssize_t n = recvfrom(listen_fd_, first, sizeof(first), 0,
+                reinterpret_cast<sockaddr*>(&remote), &remote_len);
+            if (n <= 0) { return nullptr; }
+
+            // Only a genuine QUIC Initial starts a session; drop anything else and keep
+            // draining whatever is queued this poll.
+            ngtcp2_version_cid vc{};
+            if (ngtcp2_pkt_decode_version_cid(&vc, first, static_cast<size_t>(n), NGTCP2_MAX_CIDLEN) != 0)
+            {
+                continue;
+            }
+            ngtcp2_pkt_hd hd{};
+            if (ngtcp2_pkt_decode_hd_long(&hd, first, static_cast<size_t>(n)) < 0
+                || hd.type != NGTCP2_PKT_INITIAL)
+            {
+                continue;
+            }
+
+            // Per-session socket on the same port, connected to this peer (so the kernel routes
+            // the peer's subsequent datagrams here, ahead of the wildcard listener).
+            int sfd = bindUdp(port_of(listen_fd_));
+            if (sfd < 0) { spdlog::error("remote(quic): failed to create session socket"); return nullptr; }
+            if (connect(sfd, reinterpret_cast<sockaddr*>(&remote), remote_len) != 0)
+            {
+                spdlog::error("remote(quic): connect to client failed"); close(sfd); return nullptr;
+            }
+            int wake_fd = eventfd(0, EFD_NONBLOCK);
+            if (wake_fd < 0) { spdlog::error("remote(quic): eventfd failed"); close(sfd); return nullptr; }
+
+            // The handshake itself blocks (typically one RTT; bounded by its 10 s timeout) —
+            // acceptable, as it only happens when a client is actually dialing in.
+            auto transport = std::make_unique<QuicTransport>();
+            if (transport->start(sfd, wake_fd, token_, remote, remote_len, first, static_cast<size_t>(n)))
+            {
+                return transport;
+            }
+            // Handshake/auth failed; transport dtor closed sfd/wake_fd. Back to the sim loop.
+            spdlog::warn("remote(quic): client setup/auth failed");
+            return nullptr;
+        }
+    }
+
+private:
+    // Recovers the bound port so per-session sockets can share it.
+    static uint16_t port_of(int fd)
+    {
+        sockaddr_in addr{};
+        socklen_t len = sizeof(addr);
+        getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
+        return ntohs(addr.sin_port);
+    }
+
+    int listen_fd_ = -1;
+    std::string token_;
+};
+} // namespace
+
+std::unique_ptr<Listener> makeQuicListener(uint16_t port, const std::string& token)
+{
     int listen_fd = bindUdp(port);
     if (listen_fd < 0) { spdlog::error("remote(quic): failed to bind UDP port {}", port); return nullptr; }
-    spdlog::info("remote(quic): waiting for a client on UDP port {}", port);
-
-    for (;;)
-    {
-        uint8_t first[65536];
-        sockaddr_storage remote{};
-        socklen_t remote_len = sizeof(remote);
-        ssize_t n = recvfrom(listen_fd, first, sizeof(first), 0,
-            reinterpret_cast<sockaddr*>(&remote), &remote_len);
-        if (n <= 0) { continue; }
-
-        // Only a genuine QUIC Initial starts a session; anything else (short-header 1-RTT or
-        // long-header Handshake retransmits from a just-rejected client, etc.) is dropped
-        // without cost, so a departing/unauthorized client can't make us churn connections.
-        ngtcp2_version_cid vc{};
-        if (ngtcp2_pkt_decode_version_cid(&vc, first, static_cast<size_t>(n), NGTCP2_MAX_CIDLEN) != 0)
-        {
-            continue;
-        }
-        ngtcp2_pkt_hd hd{};
-        if (ngtcp2_pkt_decode_hd_long(&hd, first, static_cast<size_t>(n)) < 0
-            || hd.type != NGTCP2_PKT_INITIAL)
-        {
-            continue;
-        }
-
-        // Per-session socket on the same port, connected to this peer (so the kernel routes the
-        // peer's subsequent datagrams here, ahead of the wildcard listener).
-        int sfd = bindUdp(port);
-        if (sfd < 0) { spdlog::error("remote(quic): failed to create session socket"); continue; }
-        if (connect(sfd, reinterpret_cast<sockaddr*>(&remote), remote_len) != 0)
-        {
-            spdlog::error("remote(quic): connect to client failed"); close(sfd); continue;
-        }
-        int wake_fd = eventfd(0, EFD_NONBLOCK);
-        if (wake_fd < 0) { spdlog::error("remote(quic): eventfd failed"); close(sfd); continue; }
-
-        auto transport = std::make_unique<QuicTransport>();
-        if (transport->start(sfd, wake_fd, token, remote, remote_len, first, static_cast<size_t>(n)))
-        {
-            close(listen_fd); // session owns sfd; the listener is no longer needed
-            return transport;
-        }
-        // Handshake/auth failed; transport dtor closed sfd/wake_fd. Keep waiting on the listener.
-        spdlog::warn("remote(quic): client setup/auth failed, waiting for the next");
-    }
+    spdlog::info("remote(quic): listening on UDP port {}", port);
+    return std::make_unique<QuicListener>(listen_fd, token);
 }
 
 #else // !MIMIR_HAVE_QUIC
 
-std::unique_ptr<Transport> listenQuic(uint16_t, const std::string&)
+std::unique_ptr<Listener> makeQuicListener(uint16_t, const std::string&)
 {
     spdlog::error("remote(quic): library built without QUIC support; "
         "rebuild with -DMIMIR_ENABLE_QUIC=ON (needs ngtcp2), or use the TCP transport");

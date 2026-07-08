@@ -42,16 +42,40 @@ struct Transport
     // Appends any fully-received control messages to out. Returns false once the peer has
     // disconnected (no more control will arrive).
     virtual bool pollControl(std::vector<ControlMsg>& out) = 0;
+
+    // True when this transport can deliver video frames unreliably (QUIC DATAGRAM negotiated
+    // with the peer). TCP and non-datagram QUIC sessions return false and use sendVideo framing.
+    virtual bool unreliableVideoReady() const { return false; }
+
+    // Sends one whole video frame as unreliable datagrams (fragmented to MTU, DatagramFrag
+    // framing). Lost fragments are never retransmitted. Returns false when the frame was NOT
+    // queued because the previous frame is still stuck behind congestion (the caller should
+    // force the next frame to be an IDR so the client can resume decoding past the gap).
+    virtual bool sendVideoUnreliable(const void*, size_t, uint32_t /*flags*/, uint32_t /*echo_stamp*/)
+    { return false; }
 };
 
-// Listens on the given TCP port and blocks until exactly one client connects and passes the auth
-// check, returning a ready transport (or nullptr on failure/auth rejection). A non-empty token is
-// required to match the client's AuthMsg; an empty token accepts any client.
-std::unique_ptr<Transport> listenTcp(uint16_t port, const std::string& token);
+// Accepts clients without blocking the caller. The server binds once, then polls from its
+// simulation loop: the sim keeps running whether or not anyone is watching, and a client
+// connecting simply starts a session on the next poll. One client at a time; further connection
+// attempts wait in the socket backlog until the active session ends.
+struct Listener
+{
+    virtual ~Listener() = default;
 
-// Listens for a QUIC client on the given UDP port, blocking until the handshake completes and the
-// client passes the auth check. Returns a ready transport (or nullptr on failure/auth rejection/
-// if built without QUIC support). Token semantics match listenTcp.
-std::unique_ptr<Transport> listenQuic(uint16_t port, const std::string& token);
+    // Non-blocking check for a new client. Returns a ready (connected + authenticated)
+    // transport, or nullptr when none is pending — call again on the next loop iteration.
+    // Unauthorized/failed clients are rejected internally and also yield nullptr.
+    // (Once a connection attempt IS in progress, the handshake may block briefly.)
+    virtual std::unique_ptr<Transport> poll() = 0;
+};
+
+// Binds a TCP listener on the given port. A non-empty token is required to match each client's
+// AuthMsg; an empty token accepts any client. Returns nullptr on a bind failure.
+std::unique_ptr<Listener> makeTcpListener(uint16_t port, const std::string& token);
+
+// Binds a QUIC (UDP) listener on the given port. Token semantics match makeTcpListener.
+// Returns nullptr on a bind failure or if built without QUIC support.
+std::unique_ptr<Listener> makeQuicListener(uint16_t port, const std::string& token);
 
 } // namespace mimir::remote

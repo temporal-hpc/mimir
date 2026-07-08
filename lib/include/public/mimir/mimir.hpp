@@ -54,20 +54,31 @@ void renderHeadless(InstanceHandle engine, std::function<void(void)> func, size_
 // Writes the most recently rendered headless frame to a binary PPM (P6) image file.
 void saveFrame(InstanceHandle engine, const char *path);
 
-// Streams rendered frames over TCP to a single connected client and applies the control
-// events it sends back (camera, pause). Requires RenderMode::Headless. Blocks until the client
-// disconnects, sends Quit, or max_iters compute steps elapse (0 = unlimited). 'func' advances
-// the workload before each rendered frame (as in display()). When use_h264 is true and the
-// library was built with ffmpeg support, frames are H.264-encoded before sending; otherwise
-// raw frames are streamed. The client is told the actual codec in the Hello handshake. 'kind'
-// selects the transport: TCP (default, works everywhere incl. ssh -L tunnels) or QUIC (UDP,
-// TLS + congestion control, for direct connections; requires a build with QUIC support). 'token'
-// is an optional shared secret the client must present (empty = accept any client). Serves one
-// client at a time and loops to accept the next after each disconnects (reconnect).
+// Runs the workload continuously and streams rendered frames to a connected client, applying
+// the control events it sends back (camera, pause). Requires RenderMode::Headless. The
+// simulation is sovereign: it advances whether or not a viewer is connected (while unwatched,
+// rendering/encoding are skipped and compute free-runs at full speed), so a days-long job can
+// be visited briefly, left, and revisited later. Serves one client at a time; clients may
+// connect and disconnect at any time. Returns when max_iters compute steps have elapsed
+// (0 = run forever). 'func' advances the workload before each step (as in display()). When
+// use_h264 is true and the library was built with ffmpeg support, frames are H.264-encoded
+// before sending; otherwise raw frames are streamed. The client is told the actual codec in
+// the Hello handshake. 'kind' selects the transport: TCP (default, works everywhere incl.
+// ssh -L tunnels) or QUIC (UDP, TLS + congestion control, for direct connections; H.264 frames
+// then ride unreliable QUIC datagrams). 'token' is an optional shared secret the client must
+// present (empty = accept any client).
+// 'bitrate_kbps' is the H.264 target bitrate (ignored for raw frames); temporally noisy content
+// such as undenoised path tracing needs far more than the 8000 default to avoid ghosting.
+// 'stats_csv' (optional) writes the per-second server telemetry to a CSV file
+// (time_s,frame,fps,kbps,encode_ms) for benchmarking; nullptr/empty disables it.
+// 'fps' > 0 caps the streamed session at that rate and sets the encoder's rate-control
+// framerate (so bitrate_kbps is honored at that cadence); 0 = uncapped, sessions run at the
+// natural render+encode+send rate, paced only by the link and the client.
 void serveRemote(InstanceHandle engine, unsigned short port,
     std::function<void(void)> func, size_t max_iters, bool use_h264 = false,
     remote::TransportKind kind = remote::TransportKind::Tcp,
-    const char *token = ""
+    const char *token = "", int bitrate_kbps = 8000, const char *stats_csv = nullptr,
+    int fps = 0
 );
 
 // Starts a GPU interop critical section.

@@ -35,6 +35,9 @@ enum class ControlKind : uint8_t
     TogglePause  = 4,
     Quit         = 5,
     Resize       = 6, // a = new width, b = new height (server re-renders at this resolution)
+    // Ask the encoder for an IDR on the next frame. Sent by a client that lost a frame on an
+    // unreliable (datagram) video path and cannot decode further P-frames until a keyframe.
+    RequestKeyframe = 7,
 };
 
 // Identifies the client's authentication message ("MIMA"). The client always sends an AuthMsg
@@ -68,8 +71,26 @@ struct Hello
 // struct; otherwise it is a frame (raw pixels or one H.264 access unit) of 'size' bytes.
 struct FrameHeader
 {
-    uint32_t size;  // number of payload bytes that follow
-    uint32_t flags; // FrameFlags
+    uint32_t size;       // number of payload bytes that follow
+    uint32_t flags;      // FrameFlags
+    // Echo of the newest ControlMsg::stamp_ms the server had received when this frame was
+    // produced, echoed exactly once (0 = no new stamp). The client subtracts it from its own
+    // clock to measure end-to-end latency (input/heartbeat -> decoded frame) with no clock sync.
+    uint32_t echo_stamp;
+};
+
+// Precedes each fragment of a video frame sent as an unreliable QUIC DATAGRAM (RFC 9221).
+// A frame of frame_bytes is split into MTU-sized fragments; the client reassembles by offset
+// and considers the frame complete when frame_bytes distinct payload bytes have arrived. Lost
+// datagrams are never retransmitted: an overwritten/expired frame is simply dropped and the
+// client requests a keyframe (ControlKind::RequestKeyframe) to resume decoding.
+struct DatagramFrag
+{
+    uint32_t frame_id;    // monotonically increasing per encoded frame (gap = frame(s) lost)
+    uint32_t offset;      // byte offset of this fragment's payload within the frame
+    uint32_t frame_bytes; // total payload size of the whole frame
+    uint32_t flags;       // FrameFlags (FRAME_KEYFRAME)
+    uint32_t echo_stamp;  // as FrameHeader::echo_stamp (same value on every fragment of a frame)
 };
 
 // Periodic server->client stream telemetry (sent as a FRAME_STATS payload).
@@ -95,6 +116,10 @@ struct ControlMsg
     uint8_t pad[3];
     float   a;
     float   b;
+    // Client steady-clock milliseconds when the event was created (0 = unstamped). The server
+    // echoes the newest stamp it has seen in the next frame's echo_stamp; the client also sends
+    // periodic ControlKind::None heartbeats so latency is sampled even without interaction.
+    uint32_t stamp_ms;
 };
 
 #pragma pack(pop)

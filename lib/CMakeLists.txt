@@ -60,10 +60,10 @@ target_compile_options(mimir PRIVATE
     "$<$<CONFIG:Release>:-O3>"
 )
 
-# Optional H.264 encoding for remote streaming, via system ffmpeg/libav* (pkg-config).
-# When enabled and found, remote::Codec::H264 becomes available; otherwise serveRemote()
-# transparently falls back to raw frames.
-option(MIMIR_ENABLE_REMOTE "Enable H.264-encoded remote streaming (requires ffmpeg)" OFF)
+# H.264 encoding for remote streaming, via system ffmpeg/libav* (pkg-config). On by default
+# (degrades to a raw-frame stream with a warning if ffmpeg is missing); the transport/codec is
+# chosen by the user at run time, not at build time.
+option(MIMIR_ENABLE_REMOTE "Enable H.264-encoded remote streaming (requires ffmpeg)" ON)
 if(MIMIR_ENABLE_REMOTE)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(FFMPEG IMPORTED_TARGET
@@ -80,10 +80,10 @@ if(MIMIR_ENABLE_REMOTE)
     endif()
 endif()
 
-# Optional QUIC transport for remote streaming, via system ngtcp2 + its OpenSSL crypto binding
-# (pkg-config). When enabled and found, remote::TransportKind::Quic becomes available; otherwise
-# serveRemote(..., Quic) reports the missing support and the caller can fall back to TCP.
-option(MIMIR_ENABLE_QUIC "Enable QUIC transport for remote streaming (requires ngtcp2)" OFF)
+# QUIC transport for remote streaming, via system ngtcp2 + its OpenSSL crypto binding
+# (pkg-config). On by default (degrades to TCP-only with a warning if ngtcp2 is missing); the
+# transport is chosen by the user at run time, not at build time.
+option(MIMIR_ENABLE_QUIC "Enable QUIC transport for remote streaming (requires ngtcp2)" ON)
 if(MIMIR_ENABLE_QUIC)
     find_package(PkgConfig REQUIRED)
     find_package(OpenSSL REQUIRED)
