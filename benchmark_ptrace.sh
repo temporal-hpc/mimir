@@ -14,9 +14,9 @@ if [[ "$1" == "--help" || "$1" == "-h" || -z "$1" ]]; then
 fi
 
 modes=(mimir)
-width=1920
-height=1080
-niter=100
+width=3840
+height=2160
+niter=10000
 seed=$RANDOM
 
 sizes=(10000 50000 100000 150000 200000 250000 300000 350000

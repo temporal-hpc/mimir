@@ -13,6 +13,10 @@ if [[ "$1" == "--help" || "$1" == "-h" || -z "$1" ]]; then
     exit 0
 fi
 
+echo "Warming up..."
+./samples/nbody/build/bin/benchmark 1920 1080 16384 10000
+echo "Starting benchmark..."
+
 ./benchmark_main.sh $1
 ./benchmark_ptrace.sh $1
 ./benchmark_desync.sh $1

@@ -14,9 +14,9 @@ if [[ "$1" == "--help" || "$1" == "-h" || -z "$1" ]]; then
 fi
 
 modes=(datoviz mimir)
-width=1920
-height=1080
-niter=100
+width=3840
+height=2160
+niter=10000
 seed=$RANDOM
 
 # echo "Running CA benchmark with window size (${height}x${height}) and RNG state ${seed}"
