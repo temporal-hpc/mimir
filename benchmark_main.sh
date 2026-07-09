@@ -13,9 +13,9 @@ if [[ "$1" == "--help" || "$1" == "-h" || -z "$1" ]]; then
     exit 0
 fi
 
-modes=(datoviz mimir)
-width=3840
-height=2160
+modes=(mimir datoviz)
+width=2560
+height=1440
 niter=10000
 seed=$RANDOM
 

@@ -14,7 +14,7 @@ if [[ "$1" == "--help" || "$1" == "-h" || -z "$1" ]]; then
 fi
 
 echo "Warming up..."
-./samples/nbody/build/bin/benchmark 1920 1080 16384 10000
+./samples/nbody/build/bin/benchmark 1920 1080 65536 100
 echo "Starting benchmark..."
 
 ./benchmark_main.sh $1
