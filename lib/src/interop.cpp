@@ -59,7 +59,9 @@ cudaExternalMemory_t importCudaExternalMemory(
         .handle   = {.fd = fd},
         .size     = size,
         .flags    = 0,
-        .reserved = {},
+#if CUDART_VERSION >= 13000
+        .reserved = {}
+#endif
     };
     validation::checkCuda(cudaImportExternalMemory(&cuda_mem, &extmem_desc));
     return cuda_mem;
@@ -92,7 +94,9 @@ cudaExternalSemaphore_t importCudaExternalSemaphore(
         .type     = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd,
         .handle   = { .fd = fd },
         .flags    = 0,
-        .reserved = {},
+#if CUDART_VERSION >= 13000
+        .reserved = {}
+#endif
     };
 
     validation::checkCuda(cudaImportExternalSemaphore(&cuda_semaphore, &desc));

@@ -491,7 +491,10 @@ void *MimirInstance::mapFrameToCuda()
 
         frame_cuda_extmem_ = interop::importCudaExternalMemory(frame_cuda_mem_, memreq.size, device);
         cudaExternalMemoryBufferDesc buffer_desc{
-            .offset = 0, .size = memsize, .flags = 0, .reserved = {},
+            .offset = 0, .size = memsize, .flags = 0,
+#if CUDART_VERSION >= 13000
+            .reserved = {}
+#endif
         };
         validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
             &frame_cuda_ptr_, frame_cuda_extmem_, &buffer_desc));
@@ -785,7 +788,11 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
         .vk_mem      = vk_memory,
         .cuda_extmem = cuda_extmem
     };
-    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0, .reserved = {} };
+    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0,
+#if CUDART_VERSION >= 13000
+        .reserved = {}
+#endif
+    };
     validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
         dev_ptr, alloc.cuda_extmem, &buffer_desc)
     );
@@ -871,7 +878,9 @@ OpaqueAlloc *MimirInstance::allocMipmap(cudaMipmappedArray_t *dev_arr,
         .extent     = extent,
         .flags      = 0,
         .numLevels  = num_levels,
-        .reserved   = {},
+#if CUDART_VERSION >= 13000
+        .reserved = {}
+#endif
     };
     validation::checkCuda(cudaExternalMemoryGetMappedMipmappedArray(
         dev_arr, cuda_extmem, &array_desc)
