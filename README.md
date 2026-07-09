@@ -103,6 +103,12 @@ server streams uncompressed frames. See [Remote rendering](#remote-rendering).
 * `MIMIR_ENABLE_QUIC` (default OFF):
 Enables the QUIC transport (UDP + TLS) for remote rendering, via system ngtcp2. Without it the
 server is TCP-only. See [Remote rendering](#remote-rendering).
+* `MIMIR_RR_CLIENT_ONLY` (default OFF):
+Builds **only** the remote-rendering client — the thin viewer that connects to a mimir server
+and displays its simulation (the sample's `rr-client`, installed as `mimir-client`). The library
+and everything server-side are skipped, so no CUDA toolkit, Vulkan, or NVIDIA hardware is needed.
+For machines that just view a remote server (ultrabooks, AMD/Intel-graphics laptops). See
+[Viewer on a machine without NVIDIA/CUDA](#viewer-on-a-machine-without-nvidiacuda).
 
 ## Installing
 
@@ -212,6 +218,26 @@ mimir-client <server-ip> 9000              # views ANY mimir serveRemote() serve
 ```
 It exposes the controls common to every mimir scene (orbit / zoom / pan / pause). (Disable with
 `-DMIMIR_BUILD_CLIENT=OFF`.)
+
+### Viewer on a machine without NVIDIA/CUDA
+
+The viewer needs **no CUDA toolkit, Vulkan, NVIDIA hardware, or the mimir library** — only ffmpeg,
+ngtcp2 + OpenSSL, and GLFW/OpenGL (on Arch: `pacman -S ffmpeg libngtcp2 openssl glfw`). So any
+Linux laptop (Intel/AMD graphics included) can build just the viewer:
+
+```sh
+./mimir-build-from-zero.sh --rr-client-only
+```
+**Or, manually:**
+```sh
+cmake -B build -DMIMIR_RR_CLIENT_ONLY=ON
+cmake --build build -j
+./build/mimir-client <server-ip> 9000
+```
+
+The same flag works on the sample (`./samples-build-from-zero.sh --rr-client-only` builds only
+`rr-client`). H.264 decoding falls back to ffmpeg's software decoder when there is no NVDEC, so an
+integrated GPU is enough.
 
 ## Current features
 

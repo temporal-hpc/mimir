@@ -5,13 +5,14 @@ network; the client displays the frames and sends interaction (camera, pause) ba
 researcher on a laptop driving a visualization that runs on a remote GPU box (cluster node,
 workstation) over the internet.
 
-Two binaries, built from the repository root after building the mimir library:
+Two binaries:
 
 - **`rr-server`** — renders headless with mimir, encodes (H.264 via NVENC, or raw), and streams to
-  one client at a time. Links the `mimir` library + CUDA.
+  one client at a time. Links the `mimir` library + CUDA, so it needs a full build.
 - **`rr-client`** — a thin viewer: receives the stream, decodes it, shows it in a window, and sends
   control back. Depends only on the wire protocol + ngtcp2 + OpenSSL + ffmpeg + GLFW/OpenGL — **no
-  mimir, CUDA, or Vulkan**, so it runs on a GPU-less laptop.
+  mimir, CUDA, or Vulkan**, so it builds and runs on a laptop with no NVIDIA stack at all (see
+  [Viewer only](#viewer-only-no-nvidia-gpu--cuda-needed)).
 
 `rr-client` is **workload-agnostic** — it knows nothing about the point-cloud server, so the *same*
 client views any mimir server built with `serveRemote()`. The build also installs this exact program
@@ -43,13 +44,43 @@ same as its local counterpart.
 
 ## Building
 
-> **New here?** Start from the repository root [`README.md`](../../README.md) to build the
-> mimir library first, then come back here. This sample cannot be built without it.
+Pick the path that matches the machine you are on:
+
+- **Viewer only** — the machine will just *view* a remote server (laptop, ultrabook, anything
+  with Intel/AMD graphics). No CUDA toolkit, Vulkan, NVIDIA hardware, or mimir library needed.
+  → [Viewer only](#viewer-only-no-nvidia-gpu--cuda-needed), one command.
+- **Full build** — the machine has an NVIDIA GPU + CUDA and will run `rr-server` (and optionally
+  the client too). → [Full build](#full-build-rr-server--rr-client), two steps.
 
 **Extra system packages** (install before building):
 - ffmpeg — H.264 encoding/decoding (`libavcodec`, `libavutil`, `libswscale`)
 - ngtcp2 + OpenSSL — QUIC transport
-- On Arch: `pacman -S ffmpeg libngtcp2 openssl`
+- GLFW — the client's window (viewer-only builds; full builds compile their own)
+- On Arch: `pacman -S ffmpeg libngtcp2 openssl glfw`
+
+### Viewer only (no NVIDIA GPU / CUDA needed)
+
+`rr-client` depends only on the wire protocol + the packages above, so it builds anywhere:
+
+```sh
+./samples-build-from-zero.sh --rr-client-only    # from the repository root
+```
+
+**Or, manually:**
+```sh
+cmake -B samples/remote-rendering/build -S samples/remote-rendering/ -DMIMIR_RR_CLIENT_ONLY=ON
+cmake --build samples/remote-rendering/build -j
+```
+
+That's it — skip ahead to [Running](#running). The same flag also works at the repository root
+(`./mimir-build-from-zero.sh --rr-client-only`), where it builds/installs the identical
+standalone `mimir-client` instead. H.264 decoding falls back to ffmpeg's software decoder when
+there is no NVDEC, so integrated graphics are enough.
+
+### Full build (rr-server + rr-client)
+
+> **New here?** Start from the repository root [`README.md`](../../README.md) to build the
+> mimir library first, then come back here. `rr-server` cannot be built without it.
 
 **Step 1 — build the mimir library** from the repository root with the remote rendering flags:
 
@@ -78,8 +109,8 @@ cmake -B samples/remote-rendering/build -S samples/remote-rendering/ -Dmimir_DIR
 cmake --build samples/remote-rendering/build -j
 ```
 
-- `rr-client` is built automatically when ngtcp2 + ffmpeg + OpenGL are all found; otherwise it
-  is skipped and only `rr-server` is built.
+- `rr-client` is built automatically when ngtcp2 + ffmpeg + OpenGL + GLFW are all found; otherwise
+  it is skipped and only `rr-server` is built.
 
 Binaries land in `samples/remote-rendering/build/`. Run them from there.
 

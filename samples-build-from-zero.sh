@@ -31,6 +31,7 @@ SAMPLE=""
 MIMIR_DIR="$SCRIPT_DIR/build/lib/mimir"
 GCC_VERSION=""
 BUILD_DIR=""
+RR_CLIENT_ONLY=OFF
 JOBS=$(nproc)
 
 usage() {
@@ -54,6 +55,12 @@ $samples_list
                        /usr/local/lib/cmake/mimir
   --gcc <version>    GCC version to use as CUDA host compiler (e.g. 14).
                      Pass the same version you used in mimir-build-from-zero.sh.
+  --rr-client-only   Build only rr-client from the remote-rendering sample: the thin
+                     viewer that connects to a mimir server and displays its simulation.
+                     Skips rr-server and the mimir library, so no CUDA toolkit, NVIDIA
+                     hardware, or prior library build is needed — any Intel/AMD laptop
+                     works (implies --sample remote-rendering; --mimir-dir is ignored).
+                     Needs ffmpeg, ngtcp2, OpenSSL and GLFW installed.
   --build-dir <dir>  Build directory.
                      Default (all samples):   samples/build/
                      Default (single sample): samples/<name>/build/
@@ -64,6 +71,7 @@ Examples:
   $(basename "$0")
   $(basename "$0") --gcc 14
   $(basename "$0") --sample remote-rendering --gcc 14
+  $(basename "$0") --rr-client-only            # remote-rendering viewer only, no CUDA needed
   $(basename "$0") --sample headless --mimir-dir /usr/local/lib/cmake/mimir
   $(basename "$0") --mimir-dir \$(pwd)/build/lib/mimir --jobs 8
 EOF
@@ -74,6 +82,7 @@ while [[ $# -gt 0 ]]; do
         --sample)    SAMPLE="$2";    shift 2 ;;
         --mimir-dir) MIMIR_DIR="$2"; shift 2 ;;
         --gcc)       GCC_VERSION="$2"; shift 2 ;;
+        --rr-client-only) RR_CLIENT_ONLY=ON; shift ;;
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
         --jobs)      JOBS="$2";      shift 2 ;;
         -h|--help)   usage; exit 0 ;;
@@ -85,8 +94,17 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ── Viewer-only mode: only the remote-rendering viewer, no mimir library ─────
+if [[ "$RR_CLIENT_ONLY" == ON ]]; then
+    if [[ -n "$SAMPLE" && "$SAMPLE" != remote-rendering ]]; then
+        echo "Error: --rr-client-only only applies to the remote-rendering sample" >&2
+        exit 1
+    fi
+    SAMPLE="remote-rendering"
+fi
+
 # ── Validate mimir-dir ────────────────────────────────────────────────────────
-if [[ ! -f "$MIMIR_DIR/mimirConfig.cmake" ]]; then
+if [[ "$RR_CLIENT_ONLY" != ON ]] && [[ ! -f "$MIMIR_DIR/mimirConfig.cmake" ]]; then
     echo "Error: mimirConfig.cmake not found at: $MIMIR_DIR" >&2
     echo "" >&2
     echo "  Make sure you have built the mimir library first:" >&2
@@ -128,24 +146,35 @@ fi
 CMAKE_ARGS=(
     -S "$SOURCE_DIR"
     -B "$BUILD_DIR"
-    -Dmimir_DIR="$MIMIR_DIR"
 )
+
+if [[ "$RR_CLIENT_ONLY" == ON ]]; then
+    # No mimir library or CUDA involved; passing them would trip CMake's unused-variable warning.
+    CMAKE_ARGS+=(-DMIMIR_RR_CLIENT_ONLY=ON)
+else
+    CMAKE_ARGS+=(-Dmimir_DIR="$MIMIR_DIR")
+fi
 
 if [[ -n "$GCC_VERSION" ]]; then
     CMAKE_ARGS+=(
         -DCMAKE_C_COMPILER="/usr/bin/gcc-${GCC_VERSION}"
         -DCMAKE_CXX_COMPILER="/usr/bin/g++-${GCC_VERSION}"
-        -DCMAKE_CUDA_HOST_COMPILER="/usr/bin/g++-${GCC_VERSION}"
     )
+    if [[ "$RR_CLIENT_ONLY" != ON ]]; then
+        CMAKE_ARGS+=(-DCMAKE_CUDA_HOST_COMPILER="/usr/bin/g++-${GCC_VERSION}")
+    fi
 fi
 
 # ── Print what we're about to do ─────────────────────────────────────────────
-if [[ -n "$SAMPLE" ]]; then
+if [[ "$RR_CLIENT_ONLY" == ON ]]; then
+    echo "==> Building sample: $SAMPLE (remote viewer only: rr-client, no CUDA/mimir)"
+elif [[ -n "$SAMPLE" ]]; then
     echo "==> Building sample: $SAMPLE"
+    echo "    mimir-dir : $MIMIR_DIR"
 else
     echo "==> Building all samples"
+    echo "    mimir-dir : $MIMIR_DIR"
 fi
-echo "    mimir-dir : $MIMIR_DIR"
 echo "    build-dir : $BUILD_DIR"
 [[ -n "$GCC_VERSION" ]] && echo "    gcc       : $GCC_VERSION"
 echo ""
