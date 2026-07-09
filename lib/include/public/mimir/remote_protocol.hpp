@@ -46,6 +46,10 @@ enum class ControlKind : uint8_t
 constexpr uint32_t AUTH_MAGIC = 0x4D494D41;
 constexpr unsigned TOKEN_MAX  = 32;
 
+// Sizes of the server-identity strings carried in Hello (NUL-padded, may be empty).
+constexpr unsigned USER_MAX = 16;
+constexpr unsigned HOST_MAX = 40;
+
 // Flags on FrameHeader describing the payload that follows.
 enum FrameFlags : uint32_t
 {
@@ -65,6 +69,10 @@ struct Hello
     uint32_t height;
     uint32_t format; // PixelFormat (pixel layout once decoded)
     uint32_t codec;  // Codec (how each frame payload is encoded)
+    // Where the simulation is running, so the client can show it (HUD): the server-side account
+    // and hostname. NUL-padded; empty when the server could not determine them.
+    char     user[USER_MAX];
+    char     host[HOST_MAX];
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
@@ -100,6 +108,9 @@ struct Stats
     uint32_t fps_milli;    // current frames/sec * 1000
     uint32_t kbps;         // current video bitrate, kilobits/sec
     uint32_t encode_us;    // mean per-frame production latency, microseconds
+    // Simulation progress (lifetime, not per session: the sim also advances unwatched).
+    uint64_t step;         // simulation steps completed so far
+    uint64_t step_limit;   // step count the server stops at (0 = runs endlessly)
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.

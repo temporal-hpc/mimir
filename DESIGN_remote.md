@@ -425,7 +425,11 @@ interfaces so earlier, simpler implementations are drop-in-replaced.
      next after each disconnects, with a fresh per-session encoder — so a new client always starts
      on an IDR. Frames carry `FRAME_KEYFRAME`.
    - *Metrics.* The server sends a `Stats` message (~1/s; `FRAME_STATS`) with fps, bitrate, and
-     mean encode time; clients print it.
+     mean encode time, plus the simulation step and the step limit (0 = endless); clients print it.
+   - *Client HUD.* The windowed client draws a minimal two-line overlay (toggle with `H`, embedded
+     8×8 public-domain font, no extra deps): `user@host:port transport/codec WxH` (the identity is
+     announced by the server in `Hello`) and `latency | fps | step x of y` (y = `--max-steps`
+     limit, or "unlimited"). Latency is the smoothed stamp-echo end-to-end measurement.
    - *Resize.* A `Resize` control event rebuilds the offscreen targets (`recreateGraphics`) and
      encoder at the new resolution and re-announces geometry via a framed `Hello` (`FRAME_HELLO`);
      the auto client reallocs + flushes its decoder. (Engine fix: gate the metrics query-pool read
@@ -449,7 +453,8 @@ CMakeLists into two binaries:
 - **`rr-client`** — the thin viewer (wire protocol + ngtcp2 + OpenSSL + ffmpeg + GLFW/GL; no
   mimir/CUDA/Vulkan). Args: `rr-client [host] [port] [token] [auto|quic|tcp] [frames]`. Default is
   an interactive, freely-resizable window that **stretches** the frame to fit (it never requests a
-  server-side resolution change); `frames > 0` runs a headless test that saves `rr-client.ppm`.
+  server-side resolution change) and shows the HUD overlay described above (toggle `H`);
+  `frames > 0` runs a headless test that saves `rr-client.ppm`.
   Decodes H.264 in software (a standard bitstream — no client GPU needed; swap to `h264_cuvid` for
   NVDEC).
 

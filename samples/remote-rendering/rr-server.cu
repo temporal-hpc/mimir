@@ -80,6 +80,8 @@ static void usage(const char *prog)
         "                     cadence (default: 0 = uncapped; the session runs at the natural\n"
         "                     render+encode+send rate, paced only by the link and client, and\n"
         "                     the wire rate scales with the achieved fps).\n"
+        "  --max-steps N      Stop after N simulation steps (default: 0 = run endlessly).\n"
+        "                     The remaining progress shows in the client's HUD (step x of y).\n"
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
@@ -125,6 +127,7 @@ int main(int argc, char *argv[])
     bool pt_denoise         = false;
     int bitrate_kbps        = 8000;
     int fps_cap             = 0;
+    size_t max_steps        = 0;
     std::string bench_csv   = "";
 
     // Split argv into positional (port width height ...) and named (--opt value) tokens. The
@@ -153,6 +156,7 @@ int main(int argc, char *argv[])
             else if (a == "--bitrate")     bitrate_kbps = std::stoi(v);
             else if (a == "--benchmark")   bench_csv = v;
             else if (a == "--fps")         fps_cap = std::stoi(v);
+            else if (a == "--max-steps")   max_steps = (size_t)std::stoull(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { posv.push_back(a); }
@@ -247,7 +251,7 @@ int main(int argc, char *argv[])
     serveRemote(instance, port, [&]{
         launchIntegrate3D(d_pos, point_count, clusters, rng);
         checkCuda(cudaDeviceSynchronize());
-    }, 0, use_h264, transport, token.c_str(), bitrate_kbps,
+    }, max_steps, use_h264, transport, token.c_str(), bitrate_kbps,
         bench_csv.empty() ? nullptr : bench_csv.c_str(), fps_cap);
 
     destroyClusters(clusters);

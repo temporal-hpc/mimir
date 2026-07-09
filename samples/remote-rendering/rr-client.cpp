@@ -10,6 +10,10 @@
 // (it may look blurrier when enlarged). The client never asks the server to change resolution —
 // that keeps a remote viewer simple and the server's render cost fixed.
 //
+// A minimal HUD overlay in the top-left corner (toggle with H) shows where the simulation runs
+// (user@host:port, transport, codec), the end-to-end latency, the stream fps, and the sim
+// progress (step x of y, or unlimited). Other keys: P pauses the simulation, Q/Esc quits.
+//
 // Depends only on the wire-protocol header + ngtcp2 + OpenSSL + ffmpeg + GLFW/OpenGL (no mimir,
 // CUDA, or Vulkan): it models a laptop-class thin client.
 //
@@ -43,6 +47,8 @@ extern "C" {
 
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
+
+#include "font8x8.h" // embedded 8x8 bitmap font for the HUD overlay (no text-rendering deps)
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -105,6 +111,127 @@ struct Shared
     std::atomic<uint32_t> ctrl_sent{0};// interaction events sent since the last stats window
 };
 Shared g;
+
+// ---------------------------------------------------------------------------------------------
+// HUD: a minimal always-on overlay (toggle with H) answering "what am I looking at?": which
+// server runs the simulation (user@host:port, transport, codec), the end-to-end latency, and
+// the simulation progress (step x of y, or unlimited). Written by the session thread as
+// Hello/Stats/latency samples arrive; read by the window thread each frame.
+// ---------------------------------------------------------------------------------------------
+struct Hud
+{
+    std::mutex mtx;
+    std::string server;             // "user@host:port  QUIC/H.264 1280x720" (set on connect)
+    double latency_ms = -1.0;       // smoothed end-to-end latency (-1 = no sample yet)
+    double fps = 0.0;               // server-reported stream fps
+    uint64_t step = 0;              // simulation steps completed (server lifetime)
+    uint64_t step_limit = 0;        // steps the server stops at (0 = unlimited)
+    bool have_stats = false;        // first Stats message arrived
+    std::atomic<bool> visible{true};
+};
+Hud g_hud;
+
+// Dialed address, for the HUD when the server doesn't announce its hostname (older server).
+std::string g_dial_host, g_dial_port;
+// Transport label of the established session ("TCP"/"QUIC"), for HUD refreshes on re-Hello.
+const char *g_transport = "?";
+
+void hud_set_server(const Hello& hello, const char *transport)
+{
+    // The wire strings are NUL-padded but not guaranteed NUL-terminated at full length.
+    char user[USER_MAX + 1] = {}; std::memcpy(user, hello.user, USER_MAX);
+    char host[HOST_MAX + 1] = {}; std::memcpy(host, hello.host, HOST_MAX);
+    std::string where;
+    if (user[0]) { where += user; where += '@'; }
+    where += host[0] ? host : g_dial_host;
+    where += ':'; where += g_dial_port;
+    char line[192];
+    snprintf(line, sizeof(line), "%s  %s/%s %ux%u", where.c_str(), transport,
+        static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
+        hello.width, hello.height);
+    std::lock_guard<std::mutex> lock(g_hud.mtx);
+    g_hud.server = line;
+}
+
+// Composes the HUD text from the latest session state (two short lines).
+std::vector<std::string> hud_lines()
+{
+    std::lock_guard<std::mutex> lock(g_hud.mtx);
+    std::vector<std::string> lines;
+    lines.push_back(g_hud.server.empty() ? "connecting..." : g_hud.server);
+    char l2[192];
+    if (!g_hud.have_stats)
+    {
+        snprintf(l2, sizeof(l2), "latency  --  ms | --  fps | step --");
+    }
+    else if (g_hud.step_limit > 0)
+    {
+        snprintf(l2, sizeof(l2), "latency %5.1f ms | %4.1f fps | step %llu of %llu (%.1f%%)",
+            g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms, g_hud.fps,
+            static_cast<unsigned long long>(g_hud.step),
+            static_cast<unsigned long long>(g_hud.step_limit),
+            100.0 * static_cast<double>(g_hud.step) / static_cast<double>(g_hud.step_limit));
+    }
+    else
+    {
+        snprintf(l2, sizeof(l2), "latency %5.1f ms | %4.1f fps | step %llu of unlimited",
+            g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms, g_hud.fps,
+            static_cast<unsigned long long>(g_hud.step));
+    }
+    lines.push_back(l2);
+    return lines;
+}
+
+// Rasterizes text lines with the embedded 8x8 font into an RGBA image: white glyphs on a
+// translucent dark backdrop, one 10-px row per line plus a small margin all around.
+void hud_rasterize(const std::vector<std::string>& lines,
+    std::vector<unsigned char>& rgba, int& w, int& h)
+{
+    constexpr int GLYPH = 8, LINE_H = 10, PAD = 5;
+    size_t cols = 0;
+    for (const auto& l : lines) { cols = std::max(cols, l.size()); }
+    w = static_cast<int>(cols) * GLYPH + 2 * PAD;
+    h = static_cast<int>(lines.size()) * LINE_H + 2 * PAD;
+    rgba.assign(static_cast<size_t>(w) * h * 4, 0);
+    for (size_t i = 3; i < rgba.size(); i += 4) { rgba[i] = 170; } // backdrop alpha
+    for (size_t li = 0; li < lines.size(); ++li)
+    {
+        const int y0 = PAD + static_cast<int>(li) * LINE_H + 1;
+        for (size_t ci = 0; ci < lines[li].size(); ++ci)
+        {
+            unsigned char c = static_cast<unsigned char>(lines[li][ci]);
+            if (c < 0x20 || c > 0x7E) { c = '?'; }
+            const unsigned char *glyph = FONT8X8[c - 0x20];
+            const int x0 = PAD + static_cast<int>(ci) * GLYPH;
+            for (int y = 0; y < 8; ++y)
+            {
+                for (int x = 0; x < 8; ++x)
+                {
+                    if (glyph[y] & (1u << x)) // bit N = pixel at x=N
+                    {
+                        unsigned char *p = &rgba[(static_cast<size_t>(y0 + y) * w + x0 + x) * 4];
+                        p[0] = p[1] = p[2] = p[3] = 255;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Draws the HUD into the top-left corner of the window (over the video frame).
+void hud_draw()
+{
+    static std::vector<unsigned char> px;
+    int w = 0, h = 0;
+    hud_rasterize(hud_lines(), px, w, h);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glPixelZoom(2.f, -2.f); // 2x for readability; negative y draws downward from the corner
+    glRasterPos2f(-1.f, 1.f);
+    glBitmap(0, 0, 0.f, 0.f, 8.f, -8.f, nullptr); // nudge in from the corner, in window pixels
+    glDrawPixels(w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    glDisable(GL_BLEND);
+}
 
 // Optional CSV time-series log (one row per server Stats window), for offline plotting.
 FILE *g_csv = nullptr;
@@ -294,12 +421,24 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
         }
         dec.dec_ms_sum = 0.0; dec.dec_frames = 0; dec.recv_bytes = 0; dec.out_bytes = 0;
         dec.lat_ms.clear(); dec.lost = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_hud.mtx);
+            g_hud.fps        = st.fps_milli / 1000.0;
+            g_hud.step       = st.step;
+            g_hud.step_limit = st.step_limit;
+            g_hud.have_stats = true;
+        }
         return;
     }
     if (flags & FRAME_HELLO)
     {
         // Dormant on the server by default, but handled for completeness: geometry changed.
-        if (len >= sizeof(Hello)) { Hello h{}; std::memcpy(&h, payload, sizeof(h)); dec.set_geometry(h); }
+        if (len >= sizeof(Hello))
+        {
+            Hello h{}; std::memcpy(&h, payload, sizeof(h));
+            dec.set_geometry(h);
+            hud_set_server(h, g_transport);
+        }
         return;
     }
     dec.feed(payload, len);
@@ -307,7 +446,11 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
     // frame, all on this client's clock (the stamp merely round-tripped).
     if (echo_stamp != 0)
     {
-        dec.lat_ms.push_back(static_cast<double>(now_ms() - echo_stamp));
+        const double v = static_cast<double>(now_ms() - echo_stamp);
+        dec.lat_ms.push_back(v);
+        // Lightly smoothed for the HUD (samples arrive ~20/s; raw values flicker unreadably).
+        std::lock_guard<std::mutex> lock(g_hud.mtx);
+        g_hud.latency_ms = g_hud.latency_ms < 0.0 ? v : 0.8 * g_hud.latency_ms + 0.2 * v;
     }
 }
 
@@ -372,6 +515,8 @@ bool run_tcp(const char *host, const char *port, const std::string& token, Decod
         close(fd); return false;
     }
     dec.set_geometry(hello);
+    g_transport = "TCP";
+    hud_set_server(hello, g_transport);
     printf("connected over TCP: %ux%u (%s)\n", hello.width, hello.height,
         static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw");
 
@@ -544,6 +689,8 @@ void quic_process_video(Quic *q)
         q->got_hello = true;
         pos = sizeof(Hello);
         q->dec->set_geometry(hello);
+        g_transport = "QUIC";
+        hud_set_server(hello, g_transport);
         printf("connected over QUIC: %ux%u (%s)\n", hello.width, hello.height,
             static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw");
     }
@@ -824,6 +971,7 @@ void key_cb(GLFWwindow *win, int key, int, int action, int)
 {
     if (action != GLFW_PRESS) { return; }
     if (key == GLFW_KEY_P) { ui_control(ControlKind::TogglePause); }
+    if (key == GLFW_KEY_H) { g_hud.visible.store(!g_hud.visible.load()); }
     if (key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE) { glfwSetWindowShouldClose(win, GLFW_TRUE); }
 }
 
@@ -880,6 +1028,7 @@ int run_window()
             glRasterPos2f(-1.f, 1.f);
             glDrawPixels(cur_w, cur_h, GL_BGRA, GL_UNSIGNED_BYTE, display.data());
         }
+        if (g_hud.visible.load()) { hud_draw(); }
         glfwSwapBuffers(window);
     }
 
@@ -991,6 +1140,12 @@ static void usage(const char *prog)
         "  frames     If > 0, run headless: receive N frames, save rr-client.ppm, exit\n"
         "             (default: 0 = open interactive window)\n"
         "\n"
+        "Window keys:\n"
+        "  H          Toggle the HUD overlay (server user@host:port, transport/codec,\n"
+        "             latency, fps, simulation progress)\n"
+        "  P          Pause/resume the simulation\n"
+        "  Q / Esc    Quit\n"
+        "\n"
         "Flags (order-independent):\n"
         "  --benchmark F  Drive the camera with a deterministic 20 s script (3 s idle, 6 s\n"
         "                 orbit, 3 s zoom into the cloud, 3 s look around inside, 3 s zoom\n"
@@ -1046,6 +1201,7 @@ int main(int argc, char *argv[])
     std::string token = (pos.size() >= 3) ? pos[2] : "";
     std::string mode  = (pos.size() >= 4) ? pos[3] : "auto"; // auto | quic | tcp
     int frames        = (pos.size() >= 5) ? std::atoi(pos[4]) : 0; // >0 => headless test mode
+    g_dial_host = host; g_dial_port = port; // for the HUD server line
 
     if (bench_csv)
     {

@@ -122,8 +122,8 @@ rr-client [host] [port] [token] [auto|quic|tcp] [frames]
 ```
 
 `rr-server` also takes named options after the positional args — `--light-model`, `--spp`,
-`--bounces`, `--subdiv`, `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`
-(run `./rr-server --help` for the full list).
+`--bounces`, `--subdiv`, `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`,
+`--max-steps` (run `./rr-server --help` for the full list).
 
 ### Local, raw frames (simplest, no optional deps)
 
@@ -192,7 +192,13 @@ X:
 | Right-drag         | Zoom            |
 | Middle-drag        | Pan             |
 | `P`                | Pause/resume sim|
+| `H`                | Toggle the HUD  |
 | `Q` / `Esc`        | Quit            |
+
+A minimal HUD overlay in the top-left corner shows where the simulation is running
+(`user@host:port`, transport, codec, resolution), the end-to-end latency, the stream fps, and the
+simulation progress — `step x of y` when the server was started with `--max-steps N`, or
+`step x of unlimited` for an endless run.
 
 The window is freely resizable; the frame is **stretched** to fill it (it may look softer when
 enlarged). The client never asks the server to re-render at a new resolution — the server's render

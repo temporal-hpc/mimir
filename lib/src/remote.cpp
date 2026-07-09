@@ -20,6 +20,9 @@
 #include <cstring>
 #include <vector>
 
+#include <pwd.h>    // getpwuid: server identity announced in Hello
+#include <unistd.h> // gethostname, geteuid
+
 #ifdef MIMIR_HAVE_FFMPEG
 #include <cuda.h>         // cuCtxGetCurrent: share mimir's CUDA context with ffmpeg
 #include <cuda_runtime.h> // cudaMemcpy2D for the zero-copy NVENC path
@@ -244,6 +247,17 @@ struct H264Encoder
 };
 #endif // MIMIR_HAVE_FFMPEG
 
+// Stamps the server's account and hostname into a Hello, so the client can show where the
+// simulation is running. Best effort: fields stay empty ("") if the system won't say.
+void fillServerIdentity(remote::Hello& hello)
+{
+    const char *user = std::getenv("USER");
+    if (!user || !user[0]) { if (passwd *pw = getpwuid(geteuid())) { user = pw->pw_name; } }
+    if (user) { std::strncpy(hello.user, user, sizeof(hello.user) - 1); }
+    char host[remote::HOST_MAX]{};
+    if (gethostname(host, sizeof(host) - 1) == 0) { std::memcpy(hello.host, host, sizeof(host)); }
+}
+
 } // namespace
 
 void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute,
@@ -375,7 +389,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             .height = height,
             .format = static_cast<uint32_t>(remote::PixelFormat::BGRA8),
             .codec  = static_cast<uint32_t>(codec),
+            .user   = {},
+            .host   = {},
         };
+        fillServerIdentity(hello);
         if (!transport->sendVideo(&hello, sizeof(hello))) { continue; } // client vanished; re-listen
 
         // Unreliable video: when the client negotiated QUIC DATAGRAM support, H.264 frames go
@@ -485,7 +502,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         .height = height,
                         .format = static_cast<uint32_t>(remote::PixelFormat::BGRA8),
                         .codec  = static_cast<uint32_t>(codec),
+                        .user   = {},
+                        .host   = {},
                     };
+                    fillServerIdentity(rehello);
                     remote::FrameHeader hh{ .size = static_cast<uint32_t>(sizeof(rehello)),
                         .flags = remote::FRAME_HELLO, .echo_stamp = 0 };
                     if (!ok || !transport->sendVideo(&hh, sizeof(hh))
@@ -603,6 +623,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .fps_milli = static_cast<uint32_t>(static_cast<double>(win_frames) / elapsed * 1000.0),
                     .kbps      = static_cast<uint32_t>(static_cast<double>(win_bytes) * 8.0 / 1000.0 / elapsed),
                     .encode_us = static_cast<uint32_t>(win_enc_us / static_cast<double>(win_frames)),
+                    .step       = total_iter,
+                    .step_limit = max_iters,
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
                 // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
