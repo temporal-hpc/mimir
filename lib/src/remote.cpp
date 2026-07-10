@@ -14,10 +14,12 @@
 #include "mimir/validation.hpp"
 
 #include <algorithm>
+#include <atomic> // decoupled sim thread: total_iter / stop / pause flags
 #include <chrono>
 #include <cstdio> // benchmark stats CSV
 #include <cstdlib>
 #include <cstring>
+#include <thread> // sovereign simulation thread (see serveRemote)
 #include <vector>
 
 #include <pwd.h>    // getpwuid: server identity announced in Hello
@@ -262,16 +264,25 @@ void fillServerIdentity(remote::Hello& hello)
 
 void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute,
     size_t max_iters, bool use_h264, remote::TransportKind kind, std::string token,
-    int bitrate_kbps, std::string stats_csv, int target_fps)
+    int bitrate_kbps, std::string stats_csv, int target_fps, int steps_per_frame)
 {
     prepare();
 
-    // By default no minimum frame time is imposed on the streaming loop. The fps limiter is a
-    // windowed-present option (defaults to 60), but here there is no display to pace: sessions
-    // run at the natural render+encode+send rate, throttled only by real backpressure (TCP) or
-    // shed by the datagram drop policy (QUIC). An explicit target_fps > 0 re-enables the cap —
-    // useful to hold a fixed bandwidth budget, since the encoder's rate control budgets bits
-    // per frame at its configured framerate.
+    // Frame/simulation coupling. Decoupled (steps_per_frame <= 0): the sim runs on its own
+    // thread and frames sample the latest state — the viewer never slows the run. Lockstep
+    // (steps_per_frame >= 1): this consumer advances exactly N steps then renders one frame,
+    // sequentially, so frames are tear-free and deterministic (recording/reproducing) but the
+    // fps cap and a slow client throttle the sim too. See the two branches below.
+    const bool decoupled = (steps_per_frame <= 0);
+
+    // The simulation runs on its own sovereign thread (spawned below); this loop is the
+    // render+encode+send CONSUMER. So target_fps paces the *frame* cadence here, not the sim:
+    // it is a pixels-on-the-wire rate (bandwidth budget + encoder rate-control framerate),
+    // decoupled from how fast the sim advances. The limiter is frameStall() at the end of
+    // renderFrame (engine.cpp), which now only this consumer thread hits — the sim never calls
+    // renderFrame, so capping fps never throttles steps/s. target_fps == 0 means uncapped:
+    // stream at the natural render+encode+send rate, bounded only by real backpressure (TCP) or
+    // the datagram drop policy (QUIC).
     if (target_fps > 0)
     {
         options.present.enable_fps_limit  = true;
@@ -285,7 +296,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     // Rate-control framerate for the encoder: the cap when set, the conventional 60 otherwise.
     const int encoder_fps = target_fps > 0 ? target_fps : 60;
 
-    size_t total_iter = 0;
+    // Step counter advanced by the sim thread, read by this consumer for the HUD/stats/logs.
+    std::atomic<size_t> total_iter{0};
     bool stop = false;
 
     // Optional benchmark log: one row per telemetry window, mirroring the [stats] lines, with
@@ -294,7 +306,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     if (!stats_csv.empty())
     {
         csv = fopen(stats_csv.c_str(), "w");
-        if (csv) { fprintf(csv, "time_s,frame,fps,kbps,encode_ms\n"); }
+        if (csv) { fprintf(csv, "time_s,frame,fps,steps_s,kbps,encode_ms\n"); }
         else { spdlog::warn("remote: cannot open stats csv '{}'", stats_csv); }
     }
     const auto serve_start = std::chrono::steady_clock::now();
@@ -314,51 +326,91 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     spdlog::info("remote: simulation runs with or without a viewer; "
         "clients may connect and disconnect at any time");
 
-    size_t unwatched_iters = 0; // sim steps advanced since the last viewer left
+    // ── Sovereign simulation thread (decoupled mode only) ───────────────────────────────────
+    // The sim advances compute() as fast as the GPU allows, forever, independent of the frame
+    // cadence and of whether anyone is watching — the monitor must not perturb the run (no
+    // observer effect). This mirrors displayAsync's "unsynchronized" mode: the consumer thread
+    // below renders whatever the latest buffer holds, accepting a torn-latest read as the price
+    // of not slowing the science. TogglePause (from the viewer) pauses only this thread; the
+    // consumer keeps streaming the frozen state (and the path tracer converges while paused).
+    // In lockstep mode no thread is spawned: the consumer drives compute() inline instead.
+    std::atomic<bool> sim_stop{false};
+    std::atomic<bool> sim_paused{false};
+    std::thread sim_thread;
+    if (decoupled)
+    {
+        sim_thread = std::thread([&]()
+        {
+            while (!sim_stop.load(std::memory_order_acquire))
+            {
+                if (max_iters != 0 && total_iter.load(std::memory_order_relaxed) >= max_iters) { break; }
+                if (sim_paused.load(std::memory_order_acquire))
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                    continue;
+                }
+                compute();
+                total_iter.fetch_add(1, std::memory_order_release);
+            }
+        });
+    }
+
+    // Sim steps that had advanced when the previous viewer left, so the next client's session
+    // can report how far the run moved while unwatched.
+    size_t last_session_end_iter = 0;
 
     // Unwatched proof-of-life: a [sim] progress line every few seconds while nobody is
     // connected (step count + free-run rate). While a client is connected the step counter
     // rides the once-per-second [stats] line instead, so nothing floods.
     constexpr auto kSimLogPeriod = std::chrono::seconds(2);
     auto sim_log_time  = std::chrono::steady_clock::now();
-    size_t sim_log_iter = total_iter;
+    size_t sim_log_iter = total_iter.load();
 
     while (!stop)
     {
-        if (max_iters != 0 && total_iter >= max_iters) { break; }
+        if (max_iters != 0 && total_iter.load() >= max_iters) { break; }
 
-        // No viewer: check for a dialing client, then advance the simulation at full speed —
-        // skipping render/encode entirely (the fps limiter lives in renderFrame, so unwatched
-        // compute is not throttled either).
+        // No viewer. Decoupled: the sim thread is already advancing on its own, so here we only
+        // watch for a dialing client and emit the heartbeat, sleeping briefly so the accept poll
+        // doesn't busy-spin. Lockstep: there is no sim thread, so advance the sim inline at full
+        // speed (render is skipped while unwatched, exactly like the classic free-run).
         std::unique_ptr<remote::Transport> transport = listener->poll();
         if (!transport)
         {
-            compute(); ++total_iter; pt_scene_dirty = true; ++unwatched_iters;
+            if (!decoupled && !(max_iters != 0 && total_iter.load() >= max_iters))
+            {
+                compute();
+                total_iter.fetch_add(1, std::memory_order_release);
+            }
+            const size_t iters = total_iter.load(std::memory_order_acquire);
             const auto sim_now = std::chrono::steady_clock::now();
             if (sim_now - sim_log_time >= kSimLogPeriod)
             {
                 const double secs = std::chrono::duration<double>(sim_now - sim_log_time).count();
-                const double rate = static_cast<double>(total_iter - sim_log_iter) / secs;
+                const double rate = static_cast<double>(iters - sim_log_iter) / secs;
                 if (max_iters != 0)
                 {
                     spdlog::info("[sim] step {} of {} ({:.1f}%) | {:.0f} steps/s | no viewer",
-                        total_iter, max_iters,
-                        100.0 * static_cast<double>(total_iter) / static_cast<double>(max_iters),
+                        iters, max_iters,
+                        100.0 * static_cast<double>(iters) / static_cast<double>(max_iters),
                         rate);
                 }
                 else
                 {
-                    spdlog::info("[sim] step {} | {:.0f} steps/s | no viewer", total_iter, rate);
+                    spdlog::info("[sim] step {} | {:.0f} steps/s | no viewer", iters, rate);
                 }
                 sim_log_time = sim_now;
-                sim_log_iter = total_iter;
+                sim_log_iter = iters;
             }
+            // Decoupled mode busy-waits on the accept poll, so yield a moment; lockstep is
+            // already paced by the inline compute() above.
+            if (decoupled) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
             continue;
         }
-        if (unwatched_iters > 0)
+        const size_t adv = total_iter.load() - last_session_end_iter;
+        if (adv > 0)
         {
-            spdlog::info("remote: simulation advanced {} steps while unwatched", unwatched_iters);
-            unwatched_iters = 0;
+            spdlog::info("remote: simulation advanced {} steps while unwatched", adv);
         }
 
         // A client connected: build a fresh session. The encoder is rebuilt per session, so a
@@ -413,6 +465,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
 
         bool paused = false;
         bool client_gone = false;
+        // Latest sim step reflected in a rendered frame. SIZE_MAX forces the first frame of the
+        // session to reset the path-trace accumulator; thereafter the accumulator resets only
+        // when the sim has actually advanced since our last frame (see the render call below).
+        size_t last_render_iter = SIZE_MAX;
         std::vector<unsigned char> frame;
         std::vector<remote::ControlMsg> events;
 #ifdef MIMIR_HAVE_FFMPEG
@@ -426,11 +482,12 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         // Telemetry window: a Stats message is sent to the client roughly once per second.
         auto win_start = std::chrono::steady_clock::now();
         size_t win_frames = 0, win_bytes = 0, session_frames = 0;
+        size_t win_start_iter = total_iter.load(); // sim step count at the window's start
         double win_enc_us = 0.0;
 
         while (true)
         {
-            if (max_iters != 0 && total_iter >= max_iters) { stop = true; break; }
+            if (max_iters != 0 && total_iter.load() >= max_iters) { stop = true; break; }
 
             // Drain control events; pollControl returns false once the client is gone.
             events.clear();
@@ -452,7 +509,11 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     case remote::ControlKind::CameraPan:
                         camera.translate(glm::vec3(-ev.a * 0.01f, -ev.b * 0.01f, 0.f)); break;
                     case remote::ControlKind::TogglePause:
-                        paused = !paused; break;
+                        // Pause the sovereign sim thread; the consumer keeps streaming the
+                        // frozen scene (and the path tracer converges on it).
+                        paused = !paused;
+                        sim_paused.store(paused, std::memory_order_release);
+                        break;
                     case remote::ControlKind::Quit:
                         quit = true; break;
                     case remote::ControlKind::Resize:
@@ -517,7 +578,27 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
             }
 
-            if (!paused) { compute(); ++total_iter; pt_scene_dirty = true; }
+            if (decoupled)
+            {
+                // The sim thread advances compute() independently; sample the latest state. Reset
+                // path-trace accumulation only when the sim actually moved since our last frame,
+                // so a paused (or slow) sim lets the accumulator converge on the static scene.
+                const size_t it_now = total_iter.load(std::memory_order_acquire);
+                if (it_now != last_render_iter) { pt_scene_dirty = true; last_render_iter = it_now; }
+            }
+            else if (!paused)
+            {
+                // Lockstep: advance exactly steps_per_frame steps, then render one frame — all
+                // sequential on this thread, so the buffer is never read mid-write (tear-free).
+                for (int s = 0; s < steps_per_frame; ++s)
+                {
+                    if (max_iters != 0 && total_iter.load() >= max_iters) { stop = true; break; }
+                    compute();
+                    total_iter.fetch_add(1, std::memory_order_relaxed);
+                }
+                pt_scene_dirty = true; // the sim moved, so reset the path-trace accumulator
+            }
+            if (stop) { break; } // hit max_iters mid-batch
             renderFrame();
             vkDeviceWaitIdle(device); // ensure the frame is finished before readback
 
@@ -618,12 +699,13 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             const double elapsed = std::chrono::duration<double>(now - win_start).count();
             if (elapsed >= 1.0 && win_frames > 0)
             {
+                const size_t iters = total_iter.load(std::memory_order_acquire);
                 remote::Stats st{
                     .frames    = static_cast<uint32_t>(session_frames),
                     .fps_milli = static_cast<uint32_t>(static_cast<double>(win_frames) / elapsed * 1000.0),
                     .kbps      = static_cast<uint32_t>(static_cast<double>(win_bytes) * 8.0 / 1000.0 / elapsed),
                     .encode_us = static_cast<uint32_t>(win_enc_us / static_cast<double>(win_frames)),
-                    .step       = total_iter,
+                    .step       = iters,
                     .step_limit = max_iters,
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
@@ -632,19 +714,22 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const double sent_frame_kb = static_cast<double>(win_bytes)
                     / static_cast<double>(win_frames) / 1000.0;
                 // The sim step count rides this line while a client is connected (the [sim]
-                // heartbeat covers the unwatched periods).
+                // heartbeat covers the unwatched periods). steps/s is the sim's own rate over
+                // this window — in decoupled mode independent of fps, in lockstep ~= fps * N.
+                const double sps = static_cast<double>(iters - win_start_iter) / elapsed;
                 char step_str[64];
                 if (max_iters != 0)
                 {
-                    snprintf(step_str, sizeof(step_str), "%zu of %zu", total_iter, max_iters);
+                    snprintf(step_str, sizeof(step_str), "%zu of %zu", iters, max_iters);
                 }
                 else
                 {
-                    snprintf(step_str, sizeof(step_str), "%zu", total_iter);
+                    snprintf(step_str, sizeof(step_str), "%zu", iters);
                 }
-                spdlog::info("[stats] step {} | frame {:6d} | {:5.1f} fps | {:6d} kbps | "
-                    "{:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller)",
+                spdlog::info("[stats] step {} ({:.0f} steps/s) | frame {:6d} | {:5.1f} fps | "
+                    "{:6d} kbps | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller)",
                     step_str,
+                    sps,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
@@ -654,9 +739,9 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     sent_frame_kb > 0.0 ? raw_frame_kb / sent_frame_kb : 0.0);
                 if (csv)
                 {
-                    fprintf(csv, "%.3f,%u,%.1f,%u,%.3f\n",
+                    fprintf(csv, "%.3f,%u,%.1f,%.1f,%u,%.3f\n",
                         std::chrono::duration<double>(now - serve_start).count(),
-                        st.frames, static_cast<double>(st.fps_milli) / 1000.0, st.kbps,
+                        st.frames, static_cast<double>(st.fps_milli) / 1000.0, sps, st.kbps,
                         static_cast<double>(st.encode_us) / 1000.0);
                     fflush(csv);
                 }
@@ -667,6 +752,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     client_gone = true; break;
                 }
                 win_start = now; win_frames = 0; win_bytes = 0; win_enc_us = 0.0;
+                win_start_iter = iters;
             }
         }
 
@@ -686,12 +772,19 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         }
         spdlog::info("remote: client session ended after {} frames ({}) — simulation continues unwatched",
             session_frames, client_gone ? "disconnected" : "client quit");
-        // Restart the heartbeat window so the first unwatched [sim] rate isn't averaged over
-        // the session's (throttled) streaming period.
+        // A viewer just left: mark the step count so the next session can report how far the
+        // (still-running) sim advances while unwatched. Restart the heartbeat window too so the
+        // first unwatched [sim] rate isn't averaged over the streaming period.
+        last_session_end_iter = total_iter.load();
         sim_log_time = std::chrono::steady_clock::now();
-        sim_log_iter = total_iter;
-        // Loop back: free-run the simulation and keep polling for the next client.
+        sim_log_iter = last_session_end_iter;
+        // Loop back: keep polling for the next client while the sim thread free-runs.
     }
+
+    // Wind down the sovereign sim thread before returning (reached only when max_iters is set
+    // and hit; an unbounded server loops forever above).
+    sim_stop.store(true, std::memory_order_release);
+    if (sim_thread.joinable()) { sim_thread.join(); }
     if (csv) { fclose(csv); }
 }
 

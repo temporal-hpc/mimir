@@ -74,14 +74,26 @@ static void usage(const char *prog)
         "                     Path tracing without --denoise is temporally noisy and needs\n"
         "                     much more (e.g. 40000+) or interiors smear/ghost under motion.\n"
         "  --benchmark F      Write per-second server telemetry to CSV file F\n"
-        "                     (time_s,frame,fps,kbps,encode_ms). Pair with the client's\n"
+        "                     (time_s,frame,fps,steps_s,kbps,encode_ms). Pair with the client's\n"
         "                     --benchmark scripted camera to replicate runs across servers.\n"
-        "  --fps N            Cap the streamed session at N fps and honor --bitrate at that\n"
-        "                     cadence (default: 0 = uncapped; the session runs at the natural\n"
-        "                     render+encode+send rate, paced only by the link and client, and\n"
-        "                     the wire rate scales with the achieved fps).\n"
-        "  --max-steps N      Stop after N simulation steps (default: 0 = run endlessly).\n"
-        "                     The remaining progress shows in the client's HUD (step x of y).\n"
+        "  --fps N            Cap the streamed FRAME rate at N fps and honor --bitrate at that\n"
+        "                     cadence (default: 0 = uncapped). The simulation runs on its own\n"
+        "                     thread, so this caps pixels-on-the-wire only and never slows the\n"
+        "                     sim's steps/s. Uncapped over TCP trades latency for throughput:\n"
+        "                     frames flood reliable buffers faster than the link drains, so they\n"
+        "                     queue (bufferbloat) — set --fps (e.g. 30/60) over an SSH tunnel.\n"
+        "  --steps-per-frame N How the simulation couples to frame production      (default: 0)\n"
+        "                     0 = decoupled: the sim runs on its own thread at full speed and\n"
+        "                         each frame samples the latest state — a viewer never slows the\n"
+        "                         run (monitoring). --fps caps pixels-on-the-wire only.\n"
+        "                     N>=1 = lockstep: advance exactly N sim steps, then render one frame,\n"
+        "                         sequentially (tear-free, deterministic — good for recording or\n"
+        "                         reproducing). N=1 is the classic 1-step-per-frame mode. Here\n"
+        "                         --fps (and a slow client) paces the SIM too, by design.\n"
+        "  --max-steps N      Stop the simulation after N steps (default: 0 = run endlessly).\n"
+        "                     Distinct from point_count: this is how many steps to run, not how\n"
+        "                     many points. The remaining progress shows in the client's HUD\n"
+        "                     (step x of y); with 0 the HUD reads 'iteration x of unlimited'.\n"
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
@@ -143,6 +155,7 @@ int main(int argc, char *argv[])
     bool pt_denoise         = false;
     int bitrate_kbps        = 8000;
     int fps_cap             = 0;
+    int steps_per_frame     = 0;
     size_t max_steps        = 0;
     std::string bench_csv   = "";
 
@@ -172,6 +185,7 @@ int main(int argc, char *argv[])
             else if (a == "--bitrate")     bitrate_kbps = std::stoi(v);
             else if (a == "--benchmark")   bench_csv = v;
             else if (a == "--fps")         fps_cap = std::stoi(v);
+            else if (a == "--steps-per-frame") steps_per_frame = std::stoi(v);
             else if (a == "--max-steps")   max_steps = (size_t)std::stoull(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
@@ -268,7 +282,7 @@ int main(int argc, char *argv[])
         launchIntegrate3D(d_pos, point_count, clusters, rng);
         checkCuda(cudaDeviceSynchronize());
     }, max_steps, use_h264, transport, token.c_str(), bitrate_kbps,
-        bench_csv.empty() ? nullptr : bench_csv.c_str(), fps_cap);
+        bench_csv.empty() ? nullptr : bench_csv.c_str(), fps_cap, steps_per_frame);
 
     destroyClusters(clusters);
     destroyRngStates(rng);

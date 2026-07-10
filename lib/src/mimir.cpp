@@ -114,10 +114,10 @@ void saveFrame(InstanceHandle engine, const char *path)
 void serveRemote(InstanceHandle engine, unsigned short port,
     std::function<void(void)> func, size_t max_iters, bool use_h264,
     remote::TransportKind kind, const char *token, int bitrate_kbps, const char *stats_csv,
-    int fps)
+    int fps, int steps_per_frame)
 {
     engine->serveRemote(port, func, max_iters, use_h264, kind, token ? token : "", bitrate_kbps,
-        stats_csv ? stats_csv : "", fps);
+        stats_csv ? stats_csv : "", fps, steps_per_frame);
 }
 
 void prepareViews(InstanceHandle engine)

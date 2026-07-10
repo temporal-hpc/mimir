@@ -70,15 +70,22 @@ void saveFrame(InstanceHandle engine, const char *path);
 // 'bitrate_kbps' is the H.264 target bitrate (ignored for raw frames); temporally noisy content
 // such as undenoised path tracing needs far more than the 8000 default to avoid ghosting.
 // 'stats_csv' (optional) writes the per-second server telemetry to a CSV file
-// (time_s,frame,fps,kbps,encode_ms) for benchmarking; nullptr/empty disables it.
-// 'fps' > 0 caps the streamed session at that rate and sets the encoder's rate-control
+// (time_s,frame,fps,steps_s,kbps,encode_ms) for benchmarking; nullptr/empty disables it.
+// 'fps' > 0 caps the streamed FRAME rate at that rate and sets the encoder's rate-control
 // framerate (so bitrate_kbps is honored at that cadence); 0 = uncapped, sessions run at the
 // natural render+encode+send rate, paced only by the link and the client.
+// 'steps_per_frame' selects how the simulation relates to frame production:
+//   0 (default) = decoupled: the sim runs on its own thread at full speed, and each streamed
+//                 frame samples the latest state (monitoring; the viewer never slows the run,
+//                 at the cost of a torn-latest read). 'fps' caps pixels-on-the-wire only.
+//   N >= 1      = lockstep: advance exactly N sim steps, then render one frame, sequentially
+//                 (tear-free, deterministic; good for recording/reproducing). N=1 is the
+//                 classic 1-step-per-frame behavior. Here 'fps' paces both frames AND steps.
 void serveRemote(InstanceHandle engine, unsigned short port,
     std::function<void(void)> func, size_t max_iters, bool use_h264 = false,
     remote::TransportKind kind = remote::TransportKind::Tcp,
     const char *token = "", int bitrate_kbps = 8000, const char *stats_csv = nullptr,
-    int fps = 0
+    int fps = 0, int steps_per_frame = 0
 );
 
 // Starts a GPU interop critical section.
