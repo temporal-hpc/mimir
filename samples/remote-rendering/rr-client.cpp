@@ -54,6 +54,10 @@ extern "C" {
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
 
+// stb_truetype rasterizes the HUD text with anti-aliasing from a real font (single-header,
+// public domain). font8x8.h stays as the guaranteed fallback when no system font is found.
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb/stb_truetype.h>
 #include "font8x8.h" // embedded 8x8 bitmap font for the HUD overlay (no text-rendering deps)
 
 #include <arpa/inet.h>
@@ -67,6 +71,7 @@ extern "C" {
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -192,6 +197,157 @@ std::vector<std::string> hud_lines()
     return lines;
 }
 
+// ---------------------------------------------------------------------------------------------
+// TrueType HUD font: loaded once from a system monospace face so the overlay is crisp and
+// anti-aliased instead of the blocky 2x-magnified 8x8 bitmap. If no font opens, `ok` stays false
+// and hud_draw() falls back to the embedded bitmap (see hud_rasterize).
+// ---------------------------------------------------------------------------------------------
+struct HudFont
+{
+    std::vector<unsigned char> data;  // font file bytes (must outlive `info`)
+    stbtt_fontinfo info{};
+    float scale = 0.f;                // font units -> pixels for the target size
+    int ascent = 0, descent = 0;      // scaled to pixels (descent negative)
+    int line_h = 0;                   // full line advance in pixels
+    bool ok = false;
+};
+HudFont g_font;
+
+// HUD glyph height in device pixels. ~16 px reads cleanly at 1x and roughly matches the footprint
+// of the old 2x-zoomed 8x8 bitmap (which was ~16 px tall).
+constexpr float HUD_PX = 16.f;
+
+// Tries a list of common monospace TTFs across distros; the first that opens and parses wins.
+// Monospace keeps the changing latency/fps/step numbers from jittering the layout each frame.
+void hud_font_init()
+{
+    static const char *const candidates[] = {
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/TTF/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/noto/NotoSansMono-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+    };
+    for (const char *path : candidates)
+    {
+        std::ifstream f(path, std::ios::binary | std::ios::ate);
+        if (!f) { continue; }
+        const std::streamsize n = f.tellg();
+        if (n <= 0) { continue; }
+        g_font.data.resize(static_cast<size_t>(n));
+        f.seekg(0);
+        if (!f.read(reinterpret_cast<char*>(g_font.data.data()), n)) { g_font.data.clear(); continue; }
+        const int off = stbtt_GetFontOffsetForIndex(g_font.data.data(), 0);
+        if (off < 0 || !stbtt_InitFont(&g_font.info, g_font.data.data(), off))
+        {
+            g_font.data.clear();
+            continue;
+        }
+        g_font.scale = stbtt_ScaleForPixelHeight(&g_font.info, HUD_PX);
+        int asc = 0, desc = 0, gap = 0;
+        stbtt_GetFontVMetrics(&g_font.info, &asc, &desc, &gap);
+        g_font.ascent  = static_cast<int>(std::lround(asc  * g_font.scale));
+        g_font.descent = static_cast<int>(std::lround(desc * g_font.scale));
+        g_font.line_h  = g_font.ascent - g_font.descent
+                       + static_cast<int>(std::lround(gap * g_font.scale));
+        g_font.ok = true;
+        printf("rr-client: HUD font = %s\n", path);
+        return;
+    }
+    printf("rr-client: HUD font = 8x8 bitmap (no system monospace TTF found)\n");
+}
+
+// Rasterizes the HUD lines with the loaded TrueType font into an RGBA image: white, anti-aliased
+// glyphs composited over a translucent dark backdrop (same output contract as hud_rasterize).
+void hud_rasterize_ttf(const std::vector<std::string>& lines,
+    std::vector<unsigned char>& rgba, int& w, int& h)
+{
+    constexpr int PAD = 6;
+    const int line_h = g_font.line_h;
+
+    // Width = widest line's summed advance (+ kerning); height = one line_h per line.
+    int max_w = 0;
+    for (const auto& l : lines)
+    {
+        int pen = 0;
+        for (size_t i = 0; i < l.size(); ++i)
+        {
+            int adv = 0, lsb = 0;
+            const int c = static_cast<unsigned char>(l[i]);
+            stbtt_GetCodepointHMetrics(&g_font.info, c, &adv, &lsb);
+            pen += static_cast<int>(std::lround(adv * g_font.scale));
+            if (i + 1 < l.size())
+            {
+                const int nc = static_cast<unsigned char>(l[i + 1]);
+                pen += static_cast<int>(std::lround(
+                    stbtt_GetCodepointKernAdvance(&g_font.info, c, nc) * g_font.scale));
+            }
+        }
+        max_w = std::max(max_w, pen);
+    }
+    w = max_w + 2 * PAD;
+    h = static_cast<int>(lines.size()) * line_h + 2 * PAD;
+
+    // Start from an opaque-enough dark backdrop; glyphs are composited on top (source-over) so the
+    // text stays crisp when the whole image is later alpha-blended over the video frame.
+    rgba.assign(static_cast<size_t>(w) * h * 4, 0);
+    for (size_t i = 3; i < rgba.size(); i += 4) { rgba[i] = 170; } // backdrop alpha
+
+    std::vector<unsigned char> cov; // scratch coverage bitmap, reused per glyph
+    for (size_t li = 0; li < lines.size(); ++li)
+    {
+        const std::string& l = lines[li];
+        const int baseline = PAD + static_cast<int>(li) * line_h + g_font.ascent;
+        int pen = PAD;
+        for (size_t ci = 0; ci < l.size(); ++ci)
+        {
+            const int c = static_cast<unsigned char>(l[ci]);
+            int adv = 0, lsb = 0;
+            stbtt_GetCodepointHMetrics(&g_font.info, c, &adv, &lsb);
+            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            stbtt_GetCodepointBitmapBox(&g_font.info, c, g_font.scale, g_font.scale,
+                &x0, &y0, &x1, &y1);
+            const int gw = x1 - x0, gh = y1 - y0;
+            if (gw > 0 && gh > 0)
+            {
+                cov.assign(static_cast<size_t>(gw) * gh, 0);
+                stbtt_MakeCodepointBitmap(&g_font.info, cov.data(), gw, gh, gw,
+                    g_font.scale, g_font.scale, c);
+                for (int gy = 0; gy < gh; ++gy)
+                {
+                    const int py = baseline + y0 + gy;
+                    if (py < 0 || py >= h) { continue; }
+                    for (int gx = 0; gx < gw; ++gx)
+                    {
+                        const int px = pen + x0 + gx;
+                        if (px < 0 || px >= w) { continue; }
+                        const float sa = cov[static_cast<size_t>(gy) * gw + gx] / 255.f;
+                        if (sa <= 0.f) { continue; }
+                        // White source over the existing (dark, translucent) pixel.
+                        unsigned char *d = &rgba[(static_cast<size_t>(py) * w + px) * 4];
+                        const float da = d[3] / 255.f;
+                        const float oa = sa + da * (1.f - sa);
+                        const unsigned char rgb = static_cast<unsigned char>(
+                            std::lround(oa > 0.f ? (sa / oa) * 255.f : 0.f));
+                        d[0] = d[1] = d[2] = rgb;
+                        d[3] = static_cast<unsigned char>(std::lround(oa * 255.f));
+                    }
+                }
+            }
+            pen += static_cast<int>(std::lround(adv * g_font.scale));
+            if (ci + 1 < l.size())
+            {
+                const int nc = static_cast<unsigned char>(l[ci + 1]);
+                pen += static_cast<int>(std::lround(
+                    stbtt_GetCodepointKernAdvance(&g_font.info, c, nc) * g_font.scale));
+            }
+        }
+    }
+}
+
 // Rasterizes text lines with the embedded 8x8 font into an RGBA image: white glyphs on a
 // translucent dark backdrop, one 10-px row per line plus a small margin all around.
 void hud_rasterize(const std::vector<std::string>& lines,
@@ -233,10 +389,14 @@ void hud_draw()
 {
     static std::vector<unsigned char> px;
     int w = 0, h = 0;
-    hud_rasterize(hud_lines(), px, w, h);
+    // TrueType glyphs are rasterized at device resolution (draw 1:1); the bitmap fallback is only
+    // 8 px tall and needs the historic 2x magnification to stay readable.
+    const float zoom = g_font.ok ? 1.f : 2.f;
+    if (g_font.ok) { hud_rasterize_ttf(hud_lines(), px, w, h); }
+    else           { hud_rasterize(hud_lines(), px, w, h); }
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glPixelZoom(2.f, -2.f); // 2x for readability; negative y draws downward from the corner
+    glPixelZoom(zoom, -zoom); // negative y draws downward from the top-left corner
     glRasterPos2f(-1.f, 1.f);
     glBitmap(0, 0, 0.f, 0.f, 8.f, -8.f, nullptr); // nudge in from the corner, in window pixels
     glDrawPixels(w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
@@ -1022,6 +1182,7 @@ int run_window()
     glfwSetCursorPosCallback(window, cursor_cb);
     glfwSetMouseButtonCallback(window, button_cb);
     glfwSetKeyCallback(window, key_cb);
+    hud_font_init(); // load the anti-aliased HUD font (bitmap fallback if none found)
 
     std::vector<unsigned char> display;
     uint64_t shown_seq = 0;

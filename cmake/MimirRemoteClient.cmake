@@ -60,8 +60,11 @@ function(mimir_add_remote_client target)
 
     add_executable(${target} "${_repo_root}/samples/remote-rendering/rr-client.cpp")
     target_compile_features(${target} PRIVATE cxx_std_20)
-    # mimir's public include path, for remote_protocol.hpp — no library link.
-    target_include_directories(${target} PRIVATE "${_repo_root}/lib/include/public")
+    # mimir's public include path, for remote_protocol.hpp — no library link. samples/include
+    # carries the vendored single-header stb libs (stb/stb_truetype.h for the HUD font).
+    target_include_directories(${target} PRIVATE
+        "${_repo_root}/lib/include/public"
+        "${_repo_root}/samples/include")
     target_link_libraries(${target} PRIVATE
         PkgConfig::MIMIR_RRC_FFMPEG glfw OpenGL::GL Threads::Threads)
 
