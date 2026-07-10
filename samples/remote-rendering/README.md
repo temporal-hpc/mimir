@@ -193,7 +193,7 @@ X:
 | Middle-drag        | Pan             |
 | `P`                | Pause/resume sim|
 | `H`                | Toggle the HUD  |
-| `Q` / `Esc`        | Quit            |
+| `Q` / `Esc` / `Ctrl+W` | Quit        |
 
 A minimal HUD overlay in the top-left corner shows where the simulation is running
 (`user@host:port`, transport, codec, resolution), the end-to-end latency, the stream fps, and the
