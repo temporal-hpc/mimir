@@ -7,9 +7,10 @@
 # with serveRemote(): point your server at a port, then run `mimir-client <host> <port>`. Build
 # the server with no client code of your own.
 #
-# In a normal build it is skipped when its dependencies (the same QUIC + H.264 stack the server
-# uses) are missing, and the library still builds. With MIMIR_RR_CLIENT_ONLY=ON this viewer
-# is the whole build, so missing dependencies fail the configure instead.
+# In a normal build it is skipped when its core deps (the H.264 stack + GLFW/GL) are missing, and
+# the library still builds. With MIMIR_RR_CLIENT_ONLY=ON this viewer is the whole build, so those
+# missing deps fail the configure instead. QUIC (ngtcp2 + OpenSSL) is optional: without it the
+# viewer builds TCP-only (so it builds even where libngtcp2_crypto_ossl is unavailable).
 
 include(MimirRemoteClient)
 

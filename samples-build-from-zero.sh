@@ -60,7 +60,8 @@ $samples_list
                      Skips rr-server and the mimir library, so no CUDA toolkit, NVIDIA
                      hardware, or prior library build is needed — any Intel/AMD laptop
                      works (implies --sample remote-rendering; --mimir-dir is ignored).
-                     Needs ffmpeg, ngtcp2, OpenSSL and GLFW installed.
+                     Needs ffmpeg and GLFW installed; ngtcp2 + OpenSSL are optional
+                     (without them the viewer builds TCP-only — fine for Ubuntu <= 24.04).
   --build-dir <dir>  Build directory.
                      Default (all samples):   samples/build/
                      Default (single sample): samples/<name>/build/

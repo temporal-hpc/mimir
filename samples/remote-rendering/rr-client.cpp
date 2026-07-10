@@ -14,8 +14,9 @@
 // (user@host:port, transport, codec), the end-to-end latency, the stream fps, and the sim
 // progress (step x of y, or unlimited). Other keys: P pauses the simulation, Q/Esc quits.
 //
-// Depends only on the wire-protocol header + ngtcp2 + OpenSSL + ffmpeg + GLFW/OpenGL (no mimir,
-// CUDA, or Vulkan): it models a laptop-class thin client.
+// Depends only on the wire-protocol header + ffmpeg + GLFW/OpenGL (no mimir, CUDA, or Vulkan):
+// it models a laptop-class thin client. QUIC (ngtcp2 + OpenSSL) is an optional compile-time
+// add-on: when the build can't find it, the viewer is TCP-only (see MIMIR_RRC_HAVE_QUIC below).
 //
 // Run from build/samples/:
 //   ./rr-client [host] [port] [token] [auto|quic|tcp] [frames]
@@ -29,6 +30,10 @@
 #include <mimir/remote_protocol.hpp>
 using namespace mimir::remote;
 
+// QUIC transport is optional: the whole ngtcp2/OpenSSL stack compiles in only when the build
+// found it (MimirRemoteClient.cmake defines MIMIR_RRC_HAVE_QUIC). Without it the viewer is
+// TCP-only, which lets it build on distros lacking libngtcp2_crypto_ossl (e.g. Ubuntu <= 24.04).
+#ifdef MIMIR_RRC_HAVE_QUIC
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_ossl.h>
@@ -39,6 +44,7 @@ using namespace mimir::remote;
 
 #include <openssl/ssl.h>
 #include <openssl/rand.h>
+#endif // MIMIR_RRC_HAVE_QUIC
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -74,13 +80,17 @@ extern "C" {
 namespace
 {
 
+#ifdef MIMIR_RRC_HAVE_QUIC
 const unsigned char ALPN[] = {5, 'm', 'i', 'm', 'i', 'r'};
+#endif
+
+constexpr uint64_t NS_PER_SEC = 1000000000ull; // == ngtcp2's NGTCP2_SECONDS, without the dependency
 
 uint64_t now_ns()
 {
     timespec tp{};
     clock_gettime(CLOCK_MONOTONIC, &tp);
-    return static_cast<uint64_t>(tp.tv_sec) * NGTCP2_SECONDS + static_cast<uint64_t>(tp.tv_nsec);
+    return static_cast<uint64_t>(tp.tv_sec) * NS_PER_SEC + static_cast<uint64_t>(tp.tv_nsec);
 }
 
 // Client steady clock in milliseconds since startup, as the 32-bit stamp carried by ControlMsg
@@ -546,6 +556,7 @@ bool run_tcp(const char *host, const char *port, const std::string& token, Decod
     return true;
 }
 
+#ifdef MIMIR_RRC_HAVE_QUIC
 // ============================================================================================
 // QUIC session (ngtcp2 + OpenSSL crypto binding)
 // ============================================================================================
@@ -920,6 +931,7 @@ bool run_quic(const char *host, const char *port, const std::string& token, Deco
     quic_free(&q);
     return established;
 }
+#endif // MIMIR_RRC_HAVE_QUIC
 
 // ============================================================================================
 // Session thread: pick transport, run until shutdown.
@@ -928,6 +940,7 @@ void session_thread(std::string host, std::string port, std::string token, std::
 {
     Decoder dec;
     dec.init();
+#ifdef MIMIR_RRC_HAVE_QUIC
     if (mode == "tcp")
     {
         run_tcp(host.c_str(), port.c_str(), token, dec);
@@ -941,6 +954,15 @@ void session_thread(std::string host, std::string port, std::string token, std::
             run_tcp(host.c_str(), port.c_str(), token, dec);
         }
     }
+#else
+    // TCP-only build: no ngtcp2 was available at compile time. "auto" already means TCP here;
+    // an explicit "quic" request cannot be honoured, so note it and use TCP.
+    if (mode == "quic")
+    {
+        fprintf(stderr, "rr-client: built without QUIC support; using TCP\n");
+    }
+    run_tcp(host.c_str(), port.c_str(), token, dec);
+#endif // MIMIR_RRC_HAVE_QUIC
     dec.destroy();
     g.running.store(false);
 }

@@ -35,7 +35,9 @@ Options:
                      remote-rendering sample's rr-client, installed here as mimir-client).
                      Skips the library and all server-side code, so no CUDA toolkit, Vulkan,
                      or NVIDIA hardware is needed — any Intel/AMD laptop works.
-                     Needs ffmpeg, ngtcp2, OpenSSL and GLFW installed; --gcc is not needed.
+                     Needs ffmpeg and GLFW installed; --gcc is not needed. ngtcp2 + OpenSSL
+                     are optional (without them the viewer builds TCP-only, which lets it
+                     build on distros lacking libngtcp2_crypto_ossl, e.g. Ubuntu <= 24.04).
   --debug            Build in Debug mode (default: Release).
   --build-dir <dir>  Build directory (default: build/).
   --jobs <n>         Parallel build jobs (default: $(nproc)).

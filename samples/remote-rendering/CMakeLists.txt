@@ -34,10 +34,11 @@ if(NOT MIMIR_RR_CLIENT_ONLY)
     )
 endif()
 
-# --- rr-client: thin viewer (wire protocol + ngtcp2 + OpenSSL + ffmpeg + GLFW/GL) ----------------
+# --- rr-client: thin viewer (wire protocol + ffmpeg + GLFW/GL, QUIC/ngtcp2 optional) -------------
 # Shared build logic with the installable mimir-client (top-level client/). In a full build it is
-# skipped when its dependencies are missing (rr-server still builds); in viewer-only mode missing
-# dependencies fail the configure instead.
+# skipped when its core deps (ffmpeg/GLFW/GL) are missing (rr-server still builds); in viewer-only
+# mode those missing deps fail the configure instead. QUIC (ngtcp2 + OpenSSL) is optional either
+# way: without it the viewer builds TCP-only.
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/MimirRemoteClient.cmake")
 set(_client_required "")
 if(MIMIR_RR_CLIENT_ONLY)
