@@ -1279,10 +1279,11 @@ int run_headless(int frames)
 // --benchmark: deterministic scripted camera, so runs against different servers are comparable.
 // ============================================================================================
 // Emits the same control stream every run at a steady 60 Hz "mouse" cadence: idle to establish
-// a baseline, one full orbit around the cloud, dive inside it, look around, back out, idle
-// again, then quit. Magnitudes are tuned to the engine's default camera (LookAt at z=-2.85 over
-// a roughly unit-sized cloud): the zoom legs travel ~2.4 world units in and back out. Phases
-// are published to g_phase so every CSV row is labeled for plot shading.
+// a baseline, one full orbit around the cloud, dive inside it, look around from within (turn the
+// gaze in place, not another orbit), back out, idle again, then quit. Magnitudes are tuned to the
+// engine's default camera (LookAt at z=-2.85 over a roughly unit-sized cloud): the zoom legs
+// travel ~2.4 world units in and back out. Phases are published to g_phase so every CSV row is
+// labeled for plot shading.
 void bench_thread()
 {
     // Wait for the stream to come up so the script timeline starts at the first frame.
@@ -1294,12 +1295,20 @@ void bench_thread()
 
     struct Step { const char *phase; double secs; ControlKind kind; float a, b; };
     static const Step script[] = {
-        { "idle",     3.0, ControlKind::None,         0.0f, 0.f }, // baseline, no interaction
-        { "orbit",    6.0, ControlKind::CameraRotate, 1.0f, 0.f }, // ~360 deg yaw around the cloud
-        { "zoom_in",  3.0, ControlKind::CameraZoom,   2.7f, 0.f }, // outside -> inside the cloud
-        { "inside",   3.0, ControlKind::CameraRotate, 1.0f, 0.f }, // look around from within
-        { "zoom_out", 3.0, ControlKind::CameraZoom,  -2.7f, 0.f }, // back out to the start radius
-        { "idle",     2.0, ControlKind::None,         0.0f, 0.f }, // settle, end-of-run baseline
+        { "idle",     3.0,  ControlKind::None,         0.0f, 0.f }, // baseline, no interaction
+        { "orbit",    6.0,  ControlKind::CameraRotate, 1.0f, 0.f }, // ~360 deg yaw around the cloud
+        { "zoom_in",  3.0,  ControlKind::CameraZoom,   2.7f, 0.f }, // outside -> inside the cloud
+        // Look around from within: turn the gaze in place (CameraLook = eye fixed), not another
+        // orbit. Symmetric yaw then pitch sweeps that each return to center, so the following
+        // zoom_out resumes from the same view with no jump. 3 s total (unchanged run length).
+        { "inside",   0.5,  ControlKind::CameraLook,   2.0f, 0.f }, // yaw to one side
+        { "inside",   1.0,  ControlKind::CameraLook,  -2.0f, 0.f }, //  ... across to the other
+        { "inside",   0.5,  ControlKind::CameraLook,   2.0f, 0.f }, //  ... back to center
+        { "inside",   0.25, ControlKind::CameraLook,   0.0f, 2.0f }, // tilt up
+        { "inside",   0.5,  ControlKind::CameraLook,   0.0f,-2.0f }, //  ... down past center
+        { "inside",   0.25, ControlKind::CameraLook,   0.0f, 2.0f }, //  ... back to center
+        { "zoom_out", 3.0,  ControlKind::CameraZoom,  -2.7f, 0.f }, // back out to the start radius
+        { "idle",     2.0,  ControlKind::None,         0.0f, 0.f }, // settle, end-of-run baseline
     };
 
     printf("benchmark: scripted camera starting (20 s: idle/orbit/zoom_in/inside/zoom_out/idle)\n");
@@ -1307,7 +1316,7 @@ void bench_thread()
     {
         if (!g.running.load() || g.quit.load()) { break; }
         g_phase.store(s.phase);
-        printf("benchmark: phase %-8s (%.0f s)\n", s.phase, s.secs);
+        printf("benchmark: phase %-8s (%.2g s)\n", s.phase, s.secs);
         const int ticks = static_cast<int>(s.secs * 60.0);
         for (int t = 0; t < ticks && g.running.load() && !g.quit.load(); ++t)
         {
@@ -1353,8 +1362,9 @@ static void usage(const char *prog)
         "                 window; the server keeps rendering at its own resolution (not\n"
         "                 renegotiated).\n"
         "  --benchmark F  Drive the camera with a deterministic 20 s script (3 s idle, 6 s\n"
-        "                 orbit, 3 s zoom into the cloud, 3 s look around inside, 3 s zoom\n"
-        "                 out, 2 s idle), quit, and write the per-second telemetry time series\n"
+        "                 orbit, 3 s zoom into the cloud, 3 s look around from within (turn the\n"
+        "                 gaze in place), 3 s zoom out, 2 s idle), quit, and write the per-second\n"
+        "                 telemetry time series\n"
         "                 to CSV file F (columns: time_s,fps,kbps,server_ms,decode_ms,\n"
         "                 lat_mean_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase;\n"
         "                 'phase' labels the script phases for plot shading). The control\n"

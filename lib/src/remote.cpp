@@ -504,6 +504,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 {
                     case remote::ControlKind::CameraRotate:
                         camera.rotate(glm::vec3(ev.b * speed, -ev.a * speed, 0.f)); break;
+                    case remote::ControlKind::CameraLook:
+                        // First-person gaze turn about the eye (yaw from dx, pitch from dy), same
+                        // sign convention as the orbit above -- but the eye stays put.
+                        camera.freeLook(-ev.a * speed, ev.b * speed); break;
                     case remote::ControlKind::CameraZoom:
                         camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f)); break;
                     case remote::ControlKind::CameraPan:

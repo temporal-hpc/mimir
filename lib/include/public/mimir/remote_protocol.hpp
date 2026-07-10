@@ -38,6 +38,10 @@ enum class ControlKind : uint8_t
     // Ask the encoder for an IDR on the next frame. Sent by a client that lost a frame on an
     // unreliable (datagram) video path and cannot decode further P-frames until a keyframe.
     RequestKeyframe = 7,
+    // First-person "turn the gaze" about the eye: a = dx (yaw), b = dy (pitch). Unlike
+    // CameraRotate (a trackball that orbits the scene about the world origin), the eye stays
+    // put and only the look direction turns -- used to look around from inside the scene.
+    CameraLook   = 8,
 };
 
 // Identifies the client's authentication message ("MIMA"). The client always sends an AuthMsg
