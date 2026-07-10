@@ -153,9 +153,13 @@ const char *g_transport = "?";
 // Initial window size the viewer opens at (--window W H). 0 = match the stream resolution.
 // This is purely local: the frame is still stretched to fill the window (server res unchanged).
 int g_win_w = 0, g_win_h = 0;
+// Set from the Hello handshake: true when the server runs the Fly camera, so the viewer drives
+// it with mouse-look (CameraLook) + WASD (CameraMove) instead of the trackball orbit/zoom/pan.
+std::atomic<bool> g_fly{false};
 
 void hud_set_server(const Hello& hello, const char *transport)
 {
+    g_fly.store((hello.flags & HELLO_CAMERA_FLY) != 0, std::memory_order_relaxed);
     // The wire strings are NUL-padded but not guaranteed NUL-terminated at full length.
     char user[USER_MAX + 1] = {}; std::memcpy(user, hello.user, USER_MAX);
     char host[HOST_MAX + 1] = {}; std::memcpy(host, hello.host, HOST_MAX);
@@ -1146,6 +1150,12 @@ void cursor_cb(GLFWwindow*, double x, double y)
     float dx = static_cast<float>(g_input.last_x - x);
     float dy = static_cast<float>(g_input.last_y - y);
     g_input.last_x = x; g_input.last_y = y;
+    if (g_fly.load(std::memory_order_relaxed))
+    {
+        // Fly camera: left-drag turns the gaze (mouse-look); WASD movement is polled per frame.
+        if (g_input.left) { ui_control(ControlKind::CameraLook, dx, dy); }
+        return;
+    }
     if (g_input.left)   { ui_control(ControlKind::CameraRotate, dx, dy); }
     if (g_input.right)  { ui_control(ControlKind::CameraZoom, dy); }
     if (g_input.middle) { ui_control(ControlKind::CameraPan, dx, dy); }
@@ -1204,9 +1214,24 @@ int run_window()
     std::vector<unsigned char> display;
     uint64_t shown_seq = 0;
     int cur_w = w, cur_h = h;
+    printf(g_fly.load() ? "camera: fly (left-drag look, WASD move)\n"
+                        : "camera: trackball (left-drag orbit, right-drag zoom, middle-drag pan)\n");
     while (!glfwWindowShouldClose(window) && g.running.load())
     {
         glfwPollEvents();
+        // Fly camera: send WASD movement each frame (held keys -> continuous CameraMove). Forward
+        // follows the gaze, so look up + W climbs. Trackball servers ignore CameraMove.
+        if (g_fly.load(std::memory_order_relaxed))
+        {
+            float strafe  = (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.f : 0.f)
+                          - (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.f : 0.f);
+            float forward = (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ? 1.f : 0.f)
+                          - (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ? 1.f : 0.f);
+            if (strafe != 0.f || forward != 0.f)
+            {
+                ui_control(ControlKind::CameraMove, strafe, forward);
+            }
+        }
         {
             std::lock_guard<std::mutex> lock(g.frame_mtx);
             if (g.frame_seq != shown_seq)
@@ -1349,7 +1374,11 @@ static void usage(const char *prog)
         "  frames     If > 0, run headless: receive N frames, save rr-client.ppm, exit\n"
         "             (default: 0 = open interactive window)\n"
         "\n"
-        "Window keys:\n"
+        "Window keys / mouse:\n"
+        "  Left-drag  Trackball server: orbit the scene. Fly server (rr-server --fly): look around.\n"
+        "  Right/Mid  Trackball server: right-drag zoom, middle-drag pan (no effect on a Fly server).\n"
+        "  W A S D    Fly server only: move (forward follows the gaze, so look up + W climbs).\n"
+        "             The camera model is chosen by the server and detected automatically.\n"
         "  H          Toggle the HUD overlay (server user@host:port, transport/codec,\n"
         "             latency, fps, simulation progress)\n"
         "  P          Pause/resume the simulation\n"

@@ -296,6 +296,20 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     // Rate-control framerate for the encoder: the cap when set, the conventional 60 otherwise.
     const int encoder_fps = target_fps > 0 ? target_fps : 60;
 
+    // Camera model. Fly (options.camera_control == Fly, i.e. rr-server --fly): first-person
+    // free-look + WASD, driven by the client's CameraLook/CameraMove events and rendered on the
+    // engine's Fly (camera-to-world) branch. Otherwise the default trackball (orbit/zoom/pan).
+    // The client is told which via the Hello flags so it adapts its input. prepare() left the
+    // camera in the trackball default pose, so seed a sensible fly pose here: eye back on +z,
+    // yaw 180 so forward is -z looking at the scene origin (the setFlyLook convention).
+    const bool fly = (options.camera_control == CameraControl::Fly);
+    if (fly)
+    {
+        camera.setPosition(glm::vec3(0.f, 0.f, 2.85f));
+        camera.setRotation(glm::vec3(0.f, 180.f, 0.f));
+        camera.setFlyLook();
+    }
+
     // Step counter advanced by the sim thread, read by this consumer for the HUD/stats/logs.
     std::atomic<size_t> total_iter{0};
     bool stop = false;
@@ -443,6 +457,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             .codec  = static_cast<uint32_t>(codec),
             .user   = {},
             .host   = {},
+            .flags  = fly ? remote::HELLO_CAMERA_FLY : 0u, // tell the client to drive a Fly camera
         };
         fillServerIdentity(hello);
         if (!transport->sendVideo(&hello, sizeof(hello))) { continue; } // client vanished; re-listen
@@ -497,21 +512,58 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             bool want_idr = false;
             int resize_w = 0, resize_h = 0;
             const auto speed = camera.rotation_speed;
+            // Fly-camera input helpers (used only when `fly`), mirroring the on-screen Fly camera
+            // (engine.cpp updateCamera / window.cpp): mouse-look about the eye and WASD movement
+            // along the current view basis. setFlyLook rebuilds a roll-free camera-to-world view
+            // from yaw/pitch at the eye -- the branch the path tracer decodes in Fly mode.
+            const float sens  = options.mouse_sensitivity;                 // degrees per pixel
+            const float mstep = options.camera_move_speed * (1.f / 60.f);  // units per move event
+            auto flyLook = [&](float dx, float dy)
+            {
+                camera.rotation.y += dx * sens;   // drag right -> look right
+                camera.rotation.x -= dy * sens;   // drag up    -> look up
+                camera.rotation.x = std::clamp(camera.rotation.x, -89.9f, 89.9f);
+                camera.setFlyLook();
+            };
+            auto flyMove = [&](float strafe, float forward)
+            {
+                const glm::vec3 fwd = glm::vec3(camera.matrices.view[2]); // world look dir (col 2)
+                // cross(fwd, up), NOT matrices.view[0]: setLookAt's stored right is the opposite
+                // (the trap the WASD handler documents), so this keeps strafe uninverted.
+                const glm::vec3 right = glm::normalize(glm::cross(fwd, glm::vec3(0.f, 1.f, 0.f)));
+                glm::vec3 dir = strafe * right + forward * fwd;
+                if (glm::dot(dir, dir) > 0.f)
+                {
+                    camera.position += glm::normalize(dir) * mstep;
+                    camera.setFlyLook();
+                }
+            };
             for (const auto& ev : events)
             {
                 if (ev.stamp_ms != 0) { latest_stamp = ev.stamp_ms; } // newest wins (in order)
                 switch (static_cast<remote::ControlKind>(ev.kind))
                 {
                     case remote::ControlKind::CameraRotate:
-                        camera.rotate(glm::vec3(ev.b * speed, -ev.a * speed, 0.f)); break;
+                        // Fly: a mouse drag turns the gaze; trackball: it orbits the scene.
+                        if (fly) { flyLook(ev.a, ev.b); }
+                        else { camera.rotate(glm::vec3(ev.b * speed, -ev.a * speed, 0.f)); }
+                        break;
                     case remote::ControlKind::CameraLook:
-                        // First-person gaze turn about the eye (yaw from dx, pitch from dy), same
-                        // sign convention as the orbit above -- but the eye stays put.
-                        camera.freeLook(-ev.a * speed, ev.b * speed); break;
+                        // Fly: mouse-look about the eye (setFlyLook). Trackball: an in-place gaze
+                        // turn about the eye (freeLook, world-to-view) -- same sign as the orbit.
+                        if (fly) { flyLook(ev.a, ev.b); }
+                        else { camera.freeLook(-ev.a * speed, ev.b * speed); }
+                        break;
+                    case remote::ControlKind::CameraMove:
+                        // WASD flythrough (Fly only); a no-op for a trackball server.
+                        if (fly) { flyMove(ev.a, ev.b); }
+                        break;
                     case remote::ControlKind::CameraZoom:
-                        camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f)); break;
+                        if (!fly) { camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f)); }
+                        break;
                     case remote::ControlKind::CameraPan:
-                        camera.translate(glm::vec3(-ev.a * 0.01f, -ev.b * 0.01f, 0.f)); break;
+                        if (!fly) { camera.translate(glm::vec3(-ev.a * 0.01f, -ev.b * 0.01f, 0.f)); }
+                        break;
                     case remote::ControlKind::TogglePause:
                         // Pause the sovereign sim thread; the consumer keeps streaming the
                         // frozen scene (and the path tracer converges on it).
@@ -569,6 +621,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         .codec  = static_cast<uint32_t>(codec),
                         .user   = {},
                         .host   = {},
+                        .flags  = fly ? remote::HELLO_CAMERA_FLY : 0u,
                     };
                     fillServerIdentity(rehello);
                     remote::FrameHeader hh{ .size = static_cast<uint32_t>(sizeof(rehello)),

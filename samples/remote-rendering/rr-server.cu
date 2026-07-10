@@ -94,6 +94,11 @@ static void usage(const char *prog)
         "                     Distinct from point_count: this is how many steps to run, not how\n"
         "                     many points. The remaining progress shows in the client's HUD\n"
         "                     (step x of y); with 0 the HUD reads 'iteration x of unlimited'.\n"
+        "  --fly              First-person camera instead of the default trackball: the client\n"
+        "                     looks with mouse-drag and flies with WASD (forward follows the gaze),\n"
+        "                     good for touring inside a large scene. Default (no --fly) is the\n"
+        "                     trackball (drag = orbit the scene, right-drag = zoom). The client\n"
+        "                     adapts automatically (told via the stream handshake).\n"
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
@@ -153,6 +158,7 @@ int main(int argc, char *argv[])
     unsigned int pt_subdiv  = 1;
     bool subdiv_set         = false;
     bool pt_denoise         = false;
+    bool fly                = false;
     int bitrate_kbps        = 8000;
     int fps_cap             = 0;
     int steps_per_frame     = 0;
@@ -167,6 +173,7 @@ int main(int argc, char *argv[])
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
         if (a == "--denoise") { pt_denoise = true; continue; } // flag, takes no value
+        if (a == "--fly")     { fly = true; continue; }        // first-person camera (flag)
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
@@ -223,6 +230,9 @@ int main(int argc, char *argv[])
     options.pt_denoise           = pt_denoise;
     // Match datoviz/particles-kmodal-3d framing of the [-1,1]^3 domain (45 deg vertical FOV).
     options.camera_fov        = 45.f;
+    // --fly: run the first-person camera. serveRemote seeds the fly pose and interprets the
+    // client's mouse-look/WASD; the client is told via the Hello flags so it adapts its input.
+    if (fly) { options.camera_control = CameraControl::Fly; }
 
     InstanceHandle instance = nullptr;
     createInstance(options, &instance);

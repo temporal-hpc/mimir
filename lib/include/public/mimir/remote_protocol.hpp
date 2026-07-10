@@ -42,6 +42,11 @@ enum class ControlKind : uint8_t
     // CameraRotate (a trackball that orbits the scene about the world origin), the eye stays
     // put and only the look direction turns -- used to look around from inside the scene.
     CameraLook   = 8,
+    // Fly-camera movement (only meaningful when the server runs the Fly camera, see
+    // HELLO_CAMERA_FLY): a = strafe (right +), b = forward (+), in camera-local axes. The server
+    // moves the eye along its current view basis (looking up + forward climbs). Ignored by a
+    // trackball (Orbit) server.
+    CameraMove   = 9,
 };
 
 // Identifies the client's authentication message ("MIMA"). The client always sends an AuthMsg
@@ -53,6 +58,14 @@ constexpr unsigned TOKEN_MAX  = 32;
 // Sizes of the server-identity strings carried in Hello (NUL-padded, may be empty).
 constexpr unsigned USER_MAX = 16;
 constexpr unsigned HOST_MAX = 40;
+
+// Flags in Hello::flags describing the session's camera/interaction model.
+enum HelloFlags : uint32_t
+{
+    // The server runs the Fly (first-person) camera: the client should drive it with mouse-look
+    // and WASD (sending CameraLook / CameraMove) instead of the trackball orbit/zoom/pan.
+    HELLO_CAMERA_FLY = 1u << 0,
+};
 
 // Flags on FrameHeader describing the payload that follows.
 enum FrameFlags : uint32_t
@@ -77,6 +90,7 @@ struct Hello
     // and hostname. NUL-padded; empty when the server could not determine them.
     char     user[USER_MAX];
     char     host[HOST_MAX];
+    uint32_t flags;  // HelloFlags (e.g. HELLO_CAMERA_FLY); 0 = trackball/orbit session
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
