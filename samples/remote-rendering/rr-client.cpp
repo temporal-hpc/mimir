@@ -1193,8 +1193,26 @@ static void usage(const char *prog)
         "  %s 192.168.1.10 9000 mysecret\n"
         "\n"
         "  # Headless test: receive 10 frames, save rr-client.ppm, then exit:\n"
-        "  %s 127.0.0.1 9000 \"\" tcp 10\n",
-        prog, prog, prog, prog, prog);
+        "  %s 127.0.0.1 9000 \"\" tcp 10\n"
+        "\n"
+        "Reaching a server behind SSH (e.g. a Slurm job in a Pyxis/enroot container):\n"
+        "  The server binds all interfaces (0.0.0.0) and enroot shares the host network, so it\n"
+        "  listens on the compute node directly (no container port mapping needed). SSH forwards\n"
+        "  TCP only, so tunnel in and connect with transport 'tcp' -- QUIC is UDP and will NOT\n"
+        "  traverse an ssh -L tunnel. Find the node your job landed on with 'squeue -u $USER'\n"
+        "  (the NODELIST column), or 'echo $SLURMD_NODENAME' from inside the job.\n"
+        "\n"
+        "  # From your laptop: forward local 9000 -> compute node, via the login node:\n"
+        "  ssh -N -L 9000:<compute-node-name>:<port> <user>@<supercomputer-url>\n"
+        "  # If the login node cannot reach compute-node ports, jump into the node instead:\n"
+        "  ssh -N -J <user>@<supercomputer-url> <user>@<compute-node-name> -L 9000:localhost:<port>\n"
+        "  # then, locally:\n"
+        "  %s 127.0.0.1 9000 \"\" tcp\n"
+        "\n"
+        "  Concrete example (node gpu042, cluster hpc.example.edu, port 9000, token s3cret):\n"
+        "    ssh -N -L 9000:gpu042:9000 alice@hpc.example.edu\n"
+        "    %s 127.0.0.1 9000 s3cret tcp\n",
+        prog, prog, prog, prog, prog, prog, prog);
 }
 
 int main(int argc, char *argv[])
