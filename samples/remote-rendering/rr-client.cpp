@@ -150,6 +150,9 @@ Hud g_hud;
 std::string g_dial_host, g_dial_port;
 // Transport label of the established session ("TCP"/"QUIC"), for HUD refreshes on re-Hello.
 const char *g_transport = "?";
+// Initial window size the viewer opens at (--window W H). 0 = match the stream resolution.
+// This is purely local: the frame is still stretched to fill the window (server res unchanged).
+int g_win_w = 0, g_win_h = 0;
 
 void hud_set_server(const Hello& hello, const char *transport)
 {
@@ -1175,7 +1178,11 @@ int run_window()
 
     if (!glfwInit()) { fprintf(stderr, "glfwInit failed\n"); return EXIT_FAILURE; }
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // window is freely resizable; the frame is stretched
-    GLFWwindow *window = glfwCreateWindow(w, h, "mimir rr-client", nullptr, nullptr);
+    // Open at the requested window size, or the stream resolution if none was given. The frame is
+    // stretched to fill whatever the window is, so this never touches the server-side resolution.
+    const int win_w = (g_win_w > 0) ? g_win_w : w;
+    const int win_h = (g_win_h > 0) ? g_win_h : h;
+    GLFWwindow *window = glfwCreateWindow(win_w, win_h, "mimir rr-client", nullptr, nullptr);
     if (!window) { fprintf(stderr, "window creation failed\n"); glfwTerminate(); return EXIT_FAILURE; }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
@@ -1309,7 +1316,7 @@ void bench_thread()
 static void usage(const char *prog)
 {
     printf(
-        "Usage: %s [host] [port] [token] [transport] [frames] [--benchmark out.csv]\n"
+        "Usage: %s [host] [port] [token] [transport] [frames] [--window W H] [--benchmark out.csv]\n"
         "\n"
         "  host       Server hostname or IP address       (default: 127.0.0.1)\n"
         "  port       Server port                         (default: 9000)\n"
@@ -1330,6 +1337,11 @@ static void usage(const char *prog)
         "  Q / Esc    Quit\n"
         "\n"
         "Flags (order-independent):\n"
+        "  --window W H   Open the viewer window at W by H (e.g. --window 1280 720), matching the\n"
+        "                 server's 'width height' order. Default: the stream resolution announced\n"
+        "                 by the server. Purely local -- the frame is stretched to fill the\n"
+        "                 window; the server keeps rendering at its own resolution (not\n"
+        "                 renegotiated).\n"
         "  --benchmark F  Drive the camera with a deterministic 20 s script (3 s idle, 6 s\n"
         "                 orbit, 3 s zoom into the cloud, 3 s look around inside, 3 s zoom\n"
         "                 out, 2 s idle), quit, and write the per-second telemetry time series\n"
@@ -1392,6 +1404,15 @@ int main(int argc, char *argv[])
             if (i + 1 >= argc) { fprintf(stderr, "missing csv file for --benchmark\n"); return EXIT_FAILURE; }
             benchmark = true;
             bench_csv = argv[++i];
+            continue;
+        }
+        if (a == "--window" || a == "--size")
+        {
+            if (i + 2 >= argc) { fprintf(stderr, "missing W H for %s (e.g. --window 1280 720)\n", a.c_str()); return EXIT_FAILURE; }
+            g_win_w = std::atoi(argv[++i]);
+            g_win_h = std::atoi(argv[++i]);
+            if (g_win_w <= 0 || g_win_h <= 0)
+            { fprintf(stderr, "invalid window size (expected positive W H, e.g. --window 1280 720)\n"); return EXIT_FAILURE; }
             continue;
         }
         pos.push_back(argv[i]);
