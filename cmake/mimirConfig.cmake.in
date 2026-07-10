@@ -18,7 +18,9 @@ if(@MIMIR_BUILT_WITH_REMOTE@)
         message(FATAL_ERROR
             "This mimir build has remote streaming enabled (MIMIR_ENABLE_REMOTE=ON), "
             "which requires ffmpeg (libavcodec, libavutil, libswscale).\n"
-            "Install it and re-run cmake — e.g. on Arch: pacman -S ffmpeg")
+            "Install it and re-run cmake — e.g.\n"
+            "  Arch:          pacman -S ffmpeg\n"
+            "  Debian/Ubuntu: apt install libavcodec-dev libavutil-dev libswscale-dev")
     endif()
 endif()
 
@@ -31,8 +33,15 @@ if(@MIMIR_BUILT_WITH_QUIC@)
     if(NOT TARGET PkgConfig::NGTCP2)
         message(FATAL_ERROR
             "This mimir build has QUIC transport enabled (MIMIR_ENABLE_QUIC=ON), "
-            "which requires ngtcp2 and OpenSSL (libngtcp2, libngtcp2_crypto_ossl).\n"
-            "Install them and re-run cmake — e.g. on Arch: pacman -S libngtcp2 openssl")
+            "which requires ngtcp2 with its OpenSSL crypto backend, plus OpenSSL "
+            "(libngtcp2, libngtcp2_crypto_ossl).\n"
+            "Install them and re-run cmake — e.g.\n"
+            "  Arch:          pacman -S libngtcp2 openssl\n"
+            "  Ubuntu 26.04+: apt install libngtcp2-dev libngtcp2-crypto-ossl-dev libssl-dev\n"
+            "Note: libngtcp2_crypto_ossl needs ngtcp2 1.16+ built against OpenSSL 3.5+ "
+            "(its native QUIC API). Ubuntu 24.04 and earlier package only the GnuTLS "
+            "backend, so it is NOT available via apt there — build ngtcp2 from source, or "
+            "rebuild mimir with --no-quic to use TCP-only transport.")
     endif()
 endif()
 

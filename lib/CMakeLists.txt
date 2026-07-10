@@ -136,8 +136,19 @@ export(EXPORT MimirTargets
     FILE "${CMAKE_CURRENT_BINARY_DIR}/mimir/mimirTargets.cmake"
     #NAMESPACE mimir::
 )
-set(MIMIR_BUILT_WITH_REMOTE ${MIMIR_ENABLE_REMOTE})
-set(MIMIR_BUILT_WITH_QUIC   ${MIMIR_ENABLE_QUIC})
+# Report to consumers what was ACTUALLY built, not merely requested: the QUIC/remote
+# features degrade gracefully to a warning when their deps are missing (see above), so a
+# consumer must only require ngtcp2/ffmpeg when this mimir was truly built against them.
+if(MIMIR_ENABLE_REMOTE AND FFMPEG_FOUND)
+    set(MIMIR_BUILT_WITH_REMOTE ON)
+else()
+    set(MIMIR_BUILT_WITH_REMOTE OFF)
+endif()
+if(MIMIR_ENABLE_QUIC AND NGTCP2_FOUND)
+    set(MIMIR_BUILT_WITH_QUIC ON)
+else()
+    set(MIMIR_BUILT_WITH_QUIC OFF)
+endif()
 set(MIMIR_SLANG_LIBRARY  "${slang_SOURCE_DIR}/lib/libslang.so")
 set(MIMIR_SLANG_INCLUDES "${slang_SOURCE_DIR}/include")
 configure_file("${PROJECT_SOURCE_DIR}/cmake/mimirConfig.cmake.in"
