@@ -34,12 +34,11 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib.patches import Patch
 
 # Metrics that get a time-series curve are defined by the panels below; everything else in
-# the CSV is summarised in the table only. Phase spans are shaded with these colors, and shown
-# in the "Client Camera" legend under their display names. The legacy tokens (idle/zoom_out from
-# older CSVs) share styling with their current equivalents so old runs still plot.
+# the CSV is summarised in the table only. Phase spans are shaded with these colors and named
+# in-band (muted, as background info) under their display names. The legacy tokens (idle/zoom_out
+# from older CSVs) share styling with their current equivalents so old runs still plot.
 PHASE_COLORS = {
     "far":         "#d9d9d9",
     "orbit":       "#c6dbef",
@@ -93,17 +92,24 @@ def shade_phases(ax, df):
             start, phase = i, cur
 
 
-def phase_legend_handles(df):
-    """Patch handles for the phases present in df, in first-seen order, under display names."""
+def label_phases(ax, df):
+    """Write each phase's display name vertically inside its shaded band, as muted background
+    info — replaces a separate phase legend, so the name sits right on the color it describes.
+    """
     if "phase" not in df.columns:
-        return []
-    handles = []
-    for ph in df["phase"].drop_duplicates():
-        if ph == "done":
-            continue
-        handles.append(Patch(facecolor=PHASE_COLORS.get(str(ph), "#eeeeee"), alpha=0.5,
-                             label=PHASE_LABELS.get(str(ph), str(ph))))
-    return handles
+        return
+    trans = ax.get_xaxis_transform()  # x in data coords, y in axes fraction
+    start = 0
+    phase = df["phase"].iloc[0]
+    for i in range(1, len(df) + 1):
+        cur = df["phase"].iloc[i] if i < len(df) else None
+        if cur != phase:
+            if str(phase) != "done":
+                xmid = 0.5 * (df["t"].iloc[start] + df["t"].iloc[i - 1])
+                ax.text(xmid, 0.975, PHASE_LABELS.get(str(phase), str(phase)),
+                        transform=trans, rotation=90, ha="center", va="top",
+                        fontsize=8, style="italic", color="#666666", alpha=0.65, zorder=1)
+            start, phase = i, cur
 
 
 # Timings panel (all ms, shared axis): mean end-to-end latency plus the two per-frame pipeline
@@ -155,21 +161,18 @@ def plot(runs, out, show, title=None):
     ax_lat.set_title("Timings: latency (mean) + encode + decode")
     ax_lat.set_ylim(bottom=0)
 
-    # Phase shading only makes sense for a single run (one timeline).
+    # Phase shading only makes sense for a single run (one timeline); the phase name is written
+    # in-band rather than in a legend.
     for ax in (ax_tp, ax_lat):
         if single:
             shade_phases(ax, runs[0])
+            label_phases(ax, runs[0])
         ax.grid(True, alpha=0.3)
 
     if single:
-        # Curve legends per panel; the throughput panel also carries the "Client Camera" key.
-        cam = phase_legend_handles(runs[0])
-        curve_leg = ax_tp.legend(loc="lower left", fontsize=8, ncol=1)
-        ax_tp.add_artist(curve_leg)
-        if cam:
-            ax_tp.legend(handles=cam, loc="lower right", fontsize=8,
-                         title="Client Camera", ncol=1)
-        ax_lat.legend(loc="upper left", fontsize=8, ncol=1)
+        # Keep the small curve legends low so the top of each band stays clear for its label.
+        ax_tp.legend(loc="lower left", fontsize=8, ncol=1)
+        ax_lat.legend(loc="lower left", fontsize=8, ncol=1)
     else:
         ax_tp.legend(loc="upper left", fontsize=8, ncol=1)
         ax_lat.legend(loc="upper left", fontsize=7, ncol=1)
