@@ -128,7 +128,7 @@ TIMING_SERIES = [
 ]
 
 
-def _top(runs, cols, std_map=None, frac=0.08):
+def _top(runs, cols, std_map=None, frac=0.16):
     """Data max across runs for `cols` (adding each column's std where given), plus `frac`
     headroom so a curve that just touches its peak doesn't merge into the top border."""
     m = 0.0
