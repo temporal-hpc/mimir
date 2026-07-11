@@ -27,6 +27,9 @@ Usage:
     plot_benchmark.py run.csv --logy                # log-scale the timings (ms) panel
     plot_benchmark.py run.csv --yrange-a 0 65 0 9000 --yrange-b 0 80   # fix axis ranges
     plot_benchmark.py run.csv --no-show             # table only, no window
+    # One PDF per panel with a use-case subtitle (for a use-cases x metric-rows grid):
+    plot_benchmark.py cloud.csv --split -o cloud.pdf -s "Cloud service"
+        #  -> cloud-throughput.pdf and cloud-timings.pdf
 
 Requires: pandas, matplotlib (pip install pandas matplotlib).
 """
@@ -148,34 +151,39 @@ def _top(runs, cols, std_map=None, frac=0.16):
 TIMING_STD = {col: stdcol for col, _, _, _, _, stdcol in TIMING_SERIES}
 
 
-def plot(runs, out, show, title=None, yrange_a=None, yrange_b=None, logy=False):
-    single = len(runs) == 1
-    fig, (ax_tp, ax_lat) = plt.subplots(1, 2, figsize=(14, 5.5), sharex=True)
-    # A stable color per run so the same file reads the same across both panels.
-    run_color = {r.attrs["label"]: c for r, c in
-                 zip(runs, plt.rcParams["axes.prop_cycle"].by_key()["color"])}
-
-    # --- Panel 1: throughput -- fps and bitrate live on separate magnitudes, so twin axes.
-    ax_kbps = ax_tp.twinx()
+def draw_throughput(ax, runs, run_color, single, yrange_a):
+    """Draw the throughput panel (fps on `ax`, bitrate on a twin axis) into a caller-owned axes."""
+    ax_kbps = ax.twinx()
     for df in runs:
         c = run_color[df.attrs["label"]]
         lbl = df.attrs["label"]
-        ax_tp.plot(df["t"], df["fps"], color=c, lw=1.6,
-                   label=f"{lbl} FPS" if not single else "Frames per second (FPS)")
+        ax.plot(df["t"], df["fps"], color=c, lw=1.6,
+                label=f"{lbl} FPS" if not single else "frames per second (FPS)")
         ax_kbps.plot(df["t"], df["kbps"], color=c, lw=1.1, ls="--",
-                     label=f"{lbl} bitrate" if not single else "Bitrate (kbps)")
-    ax_tp.set_ylabel("frames / s")
-    ax_kbps.set_ylabel("bitrate (kbps, dashed)")
-    ax_tp.set_title("Throughput: FPS (solid) + bitrate (dashed)")
-    ax_tp.set_xlabel("time (s)")
+                     label=f"{lbl} bitrate" if not single else "bitrate (kbps)")
+    ax.set_ylabel("FPS")
+    ax_kbps.set_ylabel("kbps")
+    ax.set_title("Throughput: FPS + bitrate (dashed)")
+    ax.set_xlabel("time (s)")
     if yrange_a:
-        ax_tp.set_ylim(yrange_a[0], yrange_a[1])
+        ax.set_ylim(yrange_a[0], yrange_a[1])
         ax_kbps.set_ylim(yrange_a[2], yrange_a[3])
     else:
-        ax_tp.set_ylim(0, _top(runs, ["fps"]))
+        ax.set_ylim(0, _top(runs, ["fps"]))
         ax_kbps.set_ylim(0, _top(runs, ["kbps"]))
+    if single:
+        shade_phases(ax, runs[0])
+        label_phases(ax, runs[0])
+    ax.grid(True, alpha=0.3)
+    # fps and bitrate live on separate axes, so merge both axes' handles or bitrate is left out.
+    tp_h, tp_l = ax.get_legend_handles_labels()
+    kb_h, kb_l = ax_kbps.get_legend_handles_labels()
+    ax.legend(tp_h + kb_h, tp_l + kb_l, loc="lower left" if single else "upper left",
+              fontsize=8, ncol=1)
 
-    # --- Panel 2: timings -- end-to-end latency + server encode + client decode, all ms.
+
+def draw_timings(ax, runs, run_color, single, yrange_b, logy):
+    """Draw the timings panel (latency + encode + decode, each with a std band) into `ax`."""
     # Single run: a fixed color per metric reads clearest. Multiple runs: the run color groups a
     # file's curves and the linestyle distinguishes the metric.
     for df in runs:
@@ -185,49 +193,72 @@ def plot(runs, out, show, title=None, yrange_a=None, yrange_b=None, logy=False):
                 continue
             color = fixed if single else c
             lbl = name if single else f"{df.attrs['label']} {name}"
-            ax_lat.plot(df["t"], df[col], color=color, lw=lw, ls=ls, label=lbl)
+            ax.plot(df["t"], df[col], color=color, lw=lw, ls=ls, label=lbl)
             # +/-1 std-dev error band, shaded in the same color (skipped for CSVs without the
             # *_std columns). zorder keeps it above phase shading but below the curves.
             if stdcol and stdcol in df.columns:
                 lo = (df[col] - df[stdcol]).clip(lower=0)
                 hi = df[col] + df[stdcol]
-                ax_lat.fill_between(df["t"], lo, hi, color=color, alpha=0.15, lw=0, zorder=0.5)
-    ax_lat.set_ylabel("time (ms)")
-    ax_lat.set_xlabel("time (s)")
-    ax_lat.set_title("Timings: latency (mean) + encode + decode")
+                ax.fill_between(df["t"], lo, hi, color=color, alpha=0.15, lw=0, zorder=0.5)
+    ax.set_ylabel("time (ms)")
+    ax.set_xlabel("time (s)")
+    ax.set_title("Timings: latency (mean) + encode + decode")
     if logy:
-        ax_lat.set_yscale("log")
+        ax.set_yscale("log")
     if yrange_b:
-        ax_lat.set_ylim(yrange_b[0], yrange_b[1])
+        ax.set_ylim(yrange_b[0], yrange_b[1])
     elif not logy:  # log autoscales to positive data; a 0 floor would be invalid
-        ax_lat.set_ylim(0, _top(runs, list(TIMING_STD), std_map=TIMING_STD))
-
-    # Phase shading only makes sense for a single run (one timeline); the phase name is written
-    # in-band rather than in a legend.
-    for ax in (ax_tp, ax_lat):
-        if single:
-            shade_phases(ax, runs[0])
-            label_phases(ax, runs[0])
-        ax.grid(True, alpha=0.3)
-
-    # fps and bitrate live on separate axes (ax_tp / its twin), so merge both axes' handles into
-    # one legend or the bitrate curve is left out.
-    tp_h, tp_l = ax_tp.get_legend_handles_labels()
-    kb_h, kb_l = ax_kbps.get_legend_handles_labels()
+        ax.set_ylim(0, _top(runs, list(TIMING_STD), std_map=TIMING_STD))
     if single:
-        # Keep the small curve legends low so the top of each band stays clear for its label.
-        ax_tp.legend(tp_h + kb_h, tp_l + kb_l, loc="lower left", fontsize=8, ncol=1)
-        ax_lat.legend(loc="lower left", fontsize=8, ncol=1)
-    else:
-        ax_tp.legend(tp_h + kb_h, tp_l + kb_l, loc="upper left", fontsize=8, ncol=1)
-        ax_lat.legend(loc="upper left", fontsize=7, ncol=1)
+        shade_phases(ax, runs[0])
+        label_phases(ax, runs[0])
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="lower left" if single else "upper left", fontsize=8 if single else 7, ncol=1)
 
+
+def _figtitles(fig, title, subtitle):
+    """Figure title, with an optional smaller italic subtitle beneath it (e.g. the use case)."""
+    fig.suptitle(title, fontsize=13, y=0.98)
+    if subtitle:
+        fig.text(0.5, 0.925, subtitle, ha="center", va="top", fontsize=10.5,
+                 style="italic", color="#444444")
+
+
+def plot(runs, out, show, title=None, subtitle=None, yrange_a=None, yrange_b=None,
+         logy=False, split=False):
+    single = len(runs) == 1
+    # A stable color per run so the same file reads the same across both panels.
+    run_color = {r.attrs["label"]: c for r, c in
+                 zip(runs, plt.rcParams["axes.prop_cycle"].by_key()["color"])}
     if title is None:
         what = runs[0].attrs["label"] if single else f"{len(runs)} runs compared"
         title = f"Remote-rendering benchmark -- {what}"
-    fig.suptitle(title, fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    top = 0.90 if subtitle else 0.96
 
+    if split:
+        # One figure (and one output file) per panel, for assembling an external grid of use
+        # cases x metric rows. `-o base.pdf` -> base-throughput.pdf and base-timings.pdf.
+        panels = [("throughput", draw_throughput, (run_color, single, yrange_a)),
+                  ("timings",    draw_timings,    (run_color, single, yrange_b, logy))]
+        for suffix, draw, extra in panels:
+            fig, ax = plt.subplots(figsize=(7, 5))
+            draw(ax, runs, *extra)
+            _figtitles(fig, title, subtitle)
+            fig.tight_layout(rect=(0, 0, 1, top))
+            if out:
+                base = Path(out)
+                path = base.with_name(f"{base.stem}-{suffix}{base.suffix or '.pdf'}")
+                fig.savefig(path, dpi=130)
+                print(f"wrote {path}")
+        if show:
+            plt.show()
+        return
+
+    fig, (ax_tp, ax_lat) = plt.subplots(1, 2, figsize=(14, 5.5), sharex=True)
+    draw_throughput(ax_tp, runs, run_color, single, yrange_a)
+    draw_timings(ax_lat, runs, run_color, single, yrange_b, logy)
+    _figtitles(fig, title, subtitle)
+    fig.tight_layout(rect=(0, 0, 1, top))
     if out:
         fig.savefig(out, dpi=130)
         print(f"wrote {out}")
@@ -299,8 +330,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("csv", nargs="+", help="benchmark CSV file(s) from rr-client --benchmark")
-    p.add_argument("-o", "--out", help="save the figure to this path (e.g. run.png)")
+    p.add_argument("-o", "--out", help="save the figure to this path (e.g. run.pdf). With "
+                   "--split this is a base name: base-throughput.pdf and base-timings.pdf")
     p.add_argument("-t", "--title", help="figure title (default: derived from the file name)")
+    p.add_argument("-s", "--subtitle", help="smaller line under the title, e.g. the use case "
+                   "(\"Office workstation\", \"University cluster\", \"Cloud service\")")
+    p.add_argument("--split", action="store_true",
+                   help="save each panel as its own file (for assembling an external grid); "
+                        "use with -o to pick the base name/format (defaults to PDF)")
     p.add_argument("--yrange-a", nargs=4, type=float,
                    metavar=("LOW_FPS", "HIGH_FPS", "LOW_KBPS", "HIGH_KBPS"),
                    help="fix the throughput panel axes: fps (left) low high, then bitrate (right) "
@@ -320,8 +357,8 @@ def main():
         runs.append(load(path))
 
     print_table(runs)
-    plot(runs, args.out, show=not args.no_show, title=args.title,
-         yrange_a=args.yrange_a, yrange_b=args.yrange_b, logy=args.logy)
+    plot(runs, args.out, show=not args.no_show, title=args.title, subtitle=args.subtitle,
+         yrange_a=args.yrange_a, yrange_b=args.yrange_b, logy=args.logy, split=args.split)
     return 0
 
 
