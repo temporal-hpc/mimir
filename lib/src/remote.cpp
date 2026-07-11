@@ -31,6 +31,7 @@
 #include <cuda_runtime.h> // cudaMemcpy2D for the zero-copy NVENC path
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavutil/cpu.h> // av_cpu_count: CPU threads for the software H.264 fallback
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_cuda.h>
 #include <libavutil/opt.h>
@@ -110,6 +111,7 @@ struct H264Encoder
         ctx->max_b_frames = 0;
         if (zero_copy) { ctx->hw_frames_ctx = av_buffer_ref(hw_frames); }
         // Low-latency options differ per encoder; set the ones each understands.
+        int sw_threads = 0;
         if (is_nvenc)
         {
             av_opt_set(ctx->priv_data, "tune", "ll", 0);       // nvenc: low latency
@@ -120,7 +122,15 @@ struct H264Encoder
         else
         {
             av_opt_set(ctx->priv_data, "tune", "zerolatency", 0); // libx264: low latency
-            av_opt_set(ctx->priv_data, "preset", "fast", 0);
+            // ultrafast (not fast): the CPU encode is the bottleneck on a no-NVENC GPU, and the
+            // stream has huge headroom (~500x compression), so trade ratio for speed.
+            av_opt_set(ctx->priv_data, "preset", "ultrafast", 0);
+            // Use every core available to this process. av_cpu_count() honors CPU affinity, so on a
+            // cluster it reflects the SLURM/cgroup allocation, not the whole node. FF_THREAD_SLICE
+            // parallelizes within a frame (no frame-buffering latency), matching zerolatency.
+            sw_threads = av_cpu_count();
+            ctx->thread_count = sw_threads;
+            ctx->thread_type  = FF_THREAD_SLICE;
         }
 
         if (avcodec_open2(ctx, codec, nullptr) < 0) { return false; }
@@ -138,8 +148,16 @@ struct H264Encoder
                 SWS_BILINEAR, nullptr, nullptr, nullptr);
             if (!sws || !frame) { return false; }
         }
-        spdlog::info("remote: H.264 encoder '{}' {}x{} @ {} kbps ({})",
-            name, w, h, bitrate_kbps, zero_copy ? "zero-copy CUDA/NVENC" : "host readback");
+        if (zero_copy)
+        {
+            spdlog::info("remote: H.264 encoder '{}' {}x{} @ {} kbps (zero-copy CUDA/NVENC)",
+                name, w, h, bitrate_kbps);
+        }
+        else
+        {
+            spdlog::info("remote: H.264 encoder '{}' {}x{} @ {} kbps (host readback, {} CPU threads)",
+                name, w, h, bitrate_kbps, sw_threads);
+        }
         return true;
     }
 
