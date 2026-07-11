@@ -123,7 +123,8 @@ rr-client [host] [port] [token] [auto|quic|tcp] [frames]
 
 `rr-server` also takes named options after the positional args — `--light-model`, `--spp`,
 `--bounces`, `--subdiv`, `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`,
-`--max-steps` (run `./rr-server --help` for the full list).
+`--max-steps`, `--dev` (GPU device id on a multi-GPU host, default 0) (run `./rr-server --help`
+for the full list).
 
 ### Local, raw frames (simplest, no optional deps)
 
