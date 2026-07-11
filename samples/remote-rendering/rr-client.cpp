@@ -163,14 +163,15 @@ void hud_set_server(const Hello& hello, const char *transport)
     // The wire strings are NUL-padded but not guaranteed NUL-terminated at full length.
     char user[USER_MAX + 1] = {}; std::memcpy(user, hello.user, USER_MAX);
     char host[HOST_MAX + 1] = {}; std::memcpy(host, hello.host, HOST_MAX);
+    char gpu[GPU_MAX + 1]   = {}; std::memcpy(gpu, hello.gpu, GPU_MAX);
     std::string where;
     if (user[0]) { where += user; where += '@'; }
     where += host[0] ? host : g_dial_host;
     where += ':'; where += g_dial_port;
-    char line[192];
-    snprintf(line, sizeof(line), "%s  %s/%s %ux%u", where.c_str(), transport,
+    char line[256];
+    snprintf(line, sizeof(line), "%s  %s/%s %ux%u%s%s", where.c_str(), transport,
         static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
-        hello.width, hello.height);
+        hello.width, hello.height, gpu[0] ? "  |  " : "", gpu);
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     g_hud.server = line;
 }
@@ -713,8 +714,9 @@ bool run_tcp(const char *host, const char *port, const std::string& token, Decod
     dec.set_geometry(hello);
     g_transport = "TCP";
     hud_set_server(hello, g_transport);
-    printf("connected over TCP: %ux%u (%s)\n", hello.width, hello.height,
-        static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw");
+    printf("connected over TCP: %ux%u (%s)%s%.*s\n", hello.width, hello.height,
+        static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
+        hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu);
 
     std::vector<uint8_t> payload;
     uint64_t last_hb = 0;
@@ -888,8 +890,9 @@ void quic_process_video(Quic *q)
         q->dec->set_geometry(hello);
         g_transport = "QUIC";
         hud_set_server(hello, g_transport);
-        printf("connected over QUIC: %ux%u (%s)\n", hello.width, hello.height,
-            static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw");
+        printf("connected over QUIC: %ux%u (%s)%s%.*s\n", hello.width, hello.height,
+            static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
+            hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu);
     }
     for (;;)
     {

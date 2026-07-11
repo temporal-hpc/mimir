@@ -58,6 +58,7 @@ constexpr unsigned TOKEN_MAX  = 32;
 // Sizes of the server-identity strings carried in Hello (NUL-padded, may be empty).
 constexpr unsigned USER_MAX = 16;
 constexpr unsigned HOST_MAX = 40;
+constexpr unsigned GPU_MAX  = 48; // GPU model name, e.g. "NVIDIA A100-SXM4-40GB"
 
 // Flags in Hello::flags describing the session's camera/interaction model.
 enum HelloFlags : uint32_t
@@ -91,6 +92,7 @@ struct Hello
     char     user[USER_MAX];
     char     host[HOST_MAX];
     uint32_t flags;  // HelloFlags (e.g. HELLO_CAMERA_FLY); 0 = trackball/orbit session
+    char     gpu[GPU_MAX]; // GPU model rendering/encoding the stream (HUD); NUL-padded, may be empty
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
