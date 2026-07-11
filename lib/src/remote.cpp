@@ -67,21 +67,39 @@ struct H264Encoder
     bool init(int w, int h, int fps, int bitrate_kbps)
     {
         width = w; height = h;
-        const AVCodec *codec = avcodec_find_encoder_by_name("h264_nvenc");
-        const char *name = "h264_nvenc";
-        bool is_nvenc = true;
-        if (!codec) { codec = avcodec_find_encoder_by_name("libx264"); name = "libx264"; is_nvenc = false; }
-        if (!codec) { codec = avcodec_find_encoder(AV_CODEC_ID_H264); name = "h264"; is_nvenc = false; }
-        if (!codec) { spdlog::error("remote: no H.264 encoder available"); return false; }
-
-        // For NVENC, try to set up a CUDA hardware frames pool so we can feed on-GPU BGRA frames.
-        // MIMIR_FORCE_HOST_ENCODE forces the host readback path (for before/after benchmarking).
-        if (is_nvenc && std::getenv("MIMIR_FORCE_HOST_ENCODE") == nullptr)
+        // Prefer NVENC, unless MIMIR_FORCE_HOST_ENCODE pins the host path (before/after benchmarks).
+        const bool force_host = std::getenv("MIMIR_FORCE_HOST_ENCODE") != nullptr;
+        const AVCodec *nvenc = force_host ? nullptr : avcodec_find_encoder_by_name("h264_nvenc");
+        if (nvenc && tryOpen(nvenc, "h264_nvenc", true, w, h, fps, bitrate_kbps)) { return true; }
+        if (nvenc)
         {
-            zero_copy = initCudaFrames(w, h);
+            // NVENC is present in ffmpeg but could not open here — typically a datacenter GPU with
+            // no encode ASIC (A100/H100). Retry on the CPU so the stream stays compressed instead
+            // of falling all the way back to multi-MB raw frames.
+            spdlog::warn("remote: NVENC unavailable on this GPU; falling back to software H.264");
+            teardown();
         }
+        // Software H.264: libx264 (preferred) or openh264, whichever the ffmpeg build carries.
+        for (const char *sw : {"libx264", "libopenh264"})
+        {
+            const AVCodec *codec = avcodec_find_encoder_by_name(sw);
+            if (codec && tryOpen(codec, sw, false, w, h, fps, bitrate_kbps)) { return true; }
+            teardown();
+        }
+        spdlog::error("remote: no usable H.264 encoder (no NVENC ASIC and no software encoder)");
+        return false;
+    }
+
+    // Attempts one specific encoder. On any failure it leaves partial state for the caller to
+    // teardown() before the next attempt, and returns false.
+    bool tryOpen(const AVCodec *codec, const char *name, bool is_nvenc,
+        int w, int h, int fps, int bitrate_kbps)
+    {
+        // For NVENC, try to set up a CUDA hardware frames pool so we can feed on-GPU BGRA frames.
+        if (is_nvenc) { zero_copy = initCudaFrames(w, h); }
 
         ctx = avcodec_alloc_context3(codec);
+        if (!ctx) { return false; }
         ctx->width       = w;
         ctx->height      = h;
         ctx->time_base   = AVRational{1, fps};
@@ -105,12 +123,9 @@ struct H264Encoder
             av_opt_set(ctx->priv_data, "preset", "fast", 0);
         }
 
-        if (avcodec_open2(ctx, codec, nullptr) < 0)
-        {
-            spdlog::error("remote: failed to open H.264 encoder");
-            return false;
-        }
+        if (avcodec_open2(ctx, codec, nullptr) < 0) { return false; }
         packet = av_packet_alloc();
+        if (!packet) { return false; }
         if (!zero_copy)
         {
             // Host path: YUV420P frame fed by libswscale.
@@ -125,7 +140,7 @@ struct H264Encoder
         }
         spdlog::info("remote: H.264 encoder '{}' {}x{} @ {} kbps ({})",
             name, w, h, bitrate_kbps, zero_copy ? "zero-copy CUDA/NVENC" : "host readback");
-        return packet != nullptr;
+        return true;
     }
 
     // Sets up a CUDA hwdevice + a BGRA frames pool, so NVENC can take on-GPU frames. Shares
@@ -259,6 +274,15 @@ void fillServerIdentity(remote::Hello& hello)
     if (user) { std::strncpy(hello.user, user, sizeof(hello.user) - 1); }
     char host[remote::HOST_MAX]{};
     if (gethostname(host, sizeof(host) - 1) == 0) { std::memcpy(hello.host, host, sizeof(host)); }
+    // GPU model doing the rendering/encoding, for the client HUD (best effort).
+    int dev = 0;
+    cudaDeviceProp prop{};
+    if (cudaGetDevice(&dev) == cudaSuccess && cudaGetDeviceProperties(&prop, dev) == cudaSuccess)
+    {
+        // %.*s bounds the copy to the field width (safe truncate + guaranteed NUL).
+        std::snprintf(hello.gpu, sizeof(hello.gpu), "%.*s",
+            static_cast<int>(sizeof(hello.gpu)) - 1, prop.name);
+    }
 }
 
 } // namespace
@@ -459,6 +483,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             .user   = {},
             .host   = {},
             .flags  = fly ? remote::HELLO_CAMERA_FLY : 0u, // tell the client to drive a Fly camera
+            .gpu    = {},
         };
         fillServerIdentity(hello);
         if (!transport->sendVideo(&hello, sizeof(hello))) { continue; } // client vanished; re-listen
@@ -623,6 +648,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         .user   = {},
                         .host   = {},
                         .flags  = fly ? remote::HELLO_CAMERA_FLY : 0u,
+                        .gpu    = {},
                     };
                     fillServerIdentity(rehello);
                     remote::FrameHeader hh{ .size = static_cast<uint32_t>(sizeof(rehello)),
