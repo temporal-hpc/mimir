@@ -1307,8 +1307,9 @@ int run_headless(int frames)
 // equal length (12 s each, 60 s total) spanning a static-to-high-motion gradient: far (static
 // baseline outside the cloud), zoom-scale orbit, dive in, look around from within (peak motion),
 // then hold still inside. Magnitudes are tuned to the engine's default camera (LookAt at z=-2.85
-// over a roughly unit-sized cloud): the zoom leg travels ~2.4 world units in. Phases are published
-// to g_phase so every CSV row is labeled for plot shading.
+// over a roughly unit-sized cloud): the zoom leg dives ~3.2 world units in, deep enough to sit
+// among the phenomena (but short of clipping into the spheres). Phases are published to g_phase so
+// every CSV row is labeled for plot shading.
 void bench_thread()
 {
     // Wait for the stream to come up so the script timeline starts at the first frame.
@@ -1320,13 +1321,13 @@ void bench_thread()
 
     // The five phase tokens (far/orbit/zoom_in/look_around/inside) map to the plot's "Client
     // Camera" legend, each tagged with its motion class (see research/scripts/plot_benchmark.py).
-    // Per-phase magnitudes scale inversely with duration so the total motion (one full orbit,
-    // ~2.4-unit dive) is unchanged from earlier runs.
+    // The orbit magnitude scales inversely with duration to keep one full orbit; the zoom leg is
+    // deliberately faster than that so it ends deep among the phenomena rather than at their edge.
     struct Step { const char *phase; double secs; ControlKind kind; float a, b; };
     static const Step script[] = {
         { "far",     12.0,  ControlKind::None,         0.0f,   0.f }, // static baseline, outside the cloud
         { "orbit",   12.0,  ControlKind::CameraRotate, 0.50f,  0.f }, // ~360 deg yaw around the cloud
-        { "zoom_in", 12.0,  ControlKind::CameraZoom,   0.667f, 0.f }, // outside -> inside (~2.4 units)
+        { "zoom_in", 12.0,  ControlKind::CameraZoom,   0.90f,  0.f }, // dive in ~3.2 units, deep inside
         // Look around from within: turn the gaze in place (CameraLook = eye fixed), not another
         // orbit. Symmetric yaw then pitch sweeps that each return to center. 12 s total.
         { "look_around", 2.25, ControlKind::CameraLook,  1.0f,  0.f }, // yaw to one side
