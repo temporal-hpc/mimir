@@ -137,9 +137,9 @@ def plot(runs, out, show, title=None):
         c = run_color[df.attrs["label"]]
         lbl = df.attrs["label"]
         ax_tp.plot(df["t"], df["fps"], color=c, lw=1.6,
-                   label=f"{lbl} fps" if not single else "fps")
+                   label=f"{lbl} FPS" if not single else "Frames per second (FPS)")
         ax_kbps.plot(df["t"], df["kbps"], color=c, lw=1.1, ls="--",
-                     label=f"{lbl} kbps" if not single else "kbps")
+                     label=f"{lbl} bitrate" if not single else "Bitrate (kbps)")
     ax_tp.set_ylabel("frames / s")
     ax_kbps.set_ylabel("bitrate (kbps, dashed)")
     ax_tp.set_title("Throughput: FPS (solid) + bitrate (dashed)")
