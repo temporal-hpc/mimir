@@ -11,12 +11,12 @@ per-phase (and overall) averages. Two time-series panels, both grouping curves t
 Y-axis magnitude (or split onto twin axes when they do not):
 
     1. Throughput   fps (left axis)  +  bitrate kbps (right axis)              -- twin Y
-    2. Timings (ms) end-to-end latency (mean / p50 / p95 / max)
+    2. Timings (ms) mean end-to-end latency
                     + server encode/readback + client decode                  -- shared ms
 
-Everything else (server_ms and decode_ms averages, frame loss, control events) is reported
-in the table only. `server_ms` is the server's per-frame production cost: NVENC *encode*
-time for an H.264 stream, or framebuffer *readback* time for a raw stream.
+Everything else (latency p50/p95/max, frame loss, control events) is reported in the table
+only. `server_ms` is the server's per-frame production cost: NVENC *encode* time for an
+H.264 stream, or framebuffer *readback* time for a raw stream.
 
 Usage:
     plot_benchmark.py run.csv                       # one run: panels are phase-shaded
@@ -100,15 +100,13 @@ def phase_legend_handles(df):
     return handles
 
 
-# Timings panel (all ms, shared axis): the end-to-end latency family plus the two per-frame
-# pipeline costs. (csv column, legend name, linewidth, linestyle, single-run color).
+# Timings panel (all ms, shared axis): mean end-to-end latency plus the two per-frame pipeline
+# costs. (csv column, legend name, linewidth, linestyle, single-run color). Latency percentiles
+# (p50/p95) and max stay in the averages table rather than crowding the plot.
 TIMING_SERIES = [
-    ("lat_mean_ms", "latency mean", 1.8, "-",           "#3182bd"),
-    ("lat_p50_ms",  "latency p50",  1.1, ":",            "#9ecae1"),
-    ("lat_p95_ms",  "latency p95",  1.3, "--",           "#6baed6"),
-    ("lat_max_ms",  "latency max",  1.0, "-.",           "#08519c"),
+    ("lat_mean_ms", "latency mean", 1.8, "-",              "#3182bd"),
     ("server_ms",   "encode",       1.5, (0, (3, 1, 1, 1)), "#e6550d"),
-    ("decode_ms",   "decode",       1.5, (0, (1, 1)),    "#31a354"),
+    ("decode_ms",   "decode",       1.5, (0, (1, 1)),       "#31a354"),
 ]
 
 
@@ -148,7 +146,7 @@ def plot(runs, out, show, title=None):
             ax_lat.plot(df["t"], df[col], color=color, lw=lw, ls=ls, label=lbl)
     ax_lat.set_ylabel("time (ms)")
     ax_lat.set_xlabel("time (s)")
-    ax_lat.set_title("Timings: end-to-end latency + encode + decode")
+    ax_lat.set_title("Timings: latency (mean) + encode + decode")
     ax_lat.set_ylim(bottom=0)
 
     # Phase shading only makes sense for a single run (one timeline).
