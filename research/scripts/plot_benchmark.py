@@ -171,12 +171,16 @@ def plot(runs, out, show, title=None):
             label_phases(ax, runs[0])
         ax.grid(True, alpha=0.3)
 
+    # fps and bitrate live on separate axes (ax_tp / its twin), so merge both axes' handles into
+    # one legend or the bitrate curve is left out.
+    tp_h, tp_l = ax_tp.get_legend_handles_labels()
+    kb_h, kb_l = ax_kbps.get_legend_handles_labels()
     if single:
         # Keep the small curve legends low so the top of each band stays clear for its label.
-        ax_tp.legend(loc="lower left", fontsize=8, ncol=1)
+        ax_tp.legend(tp_h + kb_h, tp_l + kb_l, loc="lower left", fontsize=8, ncol=1)
         ax_lat.legend(loc="lower left", fontsize=8, ncol=1)
     else:
-        ax_tp.legend(loc="upper left", fontsize=8, ncol=1)
+        ax_tp.legend(tp_h + kb_h, tp_l + kb_l, loc="upper left", fontsize=8, ncol=1)
         ax_lat.legend(loc="upper left", fontsize=7, ncol=1)
 
     if title is None:
