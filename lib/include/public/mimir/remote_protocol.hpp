@@ -129,6 +129,9 @@ struct Stats
     // Simulation progress (lifetime, not per session: the sim also advances unwatched).
     uint64_t step;         // simulation steps completed so far
     uint64_t step_limit;   // step count the server stops at (0 = runs endlessly)
+    // Appended after step_limit so a newer client reading an older server's shorter Stats keeps
+    // the fields above intact (it copies min(payload, sizeof) and leaves this zero).
+    uint32_t encode_std_us; // std-dev of per-frame production latency this window, microseconds
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.

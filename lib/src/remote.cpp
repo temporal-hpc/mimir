@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic> // decoupled sim thread: total_iter / stop / pause flags
 #include <chrono>
+#include <cmath> // std::sqrt for the encode-time std-dev
 #include <cstdio> // benchmark stats CSV
 #include <cstdlib>
 #include <cstring>
@@ -498,7 +499,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         auto win_start = std::chrono::steady_clock::now();
         size_t win_frames = 0, win_bytes = 0, session_frames = 0;
         size_t win_start_iter = total_iter.load(); // sim step count at the window's start
-        double win_enc_us = 0.0;
+        double win_enc_us = 0.0, win_enc_us_sq = 0.0; // sum and sum-of-squares, for mean + std
 
         while (true)
         {
@@ -750,20 +751,26 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             {
                 ++win_frames; ++session_frames;
                 win_bytes += payload_size;
-                win_enc_us += enc_ms * 1000.0;
+                const double enc_us = enc_ms * 1000.0;
+                win_enc_us += enc_us;
+                win_enc_us_sq += enc_us * enc_us;
             }
             const auto now = std::chrono::steady_clock::now();
             const double elapsed = std::chrono::duration<double>(now - win_start).count();
             if (elapsed >= 1.0 && win_frames > 0)
             {
                 const size_t iters = total_iter.load(std::memory_order_acquire);
+                const double enc_mean = win_enc_us / static_cast<double>(win_frames);
+                const double enc_var  = win_enc_us_sq / static_cast<double>(win_frames)
+                    - enc_mean * enc_mean;
                 remote::Stats st{
                     .frames    = static_cast<uint32_t>(session_frames),
                     .fps_milli = static_cast<uint32_t>(static_cast<double>(win_frames) / elapsed * 1000.0),
                     .kbps      = static_cast<uint32_t>(static_cast<double>(win_bytes) * 8.0 / 1000.0 / elapsed),
-                    .encode_us = static_cast<uint32_t>(win_enc_us / static_cast<double>(win_frames)),
+                    .encode_us = static_cast<uint32_t>(enc_mean),
                     .step       = iters,
                     .step_limit = max_iters,
+                    .encode_std_us = static_cast<uint32_t>(std::sqrt(std::max(0.0, enc_var))),
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
                 // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
@@ -808,7 +815,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 {
                     client_gone = true; break;
                 }
-                win_start = now; win_frames = 0; win_bytes = 0; win_enc_us = 0.0;
+                win_start = now; win_frames = 0; win_bytes = 0;
+                win_enc_us = 0.0; win_enc_us_sq = 0.0;
                 win_start_iter = iters;
             }
         }

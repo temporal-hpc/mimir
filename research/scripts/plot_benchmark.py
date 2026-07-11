@@ -3,20 +3,22 @@
 
 Consumes the CSV written by ``rr-client --benchmark F`` (see rr-client.cpp). Columns:
 
-    time_s, fps, kbps, server_ms, decode_ms,
-    lat_mean_ms, lat_p50_ms, lat_p95_ms, lat_max_ms, lost, ctrl_events, phase
+    time_s, fps, kbps, server_ms, server_ms_std, decode_ms, decode_ms_std,
+    lat_mean_ms, lat_std_ms, lat_p50_ms, lat_p95_ms, lat_max_ms, lost, ctrl_events, phase
 
 Only the metrics worth watching *over time* get a curve; the rest live in a table of
 per-phase (and overall) averages. Two time-series panels, both grouping curves that share a
 Y-axis magnitude (or split onto twin axes when they do not):
 
     1. Throughput   fps (left axis)  +  bitrate kbps (right axis)              -- twin Y
-    2. Timings (ms) mean end-to-end latency
-                    + server encode/readback + client decode                  -- shared ms
+    2. Timings (ms) mean end-to-end latency + server encode/readback + client
+                    decode, each with a +/-1 std-dev band; plus a derived
+                    "network/wait" curve (latency minus encode minus decode)   -- shared ms
 
-Everything else (latency p50/p95/max, frame loss, control events) is reported in the table
-only. `server_ms` is the server's per-frame production cost: NVENC *encode* time for an
-H.264 stream, or framebuffer *readback* time for a raw stream.
+The *_std columns are per-window std-devs (feeding the error bands). Everything else
+(latency p50/p95/max, frame loss, control events) is reported in the table only. `server_ms`
+is the server's per-frame production cost: NVENC *encode* time for an H.264 stream, or
+framebuffer *readback* time for a raw stream.
 
 Usage:
     plot_benchmark.py run.csv                       # one run: panels are phase-shaded
@@ -54,14 +56,14 @@ PHASE_COLORS = {
     "zoom_out":    "#dadaeb",
 }
 PHASE_LABELS = {
-    "far":         "Fixed Far (Static)",
-    "orbit":       "Orbit (Mid Dynamic)",
+    "far":         "Far view (Static)",
+    "orbit":       "Orbit view (Mid Dynamic)",
     "zoom_in":     "Zoom in (Low Dynamic)",
     "look_around": "Look Around (High Dynamic)",
-    "inside":      "Fixed Inside (Static)",
+    "inside":      "Inside view (Static)",
     # Legacy tokens from earlier CSVs.
-    "outside":     "Fixed Far (Static)",
-    "idle":        "Fixed Far (Static)",
+    "outside":     "Far view (Static)",
+    "idle":        "Far view (Static)",
     "zoom_out":    "Zoom out",
 }
 
@@ -117,13 +119,34 @@ def label_phases(ax, df):
 
 
 # Timings panel (all ms, shared axis): mean end-to-end latency plus the two per-frame pipeline
-# costs. (csv column, legend name, linewidth, linestyle, single-run color). Latency percentiles
-# (p50/p95) and max stay in the averages table rather than crowding the plot.
+# costs, each with a +/-1 std-dev error band shaded in its own color. Latency percentiles (p50/p95)
+# and max stay in the averages table rather than crowding the plot.
+# (value column, legend name, linewidth, linestyle, single-run color, std-dev column).
 TIMING_SERIES = [
-    ("lat_mean_ms", "latency mean", 1.8, "-",              "#3182bd"),
-    ("server_ms",   "encode",       1.5, (0, (3, 1, 1, 1)), "#e6550d"),
-    ("decode_ms",   "decode",       1.5, (0, (1, 1)),       "#31a354"),
+    ("lat_mean_ms", "latency mean", 1.8, "-",               "#3182bd", "lat_std_ms"),
+    ("server_ms",   "encode",       1.5, (0, (3, 1, 1, 1)), "#e6550d", "server_ms_std"),
+    ("decode_ms",   "decode",       1.5, (0, (1, 1)),       "#31a354", "decode_ms_std"),
 ]
+
+
+def _top(runs, cols, std_map=None, frac=0.08):
+    """Data max across runs for `cols` (adding each column's std where given), plus `frac`
+    headroom so a curve that just touches its peak doesn't merge into the top border."""
+    m = 0.0
+    for df in runs:
+        for col in cols:
+            if col not in df.columns:
+                continue
+            s = df[col]
+            std = (std_map or {}).get(col)
+            if std and std in df.columns:
+                s = s + df[std]
+            m = max(m, float(s.max()))
+    return m * (1.0 + frac) if m > 0 else None
+
+
+# Timing value column -> its std column, so the headroom calc clears the error bands too.
+TIMING_STD = {col: stdcol for col, _, _, _, _, stdcol in TIMING_SERIES}
 
 
 def plot(runs, out, show, title=None, yrange_a=None, yrange_b=None, logy=False):
@@ -150,20 +173,33 @@ def plot(runs, out, show, title=None, yrange_a=None, yrange_b=None, logy=False):
         ax_tp.set_ylim(yrange_a[0], yrange_a[1])
         ax_kbps.set_ylim(yrange_a[2], yrange_a[3])
     else:
-        ax_tp.set_ylim(bottom=0)
-        ax_kbps.set_ylim(bottom=0)
+        ax_tp.set_ylim(0, _top(runs, ["fps"]))
+        ax_kbps.set_ylim(0, _top(runs, ["kbps"]))
 
     # --- Panel 2: timings -- end-to-end latency + server encode + client decode, all ms.
     # Single run: a fixed color per metric reads clearest. Multiple runs: the run color groups a
     # file's curves and the linestyle distinguishes the metric.
     for df in runs:
         c = run_color[df.attrs["label"]]
-        for col, name, lw, ls, fixed in TIMING_SERIES:
+        for col, name, lw, ls, fixed, stdcol in TIMING_SERIES:
             if col not in df.columns:
                 continue
             color = fixed if single else c
             lbl = name if single else f"{df.attrs['label']} {name}"
             ax_lat.plot(df["t"], df[col], color=color, lw=lw, ls=ls, label=lbl)
+            # +/-1 std-dev error band, shaded in the same color (skipped for CSVs without the
+            # *_std columns). zorder keeps it above phase shading but below the curves.
+            if stdcol and stdcol in df.columns:
+                lo = (df[col] - df[stdcol]).clip(lower=0)
+                hi = df[col] + df[stdcol]
+                ax_lat.fill_between(df["t"], lo, hi, color=color, alpha=0.15, lw=0, zorder=0.5)
+        # Derived: the rest of end-to-end latency once encode + decode are removed — network
+        # round-trip, server queueing and present. Handy to see what dominates the latency.
+        if {"lat_mean_ms", "server_ms", "decode_ms"} <= set(df.columns):
+            transit = (df["lat_mean_ms"] - df["server_ms"] - df["decode_ms"]).clip(lower=0)
+            color = "#9467bd" if single else c
+            lbl = "network/wait" if single else f"{df.attrs['label']} network/wait"
+            ax_lat.plot(df["t"], transit, color=color, lw=1.2, ls=(0, (5, 2)), label=lbl)
     ax_lat.set_ylabel("time (ms)")
     ax_lat.set_xlabel("time (s)")
     ax_lat.set_title("Timings: latency (mean) + encode + decode")
@@ -171,8 +207,8 @@ def plot(runs, out, show, title=None, yrange_a=None, yrange_b=None, logy=False):
         ax_lat.set_yscale("log")
     if yrange_b:
         ax_lat.set_ylim(yrange_b[0], yrange_b[1])
-    elif not logy:
-        ax_lat.set_ylim(bottom=0)  # log autoscales to positive data; a 0 floor would be invalid
+    elif not logy:  # log autoscales to positive data; a 0 floor would be invalid
+        ax_lat.set_ylim(0, _top(runs, list(TIMING_STD), std_map=TIMING_STD))
 
     # Phase shading only makes sense for a single run (one timeline); the phase name is written
     # in-band rather than in a legend.

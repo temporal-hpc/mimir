@@ -475,6 +475,7 @@ struct Decoder
     // Client-side decode telemetry, accumulated per frame and reset on each server Stats message
     // (all touched only from the session thread, so no locking needed).
     double dec_ms_sum = 0.0;  // time spent turning payloads into displayable BGRA
+    double dec_ms_sq_sum = 0.0; // sum of squared per-feed decode times, for the std-dev
     size_t dec_frames = 0;    // frames decoded in the current window
     size_t recv_bytes = 0;    // payload bytes received off the wire
     size_t out_bytes  = 0;    // decoded BGRA bytes produced
@@ -523,8 +524,10 @@ struct Decoder
             store_frame(payload, w, h);
             out_bytes += static_cast<size_t>(w) * h * 4;
             ++dec_frames;
-            dec_ms_sum += std::chrono::duration<double, std::milli>(
+            const double dt = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - t0).count();
+            dec_ms_sum += dt;
+            dec_ms_sq_sum += dt * dt;
             return;
         }
         pkt->data = const_cast<uint8_t*>(payload);
@@ -546,8 +549,10 @@ struct Decoder
             out_bytes += static_cast<size_t>(fw) * fh * 4;
             ++dec_frames;
         }
-        dec_ms_sum += std::chrono::duration<double, std::milli>(
+        const double dt = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - t0).count();
+        dec_ms_sum += dt;
+        dec_ms_sq_sum += dt * dt;
     }
     void destroy()
     {
@@ -565,43 +570,52 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
     if (flags & FRAME_STATS)
     {
         Stats st{};
-        if (len >= sizeof(st)) { std::memcpy(&st, payload, sizeof(st)); }
-        // fps/kbps/encode come from the server (encode_us is ITS per-frame production time);
-        // decode, end-to-end latency, loss and the size expansion are measured here, over the
-        // frames since the last Stats.
+        // Copy min(payload, sizeof): a newer client keeps the leading fields even if an older
+        // server sends a shorter Stats (its appended encode_std_us then stays 0).
+        std::memcpy(&st, payload, std::min(len, sizeof(st)));
+        // fps/kbps/encode come from the server (encode_us/encode_std_us are ITS per-frame
+        // production time); decode, end-to-end latency, loss and the size expansion are measured
+        // here, over the frames since the last Stats.
         const double n       = dec.dec_frames > 0 ? static_cast<double>(dec.dec_frames) : 1.0;
         const double dec_ms  = dec.dec_ms_sum / n;
+        const double dec_var = dec.dec_ms_sq_sum / n - dec_ms * dec_ms;
+        const double dec_std = std::sqrt(std::max(0.0, dec_var));
         const double recv_kb = static_cast<double>(dec.recv_bytes) / n / 1000.0;
         const double out_kb  = static_cast<double>(dec.out_bytes) / n / 1000.0;
-        // Latency percentiles over this window's samples (heartbeats give ~20 samples/s).
-        double lat_mean = 0.0, lat_p50 = 0.0, lat_p95 = 0.0, lat_max = 0.0;
+        // Latency percentiles + std-dev over this window's samples (heartbeats give ~20/s).
+        double lat_mean = 0.0, lat_std = 0.0, lat_p50 = 0.0, lat_p95 = 0.0, lat_max = 0.0;
         if (!dec.lat_ms.empty())
         {
             std::sort(dec.lat_ms.begin(), dec.lat_ms.end());
             for (double v : dec.lat_ms) { lat_mean += v; }
             lat_mean /= static_cast<double>(dec.lat_ms.size());
+            double sq = 0.0;
+            for (double v : dec.lat_ms) { const double d = v - lat_mean; sq += d * d; }
+            lat_std = std::sqrt(sq / static_cast<double>(dec.lat_ms.size()));
             lat_p50 = dec.lat_ms[dec.lat_ms.size() / 2];
             lat_p95 = dec.lat_ms[(dec.lat_ms.size() * 95) / 100];
             lat_max = dec.lat_ms.back();
         }
         const uint32_t ctrl = g.ctrl_sent.exchange(0);
-        printf("[stats] %.1f fps, %u kbps | server %s %.2f ms | decode %.2f ms | "
-            "latency %.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)\n",
+        printf("[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | decode %.2f+-%.2f ms | "
+            "latency %.1f+-%.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)\n",
             st.fps_milli / 1000.0, st.kbps,
             dec.stream_codec == Codec::H264 ? "encode" : "readback",
-            st.encode_us / 1000.0, dec_ms, lat_mean, lat_p95, dec.lost,
+            st.encode_us / 1000.0, st.encode_std_us / 1000.0, dec_ms, dec_std,
+            lat_mean, lat_std, lat_p95, dec.lost,
             recv_kb, out_kb, recv_kb > 0.0 ? out_kb / recv_kb : 0.0);
         if (g_csv)
         {
             const char *phase = g_phase.load();
             if (phase[0] == '\0') { phase = ctrl > 0 ? "move" : "idle"; }
-            fprintf(g_csv, "%.3f,%.1f,%u,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%zu,%u,%s\n",
+            fprintf(g_csv, "%.3f,%.1f,%u,%.3f,%.3f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f,%zu,%u,%s\n",
                 now_ms() / 1000.0, st.fps_milli / 1000.0, st.kbps,
-                st.encode_us / 1000.0, dec_ms,
-                lat_mean, lat_p50, lat_p95, lat_max, dec.lost, ctrl, phase);
+                st.encode_us / 1000.0, st.encode_std_us / 1000.0, dec_ms, dec_std,
+                lat_mean, lat_std, lat_p50, lat_p95, lat_max, dec.lost, ctrl, phase);
             fflush(g_csv);
         }
-        dec.dec_ms_sum = 0.0; dec.dec_frames = 0; dec.recv_bytes = 0; dec.out_bytes = 0;
+        dec.dec_ms_sum = 0.0; dec.dec_ms_sq_sum = 0.0; dec.dec_frames = 0;
+        dec.recv_bytes = 0; dec.out_bytes = 0;
         dec.lat_ms.clear(); dec.lost = 0;
         {
             std::lock_guard<std::mutex> lock(g_hud.mtx);
@@ -1399,8 +1413,10 @@ static void usage(const char *prog)
         "                 one full orbit; zoom_in: dive into the cloud; look_around: turn the gaze\n"
         "                 in place from within, peak motion; inside: hold still within the cloud),\n"
         "                 quit, and write the per-second telemetry time series\n"
-        "                 to CSV file F (columns: time_s,fps,kbps,server_ms,decode_ms,\n"
-        "                 lat_mean_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase;\n"
+        "                 to CSV file F (columns: time_s,fps,kbps,server_ms,server_ms_std,\n"
+        "                 decode_ms,decode_ms_std,lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,\n"
+        "                 lat_max_ms,lost,ctrl_events,phase; the *_std columns are per-window\n"
+        "                 std-devs used for the plot's error bands;\n"
         "                 'phase' labels the script phases for plot shading). The control\n"
         "                 stream is identical every run, so results from different servers are\n"
         "                 directly comparable. Pair with the server's --benchmark file.\n"
@@ -1483,8 +1499,8 @@ int main(int argc, char *argv[])
     {
         g_csv = fopen(bench_csv, "w");
         if (!g_csv) { fprintf(stderr, "cannot open csv log '%s'\n", bench_csv); return EXIT_FAILURE; }
-        fprintf(g_csv, "time_s,fps,kbps,server_ms,decode_ms,lat_mean_ms,lat_p50_ms,lat_p95_ms,"
-            "lat_max_ms,lost,ctrl_events,phase\n");
+        fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,decode_ms,decode_ms_std,"
+            "lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase\n");
     }
 
     std::thread session(session_thread, host, port, token, mode);
