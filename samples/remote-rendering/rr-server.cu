@@ -14,6 +14,7 @@
 //     transport: "tcp" (default, works everywhere incl. ssh -L) or "quic" (-DMIMIR_ENABLE_QUIC=ON)
 //     token:     optional shared secret the client must present (empty = accept any client)
 
+#include <cstdlib> // setenv (pin to a GPU via CUDA_VISIBLE_DEVICES)
 #include <string> // std::stoul
 #include <vector>
 
@@ -99,6 +100,9 @@ static void usage(const char *prog)
         "                     good for touring inside a large scene. Default (no --fly) is the\n"
         "                     trackball (drag = orbit the scene, right-drag = zoom). The client\n"
         "                     adapts automatically (told via the stream handshake).\n"
+        "  --dev N            GPU device id to run on (multi-GPU hosts)         (default: 0)\n"
+        "                     Pins the process to that GPU via CUDA_VISIBLE_DEVICES before any\n"
+        "                     CUDA/Vulkan init, so the render, encode and interop all land there.\n"
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
@@ -162,6 +166,7 @@ int main(int argc, char *argv[])
     int bitrate_kbps        = 8000;
     int fps_cap             = 0;
     int steps_per_frame     = 0;
+    int cuda_dev            = 0;
     size_t max_steps        = 0;
     std::string bench_csv   = "";
 
@@ -193,6 +198,7 @@ int main(int argc, char *argv[])
             else if (a == "--benchmark")   bench_csv = v;
             else if (a == "--fps")         fps_cap = std::stoi(v);
             else if (a == "--steps-per-frame") steps_per_frame = std::stoi(v);
+            else if (a == "--dev")         cuda_dev = std::stoi(v);
             else if (a == "--max-steps")   max_steps = (size_t)std::stoull(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
@@ -211,7 +217,19 @@ int main(int argc, char *argv[])
     // overrides (matches particles-kmodal-3d/benchmark_mimir).
     if (light_model == LightModel::PhongMesh && !subdiv_set) { pt_subdiv = 2; }
 
-    checkCuda(cudaSetDevice(0));
+    // Pin the process to the requested GPU before the first CUDA/Vulkan call: with only that
+    // device visible, the engine's UUID-matched interop selection lands on it (and it becomes
+    // CUDA device 0 within this process). Must precede any CUDA runtime call to take effect.
+    if (cuda_dev < 0) { fprintf(stderr, "rr-server: --dev must be >= 0\n"); return EXIT_FAILURE; }
+    setenv("CUDA_VISIBLE_DEVICES", std::to_string(cuda_dev).c_str(), /*overwrite=*/1);
+    int visible_devs = 0;
+    if (cudaGetDeviceCount(&visible_devs) != cudaSuccess || visible_devs < 1)
+    {
+        fprintf(stderr, "rr-server: GPU device %d is not available\n", cuda_dev);
+        return EXIT_FAILURE;
+    }
+    printf("rr-server: using GPU device %d\n", cuda_dev);
+    checkCuda(cudaSetDevice(0)); // device 0 of the (now single-device) visible set == --dev N
 
     ViewerOptions options;
     options.window.title      = "Mimir - remote kmodal-3d";
