@@ -23,6 +23,8 @@ Usage:
     plot_benchmark.py a.csv b.csv c.csv             # compare runs: overlaid, legend by file
     plot_benchmark.py run.csv -o run.png            # save instead of (also) showing
     plot_benchmark.py run.csv -t "My title"         # override the figure title
+    plot_benchmark.py run.csv --logy                # log-scale the timings (ms) panel
+    plot_benchmark.py run.csv --yrange-a 0 65 0 9000 --yrange-b 0 80   # fix axis ranges
     plot_benchmark.py run.csv --no-show             # table only, no window
 
 Requires: pandas, matplotlib (pip install pandas matplotlib).
@@ -124,7 +126,7 @@ TIMING_SERIES = [
 ]
 
 
-def plot(runs, out, show, title=None):
+def plot(runs, out, show, title=None, yrange_a=None, yrange_b=None, logy=False):
     single = len(runs) == 1
     fig, (ax_tp, ax_lat) = plt.subplots(1, 2, figsize=(14, 5.5), sharex=True)
     # A stable color per run so the same file reads the same across both panels.
@@ -144,8 +146,12 @@ def plot(runs, out, show, title=None):
     ax_kbps.set_ylabel("bitrate (kbps, dashed)")
     ax_tp.set_title("Throughput: FPS (solid) + bitrate (dashed)")
     ax_tp.set_xlabel("time (s)")
-    ax_tp.set_ylim(bottom=0)
-    ax_kbps.set_ylim(bottom=0)
+    if yrange_a:
+        ax_tp.set_ylim(yrange_a[0], yrange_a[1])
+        ax_kbps.set_ylim(yrange_a[2], yrange_a[3])
+    else:
+        ax_tp.set_ylim(bottom=0)
+        ax_kbps.set_ylim(bottom=0)
 
     # --- Panel 2: timings -- end-to-end latency + server encode + client decode, all ms.
     # Single run: a fixed color per metric reads clearest. Multiple runs: the run color groups a
@@ -161,7 +167,12 @@ def plot(runs, out, show, title=None):
     ax_lat.set_ylabel("time (ms)")
     ax_lat.set_xlabel("time (s)")
     ax_lat.set_title("Timings: latency (mean) + encode + decode")
-    ax_lat.set_ylim(bottom=0)
+    if logy:
+        ax_lat.set_yscale("log")
+    if yrange_b:
+        ax_lat.set_ylim(yrange_b[0], yrange_b[1])
+    elif not logy:
+        ax_lat.set_ylim(bottom=0)  # log autoscales to positive data; a 0 floor would be invalid
 
     # Phase shading only makes sense for a single run (one timeline); the phase name is written
     # in-band rather than in a legend.
@@ -262,6 +273,14 @@ def main():
     p.add_argument("csv", nargs="+", help="benchmark CSV file(s) from rr-client --benchmark")
     p.add_argument("-o", "--out", help="save the figure to this path (e.g. run.png)")
     p.add_argument("-t", "--title", help="figure title (default: derived from the file name)")
+    p.add_argument("--yrange-a", nargs=4, type=float,
+                   metavar=("LOW_FPS", "HIGH_FPS", "LOW_KBPS", "HIGH_KBPS"),
+                   help="fix the throughput panel axes: fps (left) low high, then bitrate (right) "
+                        "low high")
+    p.add_argument("--yrange-b", nargs=2, type=float, metavar=("LOW", "HIGH"),
+                   help="fix the timings (ms) panel y-axis: low high")
+    p.add_argument("--logy", action="store_true",
+                   help="log-scale the timings (ms) panel y-axis")
     p.add_argument("--no-show", action="store_true", help="don't open a plot window")
     args = p.parse_args()
 
@@ -273,7 +292,8 @@ def main():
         runs.append(load(path))
 
     print_table(runs)
-    plot(runs, args.out, show=not args.no_show, title=args.title)
+    plot(runs, args.out, show=not args.no_show, title=args.title,
+         yrange_a=args.yrange_a, yrange_b=args.yrange_b, logy=args.logy)
     return 0
 
 
