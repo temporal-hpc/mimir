@@ -1303,12 +1303,12 @@ int run_headless(int frames)
 // ============================================================================================
 // --benchmark: deterministic scripted camera, so runs against different servers are comparable.
 // ============================================================================================
-// Emits the same control stream every run at a steady 60 Hz "mouse" cadence: idle to establish
-// a baseline, one full orbit around the cloud, dive inside it, look around from within (turn the
-// gaze in place, not another orbit), back out, idle again, then quit. Magnitudes are tuned to the
-// engine's default camera (LookAt at z=-2.85 over a roughly unit-sized cloud): the zoom legs
-// travel ~2.4 world units in and back out. 60 s total. Phases are published to g_phase so every
-// CSV row is labeled for plot shading.
+// Emits the same control stream every run at a steady 60 Hz "mouse" cadence, in four phases of
+// roughly equal length (~15 s each, 60 s total): stay outside the cloud to establish a baseline,
+// orbit it once, dive inside, then look around from within (turn the gaze in place, not another
+// orbit). Magnitudes are tuned to the engine's default camera (LookAt at z=-2.85 over a roughly
+// unit-sized cloud): the zoom leg travels ~2.4 world units in. Phases are published to g_phase so
+// every CSV row is labeled for plot shading.
 void bench_thread()
 {
     // Wait for the stream to come up so the script timeline starts at the first frame.
@@ -1318,25 +1318,25 @@ void bench_thread()
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
+    // The four phase tokens (outside/orbit/zoom_in/inside) map to the plot's "Client Camera"
+    // legend (see research/scripts/plot_benchmark.py). Per-phase magnitudes scale inversely with
+    // duration so the total motion (one full orbit, ~2.4-unit dive) is unchanged from earlier runs.
     struct Step { const char *phase; double secs; ControlKind kind; float a, b; };
     static const Step script[] = {
-        { "idle",     6.0,  ControlKind::None,         0.0f, 0.f }, // baseline, no interaction
-        { "orbit",   24.0,  ControlKind::CameraRotate, 0.25f, 0.f }, // ~360 deg yaw around the cloud
-        { "zoom_in",  8.0,  ControlKind::CameraZoom,   1.0f, 0.f }, // outside -> inside the cloud
+        { "outside", 15.0,  ControlKind::None,         0.0f,   0.f }, // baseline, static outside the cloud
+        { "orbit",   15.0,  ControlKind::CameraRotate, 0.40f,  0.f }, // ~360 deg yaw around the cloud
+        { "zoom_in", 15.0,  ControlKind::CameraZoom,   0.533f, 0.f }, // outside -> inside (~2.4 units)
         // Look around from within: turn the gaze in place (CameraLook = eye fixed), not another
-        // orbit. Symmetric yaw then pitch sweeps that each return to center, so the following
-        // zoom_out resumes from the same view with no jump. 8 s total.
-        { "inside",   1.5,  ControlKind::CameraLook,   1.0f, 0.f }, // yaw to one side
-        { "inside",   3.0,  ControlKind::CameraLook,  -1.0f, 0.f }, //  ... across to the other
-        { "inside",   1.5,  ControlKind::CameraLook,   1.0f, 0.f }, //  ... back to center
-        { "inside",   0.5,  ControlKind::CameraLook,   0.0f, 1.5f }, // tilt up
-        { "inside",   1.0,  ControlKind::CameraLook,   0.0f,-1.5f }, //  ... down past center
-        { "inside",   0.5,  ControlKind::CameraLook,   0.0f, 1.5f }, //  ... back to center
-        { "zoom_out", 8.0,  ControlKind::CameraZoom,  -1.0f, 0.f }, // back out to the start radius
-        { "idle",     6.0,  ControlKind::None,         0.0f, 0.f }, // settle, end-of-run baseline
+        // orbit. Symmetric yaw then pitch sweeps that each return to center. 15 s total.
+        { "inside",   2.80, ControlKind::CameraLook,   1.0f,  0.f }, // yaw to one side
+        { "inside",   5.60, ControlKind::CameraLook,  -1.0f,  0.f }, //  ... across to the other
+        { "inside",   2.80, ControlKind::CameraLook,   1.0f,  0.f }, //  ... back to center
+        { "inside",   0.95, ControlKind::CameraLook,   0.0f,  1.5f }, // tilt up
+        { "inside",   1.90, ControlKind::CameraLook,   0.0f, -1.5f }, //  ... down past center
+        { "inside",   0.95, ControlKind::CameraLook,   0.0f,  1.5f }, //  ... back to center
     };
 
-    printf("benchmark: scripted camera starting (60 s: idle/orbit/zoom_in/inside/zoom_out/idle)\n");
+    printf("benchmark: scripted camera starting (60 s: outside/orbit/zoom_in/inside, ~15 s each)\n");
     for (const auto& s : script)
     {
         if (!g.running.load() || g.quit.load()) { break; }
@@ -1390,10 +1390,10 @@ static void usage(const char *prog)
         "                 by the server. Purely local -- the frame is stretched to fill the\n"
         "                 window; the server keeps rendering at its own resolution (not\n"
         "                 renegotiated).\n"
-        "  --benchmark F  Drive the camera with a deterministic 60 s script (6 s idle, 24 s\n"
-        "                 orbit, 8 s zoom into the cloud, 8 s look around from within (turn the\n"
-        "                 gaze in place), 8 s zoom out, 6 s idle), quit, and write the per-second\n"
-        "                 telemetry time series\n"
+        "  --benchmark F  Drive the camera with a deterministic 60 s script in four ~15 s phases\n"
+        "                 (outside: static baseline; orbit: one full orbit; zoom_in: dive into\n"
+        "                 the cloud; inside: look around from within, turning the gaze in place),\n"
+        "                 quit, and write the per-second telemetry time series\n"
         "                 to CSV file F (columns: time_s,fps,kbps,server_ms,decode_ms,\n"
         "                 lat_mean_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase;\n"
         "                 'phase' labels the script phases for plot shading). The control\n"

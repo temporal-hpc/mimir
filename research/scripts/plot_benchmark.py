@@ -7,21 +7,22 @@ Consumes the CSV written by ``rr-client --benchmark F`` (see rr-client.cpp). Col
     lat_mean_ms, lat_p50_ms, lat_p95_ms, lat_max_ms, lost, ctrl_events, phase
 
 Only the metrics worth watching *over time* get a curve; the rest live in a table of
-per-phase (and overall) averages. The four time-series panels group curves that share a
-Y-axis magnitude, or split onto twin axes when they do not:
+per-phase (and overall) averages. Two time-series panels, both grouping curves that share a
+Y-axis magnitude (or split onto twin axes when they do not):
 
-    1. Throughput      fps (left axis)  +  bitrate kbps (right axis)   -- twin Y
-    2. End-to-end lat. lat_mean / p50 / p95 / max                     -- shared ms
-    3. Frame pipeline  server_ms (encode/readback) + decode_ms        -- shared ms
-    4. Frame loss      lost per stats window                          -- count
+    1. Throughput   fps (left axis)  +  bitrate kbps (right axis)              -- twin Y
+    2. Timings (ms) end-to-end latency (mean / p50 / p95 / max)
+                    + server encode/readback + client decode                  -- shared ms
 
-`server_ms` is the server's per-frame production cost: NVENC *encode* time for an H.264
-stream, or framebuffer *readback* time for a raw stream (see rr-client.cpp:588).
+Everything else (server_ms and decode_ms averages, frame loss, control events) is reported
+in the table only. `server_ms` is the server's per-frame production cost: NVENC *encode*
+time for an H.264 stream, or framebuffer *readback* time for a raw stream.
 
 Usage:
     plot_benchmark.py run.csv                       # one run: panels are phase-shaded
     plot_benchmark.py a.csv b.csv c.csv             # compare runs: overlaid, legend by file
     plot_benchmark.py run.csv -o run.png            # save instead of (also) showing
+    plot_benchmark.py run.csv -t "My title"         # override the figure title
     plot_benchmark.py run.csv --no-show             # table only, no window
 
 Requires: pandas, matplotlib (pip install pandas matplotlib).
@@ -33,16 +34,28 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.patches import Patch
 
 # Metrics that get a time-series curve are defined by the panels below; everything else in
-# the CSV is summarised in the table only. Phase spans are shaded with these colors.
+# the CSV is summarised in the table only. Phase spans are shaded with these colors, and shown
+# in the "Client Camera" legend under their display names. The legacy tokens (idle/zoom_out from
+# older CSVs) share styling with their current equivalents so old runs still plot.
 PHASE_COLORS = {
-    "idle":     "#d9d9d9",
+    "outside":  "#d9d9d9",
+    "idle":     "#d9d9d9",  # legacy alias of "outside"
     "orbit":    "#c6dbef",
     "zoom_in":  "#c7e9c0",
     "inside":   "#fdd0a2",
-    "zoom_out": "#dadaeb",
+    "zoom_out": "#dadaeb",  # legacy (no longer emitted)
     "done":     "#f0f0f0",
+}
+PHASE_LABELS = {
+    "outside":  "Outside",
+    "idle":     "Outside",
+    "orbit":    "Orbit",
+    "zoom_in":  "Zoom in",
+    "inside":   "Inside",
+    "zoom_out": "Zoom out",
 }
 
 
@@ -54,34 +67,55 @@ def load(path):
     return df
 
 
-def shade_phases(ax, df, label=False):
+def shade_phases(ax, df):
     """Shade contiguous same-phase spans behind a single run's curves.
 
-    Only pass label=True on one panel: shading labels there feed the phase legend, and
-    labelling every panel would pollute each panel's own curve legend with phase entries.
+    The "Client Camera" legend key is built separately (from the phases present), so shading
+    here stays unlabelled and never pollutes a panel's own curve legend.
     """
     if "phase" not in df.columns:
         return
     start = 0
     phase = df["phase"].iloc[0]
-    seen = set()
     for i in range(1, len(df) + 1):
         cur = df["phase"].iloc[i] if i < len(df) else None
         if cur != phase:
             color = PHASE_COLORS.get(str(phase), "#eeeeee")
             t0 = df["t"].iloc[start]
             t1 = df["t"].iloc[i - 1]
-            ax.axvspan(t0, t1, color=color, alpha=0.5, lw=0,
-                       label=(phase if label and phase not in seen else None), zorder=0)
-            seen.add(phase)
+            ax.axvspan(t0, t1, color=color, alpha=0.5, lw=0, zorder=0)
             start, phase = i, cur
 
 
-def plot(runs, out, show):
+def phase_legend_handles(df):
+    """Patch handles for the phases present in df, in first-seen order, under display names."""
+    if "phase" not in df.columns:
+        return []
+    handles = []
+    for ph in df["phase"].drop_duplicates():
+        if ph == "done":
+            continue
+        handles.append(Patch(facecolor=PHASE_COLORS.get(str(ph), "#eeeeee"), alpha=0.5,
+                             label=PHASE_LABELS.get(str(ph), str(ph))))
+    return handles
+
+
+# Timings panel (all ms, shared axis): the end-to-end latency family plus the two per-frame
+# pipeline costs. (csv column, legend name, linewidth, linestyle, single-run color).
+TIMING_SERIES = [
+    ("lat_mean_ms", "latency mean", 1.8, "-",           "#3182bd"),
+    ("lat_p50_ms",  "latency p50",  1.1, ":",            "#9ecae1"),
+    ("lat_p95_ms",  "latency p95",  1.3, "--",           "#6baed6"),
+    ("lat_max_ms",  "latency max",  1.0, "-.",           "#08519c"),
+    ("server_ms",   "encode",       1.5, (0, (3, 1, 1, 1)), "#e6550d"),
+    ("decode_ms",   "decode",       1.5, (0, (1, 1)),    "#31a354"),
+]
+
+
+def plot(runs, out, show, title=None):
     single = len(runs) == 1
-    fig, axes = plt.subplots(2, 2, figsize=(13, 8), sharex=True)
-    (ax_tp, ax_lat), (ax_pipe, ax_loss) = axes
-    # A stable color per run so the same file reads the same across all panels.
+    fig, (ax_tp, ax_lat) = plt.subplots(1, 2, figsize=(14, 5.5), sharex=True)
+    # A stable color per run so the same file reads the same across both panels.
     run_color = {r.attrs["label"]: c for r, c in
                  zip(runs, plt.rcParams["axes.prop_cycle"].by_key()["color"])}
 
@@ -97,67 +131,50 @@ def plot(runs, out, show):
     ax_tp.set_ylabel("frames / s")
     ax_kbps.set_ylabel("bitrate (kbps, dashed)")
     ax_tp.set_title("Throughput: FPS (solid) + bitrate (dashed)")
+    ax_tp.set_xlabel("time (s)")
     ax_tp.set_ylim(bottom=0)
     ax_kbps.set_ylim(bottom=0)
 
-    # --- Panel 2: end-to-end latency -- all ms, shared axis.
-    lat_cols = [("lat_mean_ms", "mean", 1.8, "-"),
-                ("lat_p50_ms", "p50", 1.0, ":"),
-                ("lat_p95_ms", "p95", 1.2, "--"),
-                ("lat_max_ms", "max", 0.9, "-.")]
+    # --- Panel 2: timings -- end-to-end latency + server encode + client decode, all ms.
+    # Single run: a fixed color per metric reads clearest. Multiple runs: the run color groups a
+    # file's curves and the linestyle distinguishes the metric.
     for df in runs:
         c = run_color[df.attrs["label"]]
-        for col, name, lw, ls in lat_cols:
-            if col in df.columns:
-                lbl = name if single else f"{df.attrs['label']} {name}"
-                ax_lat.plot(df["t"], df[col], color=c, lw=lw, ls=ls, label=lbl)
-    ax_lat.set_ylabel("latency (ms)")
-    ax_lat.set_title("End-to-end latency (mean / p50 / p95 / max)")
+        for col, name, lw, ls, fixed in TIMING_SERIES:
+            if col not in df.columns:
+                continue
+            color = fixed if single else c
+            lbl = name if single else f"{df.attrs['label']} {name}"
+            ax_lat.plot(df["t"], df[col], color=color, lw=lw, ls=ls, label=lbl)
+    ax_lat.set_ylabel("time (ms)")
+    ax_lat.set_xlabel("time (s)")
+    ax_lat.set_title("Timings: end-to-end latency + encode + decode")
     ax_lat.set_ylim(bottom=0)
 
-    # --- Panel 3: per-frame pipeline -- server vs client cost, both ms, shared axis.
-    for df in runs:
-        c = run_color[df.attrs["label"]]
-        ax_pipe.plot(df["t"], df["server_ms"], color=c, lw=1.6,
-                     label="server (encode/readback)" if single else f"{df.attrs['label']} server")
-        ax_pipe.plot(df["t"], df["decode_ms"], color=c, lw=1.2, ls="--",
-                     label="decode" if single else f"{df.attrs['label']} decode")
-    ax_pipe.set_ylabel("per-frame (ms)")
-    ax_pipe.set_xlabel("time (s)")
-    ax_pipe.set_title("Frame pipeline: server (solid) vs decode (dashed)")
-    ax_pipe.set_ylim(bottom=0)
-
-    # --- Panel 4: frame loss per stats window.
-    for df in runs:
-        c = run_color[df.attrs["label"]]
-        ax_loss.plot(df["t"], df["lost"], color=c, lw=1.4,
-                     label=None if single else df.attrs["label"])
-    ax_loss.set_ylabel("frames lost / window")
-    ax_loss.set_xlabel("time (s)")
-    ax_loss.set_title("Frame loss")
-    ax_loss.set_ylim(bottom=0)
-
-    # Phase shading only makes sense for a single run (one timeline); otherwise use a legend.
-    # Label the spans on the loss panel only, so it alone carries the phase legend.
-    for ax in (ax_tp, ax_lat, ax_pipe, ax_loss):
+    # Phase shading only makes sense for a single run (one timeline).
+    for ax in (ax_tp, ax_lat):
         if single:
-            shade_phases(ax, runs[0], label=(ax is ax_loss))
+            shade_phases(ax, runs[0])
         ax.grid(True, alpha=0.3)
 
     if single:
-        # Per-panel curve legends stay local; the loss panel shows the phase-color key.
-        ax_tp.legend(loc="lower left", fontsize=8)
+        # Curve legends per panel; the throughput panel also carries the "Client Camera" key.
+        cam = phase_legend_handles(runs[0])
+        curve_leg = ax_tp.legend(loc="lower left", fontsize=8)
+        ax_tp.add_artist(curve_leg)
+        if cam:
+            ax_tp.legend(handles=cam, loc="lower right", fontsize=8,
+                         title="Client Camera", ncol=2)
         ax_lat.legend(loc="upper left", fontsize=8, ncol=2)
-        ax_pipe.legend(loc="upper left", fontsize=8)
-        ax_loss.legend(loc="upper right", fontsize=8, title="phase", ncol=2)
     else:
-        for ax in (ax_tp, ax_lat, ax_pipe):
-            ax.legend(loc="upper left", fontsize=7, ncol=2)
-        ax_loss.legend(loc="upper left", fontsize=8, title="run")
+        ax_tp.legend(loc="upper left", fontsize=8)
+        ax_lat.legend(loc="upper left", fontsize=7, ncol=len(runs))
 
-    title = runs[0].attrs["label"] if single else f"{len(runs)} runs compared"
-    fig.suptitle(f"Remote-rendering benchmark -- {title}", fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    if title is None:
+        what = runs[0].attrs["label"] if single else f"{len(runs)} runs compared"
+        title = f"Remote-rendering benchmark -- {what}"
+    fig.suptitle(title, fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
 
     if out:
         fig.savefig(out, dpi=130)
@@ -214,7 +231,7 @@ def print_table(runs):
             for ph in df["phase"].drop_duplicates():
                 if ph == "done":
                     continue
-                print(row(str(ph), agg(df[df["phase"] == ph])))
+                print(row(PHASE_LABELS.get(str(ph), str(ph)), agg(df[df["phase"] == ph])))
         print("-" * len(header))
         print(row("OVERALL", agg(df)))
     else:
@@ -231,6 +248,7 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("csv", nargs="+", help="benchmark CSV file(s) from rr-client --benchmark")
     p.add_argument("-o", "--out", help="save the figure to this path (e.g. run.png)")
+    p.add_argument("-t", "--title", help="figure title (default: derived from the file name)")
     p.add_argument("--no-show", action="store_true", help="don't open a plot window")
     args = p.parse_args()
 
@@ -242,7 +260,7 @@ def main():
         runs.append(load(path))
 
     print_table(runs)
-    plot(runs, args.out, show=not args.no_show)
+    plot(runs, args.out, show=not args.no_show, title=args.title)
     return 0
 
 
