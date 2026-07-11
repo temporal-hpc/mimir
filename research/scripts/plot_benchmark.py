@@ -12,8 +12,7 @@ Y-axis magnitude (or split onto twin axes when they do not):
 
     1. Throughput   fps (left axis)  +  bitrate kbps (right axis)              -- twin Y
     2. Timings (ms) mean end-to-end latency + server encode/readback + client
-                    decode, each with a +/-1 std-dev band; plus a derived
-                    "network/wait" curve (latency minus encode minus decode)   -- shared ms
+                    decode, each with a +/-1 std-dev band                      -- shared ms
 
 The *_std columns are per-window std-devs (feeding the error bands). Everything else
 (latency p50/p95/max, frame loss, control events) is reported in the table only. `server_ms`
@@ -193,13 +192,6 @@ def plot(runs, out, show, title=None, yrange_a=None, yrange_b=None, logy=False):
                 lo = (df[col] - df[stdcol]).clip(lower=0)
                 hi = df[col] + df[stdcol]
                 ax_lat.fill_between(df["t"], lo, hi, color=color, alpha=0.15, lw=0, zorder=0.5)
-        # Derived: the rest of end-to-end latency once encode + decode are removed — network
-        # round-trip, server queueing and present. Handy to see what dominates the latency.
-        if {"lat_mean_ms", "server_ms", "decode_ms"} <= set(df.columns):
-            transit = (df["lat_mean_ms"] - df["server_ms"] - df["decode_ms"]).clip(lower=0)
-            color = "#9467bd" if single else c
-            lbl = "network/wait" if single else f"{df.attrs['label']} network/wait"
-            ax_lat.plot(df["t"], transit, color=color, lw=1.2, ls=(0, (5, 2)), label=lbl)
     ax_lat.set_ylabel("time (ms)")
     ax_lat.set_xlabel("time (s)")
     ax_lat.set_title("Timings: latency (mean) + encode + decode")
