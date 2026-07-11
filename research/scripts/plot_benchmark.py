@@ -52,14 +52,14 @@ PHASE_COLORS = {
     "zoom_out":    "#dadaeb",
 }
 PHASE_LABELS = {
-    "far":         "Far (Static)",
+    "far":         "Fixed Far (Static)",
     "orbit":       "Orbit (Mid Dynamic)",
     "zoom_in":     "Zoom in (Low Dynamic)",
     "look_around": "Look Around (High Dynamic)",
-    "inside":      "Inside (Static)",
+    "inside":      "Fixed Inside (Static)",
     # Legacy tokens from earlier CSVs.
-    "outside":     "Far (Static)",
-    "idle":        "Far (Static)",
+    "outside":     "Fixed Far (Static)",
+    "idle":        "Fixed Far (Static)",
     "zoom_out":    "Zoom out",
 }
 
@@ -93,8 +93,9 @@ def shade_phases(ax, df):
 
 
 def label_phases(ax, df):
-    """Write each phase's display name vertically inside its shaded band, as muted background
+    """Write each phase's display name horizontally inside its shaded band, as muted background
     info — replaces a separate phase legend, so the name sits right on the color it describes.
+    The "(motion class)" tag drops to a second line to stay narrow enough for a 12 s band.
     """
     if "phase" not in df.columns:
         return
@@ -106,9 +107,10 @@ def label_phases(ax, df):
         if cur != phase:
             if str(phase) != "done":
                 xmid = 0.5 * (df["t"].iloc[start] + df["t"].iloc[i - 1])
-                ax.text(xmid, 0.975, PHASE_LABELS.get(str(phase), str(phase)),
-                        transform=trans, rotation=90, ha="center", va="top",
-                        fontsize=8, style="italic", color="#666666", alpha=0.65, zorder=1)
+                text = PHASE_LABELS.get(str(phase), str(phase)).replace(" (", "\n(", 1)
+                ax.text(xmid, 0.97, text, transform=trans, ha="center", va="top",
+                        fontsize=7.5, style="italic", color="#666666", alpha=0.7,
+                        linespacing=1.4, zorder=1)
             start, phase = i, cur
 
 
