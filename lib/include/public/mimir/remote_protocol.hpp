@@ -4,7 +4,10 @@
 // Deliberately dependency-free so a thin native client can include just this header.
 // All multi-byte fields are little-endian; for now both ends are assumed same-endian.
 
+#include <cctype>  // std::isalnum/std::toupper for benchmark-filename tags
 #include <cstdint>
+#include <ctime>   // std::strftime for the date stamp
+#include <string>  // benchmark-filename helpers
 
 namespace mimir::remote
 {
@@ -141,6 +144,7 @@ struct AuthMsg
 {
     uint32_t magic;             // AUTH_MAGIC
     char     token[TOKEN_MAX];  // shared secret (NUL-padded); empty when no auth is used
+    char     client[HOST_MAX];  // client's hostname, so the server can tag its benchmark CSV
 };
 
 // Fixed-size control message sent client -> server.
@@ -157,5 +161,80 @@ struct ControlMsg
 };
 
 #pragma pack(pop)
+
+// -------------------------------------------------------------------------------------------------
+// Benchmark CSV auto-naming (shared by rr-client and rr-server): both derive the same filename
+//   <prefix>-<YYYYMMDD>-rr-<role>-c<client>-s<server>-<gpu>.csv
+// from the client/server hostnames and the server GPU, so a run's two files pair up by name.
+// -------------------------------------------------------------------------------------------------
+
+// First hostname component, alphanumerics only, uppercased (e.g. "patagon.hpc.cl" -> "PATAGON").
+inline std::string hostTag(const std::string& host)
+{
+    std::string out;
+    for (char c : host)
+    {
+        if (c == '.') { break; } // strip the domain
+        if (std::isalnum(static_cast<unsigned char>(c)))
+        {
+            out += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+        else if (c == '-' && !out.empty() && out.back() != '-') { out += '-'; }
+    }
+    return out.empty() ? "UNKNOWN" : out;
+}
+
+// Compact GPU tag: drop vendor/marketing words, keep the model, uppercased alnum+dash
+// ("NVIDIA A100-SXM4-40GB" -> "A100-SXM4-40GB", "NVIDIA GeForce RTX 4090 Laptop GPU" -> "RTX4090").
+inline std::string gpuTag(std::string name)
+{
+    for (auto& c : name) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); }
+    for (const char *w : {"NVIDIA", "GEFORCE", "LAPTOP", "GPU"})
+    {
+        for (size_t p; (p = name.find(w)) != std::string::npos; )
+        {
+            name.erase(p, std::string(w).size());
+        }
+    }
+    std::string out;
+    for (char c : name)
+    {
+        if (std::isalnum(static_cast<unsigned char>(c))) { out += c; }
+        else if (c == '-' && !out.empty() && out.back() != '-') { out += '-'; }
+    }
+    while (!out.empty() && out.back()  == '-') { out.pop_back(); }
+    while (!out.empty() && out.front() == '-') { out.erase(out.begin()); }
+    return out.empty() ? "GPU" : out;
+}
+
+// Local calendar date as YYYYMMDD.
+inline std::string dateStamp()
+{
+    std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[16];
+    std::strftime(buf, sizeof(buf), "%Y%m%d", &tm);
+    return buf;
+}
+
+// Assembles the full CSV path from a caller-supplied path+prefix and the run's identities.
+inline std::string benchmarkCsvPath(const std::string& prefix, const char *role,
+    const std::string& client, const std::string& server, const std::string& gpu)
+{
+    std::string p = prefix;
+    if (!p.empty() && p.back() != '/' && p.back() != '-') { p += '-'; }
+    p += dateStamp();
+    p += "-rr-"; p += role;
+    p += "-c" + hostTag(client);
+    p += "-s" + hostTag(server);
+    p += "-"  + gpuTag(gpu);
+    p += ".csv";
+    return p;
+}
 
 } // namespace mimir::remote

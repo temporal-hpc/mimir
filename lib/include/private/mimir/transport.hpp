@@ -53,6 +53,10 @@ struct Transport
     // force the next frame to be an IDR so the client can resume decoding past the gap).
     virtual bool sendVideoUnreliable(const void*, size_t, uint32_t /*flags*/, uint32_t /*echo_stamp*/)
     { return false; }
+
+    // Hostname the connected client announced in its AuthMsg (empty if none). Used to tag the
+    // server's benchmark CSV with the client that drove the run.
+    virtual std::string peerName() const { return {}; }
 };
 
 // Accepts clients without blocking the caller. The server binds once, then polls from its

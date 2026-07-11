@@ -418,6 +418,26 @@ void hud_draw(int fb_h)
 
 // Optional CSV time-series log (one row per server Stats window), for offline plotting.
 FILE *g_csv = nullptr;
+// --benchmark path+prefix; the full CSV name is assembled once the Hello names the server + GPU.
+std::string g_bench_prefix;
+
+// Opens the benchmark CSV once, naming it from this run's identities so it pairs with the
+// server's file:  <prefix>-<date>-rr-client-c<client>-s<server>-<gpu>.csv
+void bench_csv_open(const Hello& hello)
+{
+    if (g_csv || g_bench_prefix.empty()) { return; }
+    char client[256]{}; gethostname(client, sizeof(client) - 1);
+    char server[HOST_MAX + 1] = {}; std::memcpy(server, hello.host, HOST_MAX);
+    char gpu[GPU_MAX + 1] = {}; std::memcpy(gpu, hello.gpu, GPU_MAX);
+    const std::string path = benchmarkCsvPath(g_bench_prefix, "client", client,
+        server[0] ? server : g_dial_host, gpu);
+    g_csv = fopen(path.c_str(), "w");
+    if (!g_csv) { fprintf(stderr, "cannot open csv log '%s'\n", path.c_str()); return; }
+    fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,decode_ms,decode_ms_std,"
+        "lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase\n");
+    fflush(g_csv);
+    printf("rr-client: benchmark CSV -> %s\n", path.c_str());
+}
 
 // Current interaction phase, logged as a CSV column so plots can shade idle vs. moving spans.
 // The --benchmark script sets its phase names ("idle", "orbit", ...); outside benchmark mode it
@@ -656,6 +676,9 @@ void fill_auth(AuthMsg& a, const std::string& token)
     a.magic = AUTH_MAGIC;
     size_t n = token.size() < TOKEN_MAX ? token.size() : static_cast<size_t>(TOKEN_MAX);
     std::memcpy(a.token, token.data(), n);
+    // Announce our hostname so the server can tag its benchmark CSV with this client.
+    char host[HOST_MAX]{};
+    if (gethostname(host, sizeof(host) - 1) == 0) { std::memcpy(a.client, host, sizeof(host)); }
 }
 
 // ============================================================================================
@@ -714,6 +737,7 @@ bool run_tcp(const char *host, const char *port, const std::string& token, Decod
     dec.set_geometry(hello);
     g_transport = "TCP";
     hud_set_server(hello, g_transport);
+    bench_csv_open(hello);
     printf("connected over TCP: %ux%u (%s)%s%.*s\n", hello.width, hello.height,
         static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
         hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu);
@@ -890,6 +914,7 @@ void quic_process_video(Quic *q)
         q->dec->set_geometry(hello);
         g_transport = "QUIC";
         hud_set_server(hello, g_transport);
+        bench_csv_open(hello);
         printf("connected over QUIC: %ux%u (%s)%s%.*s\n", hello.width, hello.height,
             static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
             hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu);
@@ -1411,18 +1436,19 @@ static void usage(const char *prog)
         "                 by the server. Purely local -- the frame is stretched to fill the\n"
         "                 window; the server keeps rendering at its own resolution (not\n"
         "                 renegotiated).\n"
-        "  --benchmark F  Drive the camera with a deterministic 60 s script in five 12 s phases\n"
+        "  --benchmark P  Drive the camera with a deterministic 60 s script in five 12 s phases\n"
         "                 spanning a static-to-high-motion gradient (far: static baseline; orbit:\n"
         "                 one full orbit; zoom_in: dive into the cloud; look_around: turn the gaze\n"
         "                 in place from within, peak motion; inside: hold still within the cloud),\n"
-        "                 quit, and write the per-second telemetry time series\n"
-        "                 to CSV file F (columns: time_s,fps,kbps,server_ms,server_ms_std,\n"
-        "                 decode_ms,decode_ms_std,lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,\n"
-        "                 lat_max_ms,lost,ctrl_events,phase; the *_std columns are per-window\n"
-        "                 std-devs used for the plot's error bands;\n"
-        "                 'phase' labels the script phases for plot shading). The control\n"
-        "                 stream is identical every run, so results from different servers are\n"
-        "                 directly comparable. Pair with the server's --benchmark file.\n"
+        "                 quit, and write the per-second telemetry time series to an auto-named CSV.\n"
+        "                 P is a path+prefix; the full name is assembled once connected as\n"
+        "                   <P>-<YYYYMMDD>-rr-client-c<client>-s<server>-<gpu>.csv\n"
+        "                 so it pairs with the server's file. Columns: time_s,fps,kbps,server_ms,\n"
+        "                 server_ms_std,decode_ms,decode_ms_std,lat_mean_ms,lat_std_ms,lat_p50_ms,\n"
+        "                 lat_p95_ms,lat_max_ms,lost,ctrl_events,phase (the *_std columns feed the\n"
+        "                 plot's error bands; 'phase' labels the script phases for shading). The\n"
+        "                 control stream is identical every run, so results from different servers\n"
+        "                 are directly comparable. Pair with the server's --benchmark prefix.\n"
         "                 Windowed by default; give a large frames value (e.g. 99999) to run\n"
         "                 headless — the script's end stops the run.\n"
         "\n"
@@ -1498,13 +1524,9 @@ int main(int argc, char *argv[])
     int frames        = (pos.size() >= 5) ? std::atoi(pos[4]) : 0; // >0 => headless test mode
     g_dial_host = host; g_dial_port = port; // for the HUD server line
 
-    if (bench_csv)
-    {
-        g_csv = fopen(bench_csv, "w");
-        if (!g_csv) { fprintf(stderr, "cannot open csv log '%s'\n", bench_csv); return EXIT_FAILURE; }
-        fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,decode_ms,decode_ms_std,"
-            "lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase\n");
-    }
+    // --benchmark carries a path+prefix; the CSV is opened with its auto-generated name once the
+    // server's Hello identifies the server host and GPU (see bench_csv_open).
+    if (bench_csv) { g_bench_prefix = bench_csv; }
 
     std::thread session(session_thread, host, port, token, mode);
     std::thread bench;

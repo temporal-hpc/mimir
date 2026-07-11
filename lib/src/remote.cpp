@@ -340,13 +340,21 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     bool stop = false;
 
     // Optional benchmark log: one row per telemetry window, mirroring the [stats] lines, with
-    // time relative to server start (sessions from the reconnect loop share the file).
+    // time relative to server start. stats_csv is a path+prefix; the full name is assembled once
+    // the first client connects (it carries the client hostname) as
+    //   <prefix>-<date>-rr-server-c<client>-s<server>-<gpu>.csv
+    // so the server's and client's CSVs for a run pair up by name. Sessions share the file.
     FILE *csv = nullptr;
+    std::string server_host, server_gpu; // this server's identity, for the CSV name
     if (!stats_csv.empty())
     {
-        csv = fopen(stats_csv.c_str(), "w");
-        if (csv) { fprintf(csv, "time_s,frame,fps,steps_s,kbps,encode_ms\n"); }
-        else { spdlog::warn("remote: cannot open stats csv '{}'", stats_csv); }
+        char host[remote::HOST_MAX]{};
+        if (gethostname(host, sizeof(host) - 1) == 0) { server_host = host; }
+        int dev = 0; cudaDeviceProp prop{};
+        if (cudaGetDevice(&dev) == cudaSuccess && cudaGetDeviceProperties(&prop, dev) == cudaSuccess)
+        {
+            server_gpu = prop.name;
+        }
     }
     const auto serve_start = std::chrono::steady_clock::now();
 
@@ -454,6 +462,16 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
 
         // A client connected: build a fresh session. The encoder is rebuilt per session, so a
         // newly-joined client always starts on a clean IDR (keyframe-on-join).
+        // Open the benchmark CSV now (first client only): its name needs the client's hostname.
+        if (!stats_csv.empty() && !csv)
+        {
+            const std::string path = remote::benchmarkCsvPath(
+                stats_csv, "server", transport->peerName(), server_host, server_gpu);
+            csv = fopen(path.c_str(), "w");
+            if (csv) { fprintf(csv, "time_s,frame,fps,steps_s,kbps,encode_ms\n"); fflush(csv);
+                       spdlog::info("remote: benchmark CSV -> {}", path); }
+            else { spdlog::warn("remote: cannot open stats csv '{}'", path); }
+        }
         uint32_t width  = swapchain.extent.width;
         uint32_t height = swapchain.extent.height;
 

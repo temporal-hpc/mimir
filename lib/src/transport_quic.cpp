@@ -158,6 +158,8 @@ public:
 
     bool unreliableVideoReady() const override { return dgram_ok_.load(); }
 
+    std::string peerName() const override { return peer_; }
+
     // Queues one video frame as DatagramFrag-headed QUIC datagrams. Drop-don't-queue policy:
     // if the I/O thread has not flushed the previous frame yet (congestion), the stale fragments
     // AND this frame are discarded and false is returned, keeping latency bounded — exactly the
@@ -318,6 +320,8 @@ private:
                 std::memcpy(&auth, ctrl_buf_.data(), sizeof(auth));
                 ctrl_buf_.erase(ctrl_buf_.begin(),
                     ctrl_buf_.begin() + static_cast<long>(sizeof(AuthMsg)));
+                char peer[HOST_MAX + 1] = {}; std::memcpy(peer, auth.client, HOST_MAX);
+                peer_ = peer;
                 auth_ok_.store(authOk(auth, token_));
                 auth_done_.store(true);
                 just_authed = true;
@@ -625,6 +629,7 @@ private:
 
     int64_t video_stream_ = -1;
     std::string token_;                    // expected auth token (empty = accept any)
+    std::string peer_;                     // client hostname from its AuthMsg (for benchmark tags)
 
     // Unreliable video (QUIC DATAGRAM) state.
     std::atomic<bool> dgram_ok_{false};    // peer negotiated RFC 9221 with usable size
