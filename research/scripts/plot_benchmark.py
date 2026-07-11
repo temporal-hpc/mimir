@@ -41,21 +41,27 @@ from matplotlib.patches import Patch
 # in the "Client Camera" legend under their display names. The legacy tokens (idle/zoom_out from
 # older CSVs) share styling with their current equivalents so old runs still plot.
 PHASE_COLORS = {
-    "outside":  "#d9d9d9",
-    "idle":     "#d9d9d9",  # legacy alias of "outside"
-    "orbit":    "#c6dbef",
-    "zoom_in":  "#c7e9c0",
-    "inside":   "#fdd0a2",
-    "zoom_out": "#dadaeb",  # legacy (no longer emitted)
-    "done":     "#f0f0f0",
+    "far":         "#d9d9d9",
+    "orbit":       "#c6dbef",
+    "zoom_in":     "#c7e9c0",
+    "look_around": "#fdd0a2",
+    "inside":      "#dadaeb",
+    "done":        "#f0f0f0",
+    # Legacy tokens from earlier CSVs, styled like their nearest current phase.
+    "outside":     "#d9d9d9",
+    "idle":        "#d9d9d9",
+    "zoom_out":    "#dadaeb",
 }
 PHASE_LABELS = {
-    "outside":  "Outside",
-    "idle":     "Outside",
-    "orbit":    "Orbit",
-    "zoom_in":  "Zoom in",
-    "inside":   "Inside",
-    "zoom_out": "Zoom out",
+    "far":         "Far (Static)",
+    "orbit":       "Orbit (Mid Dynamic)",
+    "zoom_in":     "Zoom in (Low Dynamic)",
+    "look_around": "Look Around (High Dynamic)",
+    "inside":      "Inside (Static)",
+    # Legacy tokens from earlier CSVs.
+    "outside":     "Far (Static)",
+    "idle":        "Far (Static)",
+    "zoom_out":    "Zoom out",
 }
 
 
@@ -158,15 +164,15 @@ def plot(runs, out, show, title=None):
     if single:
         # Curve legends per panel; the throughput panel also carries the "Client Camera" key.
         cam = phase_legend_handles(runs[0])
-        curve_leg = ax_tp.legend(loc="lower left", fontsize=8)
+        curve_leg = ax_tp.legend(loc="lower left", fontsize=8, ncol=1)
         ax_tp.add_artist(curve_leg)
         if cam:
             ax_tp.legend(handles=cam, loc="lower right", fontsize=8,
-                         title="Client Camera", ncol=2)
-        ax_lat.legend(loc="upper left", fontsize=8, ncol=2)
+                         title="Client Camera", ncol=1)
+        ax_lat.legend(loc="upper left", fontsize=8, ncol=1)
     else:
-        ax_tp.legend(loc="upper left", fontsize=8)
-        ax_lat.legend(loc="upper left", fontsize=7, ncol=len(runs))
+        ax_tp.legend(loc="upper left", fontsize=8, ncol=1)
+        ax_lat.legend(loc="upper left", fontsize=7, ncol=1)
 
     if title is None:
         what = runs[0].attrs["label"] if single else f"{len(runs)} runs compared"
