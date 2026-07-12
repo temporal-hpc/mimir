@@ -230,8 +230,16 @@ int main(int argc, char *argv[])
         fprintf(stderr, "rr-server: GPU device %d is not available\n", cuda_dev);
         return EXIT_FAILURE;
     }
-    printf("rr-server: using GPU device %d\n", cuda_dev);
     checkCuda(cudaSetDevice(0)); // device 0 of the (now single-device) visible set == --dev N
+    cudaDeviceProp gpu_prop{};
+    if (cudaGetDeviceProperties(&gpu_prop, 0) == cudaSuccess)
+    {
+        printf("rr-server: using GPU device %d (%s)\n", cuda_dev, gpu_prop.name);
+    }
+    else
+    {
+        printf("rr-server: using GPU device %d\n", cuda_dev);
+    }
 
     ViewerOptions options;
     options.window.title      = "Mimir - remote kmodal-3d";
