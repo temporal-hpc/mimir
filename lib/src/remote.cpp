@@ -328,16 +328,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     // renderFrame, so capping fps never throttles steps/s. target_fps == 0 means uncapped:
     // stream at the natural render+encode+send rate, bounded only by real backpressure (TCP) or
     // the datagram drop policy (QUIC).
-    if (target_fps > 0)
-    {
-        options.present.enable_fps_limit  = true;
-        options.present.target_fps        = target_fps;
-        options.present.target_frame_time = getTargetFrameTime(true, target_fps);
-    }
-    else
-    {
-        options.present.enable_fps_limit = false;
-    }
+    // Pace the frame cadence in this consumer loop (frameStall below), NOT inside renderFrame, so
+    // the per-frame render time we measure/log excludes the fps-cap wait. 0 = uncapped.
+    options.present.enable_fps_limit = false;
+    const int64_t frame_period_ns = getTargetFrameTime(target_fps > 0, target_fps);
     // Rate-control framerate for the encoder: the cap when set, the conventional 60 otherwise.
     const int encoder_fps = target_fps > 0 ? target_fps : 60;
 
@@ -563,6 +557,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         size_t win_frames = 0, win_bytes = 0, session_frames = 0;
         size_t win_start_iter = total_iter.load(); // sim step count at the window's start
         double win_enc_us = 0.0, win_enc_us_sq = 0.0; // sum and sum-of-squares, for mean + std
+        double win_render_ms = 0.0;                   // sum of per-frame GPU render time, for the mean
 
         while (true)
         {
@@ -721,6 +716,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 pt_scene_dirty = true; // the sim moved, so reset the path-trace accumulator
             }
             if (stop) { break; } // hit max_iters mid-batch
+            const auto render_t0 = std::chrono::steady_clock::now();
             renderFrame();
             vkDeviceWaitIdle(device); // ensure the frame is finished before readback
 
@@ -729,6 +725,9 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             bool produced = false;
             uint32_t flags = 0;
             const auto enc_t0 = std::chrono::steady_clock::now();
+            // GPU render time for this frame (renderFrame + wait-for-idle), excluding the sim step.
+            const double render_ms =
+                std::chrono::duration<double, std::milli>(enc_t0 - render_t0).count();
 
 #ifdef MIMIR_HAVE_FFMPEG
             // Zero-copy H.264: encode straight from the on-GPU frame, no host readback.
@@ -809,6 +808,11 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
             }
 
+            // Pace to the target fps here (not inside renderFrame), so the render_ms measured above
+            // stays pure -- the frame is already sent, so this is inter-frame wait, not latency.
+            // No-op when uncapped (frame_period_ns == 0).
+            frameStall(frame_period_ns);
+
             // Telemetry: once per second, report fps / bitrate / mean encode time to the client
             // and print the same summary to the server terminal.
             if (sent_this)
@@ -818,6 +822,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const double enc_us = enc_ms * 1000.0;
                 win_enc_us += enc_us;
                 win_enc_us_sq += enc_us * enc_us;
+                win_render_ms += render_ms;
             }
             const auto now = std::chrono::steady_clock::now();
             const double elapsed = std::chrono::duration<double>(now - win_start).count();
@@ -827,6 +832,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const double enc_mean = win_enc_us / static_cast<double>(win_frames);
                 const double enc_var  = win_enc_us_sq / static_cast<double>(win_frames)
                     - enc_mean * enc_mean;
+                const double render_mean = win_render_ms / static_cast<double>(win_frames);
                 remote::Stats st{
                     .frames    = static_cast<uint32_t>(session_frames),
                     .fps_milli = static_cast<uint32_t>(static_cast<double>(win_frames) / elapsed * 1000.0),
@@ -866,12 +872,13 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
 #endif
                 spdlog::info("[stats] step {} ({:.0f} steps/s) | frame {:6d} | {:5.1f} fps | "
-                    "{:6d} kbps | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller)",
+                    "{:6d} kbps | {:5.2f} ms render | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller)",
                     step_str,
                     sps,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
+                    render_mean,
                     static_cast<double>(st.encode_us) / 1000.0,
                     prod_label,
                     raw_frame_kb, sent_frame_kb,
@@ -891,7 +898,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     client_gone = true; break;
                 }
                 win_start = now; win_frames = 0; win_bytes = 0;
-                win_enc_us = 0.0; win_enc_us_sq = 0.0;
+                win_enc_us = 0.0; win_enc_us_sq = 0.0; win_render_ms = 0.0;
                 win_start_iter = iters;
             }
         }
