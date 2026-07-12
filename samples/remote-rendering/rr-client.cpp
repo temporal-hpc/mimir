@@ -42,6 +42,15 @@ using namespace mimir::remote;
 #  define ngtcp2_conn_get_expiry2 ngtcp2_conn_get_expiry
 #endif
 
+// ngtcp2 1.22.0 added the "2"-suffixed get_new_connection_id / get_path_challenge_data callbacks
+// and the ngtcp2_stateless_reset_token struct (pre-1.22 forms take a raw uint8_t* token). Support
+// both so the viewer builds on older distro ngtcp2 (e.g. Ubuntu 26.04 ships 1.16.0).
+#if defined(NGTCP2_VERSION_NUM) && NGTCP2_VERSION_NUM >= 0x011600
+#  define MIMIR_NGTCP2_CALLBACKS2 1
+#else
+#  define MIMIR_NGTCP2_CALLBACKS2 0
+#endif
+
 #include <openssl/ssl.h>
 #include <openssl/rand.h>
 #endif // MIMIR_RRC_HAVE_QUIC
@@ -831,6 +840,7 @@ ngtcp2_conn* quic_get_conn(ngtcp2_crypto_conn_ref *ref)
 void quic_rand(uint8_t *dest, size_t destlen, const ngtcp2_rand_ctx*)
 { RAND_bytes(dest, static_cast<int>(destlen)); }
 
+#if MIMIR_NGTCP2_CALLBACKS2
 int quic_get_new_cid(ngtcp2_conn*, ngtcp2_cid *cid, ngtcp2_stateless_reset_token *token,
     size_t cidlen, void*)
 {
@@ -839,6 +849,15 @@ int quic_get_new_cid(ngtcp2_conn*, ngtcp2_cid *cid, ngtcp2_stateless_reset_token
     if (RAND_bytes(token->data, sizeof(token->data)) != 1) { return NGTCP2_ERR_CALLBACK_FAILURE; }
     return 0;
 }
+#else // ngtcp2 < 1.22.0: token is a raw uint8_t buffer, not a struct
+int quic_get_new_cid(ngtcp2_conn*, ngtcp2_cid *cid, uint8_t *token, size_t cidlen, void*)
+{
+    if (RAND_bytes(cid->data, static_cast<int>(cidlen)) != 1) { return NGTCP2_ERR_CALLBACK_FAILURE; }
+    cid->datalen = cidlen;
+    if (RAND_bytes(token, NGTCP2_STATELESS_RESET_TOKENLEN) != 1) { return NGTCP2_ERR_CALLBACK_FAILURE; }
+    return 0;
+}
+#endif
 
 int quic_handshake_done(ngtcp2_conn*, void *user_data)
 { static_cast<Quic*>(user_data)->handshake_done = true; return 0; }
@@ -1070,11 +1089,16 @@ bool run_quic(const char *host, const char *port, const std::string& token, Deco
     cb.update_key               = ngtcp2_crypto_update_key_cb;
     cb.delete_crypto_aead_ctx   = ngtcp2_crypto_delete_crypto_aead_ctx_cb;
     cb.delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb;
-    cb.get_path_challenge_data2 = ngtcp2_crypto_get_path_challenge_data2_cb;
     cb.version_negotiation      = ngtcp2_crypto_version_negotiation_cb;
     cb.rand                     = quic_rand;
-    cb.get_new_connection_id2   = quic_get_new_cid;
     cb.handshake_completed      = quic_handshake_done;
+#if MIMIR_NGTCP2_CALLBACKS2
+    cb.get_path_challenge_data2 = ngtcp2_crypto_get_path_challenge_data2_cb;
+    cb.get_new_connection_id2   = quic_get_new_cid;
+#else // ngtcp2 < 1.22.0: the callbacks without the "2" suffix
+    cb.get_path_challenge_data  = ngtcp2_crypto_get_path_challenge_data_cb;
+    cb.get_new_connection_id    = quic_get_new_cid;
+#endif
     cb.recv_stream_data         = quic_recv_stream_data;
     cb.recv_datagram            = quic_recv_datagram;
 
