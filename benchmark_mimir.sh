@@ -59,6 +59,6 @@ for i in {0..1}; do
     for exp in {4..8}; do
         size=$((10**${exp}))
         echo "    mode: ${mode}; size: ${size}"
-        ./samples/particles-kmodal-3d/build/bin/benchmark_${mode} ${width} ${height} ${size} ${seed} ${niter} ${kmodal_common} ${opts} >> ${file}
+        ./samples/particles-kmodal-3d/build/bin/benchmark_mimir ${width} ${height} ${size} ${seed} ${niter} ${kmodal_common} ${opts} >> ${file}
     done
 done

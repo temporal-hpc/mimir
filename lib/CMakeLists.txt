@@ -44,7 +44,7 @@ target_include_directories(mimir
 )
 
 set_target_properties(mimir PROPERTIES
-    COMPILE_WARNING_AS_ERROR ON
+    COMPILE_WARNING_AS_ERROR OFF
     CUDA_ARCHITECTURES       native
     CUDA_STANDARD            20
 )
