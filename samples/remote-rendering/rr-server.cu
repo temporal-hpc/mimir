@@ -298,10 +298,11 @@ int main(int argc, char *argv[])
     {
         bool nvenc = false, nvdec = false;
         queryVideoEngines(gpu_prop, nvenc, nvdec);
-        printf("rr-server: using GPU device %d (%s) | %.0f GB | %d CUDA cores | %d tensor cores | "
-               "%d RT cores | NVENC %s | NVDEC %s\n",
+        printf("rr-server: using GPU device %d (%s) | %.0f GB | %d SMs | %d CUDA cores | "
+               "%d tensor cores | %d RT cores | NVENC %s | NVDEC %s\n",
             cuda_dev, gpu_prop.name,
             static_cast<double>(gpu_prop.totalGlobalMem) / (1024.0 * 1024.0 * 1024.0),
+            gpu_prop.multiProcessorCount,
             gpu_prop.multiProcessorCount * coresPerSM(gpu_prop.major, gpu_prop.minor),
             gpu_prop.multiProcessorCount * tensorPerSM(gpu_prop.major),
             rtCores(gpu_prop), nvenc ? "yes" : "no", nvdec ? "yes" : "no");
