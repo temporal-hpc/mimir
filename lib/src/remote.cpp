@@ -64,6 +64,7 @@ struct H264Encoder
     int width = 0, height = 0;
     int64_t pts = 0;
     bool zero_copy = false;
+    int sw_threads = 0;  // libx264 CPU thread count (0 on the NVENC/GPU path)
 
     bool init(int w, int h, int fps, int bitrate_kbps)
     {
@@ -111,7 +112,7 @@ struct H264Encoder
         ctx->max_b_frames = 0;
         if (zero_copy) { ctx->hw_frames_ctx = av_buffer_ref(hw_frames); }
         // Low-latency options differ per encoder; set the ones each understands.
-        int sw_threads = 0;
+        sw_threads = 0; // 0 marks the GPU/NVENC path; set below for the software path
         if (is_nvenc)
         {
             av_opt_set(ctx->priv_data, "tune", "ll", 0);       // nvenc: low latency
@@ -852,6 +853,17 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 {
                     snprintf(step_str, sizeof(step_str), "%zu", iters);
                 }
+                // Label the per-frame production cost: NVENC on the GPU, libx264 on N CPU threads,
+                // or raw framebuffer readback. (encode_us spans readback+convert+encode; see below.)
+                std::string prod_label = "readback";
+#ifdef MIMIR_HAVE_FFMPEG
+                if (codec == remote::Codec::H264)
+                {
+                    prod_label = encoder.zero_copy
+                        ? std::string("encode (GPU)")
+                        : "encode (" + std::to_string(encoder.sw_threads) + " CPU threads)";
+                }
+#endif
                 spdlog::info("[stats] step {} ({:.0f} steps/s) | frame {:6d} | {:5.1f} fps | "
                     "{:6d} kbps | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller)",
                     step_str,
@@ -860,7 +872,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
                     static_cast<double>(st.encode_us) / 1000.0,
-                    codec == remote::Codec::H264 ? "encode" : "readback",
+                    prod_label,
                     raw_frame_kb, sent_frame_kb,
                     sent_frame_kb > 0.0 ? raw_frame_kb / sent_frame_kb : 0.0);
                 if (csv)
