@@ -128,10 +128,11 @@ struct H264Encoder
             // ultrafast (not fast): the CPU encode is the bottleneck on a no-NVENC GPU, and the
             // stream has huge headroom (~500x compression), so trade ratio for speed.
             av_opt_set(ctx->priv_data, "preset", "ultrafast", 0);
-            // Use every core available to this process. av_cpu_count() honors CPU affinity, so on a
-            // cluster it reflects the SLURM/cgroup allocation, not the whole node. FF_THREAD_SLICE
+            // Use the cores available to this process. av_cpu_count() honors CPU affinity, so on a
+            // cluster it reflects the SLURM/cgroup allocation, not the whole node. x264's sliced
+            // threading stops helping (and warns) past 16 threads, so cap there. FF_THREAD_SLICE
             // parallelizes within a frame (no frame-buffering latency), matching zerolatency.
-            sw_threads = av_cpu_count();
+            sw_threads = std::min(av_cpu_count(), 16);
             ctx->thread_count = sw_threads;
             ctx->thread_type  = FF_THREAD_SLICE;
         }
