@@ -56,9 +56,7 @@ namespace
 struct H264Encoder
 {
     AVCodecContext *ctx = nullptr;
-    // Host path: the BGRA->YUV420P convert is split into horizontal bands, one per CPU thread.
-    struct Band { SwsContext *ctx = nullptr; int y0 = 0, h0 = 0; };
-    std::vector<Band> sws_bands;
+    SwsContext     *sws = nullptr;       // host path: BGRA->YUV420P conversion
     AVFrame        *frame = nullptr;     // host path: the YUV420P frame
     AVPacket       *packet = nullptr;
     AVBufferRef    *hw_device = nullptr; // zero-copy path
@@ -148,26 +146,9 @@ struct H264Encoder
             frame->width  = w;
             frame->height = h;
             av_frame_get_buffer(frame, 0);
-            if (!frame) { return false; }
-            // The BGRA->YUV420P convert is otherwise single-threaded and, on a no-NVENC GPU, a big
-            // slice of the per-frame cost. Split it into horizontal bands so encode() can spread it
-            // across CPU cores: each band is an independent sub-image with its own SwsContext (a
-            // context is not reentrant). Bands start/span even rows so 4:2:0 chroma blocks stay
-            // whole, and SWS_POINT (nearest chroma, no vertical average) makes each band's output
-            // byte-identical to a single full-frame convert -- no seams at the boundaries. Keep
-            // bands >= 64 rows so the thread overhead stays worthwhile.
-            const int cores = av_cpu_count();
-            const int nb   = std::max(1, std::min(cores, h / 64));
-            const int rows = (h / nb) & ~1;
-            for (int i = 0; i < nb; ++i)
-            {
-                const int y0 = i * rows;
-                const int h0 = (i == nb - 1) ? (h - y0) : rows;
-                SwsContext *c = sws_getContext(w, h0, AV_PIX_FMT_BGRA, w, h0, AV_PIX_FMT_YUV420P,
-                    SWS_POINT, nullptr, nullptr, nullptr);
-                if (!c) { return false; }
-                sws_bands.push_back({c, y0, h0});
-            }
+            sws = sws_getContext(w, h, AV_PIX_FMT_BGRA, w, h, AV_PIX_FMT_YUV420P,
+                SWS_BILINEAR, nullptr, nullptr, nullptr);
+            if (!sws || !frame) { return false; }
         }
         if (zero_copy)
         {
@@ -242,33 +223,9 @@ struct H264Encoder
     {
         out.clear();
         if (av_frame_make_writable(frame) < 0) { return false; }
-        const int stride[4] = { width * 4, 0, 0, 0 };
-        // Convert band i as a standalone sub-image: source and YUV destination pointers offset to
-        // the band's rows, so each thread's SwsContext works from its own row 0 (no shared slice
-        // state). y0/h0 are even, so the chroma-plane offset (y0/2) is exact.
-        const int n = static_cast<int>(sws_bands.size());
-        auto convert_band = [&](int i)
-        {
-            const Band& b = sws_bands[static_cast<size_t>(i)];
-            const size_t sy = static_cast<size_t>(b.y0);
-            const uint8_t *src[4] = {
-                bgra + sy * static_cast<size_t>(width) * 4, nullptr, nullptr, nullptr };
-            uint8_t *dst[4] = {
-                frame->data[0] +  sy      * static_cast<size_t>(frame->linesize[0]),
-                frame->data[1] + (sy / 2) * static_cast<size_t>(frame->linesize[1]),
-                frame->data[2] + (sy / 2) * static_cast<size_t>(frame->linesize[2]),
-                nullptr };
-            sws_scale(b.ctx, src, stride, 0, b.h0, dst, frame->linesize);
-        };
-        if (n <= 1) { convert_band(0); }
-        else
-        {
-            std::vector<std::thread> pool;
-            pool.reserve(static_cast<size_t>(n - 1));
-            for (int i = 1; i < n; ++i) { pool.emplace_back(convert_band, i); }
-            convert_band(0);            // the calling thread handles band 0
-            for (auto& t : pool) { t.join(); }
-        }
+        const uint8_t *src[4] = { bgra, nullptr, nullptr, nullptr };
+        int stride[4] = { width * 4, 0, 0, 0 };
+        sws_scale(sws, src, stride, 0, height, frame->data, frame->linesize);
         frame->pict_type = force_idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
         force_idr = false;
         frame->pts = pts++;
@@ -305,8 +262,7 @@ struct H264Encoder
     // Frees all ffmpeg state and resets to a fresh (re-initializable) condition.
     void teardown()
     {
-        for (Band& b : sws_bands) { sws_freeContext(b.ctx); }
-        sws_bands.clear();
+        if (sws)       { sws_freeContext(sws); sws = nullptr; }
         if (frame)     { av_frame_free(&frame); }       // nulls frame
         if (packet)    { av_packet_free(&packet); }     // nulls packet
         if (ctx)       { avcodec_free_context(&ctx); }  // nulls ctx
