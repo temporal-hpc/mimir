@@ -24,8 +24,8 @@ for size in ${sizes[@]}; do
     ./samples/nbody-datoviz/build/bin/benchmark_datoviz ${width} ${height} ${size} ${niter} >> ${file}
 done
 
-modes=(simple phong) # TODO: Phong
-options=("" "")
+modes=(simple phong)
+options=("" "--light-model phong")
 kmodal_common="--pcolor 1.0,0.05,0.05 --background 1.0 --k 64 --epsilon 0.07 --fly --size 3"
 echo "Running datoviz particles benchmark"
 for i in {0..1}; do

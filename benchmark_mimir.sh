@@ -49,7 +49,7 @@ for i in {0..1}; do
 done
 
 modes=(phong ptrace)
-options=("TODO" "--light-model path-tracing") #TODO
+options=("--light-model phong" "--light-model path-tracing") #TODO
 echo "Running mimir particles benchmark (alternate rendering modes)"
 for i in {0..1}; do
     mode=${modes[${i}]}
