@@ -159,6 +159,12 @@ void MimirInstance::deinit()
 
     vkDeviceWaitIdle(device);
     freeFrameCudaBuffer();
+    if (readback_buf_ != VK_NULL_HANDLE)
+    {
+        vkDestroyBuffer(device, readback_buf_, nullptr);
+        vkFreeMemory(device, readback_mem_, nullptr);
+        readback_buf_ = VK_NULL_HANDLE;
+    }
     cleanupGraphics();
     if (!isHeadless())
     {
@@ -405,19 +411,37 @@ void MimirInstance::readFrameBytes(std::vector<unsigned char>& out)
     auto height = swapchain.extent.height;
     VkDeviceSize memsize = static_cast<VkDeviceSize>(width) * height * 4;
 
-    // Staging buffer to receive the rendered image (host-visible for readback)
-    auto staging = createBuffer(device, memsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    auto available = physical_device.memory.memoryProperties;
-    VkMemoryRequirements mem_req{};
-    vkGetBufferMemoryRequirements(device, staging, &mem_req);
-    auto memory = allocateMemory(device, available, mem_req,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    validation::checkVulkan(vkBindBufferMemory(device, staging, memory, 0));
+    // Reuse a cached host-visible staging buffer across frames. Allocating + freeing one per frame
+    // (vkCreateBuffer/vkAllocateMemory/... /vkFreeMemory, heavyweight driver calls) dominated the
+    // readback cost; recreate only when the resolution (and so memsize) changes.
+    if (readback_size_ != memsize)
+    {
+        if (readback_buf_ != VK_NULL_HANDLE)
+        {
+            vkDestroyBuffer(device, readback_buf_, nullptr);
+            vkFreeMemory(device, readback_mem_, nullptr);
+        }
+        readback_buf_ = createBuffer(device, memsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        VkMemoryRequirements mem_req{};
+        vkGetBufferMemoryRequirements(device, readback_buf_, &mem_req);
+        // Prefer HOST_CACHED: the readback does a large CPU-side memcpy *out* of this buffer, and
+        // HOST_COHERENT memory is typically write-combined on NVIDIA -> uncached CPU reads that are
+        // many times slower. Fall back to coherent if the device exposes no cached host type.
+        const auto& memprops = physical_device.memory.memoryProperties;
+        VkMemoryPropertyFlags want =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+        if (findMemoryType(memprops, mem_req.memoryTypeBits, want) == ~0u)
+        {
+            want = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        }
+        readback_mem_ = allocateMemory(device, memprops, mem_req, want);
+        validation::checkVulkan(vkBindBufferMemory(device, readback_buf_, readback_mem_, 0));
+        readback_size_ = memsize;
+    }
 
     // The offscreen image is already in TRANSFER_SRC layout (render pass final layout)
     VkImage src = offscreen_images[last_image_idx];
-    immediateSubmit([=](VkCommandBuffer cmd)
+    immediateSubmit([=, this](VkCommandBuffer cmd)
     {
         VkBufferImageCopy region{
             .bufferOffset      = 0,
@@ -428,17 +452,20 @@ void MimirInstance::readFrameBytes(std::vector<unsigned char>& out)
             .imageExtent       = { width, height, 1 },
         };
         vkCmdCopyImageToBuffer(cmd, src,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_buf_, 1, &region
         );
     });
 
     unsigned char *data = nullptr;
-    validation::checkVulkan(vkMapMemory(device, memory, 0, memsize, 0, (void**)&data));
+    validation::checkVulkan(vkMapMemory(device, readback_mem_, 0, memsize, 0, (void**)&data));
+    // Make the GPU's writes visible to this CPU read (a no-op on coherent memory, required on the
+    // cached, non-coherent type preferred above).
+    VkMappedMemoryRange range{ .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+        .pNext = nullptr, .memory = readback_mem_, .offset = 0, .size = VK_WHOLE_SIZE };
+    vkInvalidateMappedMemoryRanges(device, 1, &range);
     out.resize(static_cast<size_t>(memsize));
     std::memcpy(out.data(), data, static_cast<size_t>(memsize));
-    vkUnmapMemory(device, memory);
-    vkDestroyBuffer(device, staging, nullptr);
-    vkFreeMemory(device, memory, nullptr);
+    vkUnmapMemory(device, readback_mem_);
 }
 
 void MimirInstance::freeFrameCudaBuffer()
