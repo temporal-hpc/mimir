@@ -16,6 +16,7 @@
 
 #include <cstdio>  // snprintf (NVML PCI bus id)
 #include <cstdlib> // setenv (pin to a GPU via CUDA_VISIBLE_DEVICES)
+#include <cstring> // std::strstr (GPU-name matching)
 #include <string> // std::stoul
 #include <vector>
 
@@ -48,13 +49,20 @@ static int coresPerSM(int major, int minor)
 // Tensor cores per SM: none before Volta, 8 on Volta/Turing, 4 on Ampere and later.
 static int tensorPerSM(int major) { return major < 7 ? 0 : (major == 7 ? 8 : 4); }
 
-// NVIDIA has ~1 RT core per SM on RT-capable GPUs; datacenter compute parts (Volta, A100, H100,
-// datacenter Blackwell -- the x.0 SKUs) have none. Best-effort estimate (CUDA can't report it).
+// RT-core count is NOT queryable via CUDA (or CUDA-visible), so this is a best-effort estimate:
+// NVIDIA has ~1 RT core per SM on RT-capable GPUs, and 0 on datacenter compute parts. Those are
+// hard to tell apart by compute capability alone (a new datacenter arch can share a CC with a
+// consumer one), so match the known compute families by name too.
 static int rtCores(const cudaDeviceProp& p)
 {
-    const bool datacenter =
+    static const char *const compute_only[] = {
+        "V100", "A100", "A800", "H100", "H200", "H800", "GH200",
+        "B100", "B200", "B300", "GB200", "GB300", // Blackwell datacenter: no RT cores
+    };
+    for (const char *s : compute_only) { if (std::strstr(p.name, s) != nullptr) { return 0; } }
+    const bool cc_datacenter =
         (p.minor == 0 && (p.major == 7 || p.major == 8 || p.major == 9 || p.major == 10));
-    const bool rt_capable = (p.major * 10 + p.minor) >= 75 && !datacenter; // Turing+ with display
+    const bool rt_capable = (p.major * 10 + p.minor) >= 75 && !cc_datacenter; // Turing+ w/ display
     return rt_capable ? p.multiProcessorCount : 0;
 }
 
