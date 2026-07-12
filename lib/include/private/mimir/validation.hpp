@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdio> // stderr
+#include <cstdlib> // std::abort on unrecoverable Vulkan errors
 #include <source_location> // std::source_location
 #include <vector> // std::vector
 
@@ -45,6 +46,14 @@ constexpr VkResult checkVulkan(VkResult code, srcloc src = srcloc::current())
         spdlog::error("Vulkan assertion: {} in function {} at {}({})",
             getVulkanErrorString(code), src.function_name(), src.file_name(), src.line()
         );
+        // Unrecoverable errors (allocation failures, lost device) would otherwise continue with a
+        // null handle and segfault later; fail fast with the logged message instead. Recoverable
+        // codes (e.g. VK_ERROR_OUT_OF_DATE_KHR on resize) are left for the caller to handle.
+        if (code == VK_ERROR_OUT_OF_DEVICE_MEMORY || code == VK_ERROR_OUT_OF_HOST_MEMORY ||
+            code == VK_ERROR_DEVICE_LOST)
+        {
+            std::abort();
+        }
     }
     return code;
 }
