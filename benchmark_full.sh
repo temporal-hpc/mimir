@@ -9,14 +9,13 @@ if [[ "$1" == "--help" || "$1" == "-h" || -z "$1" ]]; then
     echo "and appends one CSV row per configuration (plus a header) to output.csv."
     echo ""
     echo "Example:"
-    echo "  $0 results.csv"
+    echo "  $0 result 2560 1440 10000"
     exit 0
 fi
 
 echo "Warming up..."
 ./samples/nbody/build/bin/benchmark 1920 1080 65536 100
-echo "Starting benchmark..."
 
-./benchmark_main.sh $1
-./benchmark_ptrace.sh $1
-./benchmark_desync.sh $1
+echo "Starting benchmark with window size (${2}x${3}) and ${4} iterations"
+./benchmark_mimir.sh $1 $2 $3 $4
+./benchmark_datoviz.sh $1 $2 $3 $4
