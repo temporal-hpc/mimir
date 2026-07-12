@@ -14,10 +14,12 @@
 //     transport: "tcp" (default, works everywhere incl. ssh -L) or "quic" (-DMIMIR_ENABLE_QUIC=ON)
 //     token:     optional shared secret the client must present (empty = accept any client)
 
+#include <cstdio>  // snprintf (NVML PCI bus id)
 #include <cstdlib> // setenv (pin to a GPU via CUDA_VISIBLE_DEVICES)
 #include <string> // std::stoul
 #include <vector>
 
+#include <nvml.h>  // NVENC/NVDEC presence for the startup GPU banner
 #include <spdlog/spdlog.h>
 
 #include "kmodal_sim.cuh"
@@ -25,6 +27,66 @@
 #include <mimir/mimir.hpp>
 #include "validation.hpp" // checkCuda
 using namespace mimir;
+
+// Shader cores per SM by compute capability (NVIDIA's well-known table, from CUDA samples).
+static int coresPerSM(int major, int minor)
+{
+    switch ((major << 4) | minor)
+    {
+        case 0x30: case 0x32: case 0x35: case 0x37: return 192;            // Kepler
+        case 0x50: case 0x52: case 0x53:            return 128;            // Maxwell
+        case 0x60:                                  return 64;             // Pascal GP100
+        case 0x61: case 0x62:                       return 128;            // Pascal
+        case 0x70: case 0x72: case 0x75:            return 64;             // Volta / Turing
+        case 0x80:                                  return 64;             // Ampere GA100 (A100)
+        case 0x86: case 0x87: case 0x89:            return 128;            // Ampere / Ada
+        case 0x90:                                  return 128;            // Hopper
+        default:                                    return 128;            // newer archs (approx)
+    }
+}
+
+// Tensor cores per SM: none before Volta, 8 on Volta/Turing, 4 on Ampere and later.
+static int tensorPerSM(int major) { return major < 7 ? 0 : (major == 7 ? 8 : 4); }
+
+// NVIDIA has ~1 RT core per SM on RT-capable GPUs; datacenter compute parts (Volta, A100, H100,
+// datacenter Blackwell -- the x.0 SKUs) have none. Best-effort estimate (CUDA can't report it).
+static int rtCores(const cudaDeviceProp& p)
+{
+    const bool datacenter =
+        (p.minor == 0 && (p.major == 7 || p.major == 8 || p.major == 9 || p.major == 10));
+    const bool rt_capable = (p.major * 10 + p.minor) >= 75 && !datacenter; // Turing+ with display
+    return rt_capable ? p.multiProcessorCount : 0;
+}
+
+// Query NVENC/NVDEC presence via NVML. NVML ignores CUDA_VISIBLE_DEVICES and enumerates every
+// physical GPU, so find the one whose PCI location matches our CUDA device (numeric compare, no
+// bus-string formatting). Encoder-capacity / decoder-utilization return NOT_SUPPORTED on a GPU
+// that lacks that engine -- e.g. the A100 (NVDEC yes, NVENC no).
+static void queryVideoEngines(const cudaDeviceProp& p, bool& nvenc, bool& nvdec)
+{
+    nvenc = nvdec = false;
+    if (nvmlInit_v2() != NVML_SUCCESS) { return; }
+    unsigned int count = 0;
+    if (nvmlDeviceGetCount_v2(&count) == NVML_SUCCESS)
+    {
+        for (unsigned int i = 0; i < count; ++i)
+        {
+            nvmlDevice_t dev{};
+            nvmlPciInfo_t pci{};
+            if (nvmlDeviceGetHandleByIndex_v2(i, &dev) != NVML_SUCCESS) { continue; }
+            if (nvmlDeviceGetPciInfo_v3(dev, &pci) != NVML_SUCCESS)      { continue; }
+            if (static_cast<int>(pci.domain) != p.pciDomainID ||
+                static_cast<int>(pci.bus)    != p.pciBusID    ||
+                static_cast<int>(pci.device) != p.pciDeviceID) { continue; }
+            unsigned int cap = 0;
+            nvenc = nvmlDeviceGetEncoderCapacity(dev, NVML_ENCODER_QUERY_H264, &cap) == NVML_SUCCESS;
+            unsigned int util = 0, period = 0;
+            nvdec = nvmlDeviceGetDecoderUtilization(dev, &util, &period) == NVML_SUCCESS;
+            break;
+        }
+    }
+    nvmlShutdown();
+}
 
 // Parse a color as "G" (grey level) or "R,G,B" in [0,1].
 static float3 parseColor(const std::string& v)
@@ -234,12 +296,23 @@ int main(int argc, char *argv[])
     cudaDeviceProp gpu_prop{};
     if (cudaGetDeviceProperties(&gpu_prop, 0) == cudaSuccess)
     {
-        printf("rr-server: using GPU device %d (%s)\n", cuda_dev, gpu_prop.name);
+        bool nvenc = false, nvdec = false;
+        queryVideoEngines(gpu_prop, nvenc, nvdec);
+        printf("rr-server: using GPU device %d (%s) | %.0f GB | %d CUDA cores | %d tensor cores | "
+               "%d RT cores | NVENC %s | NVDEC %s\n",
+            cuda_dev, gpu_prop.name,
+            static_cast<double>(gpu_prop.totalGlobalMem) / (1024.0 * 1024.0 * 1024.0),
+            gpu_prop.multiProcessorCount * coresPerSM(gpu_prop.major, gpu_prop.minor),
+            gpu_prop.multiProcessorCount * tensorPerSM(gpu_prop.major),
+            rtCores(gpu_prop), nvenc ? "yes" : "no", nvdec ? "yes" : "no");
     }
     else
     {
         printf("rr-server: using GPU device %d\n", cuda_dev);
     }
+    // Baseline free VRAM (context already up) so we can report mimir's footprint after setup.
+    size_t vram_free0 = 0, vram_total = 0;
+    cudaMemGetInfo(&vram_free0, &vram_total);
 
     ViewerOptions options;
     options.window.title      = "Mimir - remote kmodal-3d";
@@ -305,6 +378,17 @@ int main(int argc, char *argv[])
     // Points live in [-1,1]^3; the orbit view uses position as a scene translation, so z=-4 pushes
     // the scene back 4 units = effective eye at (0,0,+4) looking at the origin (datoviz home view).
     setCameraPosition(instance, { 0.f, 0.f, -4.f });
+
+    // VRAM footprint after setup: the drop in free memory since baseline captures everything mimir
+    // put on the device -- the CUDA particle buffer plus the Vulkan render targets, geometry/BVH and
+    // interop buffers (these share the same VRAM, so cudaMemGetInfo sees them too).
+    size_t vram_free1 = 0, vram_total1 = 0;
+    cudaMemGetInfo(&vram_free1, &vram_total1);
+    const double toMB = 1.0 / (1024.0 * 1024.0);
+    const double used_mb = (vram_free0 > vram_free1) ? (vram_free0 - vram_free1) * toMB : 0.0;
+    const double part_mb = static_cast<double>(sizeof(float3)) * point_count * toMB;
+    printf("rr-server: VRAM used by mimir %.0f MB (particles %.0f MB, render+geometry+interop "
+           "%.0f MB)\n", used_mb, part_mb, used_mb > part_mb ? used_mb - part_mb : 0.0);
 
     const bool quic = (transport == remote::TransportKind::Quic);
     const char *lm =

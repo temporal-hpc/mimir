@@ -20,7 +20,9 @@ if(NOT MIMIR_RR_CLIENT_ONLY)
     set(KMODAL_DIR "${CMAKE_CURRENT_LIST_DIR}/../particles-kmodal-3d")
     add_executable(rr-server rr-server.cu "${KMODAL_DIR}/kmodal_sim.cu")
     target_include_directories(rr-server PRIVATE "${KMODAL_DIR}")
-    target_link_libraries(rr-server PRIVATE samples_common spdlog::spdlog)
+    # NVML (CUDA::nvml, driver stub) for the startup GPU banner: NVENC/NVDEC presence.
+    find_package(CUDAToolkit REQUIRED)
+    target_link_libraries(rr-server PRIVATE samples_common spdlog::spdlog CUDA::nvml)
     set_target_properties(rr-server PROPERTIES
         CUDA_STANDARD      20
         CUDA_ARCHITECTURES native
