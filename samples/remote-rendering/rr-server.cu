@@ -388,8 +388,10 @@ int main(int argc, char *argv[])
     const double toMB = 1.0 / (1024.0 * 1024.0);
     const double used_mb = (vram_free0 > vram_free1) ? (vram_free0 - vram_free1) * toMB : 0.0;
     const double part_mb = static_cast<double>(sizeof(float3)) * point_count * toMB;
-    printf("rr-server: VRAM used by mimir %.0f MB (particles %.0f MB, render+geometry+interop "
-           "%.0f MB)\n", used_mb, part_mb, used_mb > part_mb ? used_mb - part_mb : 0.0);
+    const double vk_gb = static_cast<double>(deviceLocalMemory(instance)) / (1024.0 * 1024.0 * 1024.0);
+    printf("rr-server: Vulkan-visible VRAM %.0f GB | mimir uses %.0f MB (particles %.0f MB, "
+           "render+geometry+interop %.0f MB)\n",
+           vk_gb, used_mb, part_mb, used_mb > part_mb ? used_mb - part_mb : 0.0);
 
     const bool quic = (transport == remote::TransportKind::Quic);
     const char *lm =

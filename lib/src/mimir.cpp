@@ -81,6 +81,22 @@ void rotateView(ViewHandle view, float3 rot)
     view->rotation = glm::toMat4(quat);
 }
 
+size_t deviceLocalMemory(InstanceHandle handle)
+{
+    if (handle == nullptr || handle->physical_device.handle == VK_NULL_HANDLE) { return 0; }
+    VkPhysicalDeviceMemoryProperties props{};
+    vkGetPhysicalDeviceMemoryProperties(handle->physical_device.handle, &props);
+    size_t total = 0;
+    for (uint32_t i = 0; i < props.memoryHeapCount; ++i)
+    {
+        if (props.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+        {
+            total += props.memoryHeaps[i].size;
+        }
+    }
+    return total;
+}
+
 void setCameraPosition(InstanceHandle handle, float3 pos)
 {
     handle->camera.setPosition(glm::vec3(pos.x, pos.y, pos.z));

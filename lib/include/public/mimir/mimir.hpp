@@ -35,6 +35,11 @@ void destroyInstance(InstanceHandle engine);
 // Query to check if a visualization window created by this engine is open.
 bool isRunning(InstanceHandle engine);
 
+// Total size (bytes) of the selected GPU's Vulkan DEVICE_LOCAL memory heaps -- i.e. the VRAM the
+// renderer can actually allocate from. On some datacenter GPUs this is smaller than the CUDA-
+// reported total, so it's the honest ceiling for mimir's allocations.
+size_t deviceLocalMemory(InstanceHandle engine);
+
 // Starts display and blocks program execution until the display window closes
 // The function passed as argument can perform updates over interop-mapped memory,
 // as it is
