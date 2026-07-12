@@ -1,6 +1,7 @@
 #include "mimir/device.hpp"
 
 #include <spdlog/spdlog.h>
+#include <cstdlib> // std::abort when no interop device matches
 #include <set> // std::set
 
 #include "mimir/validation.hpp"
@@ -355,6 +356,17 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
     if (prohibited_count == cuda_dev_count)
     {
         spdlog::error("No CUDA-Vulkan interop device was found");
+    }
+    // No Vulkan device's UUID matched a usable CUDA device: returning the default (null-handle)
+    // PhysicalDevice would segfault the moment the engine builds a logical device from it. Fail
+    // loudly instead -- this is what a broken/immature Vulkan driver (or missing interop support)
+    // looks like on very new GPUs.
+    if (chosen_device.handle == VK_NULL_HANDLE)
+    {
+        spdlog::error("No Vulkan device matched the CUDA device by UUID ({} Vulkan device(s) "
+            "enumerated). The GPU's Vulkan driver may be missing or lack the CUDA-Vulkan interop "
+            "mimir requires.", all_devices.size());
+        std::abort();
     }
     return chosen_device;
 }
