@@ -1100,7 +1100,11 @@ View *MimirInstance::createView(ViewDescription *desc)
         // Source is always mapped this way for position attributes
         else if (type == AttributeType::Position || !hasIndexing(attr))
         {
-            VkDeviceSize vb_size = attr.format.getSize() * attr.size; // sizeof(Vertex) * attr.size;
+            // 64-bit multiply: getSize() and attr.size are both 32-bit, so their product overflows
+            // for large point counts -- at n = 2^30 float3 positions, 12 * 2^30 = 3 * 2^32 wraps to
+            // exactly 0, creating a zero-size vertex buffer that renders nothing (silently blank
+            // frame). Widen before multiplying.
+            VkDeviceSize vb_size = static_cast<VkDeviceSize>(attr.format.getSize()) * attr.size;
             spdlog::trace("Position vertex buffer created for {} bytes ({} elements)",
                 vb_size, getSourceSize(attr.source)
             );
@@ -1117,7 +1121,7 @@ View *MimirInstance::createView(ViewDescription *desc)
         // If a non-position attribute uses indirect mapping, its source is mapped to a storage buffer
         else
         {
-            VkDeviceSize sb_size = attr.format.getSize() * attr.size;
+            VkDeviceSize sb_size = static_cast<VkDeviceSize>(attr.format.getSize()) * attr.size;
             spdlog::trace("Position storage buffer created for {} bytes ({} elements)",
                 sb_size, getSourceSize(attr.source)
             );
@@ -1132,7 +1136,7 @@ View *MimirInstance::createView(ViewDescription *desc)
         // Create indirect buffers as index buffer for position attributes,
         // and as vertex buffers for all other attributes
         VkDeviceMemory memory = getMemoryVulkan(attr.indexing.source);
-        VkDeviceSize memsize = attr.indexing.index_size * attr.indexing.size;
+        VkDeviceSize memsize = static_cast<VkDeviceSize>(attr.indexing.index_size) * attr.indexing.size;
         spdlog::trace("Attribute buffer created for {} bytes", memsize);
         if (type == AttributeType::Position)
         {
