@@ -401,6 +401,29 @@ int main(int argc, char *argv[])
            "render+geometry+interop %.0f MB)\n",
            vk_gb, used_mb, part_mb, used_mb > part_mb ? used_mb - part_mb : 0.0);
 
+    // Per-buffer size limits. These, NOT free VRAM, are what fail vkCreateBuffer for the path-tracing
+    // instance buffer (64 B/particle, needs both STORAGE and a device address) once it grows past a
+    // couple GiB -- hence the OUT_OF_DEVICE_MEMORY at ~2^25 particles on a card with 260+ GB free. The
+    // instance buffer is bound by the smaller of max-storage-range and max-buffer-size, so that ratio
+    // over 64 B is the path-tracing particle ceiling on this GPU.
+    const mimir::DeviceBufferLimits lim = mimir::deviceBufferLimits(instance);
+    uint64_t inst_cap = lim.max_storage_buffer_range;
+    if (lim.max_buffer_size != 0 && lim.max_buffer_size < inst_cap) { inst_cap = lim.max_buffer_size; }
+    const unsigned long long max_pt_particles = inst_cap / 64ull; // sizeof(VkAccelerationStructureInstanceKHR)
+    // Format a byte limit as GB, or "n/a" (unreported) / "unlimited" (driver sentinel >= 2^56, e.g.
+    // UINT64_MAX for maxMemoryAllocationSize) so the line stays readable.
+    auto gbstr = [](uint64_t bytes) {
+        char b[24];
+        if (bytes == 0)                snprintf(b, sizeof(b), "n/a");
+        else if (bytes >= (1ull << 56)) snprintf(b, sizeof(b), "unlimited");
+        else snprintf(b, sizeof(b), "%.2f GB", static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
+        return std::string(b);
+    };
+    printf("rr-server: buffer limits -- storage-range %s, max-buffer %s, max-alloc %s "
+           "=> path-tracing caps near %llu particles (~%.1f M)\n",
+           gbstr(lim.max_storage_buffer_range).c_str(), gbstr(lim.max_buffer_size).c_str(),
+           gbstr(lim.max_memory_allocation_size).c_str(), max_pt_particles, max_pt_particles / 1e6);
+
     const bool quic = (transport == remote::TransportKind::Quic);
     const char *lm =
         light_model == LightModel::None       ? "none" :

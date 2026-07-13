@@ -6,6 +6,7 @@
 
 #include <cuda_runtime_api.h>
 
+#include <cstdint> // uint64_t (DeviceBufferLimits)
 #include <functional> // std::function
 
 namespace mimir
@@ -39,6 +40,20 @@ bool isRunning(InstanceHandle engine);
 // renderer can actually allocate from. On some datacenter GPUs this is smaller than the CUDA-
 // reported total, so it's the honest ceiling for mimir's allocations.
 size_t deviceLocalMemory(InstanceHandle engine);
+
+// Per-buffer size limits (bytes) that cap a SINGLE Vulkan buffer/allocation, independent of how
+// much VRAM is free. A storage-buffer binding cannot exceed max_storage_buffer_range; a buffer
+// object cannot exceed max_buffer_size (VK_KHR_maintenance4/Vulkan 1.3, 0 if unreported); one
+// memory allocation cannot exceed max_memory_allocation_size. These -- not total VRAM -- are what
+// make vkCreateBuffer fail with VK_ERROR_OUT_OF_DEVICE_MEMORY for a multi-GiB buffer on a card with
+// hundreds of GB free (e.g. the path-tracing instance buffer at >~2^24 particles). 0 = unreported.
+struct DeviceBufferLimits
+{
+    uint64_t max_storage_buffer_range;
+    uint64_t max_buffer_size;
+    uint64_t max_memory_allocation_size;
+};
+DeviceBufferLimits deviceBufferLimits(InstanceHandle engine);
 
 // Starts display and blocks program execution until the display window closes
 // The function passed as argument can perform updates over interop-mapped memory,
