@@ -4,6 +4,7 @@
 
 #include <algorithm>     // std::max
 #include <cstring>       // std::memcpy
+#include <cstdlib>       // std::getenv, std::strtoull (MIMIR_PT_BLAS_CHUNK)
 #include <cmath>         // std::sqrt
 #include <filesystem>    // std::filesystem
 #include <unordered_map> // std::unordered_map
@@ -139,60 +140,102 @@ VkAccelerationStructureBuildGeometryInfoKHR blasBuildInfo(
     };
 }
 
-// Allocates a dynamic BLAS (AS backing + build scratch) sized for `count` AABB primitives. Does not
-// build it yet; the first build happens via recordBlasBuild.
-void createDynamicBlas(RayTracingContext& ctx, AccelStruct& blas, RtBuffer& scratch,
-    VkDeviceAddress aabb_addr, uint32_t count)
+// Device address of AABB chunk `c` within the shared buffer (chunk = blas_chunk_prims AABBs).
+VkDeviceAddress chunkAabbAddr(const RayTracingContext& ctx, VkDeviceAddress aabb_addr, uint32_t c)
 {
-    VkAccelerationStructureGeometryKHR geometry{};
-    auto build_info = blasBuildInfo(geometry, aabb_addr);
-
-    VkAccelerationStructureBuildSizesInfoKHR sizes{
-        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
-        .pNext = nullptr, .accelerationStructureSize = 0,
-        .updateScratchSize = 0, .buildScratchSize = 0,
-    };
-    ctx.api.getBuildSizes(ctx.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-        &build_info, &count, &sizes);
-
-    blas.buffer = makeBuffer(ctx, sizes.accelerationStructureSize,
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, DEVICE_LOCAL, true);
-
-    VkAccelerationStructureCreateInfoKHR create_info{
-        .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-        .pNext  = nullptr, .createFlags = 0, .buffer = blas.buffer.buffer, .offset = 0,
-        .size   = sizes.accelerationStructureSize,
-        .type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, .deviceAddress = 0,
-    };
-    validation::checkVulkan(ctx.api.createAccelerationStructure(
-        ctx.device, &create_info, nullptr, &blas.handle));
-
-    auto scratch_align = ctx.accel_props.minAccelerationStructureScratchOffsetAlignment;
-    scratch = makeBuffer(ctx, sizes.buildScratchSize + scratch_align,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, DEVICE_LOCAL, true);
-
-    VkAccelerationStructureDeviceAddressInfoKHR addr_info{
-        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-        .pNext = nullptr, .accelerationStructure = blas.handle,
-    };
-    blas.address = ctx.api.getAccelStructAddress(ctx.device, &addr_info);
+    return aabb_addr + VkDeviceSize(c) * ctx.blas_chunk_prims * sizeof(VkAabbPositionsKHR);
 }
 
-// Records a BLAS (re)build from `count` AABB primitives into the existing blas.handle.
-void recordBlasBuild(RayTracingContext& ctx, VkCommandBuffer cmd, AccelStruct& blas,
-    RtBuffer& scratch, VkDeviceAddress aabb_addr, uint32_t count)
+// Primitive count of chunk `c` (all full-sized except possibly the last).
+uint32_t chunkPrimCount(const RayTracingContext& ctx, uint32_t c)
 {
-    VkAccelerationStructureGeometryKHR geometry{};
-    auto build_info = blasBuildInfo(geometry, aabb_addr);
-    build_info.dstAccelerationStructure = blas.handle;
-    auto scratch_align = ctx.accel_props.minAccelerationStructureScratchOffsetAlignment;
-    build_info.scratchData.deviceAddress = alignUp(scratch.address, scratch_align);
+    uint32_t base = c * ctx.blas_chunk_prims;
+    uint32_t rem = ctx.particle_count - base;
+    return rem < ctx.blas_chunk_prims ? rem : ctx.blas_chunk_prims;
+}
 
-    VkAccelerationStructureBuildRangeInfoKHR range{
-        .primitiveCount = count, .primitiveOffset = 0, .firstVertex = 0, .transformOffset = 0,
-    };
-    const VkAccelerationStructureBuildRangeInfoKHR* p_range = &range;
-    ctx.api.cmdBuildAccelerationStructures(cmd, 1, &build_info, &p_range);
+// Allocates ceil(count / blas_chunk_prims) BLASes over consecutive AABB chunks, plus ONE shared build
+// scratch sized for the largest chunk. maxPrimitiveCount is a per-BLAS limit; chunking lifts the
+// overall particle cap to (num_chunks * maxPrimitiveCount), i.e. VRAM. Does not build yet.
+void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, uint32_t count)
+{
+    uint32_t num_chunks = (count + ctx.blas_chunk_prims - 1) / ctx.blas_chunk_prims;
+    ctx.scene_blas.assign(num_chunks, AccelStruct{});
+    VkDeviceSize max_scratch = 0;
+
+    for (uint32_t c = 0; c < num_chunks; ++c)
+    {
+        uint32_t prims = chunkPrimCount(ctx, c);
+        VkAccelerationStructureGeometryKHR geometry{};
+        auto build_info = blasBuildInfo(geometry, chunkAabbAddr(ctx, aabb_addr, c));
+        VkAccelerationStructureBuildSizesInfoKHR sizes{
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+            .pNext = nullptr, .accelerationStructureSize = 0,
+            .updateScratchSize = 0, .buildScratchSize = 0,
+        };
+        ctx.api.getBuildSizes(ctx.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+            &build_info, &prims, &sizes);
+
+        AccelStruct& blas = ctx.scene_blas[c];
+        blas.buffer = makeBuffer(ctx, sizes.accelerationStructureSize,
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, DEVICE_LOCAL, true);
+        VkAccelerationStructureCreateInfoKHR create_info{
+            .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+            .pNext  = nullptr, .createFlags = 0, .buffer = blas.buffer.buffer, .offset = 0,
+            .size   = sizes.accelerationStructureSize,
+            .type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, .deviceAddress = 0,
+        };
+        validation::checkVulkan(ctx.api.createAccelerationStructure(
+            ctx.device, &create_info, nullptr, &blas.handle));
+        VkAccelerationStructureDeviceAddressInfoKHR addr_info{
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+            .pNext = nullptr, .accelerationStructure = blas.handle,
+        };
+        blas.address = ctx.api.getAccelStructAddress(ctx.device, &addr_info);
+
+        if (sizes.buildScratchSize > max_scratch) { max_scratch = sizes.buildScratchSize; }
+    }
+
+    auto scratch_align = ctx.accel_props.minAccelerationStructureScratchOffsetAlignment;
+    ctx.blas_scratch = makeBuffer(ctx, max_scratch + scratch_align,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, DEVICE_LOCAL, true);
+}
+
+// Records the (re)build of every chunk BLAS from its AABB slice. The chunks share one scratch buffer,
+// so a barrier serializes each build after the previous one (write-after-write/read on the scratch).
+void recordBlasBuildChunks(RayTracingContext& ctx, VkCommandBuffer cmd, VkDeviceAddress aabb_addr)
+{
+    auto scratch_align = ctx.accel_props.minAccelerationStructureScratchOffsetAlignment;
+    VkDeviceAddress scratch_addr = alignUp(ctx.blas_scratch.address, scratch_align);
+    uint32_t num_chunks = static_cast<uint32_t>(ctx.scene_blas.size());
+
+    for (uint32_t c = 0; c < num_chunks; ++c)
+    {
+        uint32_t prims = chunkPrimCount(ctx, c);
+        VkAccelerationStructureGeometryKHR geometry{};
+        auto build_info = blasBuildInfo(geometry, chunkAabbAddr(ctx, aabb_addr, c));
+        build_info.dstAccelerationStructure = ctx.scene_blas[c].handle;
+        build_info.scratchData.deviceAddress = scratch_addr;
+
+        VkAccelerationStructureBuildRangeInfoKHR range{
+            .primitiveCount = prims, .primitiveOffset = 0, .firstVertex = 0, .transformOffset = 0,
+        };
+        const VkAccelerationStructureBuildRangeInfoKHR* p_range = &range;
+        ctx.api.cmdBuildAccelerationStructures(cmd, 1, &build_info, &p_range);
+
+        // Serialize the next chunk's build on the shared scratch (and this chunk's AS is complete).
+        if (c + 1 < num_chunks)
+        {
+            VkMemoryBarrier b{
+                .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+                .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+                .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
+                               | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+            };
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &b, 0, nullptr, 0, nullptr);
+        }
+    }
 }
 
 // ---- Dynamic (per-frame) TLAS from a live instance buffer ------------------------
@@ -1059,25 +1102,48 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
         VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
         DEVICE_LOCAL, true);
 
-    // Dynamic BLAS over the AABB spheres (rebuilt each frame), then a single TLAS instance pointing
-    // at it with an identity transform. The BLAS device address is stable across rebuilds (same
-    // handle/buffer), so the one instance can be written once here.
-    createDynamicBlas(*this, scene_blas, blas_scratch, aabb_buffer.address, count);
+    // Split into BLAS chunks of <= maxPrimitiveCount AABBs (env override for testing the multi-chunk
+    // path at small N). maxPrimitiveCount is a per-BLAS limit; chunking beats it. Chunk size is packed
+    // into the push constant (cam_pos.w) so the intersection shader can turn its local PrimitiveIndex
+    // back into a global one.
+    blas_chunk_prims = accel_props.maxPrimitiveCount > 0
+        ? static_cast<uint32_t>(std::min<uint64_t>(accel_props.maxPrimitiveCount, count))
+        : count;
+    if (const char* env = std::getenv("MIMIR_PT_BLAS_CHUNK"))
+    {
+        uint32_t override_prims = static_cast<uint32_t>(std::strtoull(env, nullptr, 10));
+        if (override_prims > 0 && override_prims < blas_chunk_prims) { blas_chunk_prims = override_prims; }
+    }
 
-    tlas_instance_buffer = makeBuffer(*this, sizeof(VkAccelerationStructureInstanceKHR),
+    // One BLAS per chunk (rebuilt each frame), then one TLAS instance per chunk (identity transform,
+    // instanceCustomIndex = chunk index). BLAS device addresses are stable across rebuilds, so the
+    // instances are written once here.
+    createDynamicBlasChunks(*this, aabb_buffer.address, count);
+    uint32_t num_chunks = static_cast<uint32_t>(scene_blas.size());
+    spdlog::info("Path tracing: {} particles in {} BLAS chunk(s) of up to {} prims",
+        count, num_chunks, blas_chunk_prims);
+
+    tlas_instance_buffer = makeBuffer(*this,
+        VkDeviceSize(num_chunks) * sizeof(VkAccelerationStructureInstanceKHR),
         VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, HOST_VISIBLE, true);
-    VkAccelerationStructureInstanceKHR inst{};
-    inst.transform = { .matrix = { {1.f, 0.f, 0.f, 0.f},
-                                   {0.f, 1.f, 0.f, 0.f},
-                                   {0.f, 0.f, 1.f, 0.f} } }; // identity 3x4
-    inst.instanceCustomIndex = 0;
-    inst.mask = 0xFF;
-    inst.instanceShaderBindingTableRecordOffset = 0; // material 0 (the particle surface)
-    inst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-    inst.accelerationStructureReference = scene_blas.address;
-    uploadBuffer(device, tlas_instance_buffer, &inst, sizeof(inst));
+    std::vector<VkAccelerationStructureInstanceKHR> insts(num_chunks);
+    for (uint32_t c = 0; c < num_chunks; ++c)
+    {
+        VkAccelerationStructureInstanceKHR inst{};
+        inst.transform = { .matrix = { {1.f, 0.f, 0.f, 0.f},
+                                       {0.f, 1.f, 0.f, 0.f},
+                                       {0.f, 0.f, 1.f, 0.f} } }; // identity 3x4
+        inst.instanceCustomIndex = c & 0xFFFFFFu;    // chunk index -> InstanceID() in the shader
+        inst.mask = 0xFF;
+        inst.instanceShaderBindingTableRecordOffset = 0; // material 0 (the particle surface)
+        inst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+        inst.accelerationStructureReference = scene_blas[c].address;
+        insts[c] = inst;
+    }
+    uploadBuffer(device, tlas_instance_buffer, insts.data(),
+        insts.size() * sizeof(VkAccelerationStructureInstanceKHR));
 
-    createDynamicTlas(*this, scene_tlas, tlas_scratch, tlas_instance_buffer.address, 1);
+    createDynamicTlas(*this, scene_tlas, tlas_scratch, tlas_instance_buffer.address, num_chunks);
 
     // Point each RT set's TLAS binding (0) at the shared TLAS. Both the AABB buffer and the positions
     // ride the AABB-writer push constants as BDA pointers (no descriptors), so the writer has no set to
@@ -1159,10 +1225,10 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &to_build, 0, nullptr, 0, nullptr);
 
-    // 2) Rebuild the BLAS from the updated AABBs.
-    recordBlasBuild(*this, cmd, scene_blas, blas_scratch, aabb_buffer.address, particle_count);
+    // 2) Rebuild every chunk BLAS from its AABB slice (serialized on the shared scratch inside).
+    recordBlasBuildChunks(*this, cmd, aabb_buffer.address);
 
-    // Barrier: BLAS build writes -> TLAS build reads the BLAS (via the instance's AS reference).
+    // Barrier: BLAS build writes -> TLAS build reads the BLASes (via the instances' AS references).
     VkMemoryBarrier blas_to_tlas{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
@@ -1171,8 +1237,9 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
         VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &blas_to_tlas, 0, nullptr, 0, nullptr);
 
-    // 3) Rebuild the one-instance TLAS (the instance's cached BLAS bounds change as particles move).
-    recordTlasBuild(*this, cmd, scene_tlas, tlas_scratch, tlas_instance_buffer.address, 1);
+    // 3) Rebuild the TLAS over the per-chunk instances (their cached BLAS bounds change as particles move).
+    recordTlasBuild(*this, cmd, scene_tlas, tlas_scratch, tlas_instance_buffer.address,
+        static_cast<uint32_t>(scene_blas.size()));
 
     // Barrier: AS build writes -> ray tracing reads the TLAS.
     VkMemoryBarrier to_trace{
@@ -1267,6 +1334,9 @@ void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
     // primitive's bounds; the engine fills the rest of the push constants (camera, sun, etc.).
     RtPushConstants push = pc;
     push.aabbs = aabb_buffer.address;
+    // Pack the BLAS chunk size into the unused cam_pos.w lane (as uint bits): the intersection shader
+    // uses it to turn a chunk-local PrimitiveIndex into a global particle index.
+    std::memcpy(&push.cam_pos.w, &blas_chunk_prims, sizeof(uint32_t));
     vkCmdPushConstants(cmd, rt_pipeline_layout,
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
         | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_INTERSECTION_BIT_KHR,
@@ -1417,8 +1487,12 @@ void RayTracingContext::destroy()
     destroyBuffer(device, tlas_instance_buffer);
     destroyBuffer(device, tlas_scratch);
 
-    if (scene_blas.handle) { api.destroyAccelerationStructure(device, scene_blas.handle, nullptr); }
-    destroyBuffer(device, scene_blas.buffer);
+    for (auto& blas : scene_blas)
+    {
+        if (blas.handle) { api.destroyAccelerationStructure(device, blas.handle, nullptr); }
+        destroyBuffer(device, blas.buffer);
+    }
+    scene_blas.clear();
     destroyBuffer(device, blas_scratch);
     destroyBuffer(device, aabb_buffer);
 }

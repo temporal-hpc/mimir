@@ -26,7 +26,7 @@ struct SphereHit
 // bytes (with the trailing AABB pointer), at the 128-byte guaranteed push-constant limit.
 struct PushConstants
 {
-    float4 cam_pos;     // xyz camera world position; w unused
+    float4 cam_pos;     // xyz camera world position; w = BLAS chunk size (primitives) as uint bits
     float4 cam_right;   // xyz world-space camera basis; w = light_color R (sun tint/intensity)
     float4 cam_up;      // xyz ...                       w = light_color G
     float4 cam_forward; // xyz ...                       w = light_color B
@@ -266,7 +266,13 @@ void missMain(inout Payload payload)
 [shader("intersection")]
 void sphereIntersect()
 {
-    Aabb box = pc.aabbs[PrimitiveIndex()];
+    // Particles above maxPrimitiveCount are split across several BLASes (one TLAS instance each), so
+    // PrimitiveIndex() is LOCAL to this instance's BLAS. Recover the global particle index into the
+    // shared AABB buffer: instance c (InstanceID) covers globals [c*chunk, c*chunk+chunk). chunk is
+    // packed into cam_pos.w; for a single BLAS InstanceID()==0 so this reduces to PrimitiveIndex().
+    uint chunk = asuint(pc.cam_pos.w);
+    uint gid = InstanceID() * chunk + PrimitiveIndex();
+    Aabb box = pc.aabbs[gid];
     float3 mn = float3(box.minx, box.miny, box.minz);
     float3 mx = float3(box.maxx, box.maxy, box.maxz);
     float3 center = 0.5 * (mn + mx);

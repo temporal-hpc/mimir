@@ -120,12 +120,17 @@ struct RayTracingContext
     uint32_t particle_count = 0;
     float particle_radius = 0.f;
     glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
+    // maxPrimitiveCount (~2^29) is a PER-BLAS limit, so particle counts above it are split across
+    // several BLASes of blas_chunk_prims AABBs each (chunk c = AABBs [c*chunk, ...)), with one TLAS
+    // instance per chunk. The intersection shader recovers the global index from InstanceID()*chunk +
+    // PrimitiveIndex(). One shared scratch (sized for the largest chunk); chunk builds serialize on it.
     RtBuffer aabb_buffer;              // per-particle VkAabbPositionsKHR[] (writer output, BLAS input)
-    AccelStruct scene_blas;           // BLAS over the AABB spheres (rebuilt each frame)
-    RtBuffer blas_scratch;            // BLAS build scratch
-    RtBuffer tlas_instance_buffer;    // one VkAccelerationStructureInstanceKHR -> scene_blas (static)
-    AccelStruct scene_tlas;           // one-instance TLAS over scene_blas
-    RtBuffer tlas_scratch;            // TLAS build scratch (tiny: one instance)
+    std::vector<AccelStruct> scene_blas; // one BLAS per <= maxPrimitiveCount chunk (rebuilt each frame)
+    RtBuffer blas_scratch;            // shared BLAS build scratch (largest chunk)
+    uint32_t blas_chunk_prims = 0;    // particles per BLAS chunk (<= maxPrimitiveCount)
+    RtBuffer tlas_instance_buffer;    // one VkAccelerationStructureInstanceKHR per chunk -> its BLAS
+    AccelStruct scene_tlas;           // TLAS over the per-chunk instances
+    RtBuffer tlas_scratch;            // TLAS build scratch (tiny: one instance per chunk)
 
     // AABB-writer compute (fills the shared aabb_buffer from the positions; both are BDA push-constant
     // pointers, so there is no descriptor set/pool -- just the pipeline + its push-constant layout).

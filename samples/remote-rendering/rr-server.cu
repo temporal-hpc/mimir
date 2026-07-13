@@ -407,16 +407,12 @@ int main(int argc, char *argv[])
     // instance buffer is bound by the smaller of max-storage-range and max-buffer-size, so that ratio
     // over 64 B is the path-tracing particle ceiling on this GPU.
     const mimir::DeviceBufferLimits lim = mimir::deviceBufferLimits(instance);
-    // Path tracing packs particles as AABB sphere primitives in one BLAS (one TLAS instance). Both the
-    // positions (read) and AABBs (written) use buffer-device-address, so maxStorageBufferRange no longer
-    // caps anything. The ceiling is the SMALLEST of: the BLAS primitive limit (maxPrimitiveCount, ~2^29
-    // on NVIDIA) and how many 24 B AABBs fit in one buffer (maxBufferSize/24). maxInstanceCount no longer
-    // applies. VRAM (~135 B/particle: positions + AABBs + BVH) usually bites first in practice.
-    unsigned long long pt_cap = lim.max_primitive_count ? lim.max_primitive_count : ~0ull;
-    if (lim.max_buffer_size && lim.max_buffer_size / 24ull < pt_cap)
-    {
-        pt_cap = lim.max_buffer_size / 24ull;
-    }
+    // Path tracing packs particles as AABB sphere primitives, split across ceil(N/maxPrimitiveCount)
+    // BLASes (one TLAS instance each), all read/written by buffer-device-address. So neither
+    // maxStorageBufferRange, maxInstanceCount, nor the per-BLAS maxPrimitiveCount caps the particle
+    // count -- only how many 24 B AABBs fit in one buffer (maxBufferSize/24) and, in practice first,
+    // VRAM (~135 B/particle: positions 12 + AABBs 24 + BVH+scratch ~100).
+    unsigned long long pt_cap = lim.max_buffer_size ? lim.max_buffer_size / 24ull : ~0ull;
     // Format a byte limit as GB, or "n/a" (unreported) / "unlimited" (driver sentinel >= 2^56, e.g.
     // UINT64_MAX for maxMemoryAllocationSize) so the line stays readable.
     auto gbstr = [](uint64_t bytes) {
@@ -426,12 +422,15 @@ int main(int argc, char *argv[])
         else snprintf(b, sizeof(b), "%.2f GB", static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
         return std::string(b);
     };
-    printf("rr-server: RT limits -- max-primitives %llu, storage-range %s, max-buffer %s, max-alloc %s "
-           "=> path-tracing caps at %llu particles (~%.0f M)\n",
+    // Practical ceiling: ~135 B/particle (positions 12 + AABBs 24 + BVH+scratch ~100) against total
+    // VRAM. This, not the buffer cap, is what runs out first -- report both.
+    const unsigned long long vram_particles = vram_total / 135ull;
+    printf("rr-server: RT limits -- max-primitives/BLAS %llu (chunked), max-buffer %s => path-tracing "
+           "buffer cap ~%.0f M particles; VRAM budget ~%llu M particles (~135 B each)\n",
            static_cast<unsigned long long>(lim.max_primitive_count),
-           gbstr(lim.max_storage_buffer_range).c_str(), gbstr(lim.max_buffer_size).c_str(),
-           gbstr(lim.max_memory_allocation_size).c_str(),
-           pt_cap, pt_cap / 1e6);
+           gbstr(lim.max_buffer_size).c_str(),
+           pt_cap / 1e6,
+           vram_particles / 1000000ull);
 
     const bool quic = (transport == remote::TransportKind::Quic);
     const char *lm =
