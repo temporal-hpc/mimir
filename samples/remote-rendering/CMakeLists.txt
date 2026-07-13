@@ -27,13 +27,20 @@ if(NOT MIMIR_RR_CLIENT_ONLY)
         CUDA_STANDARD      20
         CUDA_ARCHITECTURES native
     )
-    add_custom_command(TARGET rr-server POST_BUILD
+    # Copy the runtime-compiled shaders next to the binary as a DEPENDENCY-TRACKED step, not
+    # POST_BUILD: a POST_BUILD copy only fires when the target relinks, so a pull that changes
+    # only .slang files left stale copies in build/shaders (which is what the engine compiles).
+    file(GLOB_RECURSE RR_SHADER_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../shaders/*")
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shaders.stamp"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/../../shaders"
             "$<TARGET_FILE_DIR:rr-server>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/shaders.stamp"
+        DEPENDS ${RR_SHADER_FILES}
         COMMENT "Copying shaders next to rr-server"
         VERBATIM
     )
+    add_custom_target(rr-server-shaders ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/shaders.stamp")
 endif()
 
 # --- rr-client: thin viewer (wire protocol + ffmpeg + GLFW/GL, QUIC/ngtcp2 optional) -------------

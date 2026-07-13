@@ -32,17 +32,21 @@ void writeAabbsMain(uint3 tid : SV_DispatchThreadID)
     uint i = tid.x;
     if (i >= pc.count) { return; }
 
-    // BDA pointer indices must be 64-bit: with a 32-bit index the driver's index*stride multiply
-    // wraps at 4 GiB of byte offset -- at stride 24 that is only ~179M particles (stride 12: ~357M),
-    // and the wrapped stores land misaligned across earlier records, shredding the AABB buffer.
-    uint64_t gi = uint64_t(i);
-    float px = pc.positions[gi * 3 + 0];
-    float py = pc.positions[gi * 3 + 1];
-    float pz = pc.positions[gi * 3 + 2];
+    // BDA accesses must compute the byte address in explicit 64-bit integer arithmetic and cast,
+    // NOT index the pointer (pc.aabbs[i] / pc.aabbs[uint64_t(i)]): pointer indexing lowers to
+    // OpPtrAccessChain, whose index*stride offset the NVIDIA compiler truncates to 32 bits EVEN
+    // WITH a 64-bit index, silently wrapping every access past 4 GiB into the buffer -- at stride
+    // 24 that is only ~179M particles (stride 12: ~357M), and the wrapped stores land misaligned
+    // across earlier records, shredding the AABB buffer. Verified on Turing/Ampere/Blackwell,
+    // driver 610.43.02 (2026-07).
+    uint64_t pos_addr = uint64_t(pc.positions) + uint64_t(i) * 12ull;
+    float px = *(float*)(pos_addr + 0);
+    float py = *(float*)(pos_addr + 4);
+    float pz = *(float*)(pos_addr + 8);
     float r  = pc.radius;
 
     Aabb a;
     a.minx = px - r; a.miny = py - r; a.minz = pz - r;
     a.maxx = px + r; a.maxy = py + r; a.maxz = pz + r;
-    pc.aabbs[gi] = a; // BDA store: pointer indexing, no descriptor-range limit
+    *(Aabb*)(uint64_t(pc.aabbs) + uint64_t(i) * 24ull) = a;
 }
