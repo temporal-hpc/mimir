@@ -63,6 +63,10 @@ struct RtPushConstants
     // the first frame after a reset). The engine resets to 0 on camera motion or a new simulation
     // iteration, then increments; the raygen keeps a running HDR mean so static views converge.
     uint32_t accum_frame = 0;
+    // Device address of the per-particle AABB buffer (VkAabbPositionsKHR[]); the sphere intersection
+    // shader reads AABB[PrimitiveIndex] to recover each sphere's centre + radius. Set by recordTrace
+    // from the bound scene, not by the engine. At offset 120, keeping RtPushConstants at 128 bytes.
+    VkDeviceAddress aabbs = 0;
 };
 
 // Per-material surface parameters, stored as shader-record data in each SBT hit record (must match
@@ -101,32 +105,29 @@ struct RayTracingContext
     // One-time GPU submit callback (engine's immediateSubmit) used for AS builds/transitions.
     SubmitFn submit;
 
-    // Icosphere geometry + bottom-level acceleration structure (one, built once)
-    RtBuffer vertex_buffer;
-    RtBuffer index_buffer;
-    uint32_t index_count = 0;
-    uint32_t vertex_count = 0;
-    AccelStruct blas;
-
-    // Dynamic scene (Phase 2): a TLAS rebuilt each frame from the live interop position buffer.
-    // Bound after view creation via bindScene(). The TLAS, its instance buffer, and the build
-    // scratch are SINGLE shared copies (not per-frame): at ~10^9 particles the instance buffer
-    // alone is N * sizeof(VkAccelerationStructureInstanceKHR) = 64 GiB, so triple-buffering it
-    // would cost ~192 GiB and overflow even a 288 GB card. Sharing one copy is made safe by a
-    // cross-frame barrier in recordUpdateScene that serializes each frame's instance-writer + TLAS
-    // build after the previous frame's trace (same queue, submission-ordered) -- the same technique
-    // the accumulator image uses. The cost is losing write/build-vs-trace overlap; negligible for
-    // the billion-particle monitoring case this enables.
+    // Dynamic scene (BLAS-of-primitives): each particle is a procedural AABB sphere primitive in a
+    // single bottom-level AS, rebuilt each frame from the live interop positions. This lifts the
+    // particle cap from maxInstanceCount (~2^24, when each particle was its own TLAS instance) to
+    // maxPrimitiveCount (~2^29). The AABB buffer + BLAS + scratch are SINGLE shared copies (not
+    // per-frame): at ~5*10^8 particles the AABB buffer alone is N*24 B = ~12 GiB, so triple-
+    // buffering would be unaffordable. Sharing one copy is made safe by a cross-frame barrier in
+    // recordUpdateScene that serializes each frame's AABB-writer + AS builds after the previous
+    // frame's trace (same queue, submission-ordered) -- the same technique the accumulator image
+    // uses. The cost is losing write/build-vs-trace overlap; negligible for the huge-N monitoring
+    // case this enables. The TLAS holds ONE instance pointing at the BLAS (identity transform).
     bool scene_bound = false;
     VkBuffer position_buffer = VK_NULL_HANDLE; // interop positions (owned by the view, not us)
     uint32_t particle_count = 0;
     float particle_radius = 0.f;
     glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
-    AccelStruct scene_tlas;       // shared scene TLAS
-    RtBuffer instance_buffer;     // shared VkAccelerationStructureInstanceKHR[]
-    RtBuffer tlas_scratch;        // shared TLAS build scratch
+    RtBuffer aabb_buffer;              // per-particle VkAabbPositionsKHR[] (writer output, BLAS input)
+    AccelStruct scene_blas;           // BLAS over the AABB spheres (rebuilt each frame)
+    RtBuffer blas_scratch;            // BLAS build scratch
+    RtBuffer tlas_instance_buffer;    // one VkAccelerationStructureInstanceKHR -> scene_blas (static)
+    AccelStruct scene_tlas;           // one-instance TLAS over scene_blas
+    RtBuffer tlas_scratch;            // TLAS build scratch (tiny: one instance)
 
-    // Instance-writer compute (fills the shared instance_buffer from position_buffer)
+    // AABB-writer compute (fills the shared aabb_buffer from position_buffer)
     VkDescriptorSetLayout iw_set_layout = VK_NULL_HANDLE;
     VkPipelineLayout iw_pipeline_layout = VK_NULL_HANDLE;
     VkPipeline iw_pipeline = VK_NULL_HANDLE;

@@ -49,7 +49,14 @@ VkBuffer createBuffer(VkDevice device, VkDeviceSize size,
         .pQueueFamilyIndices   = nullptr,
     };
     VkBuffer buffer = VK_NULL_HANDLE;
-    validation::checkVulkan(vkCreateBuffer(device, &info, nullptr, &buffer));
+    VkResult r = vkCreateBuffer(device, &info, nullptr, &buffer);
+    if (r != VK_SUCCESS)
+    {
+        spdlog::error("createBuffer failed: size {} bytes ({:.2f} GiB), usage 0x{:x}",
+            static_cast<uint64_t>(size), static_cast<double>(size) / (1024.0*1024.0*1024.0),
+            static_cast<uint32_t>(usage));
+    }
+    validation::checkVulkan(r);
     return buffer;
 }
 

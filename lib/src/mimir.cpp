@@ -99,19 +99,22 @@ size_t deviceLocalMemory(InstanceHandle handle)
 
 DeviceBufferLimits deviceBufferLimits(InstanceHandle handle)
 {
-    DeviceBufferLimits out{ 0, 0, 0 };
+    DeviceBufferLimits out{ 0, 0, 0, 0, 0 };
     if (handle == nullptr || handle->physical_device.handle == VK_NULL_HANDLE) { return out; }
 
     // maxMemoryAllocationSize is maintenance3 (core since 1.1); maxBufferSize is maintenance4
     // (core since 1.3) and is left 0 if the runtime/driver does not report it. maxStorageBufferRange
-    // is a core VkPhysicalDeviceLimits field (uint32_t, so it tops out at 4 GiB - 1).
+    // is a core VkPhysicalDeviceLimits field (uint32_t, so it tops out at 4 GiB - 1). maxInstanceCount
+    // comes from VK_KHR_acceleration_structure (0 if unsupported).
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props{};
+    as_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
     VkPhysicalDeviceMaintenance3Properties m3{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES, .pNext = nullptr,
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES, .pNext = &as_props,
         .maxPerSetDescriptors = 0, .maxMemoryAllocationSize = 0 };
 #ifdef VK_VERSION_1_3
     VkPhysicalDeviceMaintenance4Properties m4{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES,
-        .pNext = nullptr, .maxBufferSize = 0 };
+        .pNext = &as_props, .maxBufferSize = 0 };
     m3.pNext = &m4;
 #endif
     VkPhysicalDeviceProperties2 props{
@@ -120,6 +123,8 @@ DeviceBufferLimits deviceBufferLimits(InstanceHandle handle)
 
     out.max_storage_buffer_range   = props.properties.limits.maxStorageBufferRange;
     out.max_memory_allocation_size = m3.maxMemoryAllocationSize;
+    out.max_instance_count         = as_props.maxInstanceCount;
+    out.max_primitive_count        = as_props.maxPrimitiveCount;
 #ifdef VK_VERSION_1_3
     out.max_buffer_size            = m4.maxBufferSize;
 #endif

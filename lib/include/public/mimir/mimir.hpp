@@ -52,6 +52,13 @@ struct DeviceBufferLimits
     uint64_t max_storage_buffer_range;
     uint64_t max_buffer_size;
     uint64_t max_memory_allocation_size;
+    // Max instances in a single top-level acceleration structure and max primitives in a single
+    // bottom-level one (ray tracing). mimir's path tracer packs all particles as AABB primitives in
+    // one BLAS (one TLAS instance), so max_primitive_count -- not max_instance_count (~2^24) -- is the
+    // ray-tracing particle ceiling; NVIDIA reports ~2^29 for it. 0 if the device lacks acceleration
+    // structures.
+    uint64_t max_instance_count;
+    uint64_t max_primitive_count;
 };
 DeviceBufferLimits deviceBufferLimits(InstanceHandle engine);
 
