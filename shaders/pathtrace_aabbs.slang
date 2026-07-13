@@ -13,19 +13,17 @@ struct Aabb
 
 struct PushConstants
 {
-    // Instance/AABB buffer as a raw buffer-device-address pointer (physical storage buffer), NOT a
-    // bound storage-buffer descriptor: a descriptor is capped by maxStorageBufferRange (~2 GiB on
-    // some drivers), which would refuse the multi-GiB AABB buffer at large N. Pointer first (offset
-    // 0, 8-byte aligned).
-    Aabb* aabbs;
-    uint count;   // number of particles
-    float radius; // sphere world radius (AABB half-extent)
+    // Both buffers ride the push constants as raw buffer-device-address pointers (physical storage
+    // buffers), NOT bound storage-buffer descriptors: a descriptor is capped by maxStorageBufferRange
+    // (~2 GiB on some drivers), which would refuse the multi-GiB AABB buffer -- and cap the readable
+    // position range -- at large N. With BDA the only ceiling is maxPrimitiveCount / VRAM. Pointers
+    // first (8-byte aligned).
+    Aabb* aabbs;      // output: one AABB per particle
+    float* positions; // input: interop positions, tightly packed x,y,z (stride 12 B, shared w/ CUDA)
+    uint count;       // number of particles
+    float radius;     // sphere world radius (AABB half-extent)
 };
 [[vk::push_constant]] PushConstants pc;
-
-// Interop positions as tightly packed floats (stride 12 B/particle: x,y,z), matching the CUDA
-// layout. Bound as a float StructuredBuffer so the vec3 std430 padding never applies.
-[[vk::binding(0, 0)]] StructuredBuffer<float> positions;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
@@ -34,9 +32,9 @@ void writeAabbsMain(uint3 tid : SV_DispatchThreadID)
     uint i = tid.x;
     if (i >= pc.count) { return; }
 
-    float px = positions[3 * i + 0];
-    float py = positions[3 * i + 1];
-    float pz = positions[3 * i + 2];
+    float px = pc.positions[3 * i + 0];
+    float py = pc.positions[3 * i + 1];
+    float pz = pc.positions[3 * i + 2];
     float r  = pc.radius;
 
     Aabb a;

@@ -407,17 +407,12 @@ int main(int argc, char *argv[])
     // instance buffer is bound by the smaller of max-storage-range and max-buffer-size, so that ratio
     // over 64 B is the path-tracing particle ceiling on this GPU.
     const mimir::DeviceBufferLimits lim = mimir::deviceBufferLimits(instance);
-    // Path tracing packs particles as AABB sphere primitives in one BLAS (one TLAS instance), so the
-    // ceiling is the SMALLEST of: the BLAS primitive limit (maxPrimitiveCount, ~2^29 on NVIDIA); how
-    // many 12 B positions fit in a storage-buffer binding (maxStorageBufferRange/12 -- the AABB writer
-    // reads positions as a descriptor); and how many 24 B AABBs fit in one buffer (maxBufferSize/24;
-    // the AABB buffer is buffer-device-address, so not storage-range limited). maxInstanceCount no
-    // longer applies. Whichever bites first, VRAM may cap lower still.
+    // Path tracing packs particles as AABB sphere primitives in one BLAS (one TLAS instance). Both the
+    // positions (read) and AABBs (written) use buffer-device-address, so maxStorageBufferRange no longer
+    // caps anything. The ceiling is the SMALLEST of: the BLAS primitive limit (maxPrimitiveCount, ~2^29
+    // on NVIDIA) and how many 24 B AABBs fit in one buffer (maxBufferSize/24). maxInstanceCount no longer
+    // applies. VRAM (~135 B/particle: positions + AABBs + BVH) usually bites first in practice.
     unsigned long long pt_cap = lim.max_primitive_count ? lim.max_primitive_count : ~0ull;
-    if (lim.max_storage_buffer_range && lim.max_storage_buffer_range / 12ull < pt_cap)
-    {
-        pt_cap = lim.max_storage_buffer_range / 12ull;
-    }
     if (lim.max_buffer_size && lim.max_buffer_size / 24ull < pt_cap)
     {
         pt_cap = lim.max_buffer_size / 24ull;

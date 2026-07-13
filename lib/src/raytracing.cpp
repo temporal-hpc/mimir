@@ -611,34 +611,25 @@ VkPipeline buildCompositePipeline(RayTracingContext& ctx, VkRenderPass render_pa
 // pointer (offset 0, 8-byte aligned), then the particle count and sphere radius.
 struct AabbWriterPush
 {
-    VkDeviceAddress aabbs; // BDA pointer to the AABB buffer (first = offset 0, 8-byte aligned)
+    VkDeviceAddress aabbs;     // BDA pointer to the AABB output buffer (offset 0, 8-byte aligned)
+    VkDeviceAddress positions; // BDA pointer to the interop positions (offset 8)
     uint32_t count;
     float radius;
 };
 
 void createAabbWriter(RayTracingContext& ctx)
 {
-    // One storage buffer: positions (read). The AABB buffer is written via a buffer-device-address
-    // pointer in the push constants (see PushConstants in pathtrace_aabbs.slang), not a descriptor,
-    // so it is not bound here and escapes the maxStorageBufferRange cap.
-    VkDescriptorSetLayoutBinding bindings[1] = {
-        { .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1,
-          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .pImmutableSamplers = nullptr },
-    };
-    VkDescriptorSetLayoutCreateInfo set_info{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = nullptr, .flags = 0, .bindingCount = 1, .pBindings = bindings,
-    };
-    validation::checkVulkan(vkCreateDescriptorSetLayout(
-        ctx.device, &set_info, nullptr, &ctx.iw_set_layout));
-
+    // The writer has NO descriptors: both the AABB output and the positions input ride the push
+    // constants as buffer-device-address pointers (see PushConstants in pathtrace_aabbs.slang), so
+    // neither is bound and neither is capped by maxStorageBufferRange. The pipeline layout is thus
+    // just the push-constant range.
     VkPushConstantRange push_range{
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(AabbWriterPush),
     };
     VkPipelineLayoutCreateInfo layout_info{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = nullptr, .flags = 0,
-        .setLayoutCount = 1, .pSetLayouts = &ctx.iw_set_layout,
+        .setLayoutCount = 0, .pSetLayouts = nullptr,
         .pushConstantRangeCount = 1, .pPushConstantRanges = &push_range,
     };
     validation::checkVulkan(vkCreatePipelineLayout(
@@ -667,14 +658,6 @@ void createAabbWriter(RayTracingContext& ctx)
     validation::checkVulkan(vkCreateComputePipelines(
         ctx.device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &ctx.iw_pipeline));
     vkDestroyShaderModule(ctx.device, stages[0].module, nullptr);
-
-    VkDescriptorPoolSize pool_size{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * RayTracingContext::FRAMES };
-    VkDescriptorPoolCreateInfo pool_info{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .pNext = nullptr, .flags = 0, .maxSets = RayTracingContext::FRAMES,
-        .poolSizeCount = 1, .pPoolSizes = &pool_size,
-    };
-    validation::checkVulkan(vkCreateDescriptorPool(ctx.device, &pool_info, nullptr, &ctx.iw_pool));
 }
 
 // ---- À-trous denoiser compute pipeline -------------------------------------------
@@ -775,7 +758,7 @@ void allocateDescriptorSets(RayTracingContext& ctx)
     ctx.composite_sets.resize(RayTracingContext::FRAMES);
     alloc(ctx.rt_pool, ctx.rt_set_layout, ctx.rt_sets.data());
     alloc(ctx.composite_pool, ctx.composite_set_layout, ctx.composite_sets.data());
-    alloc(ctx.iw_pool, ctx.iw_set_layout, ctx.iw_sets);
+    // The AABB writer has no descriptor set (positions + AABBs are BDA push-constant pointers).
 
     // À-trous denoiser: ATROUS_PASSES sets per frame (bindings written in createFrameResources).
     uint32_t atrous_count = RayTracingContext::ATROUS_PASSES * RayTracingContext::FRAMES;
@@ -1052,9 +1035,9 @@ void RayTracingContext::updateMaterial(uint32_t index)
     vkUnmapMemory(device, sbt_buffer.memory);
 }
 
-void RayTracingContext::bindScene(VkBuffer positions, uint32_t count, float radius, glm::vec4 color)
+void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, float radius, glm::vec4 color)
 {
-    position_buffer = positions;
+    position_address = positions;
     particle_count  = count;
     particle_radius = radius;
     particle_color  = color;
@@ -1096,30 +1079,23 @@ void RayTracingContext::bindScene(VkBuffer positions, uint32_t count, float radi
 
     createDynamicTlas(*this, scene_tlas, tlas_scratch, tlas_instance_buffer.address, 1);
 
-    // Point every frame's descriptor sets at the shared resources: the AABB-writer set (positions,
-    // binding 0) and each RT set's TLAS binding (0). The AABB buffer is not a descriptor (it rides
-    // the push constant as a BDA pointer). The storage-image/accum bindings (1,2) were written by
-    // createFrameResources and are left untouched.
+    // Point each RT set's TLAS binding (0) at the shared TLAS. Both the AABB buffer and the positions
+    // ride the AABB-writer push constants as BDA pointers (no descriptors), so the writer has no set to
+    // wire here. The RT storage-image/accum bindings (1,2) were written by createFrameResources.
     for (uint32_t f = 0; f < FRAMES; ++f)
     {
-        VkDescriptorBufferInfo pos_info{ position_buffer, 0, VK_WHOLE_SIZE };
-        // RT descriptor: the shared TLAS (binding 0).
         VkWriteDescriptorSetAccelerationStructureKHR as_write{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
             .pNext = nullptr, .accelerationStructureCount = 1,
             .pAccelerationStructures = &scene_tlas.handle,
         };
-        VkWriteDescriptorSet writes[2] = {
-            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
-              .dstSet = iw_sets[f], .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
-              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-              .pImageInfo = nullptr, .pBufferInfo = &pos_info, .pTexelBufferView = nullptr },
-            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = &as_write,
-              .dstSet = rt_sets[f], .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
-              .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
-              .pImageInfo = nullptr, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+        VkWriteDescriptorSet write{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = &as_write,
+            .dstSet = rt_sets[f], .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+            .pImageInfo = nullptr, .pBufferInfo = nullptr, .pTexelBufferView = nullptr,
         };
-        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
     // Populate the AABBs and build the BLAS + TLAS once (positions are already valid at bind time),
@@ -1163,13 +1139,13 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     }
 
     // 1) AABB writer: fill the shared AABB buffer from the live positions (one sphere per particle).
+    // Both buffers are BDA pointers in the push constants, so there is no descriptor set to bind.
     AabbWriterPush push{
         .aabbs = aabb_buffer.address,
+        .positions = position_address,
         .count = particle_count, .radius = particle_radius,
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline_layout,
-        0, 1, &iw_sets[frame_idx], 0, nullptr);
     vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
         0, sizeof(push), &push);
     vkCmdDispatch(cmd, (particle_count + 63) / 64, 1, 1);
@@ -1428,11 +1404,9 @@ void RayTracingContext::destroy()
     if (rt_pool)            { vkDestroyDescriptorPool(device, rt_pool, nullptr); }
     destroyBuffer(device, sbt_buffer);
 
-    // Instance-writer compute
+    // AABB-writer compute (push-constant-only: no descriptor set/pool)
     if (iw_pipeline)        { vkDestroyPipeline(device, iw_pipeline, nullptr); }
     if (iw_pipeline_layout) { vkDestroyPipelineLayout(device, iw_pipeline_layout, nullptr); }
-    if (iw_set_layout)      { vkDestroyDescriptorSetLayout(device, iw_set_layout, nullptr); }
-    if (iw_pool)            { vkDestroyDescriptorPool(device, iw_pool, nullptr); }
 
     // Shared dynamic scene (one-instance TLAS + AABB BLAS + AABB buffer + scratch)
     if (scene_tlas.handle)

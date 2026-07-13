@@ -195,7 +195,14 @@ void MimirInstance::prepare()
             if (view->desc.type == ViewType::Markers && view->vb_count > 0)
             {
                 auto c = view->desc.default_color; // particle albedo for PT (also --pcolor)
-                raytracing.bindScene(view->vbo[0], view->draw_count, view->desc.default_size,
+                // Positions are read by buffer-device-address in the AABB writer (no storage-range
+                // cap), so hand bindScene the buffer's device address rather than the VkBuffer.
+                VkBufferDeviceAddressInfo addr_info{
+                    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                    .pNext = nullptr, .buffer = view->vbo[0],
+                };
+                VkDeviceAddress pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
+                raytracing.bindScene(pos_addr, view->draw_count, view->desc.default_size,
                     glm::vec4(c.x, c.y, c.z, c.w));
                 break;
             }
@@ -773,7 +780,11 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 
-    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    // Path tracing reads the interop positions by buffer-device-address (in the AABB writer), so the
+    // buffer needs the SHADER_DEVICE_ADDRESS usage and its memory the DEVICE_ADDRESS alloc flag. Only
+    // on RT-capable devices, where bufferDeviceAddress is enabled (see device.cpp).
+    if (rt_enabled) { usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
     // Create temporary buffer for querying the desired memory properties
     VkExternalMemoryBufferCreateInfo extmem_info{
         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
@@ -784,15 +795,22 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(device, query_buf, &memreq);
 
-    // Allocate external device memory
+    // Allocate external device memory. When RT is on, chain the DEVICE_ADDRESS alloc flag so the
+    // bound buffer can expose a device address for the BDA position read.
     VkExportMemoryAllocateInfoKHR export_info{
         .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
+    VkMemoryAllocateFlagsInfo addr_flags{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, .pNext = &export_info,
+        .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, .deviceMask = 0,
+    };
     auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
+    const void *alloc_chain = rt_enabled ? static_cast<const void*>(&addr_flags)
+                                         : static_cast<const void*>(&export_info);
+    auto vk_memory = allocateMemory(device, available, memreq, memflags, alloc_chain);
     // The real allocated amount is determined by the memory requirements structure
     spdlog::debug("Allocated {} bytes for interop ({} requested)", memreq.size, size);
 
@@ -1087,8 +1105,10 @@ View *MimirInstance::createView(ViewDescription *desc)
                 vb_size, getSourceSize(attr.source)
             );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            // Path tracing reads positions as an SSBO in the instance-writer compute shader.
-            if (rt_enabled) { vb_usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; }
+            // Path tracing reads positions by buffer-device-address in the AABB-writer compute shader,
+            // so the position buffer needs the SHADER_DEVICE_ADDRESS usage (its interop memory already
+            // carries the DEVICE_ADDRESS alloc flag from allocLinear).
+            if (rt_enabled) { vb_usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
             VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);

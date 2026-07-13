@@ -116,7 +116,7 @@ struct RayTracingContext
     // uses. The cost is losing write/build-vs-trace overlap; negligible for the huge-N monitoring
     // case this enables. The TLAS holds ONE instance pointing at the BLAS (identity transform).
     bool scene_bound = false;
-    VkBuffer position_buffer = VK_NULL_HANDLE; // interop positions (owned by the view, not us)
+    VkDeviceAddress position_address = 0; // interop positions, read by BDA (owned by the view, not us)
     uint32_t particle_count = 0;
     float particle_radius = 0.f;
     glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
@@ -127,12 +127,10 @@ struct RayTracingContext
     AccelStruct scene_tlas;           // one-instance TLAS over scene_blas
     RtBuffer tlas_scratch;            // TLAS build scratch (tiny: one instance)
 
-    // AABB-writer compute (fills the shared aabb_buffer from position_buffer)
-    VkDescriptorSetLayout iw_set_layout = VK_NULL_HANDLE;
+    // AABB-writer compute (fills the shared aabb_buffer from the positions; both are BDA push-constant
+    // pointers, so there is no descriptor set/pool -- just the pipeline + its push-constant layout).
     VkPipelineLayout iw_pipeline_layout = VK_NULL_HANDLE;
     VkPipeline iw_pipeline = VK_NULL_HANDLE;
-    VkDescriptorPool iw_pool = VK_NULL_HANDLE;
-    VkDescriptorSet iw_sets[FRAMES] = {};
 
     // Ray-tracing pipeline + shader binding table
     VkDescriptorSetLayout rt_set_layout = VK_NULL_HANDLE;
@@ -230,11 +228,12 @@ struct RayTracingContext
     // Destroy the extent-dependent frame resources (call on swapchain rebuild).
     void destroyFrameResources();
 
-    // Bind the dynamic scene: the interop position buffer (VkBuffer, particle_count points of
-    // tightly-packed float3) drives a per-frame TLAS of icosphere instances of the given world
-    // radius. Allocates the per-frame instance buffers/TLAS/scratch, wires the instance-writer
-    // and RT (TLAS) descriptors, and builds an initial TLAS. Call once after view creation.
-    void bindScene(VkBuffer positions, uint32_t particle_count, float radius, glm::vec4 color);
+    // Bind the dynamic scene: the interop position buffer's device address (particle_count points of
+    // tightly-packed float3) drives a per-frame BLAS of AABB spheres of the given world radius.
+    // Allocates the AABB buffer / BLAS / one-instance TLAS / scratch and builds them once. The AABB
+    // writer reads positions by buffer-device-address (no storage-range cap). Call once after view
+    // creation.
+    void bindScene(VkDeviceAddress positions, uint32_t particle_count, float radius, glm::vec4 color);
 
     // Record the per-frame scene update for this frame: dispatch the instance-writer compute
     // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a
