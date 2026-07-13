@@ -108,19 +108,25 @@ struct RayTracingContext
     uint32_t vertex_count = 0;
     AccelStruct blas;
 
-    // Dynamic scene (Phase 2): a per-frame TLAS rebuilt each frame from the live interop
-    // position buffer. Bound after view creation via bindScene(). Per-frame (indexed by
-    // frame-in-flight) so a frame's TLAS/instances are never overwritten while still in use.
+    // Dynamic scene (Phase 2): a TLAS rebuilt each frame from the live interop position buffer.
+    // Bound after view creation via bindScene(). The TLAS, its instance buffer, and the build
+    // scratch are SINGLE shared copies (not per-frame): at ~10^9 particles the instance buffer
+    // alone is N * sizeof(VkAccelerationStructureInstanceKHR) = 64 GiB, so triple-buffering it
+    // would cost ~192 GiB and overflow even a 288 GB card. Sharing one copy is made safe by a
+    // cross-frame barrier in recordUpdateScene that serializes each frame's instance-writer + TLAS
+    // build after the previous frame's trace (same queue, submission-ordered) -- the same technique
+    // the accumulator image uses. The cost is losing write/build-vs-trace overlap; negligible for
+    // the billion-particle monitoring case this enables.
     bool scene_bound = false;
     VkBuffer position_buffer = VK_NULL_HANDLE; // interop positions (owned by the view, not us)
     uint32_t particle_count = 0;
     float particle_radius = 0.f;
     glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
-    AccelStruct scene_tlas[FRAMES];       // per-frame TLAS
-    RtBuffer instance_buffers[FRAMES];    // per-frame VkAccelerationStructureInstanceKHR[]
-    RtBuffer tlas_scratch[FRAMES];        // persistent per-frame build scratch
+    AccelStruct scene_tlas;       // shared scene TLAS
+    RtBuffer instance_buffer;     // shared VkAccelerationStructureInstanceKHR[]
+    RtBuffer tlas_scratch;        // shared TLAS build scratch
 
-    // Instance-writer compute (fills instance_buffers[frame] from position_buffer)
+    // Instance-writer compute (fills the shared instance_buffer from position_buffer)
     VkDescriptorSetLayout iw_set_layout = VK_NULL_HANDLE;
     VkPipelineLayout iw_pipeline_layout = VK_NULL_HANDLE;
     VkPipeline iw_pipeline = VK_NULL_HANDLE;

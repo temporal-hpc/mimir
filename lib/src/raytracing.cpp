@@ -1149,27 +1149,28 @@ void RayTracingContext::bindScene(VkBuffer positions, uint32_t count, float radi
         updateMaterial(0);
     }
 
-    // Per-frame instance buffer (written by the compute writer, read by the TLAS build) and
-    // per-frame TLAS + scratch. Instance buffer needs STORAGE (compute write),
-    // AS_BUILD_INPUT (TLAS read), and a device address (TLAS build input).
+    // Single shared instance buffer (written by the compute writer, read by the TLAS build) plus a
+    // single shared TLAS + scratch -- see raytracing.hpp for why these are not per-frame. Instance
+    // buffer needs STORAGE (compute write), AS_BUILD_INPUT (TLAS read), and a device address.
     VkDeviceSize inst_size = VkDeviceSize(count) * sizeof(VkAccelerationStructureInstanceKHR);
+    instance_buffer = makeBuffer(*this, inst_size,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+        | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+        DEVICE_LOCAL, true);
+    createDynamicTlas(*this, scene_tlas, tlas_scratch, instance_buffer.address, count);
+
+    // Point every frame's descriptor sets at the shared resources: the instance-writer sets
+    // (positions + instance buffer, both shared) and each RT set's TLAS binding (0). The storage-
+    // image/accum bindings (1,2) were written by createFrameResources and are left untouched.
     for (uint32_t f = 0; f < FRAMES; ++f)
     {
-        instance_buffers[f] = makeBuffer(*this, inst_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-            | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-            DEVICE_LOCAL, true);
-        createDynamicTlas(*this, scene_tlas[f], tlas_scratch[f],
-            instance_buffers[f].address, count);
-
-        // Instance-writer descriptors: positions (shared) + this frame's instance buffer.
         VkDescriptorBufferInfo pos_info{ position_buffer, 0, VK_WHOLE_SIZE };
-        VkDescriptorBufferInfo inst_info{ instance_buffers[f].buffer, 0, VK_WHOLE_SIZE };
-        // RT descriptor: this frame's TLAS (binding 0).
+        VkDescriptorBufferInfo inst_info{ instance_buffer.buffer, 0, VK_WHOLE_SIZE };
+        // RT descriptor: the shared TLAS (binding 0).
         VkWriteDescriptorSetAccelerationStructureKHR as_write{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
             .pNext = nullptr, .accelerationStructureCount = 1,
-            .pAccelerationStructures = &scene_tlas[f].handle,
+            .pAccelerationStructures = &scene_tlas.handle,
         };
         VkWriteDescriptorSet writes[3] = {
             { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
@@ -1188,13 +1189,10 @@ void RayTracingContext::bindScene(VkBuffer positions, uint32_t count, float radi
         vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
     }
 
-    // Populate instances and build each frame's initial TLAS (positions are already valid at
-    // bind time), so the first rendered frame has a coherent AS even before its own update.
+    // Populate instances and build the shared TLAS once (positions are already valid at bind time),
+    // so the first rendered frame has a coherent AS even before its own update.
     submit([&](VkCommandBuffer cmd) {
-        for (uint32_t f = 0; f < FRAMES; ++f)
-        {
-            recordUpdateScene(cmd, f);
-        }
+        recordUpdateScene(cmd, 0);
     });
 
     scene_bound = true;
@@ -1204,6 +1202,24 @@ void RayTracingContext::bindScene(VkBuffer positions, uint32_t count, float radi
 void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     if (particle_count == 0) { return; }
+
+    // Cross-frame serialization: the instance buffer, TLAS, and scratch are single shared copies, so
+    // this frame's instance-writer (overwrites the instances) and TLAS build (overwrite the TLAS +
+    // scratch) must not start until the PREVIOUS frame's trace has finished reading the TLAS -- a
+    // write-after-read hazard on shared resources. Same queue + submission order means an execution
+    // dependency from ray tracing to compute/build here orders us after all prior traces. This is the
+    // pipelining cost of not triple-buffering the (potentially 64 GiB) instance buffer; on the first
+    // frame there is no prior trace, so the barrier is a no-op.
+    VkMemoryBarrier serialize{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        0, 1, &serialize, 0, nullptr, 0, nullptr);
 
     // Reset this frame's 4 timestamps (previous readings for frame_idx were already read back in
     // renderFrame) and stamp the start of the TLAS build.
@@ -1236,9 +1252,9 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &to_build, 0, nullptr, 0, nullptr);
 
-    // 2) Rebuild this frame's TLAS from the updated instances.
-    recordTlasBuild(*this, cmd, scene_tlas[frame_idx], tlas_scratch[frame_idx],
-        instance_buffers[frame_idx].address, particle_count);
+    // 2) Rebuild the shared TLAS from the updated instances.
+    recordTlasBuild(*this, cmd, scene_tlas, tlas_scratch,
+        instance_buffer.address, particle_count);
 
     // Barrier: AS build writes -> ray tracing reads the TLAS.
     VkMemoryBarrier to_trace{
@@ -1471,17 +1487,14 @@ void RayTracingContext::destroy()
     if (iw_set_layout)      { vkDestroyDescriptorSetLayout(device, iw_set_layout, nullptr); }
     if (iw_pool)            { vkDestroyDescriptorPool(device, iw_pool, nullptr); }
 
-    // Per-frame dynamic scene (TLAS + instances + scratch)
-    for (uint32_t f = 0; f < FRAMES; ++f)
+    // Shared dynamic scene (TLAS + instance buffer + scratch)
+    if (scene_tlas.handle)
     {
-        if (scene_tlas[f].handle)
-        {
-            api.destroyAccelerationStructure(device, scene_tlas[f].handle, nullptr);
-        }
-        destroyBuffer(device, scene_tlas[f].buffer);
-        destroyBuffer(device, instance_buffers[f]);
-        destroyBuffer(device, tlas_scratch[f]);
+        api.destroyAccelerationStructure(device, scene_tlas.handle, nullptr);
     }
+    destroyBuffer(device, scene_tlas.buffer);
+    destroyBuffer(device, instance_buffer);
+    destroyBuffer(device, tlas_scratch);
 
     if (blas.handle) { api.destroyAccelerationStructure(device, blas.handle, nullptr); }
     destroyBuffer(device, blas.buffer);
