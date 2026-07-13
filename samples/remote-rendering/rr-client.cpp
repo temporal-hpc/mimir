@@ -57,6 +57,7 @@ using namespace mimir::remote;
 
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
 
@@ -555,6 +556,14 @@ struct Decoder
         if (codec)
         {
             ctx = avcodec_alloc_context3(codec);
+            // The server encodes with max_b_frames = 0 and nvenc delay=0 (no reordering), but
+            // cuvid still holds a 4-frame display-delay pipeline BY DEFAULT: the first decoded
+            // frame only comes out after ~4 packets went in. At interactive rates that is just
+            // added latency; at slow frame rates (huge N renders several seconds per frame) it
+            // starved wait_for_geometry entirely -> "no stream received". delay=0 emits each
+            // frame as soon as it is decoded.
+            ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+            av_opt_set(ctx->priv_data, "delay", "0", 0);
             if (avcodec_open2(ctx, codec, nullptr) != 0)
             {
                 avcodec_free_context(&ctx); // no usable NVDEC; fall back
@@ -565,6 +574,7 @@ struct Decoder
         {
             codec = avcodec_find_decoder(AV_CODEC_ID_H264);
             ctx   = avcodec_alloc_context3(codec);
+            ctx->flags |= AV_CODEC_FLAG_LOW_DELAY; // stream has no B-frames; decode 1-in-1-out
             avcodec_open2(ctx, codec, nullptr);
         }
         pkt   = av_packet_alloc();
@@ -1282,12 +1292,15 @@ void key_cb(GLFWwindow *win, int key, int, int action, int mods)
     }
 }
 
-// Waits (up to ~10 s) for the session to deliver the first frame so we know the stream geometry.
+// Waits (up to ~60 s) for the session to deliver the first frame so we know the stream geometry.
+// Generous on purpose: at huge particle counts the server's first path-traced frame can take
+// several seconds, and a dead connection already exits early via g.running.
 bool wait_for_geometry(int& w, int& h)
 {
-    for (int i = 0; i < 1000 && g.running.load(); ++i)
+    for (int i = 0; i < 6000 && g.running.load(); ++i)
     {
         { std::lock_guard<std::mutex> lock(g.frame_mtx); if (g.have_geometry) { w = g.w; h = g.h; return true; } }
+        if (i > 0 && i % 500 == 0) { printf("rr-client: waiting for first frame (%d s)...\n", i / 100); }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     return false;
@@ -1414,8 +1427,9 @@ int run_headless(int frames)
 // every CSV row is labeled for plot shading.
 void bench_thread()
 {
-    // Wait for the stream to come up so the script timeline starts at the first frame.
-    for (int i = 0; i < 1000 && g.running.load() && !g.quit.load(); ++i)
+    // Wait for the stream to come up so the script timeline starts at the first frame (same
+    // generous window as wait_for_geometry: the first frame can take seconds at huge N).
+    for (int i = 0; i < 6000 && g.running.load() && !g.quit.load(); ++i)
     {
         { std::lock_guard<std::mutex> lock(g.frame_mtx); if (g.have_geometry) { break; } }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
