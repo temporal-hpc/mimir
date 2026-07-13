@@ -318,6 +318,19 @@ std::string formatParticleRate(double parts_per_sec)
     return buf;
 }
 
+// Human-scaled particle COUNT (K/M/G suffix, decimal) for the sim/stats lines and HUD, so a
+// billion reads as "1.07 G" instead of "1073741824". Mirrors formatParticleRate's scaling.
+std::string formatParticleCount(size_t n)
+{
+    char buf[32];
+    const double d = static_cast<double>(n);
+    if (n >= 1000000000ull) { std::snprintf(buf, sizeof(buf), "%.2f G", d / 1e9); }
+    else if (n >= 1000000ull) { std::snprintf(buf, sizeof(buf), "%.1f M", d / 1e6); }
+    else if (n >= 1000ull)    { std::snprintf(buf, sizeof(buf), "%.1f K", d / 1e3); }
+    else                      { std::snprintf(buf, sizeof(buf), "%zu", n); }
+    return buf;
+}
+
 // Live whole-device VRAM (used/total, GiB labeled GB to match the startup banner) via
 // cudaMemGetInfo -- redundant ground truth that includes EVERYTHING on the GPU at that instant
 // (CUDA particles + Vulkan render targets + the path-tracing BVH/instance buffers built during
@@ -490,18 +503,19 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const double secs = std::chrono::duration<double>(sim_now - sim_log_time).count();
                 const double rate = static_cast<double>(iters - sim_log_iter) / secs;
                 const std::string prate = formatParticleRate(rate * static_cast<double>(particle_total));
+                const std::string pcount = formatParticleCount(particle_total);
                 const std::string vram = formatVram();
                 if (max_iters != 0)
                 {
-                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {:.0f} steps/s | {} | {} | no viewer",
+                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {} particles | {:.0f} steps/s | {} | {} | no viewer",
                         iters, max_iters,
                         100.0 * static_cast<double>(iters) / static_cast<double>(max_iters),
-                        rate, prate, vram);
+                        pcount, rate, prate, vram);
                 }
                 else
                 {
-                    spdlog::info("[sim] step {} | {:.0f} steps/s | {} | {} | no viewer",
-                        iters, rate, prate, vram);
+                    spdlog::info("[sim] step {} | {} particles | {:.0f} steps/s | {} | {} | no viewer",
+                        iters, pcount, rate, prate, vram);
                 }
                 sim_log_time = sim_now;
                 sim_log_iter = iters;
@@ -884,6 +898,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .step       = iters,
                     .step_limit = max_iters,
                     .encode_std_us = static_cast<uint32_t>(std::sqrt(std::max(0.0, enc_var))),
+                    .particle_count = 0,     // filled below, once sps is known
+                    .particles_per_sec = 0,
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
                 // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
@@ -894,6 +910,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 // heartbeat covers the unwatched periods). steps/s is the sim's own rate over
                 // this window — in decoupled mode independent of fps, in lockstep ~= fps * N.
                 const double sps = static_cast<double>(iters - win_start_iter) / elapsed;
+                st.particle_count = particle_total;
+                st.particles_per_sec = static_cast<uint64_t>(sps * static_cast<double>(particle_total));
                 char step_str[64];
                 if (max_iters != 0)
                 {
@@ -915,11 +933,12 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
 #endif
                 const std::string prate = formatParticleRate(sps * static_cast<double>(particle_total));
+                const std::string pcount = formatParticleCount(particle_total);
                 const std::string vram = formatVram();
-                spdlog::info("[stats] step {} ({:.0f} steps/s, {}) | frame {:6d} | {:5.1f} fps | "
+                spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}) | frame {:6d} | {:5.1f} fps | "
                     "{:6d} kbps | {:5.2f} ms render | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {}",
                     step_str,
-                    sps, prate,
+                    pcount, sps, prate,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,

@@ -150,6 +150,8 @@ struct Hud
     double fps = 0.0;               // server-reported stream fps
     uint64_t step = 0;              // simulation steps completed (server lifetime)
     uint64_t step_limit = 0;        // steps the server stops at (0 = unlimited)
+    uint64_t particle_count = 0;    // particles the sim advances (0 = older server, hidden in HUD)
+    uint64_t particles_per_sec = 0; // current sim throughput (particle_count * steps/s)
     bool have_stats = false;        // first Stats message arrived
     std::atomic<bool> visible{true};
 };
@@ -185,7 +187,29 @@ void hud_set_server(const Hello& hello, const char *transport)
     g_hud.server = line;
 }
 
-// Composes the HUD text from the latest session state (two short lines).
+// Human-scaled count (K/M/G) and per-second rate for the particle HUD line, mirroring the
+// server's formatParticleCount / formatParticleRate so both ends read the same.
+std::string hud_scale_count(uint64_t n)
+{
+    char b[32];
+    const double d = static_cast<double>(n);
+    if      (n >= 1000000000ull) { snprintf(b, sizeof(b), "%.2f G", d / 1e9); }
+    else if (n >= 1000000ull)    { snprintf(b, sizeof(b), "%.1f M", d / 1e6); }
+    else if (n >= 1000ull)       { snprintf(b, sizeof(b), "%.1f K", d / 1e3); }
+    else                         { snprintf(b, sizeof(b), "%llu", static_cast<unsigned long long>(n)); }
+    return b;
+}
+std::string hud_scale_rate(uint64_t per_sec)
+{
+    char b[32];
+    const double d = static_cast<double>(per_sec);
+    if      (per_sec >= 1000000000ull) { snprintf(b, sizeof(b), "%.2f Gpart/s", d / 1e9); }
+    else if (per_sec >= 1000000ull)    { snprintf(b, sizeof(b), "%.1f Mpart/s", d / 1e6); }
+    else                               { snprintf(b, sizeof(b), "%llu part/s", static_cast<unsigned long long>(per_sec)); }
+    return b;
+}
+
+// Composes the HUD text from the latest session state (two short lines, plus a particle line).
 std::vector<std::string> hud_lines()
 {
     std::lock_guard<std::mutex> lock(g_hud.mtx);
@@ -211,6 +235,16 @@ std::vector<std::string> hud_lines()
             static_cast<unsigned long long>(g_hud.step));
     }
     lines.push_back(l2);
+    // Particle line: scene size + sim throughput. Only when the server reported it (0 =
+    // older server without the fields, or a viewer-only session with no particles).
+    if (g_hud.have_stats && g_hud.particle_count > 0)
+    {
+        char l3[128];
+        snprintf(l3, sizeof(l3), "%s particles | %s",
+            hud_scale_count(g_hud.particle_count).c_str(),
+            hud_scale_rate(g_hud.particles_per_sec).c_str());
+        lines.push_back(l3);
+    }
     return lines;
 }
 
@@ -652,6 +686,8 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             g_hud.fps        = st.fps_milli / 1000.0;
             g_hud.step       = st.step;
             g_hud.step_limit = st.step_limit;
+            g_hud.particle_count     = st.particle_count;
+            g_hud.particles_per_sec  = st.particles_per_sec;
             g_hud.have_stats = true;
         }
         return;

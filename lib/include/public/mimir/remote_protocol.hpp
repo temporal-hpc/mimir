@@ -137,6 +137,11 @@ struct Stats
     // Appended after step_limit so a newer client reading an older server's shorter Stats keeps
     // the fields above intact (it copies min(payload, sizeof) and leaves this zero).
     uint32_t encode_std_us; // std-dev of per-frame production latency this window, microseconds
+    // Appended (same forward-compat rule -- newer fields at the end, zero when absent). The total
+    // number of particles the sim advances, and the current throughput (= particle_count * steps/s)
+    // in particles/sec, so the client HUD can show scene size and sim throughput.
+    uint64_t particle_count;
+    uint64_t particles_per_sec;
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.

@@ -306,14 +306,27 @@ int main(int argc, char *argv[])
     {
         bool nvenc = false, nvdec = false;
         queryVideoEngines(gpu_prop, nvenc, nvdec);
-        printf("rr-server: using GPU device %d (%s) | %.0f GB | %d SMs | %d CUDA cores | "
-               "%d tensor cores | %d RT cores | NVENC %s | NVDEC %s\n",
+        // Theoretical peak HBM/GDDR bandwidth = 2 (DDR) * memory clock * bus width. The clock (kHz)
+        // and bus width (bits) come from device attributes -- cudaDeviceProp dropped memoryClockRate
+        // in newer CUDA. /8 for bytes, /1e9 for GB/s. This is the headline number that separates
+        // datacenter HBM parts from graphics GDDR ones (e.g. B300 HBM3e ~8 TB/s vs RTX PRO 6000 GDDR7
+        // ~1.8 TB/s) and governs the memory-bound sim's steps/s.
+        int mem_clock_khz = 0, mem_bus_bits = 0;
+        cudaDeviceGetAttribute(&mem_clock_khz, cudaDevAttrMemoryClockRate, 0);
+        cudaDeviceGetAttribute(&mem_bus_bits, cudaDevAttrGlobalMemoryBusWidth, 0);
+        const double mem_bw_gbs = 2.0 * static_cast<double>(mem_clock_khz) * 1e3
+            * (static_cast<double>(mem_bus_bits) / 8.0) / 1e9;
+        const int rt = rtCores(gpu_prop);
+        printf("rr-server: using GPU device %d (%s) | %.0f GB | %.0f GB/s mem BW | %d SMs | "
+               "%d CUDA cores | %d tensor cores | %d RT cores (%s) | NVENC %s | NVDEC %s\n",
             cuda_dev, gpu_prop.name,
             static_cast<double>(gpu_prop.totalGlobalMem) / (1024.0 * 1024.0 * 1024.0),
+            mem_bw_gbs,
             gpu_prop.multiProcessorCount,
             gpu_prop.multiProcessorCount * coresPerSM(gpu_prop.major, gpu_prop.minor),
             gpu_prop.multiProcessorCount * tensorPerSM(gpu_prop.major),
-            rtCores(gpu_prop), nvenc ? "yes" : "no", nvdec ? "yes" : "no");
+            rt, rt > 0 ? "hardware BVH traversal" : "none -> software BVH",
+            nvenc ? "yes" : "no", nvdec ? "yes" : "no");
     }
     else
     {
