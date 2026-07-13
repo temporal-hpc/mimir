@@ -305,6 +305,34 @@ void fillServerIdentity(remote::Hello& hello)
     }
 }
 
+// Human-scaled particles/second (G/M suffix) for the sim/stats lines. particles/s = the sim's
+// particle count times its step rate; at billion-particle scale it reaches 10^11+, so a fixed
+// suffix keeps it readable and is a better large-N throughput signal than steps/s (which falls
+// as N grows even though the GPU is doing more work).
+std::string formatParticleRate(double parts_per_sec)
+{
+    char buf[48];
+    if (parts_per_sec >= 1e9)      { std::snprintf(buf, sizeof(buf), "%.2f Gpart/s", parts_per_sec / 1e9); }
+    else if (parts_per_sec >= 1e6) { std::snprintf(buf, sizeof(buf), "%.1f Mpart/s", parts_per_sec / 1e6); }
+    else                           { std::snprintf(buf, sizeof(buf), "%.0f part/s", parts_per_sec); }
+    return buf;
+}
+
+// Live whole-device VRAM (used/total, GiB labeled GB to match the startup banner) via
+// cudaMemGetInfo -- redundant ground truth that includes EVERYTHING on the GPU at that instant
+// (CUDA particles + Vulkan render targets + the path-tracing BVH/instance buffers built during
+// prepare()), unlike the pre-serve startup estimate which is taken before the RT scene exists.
+std::string formatVram()
+{
+    size_t free_b = 0, total_b = 0;
+    if (cudaMemGetInfo(&free_b, &total_b) != cudaSuccess || total_b == 0) { return "VRAM n/a"; }
+    const double gib = 1.0 / (1024.0 * 1024.0 * 1024.0);
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "VRAM %.1f/%.0f GB",
+        static_cast<double>(total_b - free_b) * gib, static_cast<double>(total_b) * gib);
+    return buf;
+}
+
 } // namespace
 
 void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute,
@@ -312,6 +340,18 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     int bitrate_kbps, std::string stats_csv, int target_fps, int steps_per_frame)
 {
     prepare();
+
+    // Total particles the sim advances each step = the sum of the views' element counts (draw_count
+    // is the position-attribute size for markers; bindScene uses the same value as the PT instance
+    // count). Captured once for the particles/s throughput metric on the heartbeat/stats lines.
+    size_t particle_total = 0;
+    for (auto *v : views) { if (v != nullptr) { particle_total += v->draw_count; } }
+
+    // One-shot honest footprint: prepare() has now built everything, including the path-tracing
+    // BVH + instance buffers that the pre-serve startup estimate in rr-server is taken before and
+    // therefore misses entirely. This is the real whole-device number; the heartbeat/stats lines
+    // refresh it as the run proceeds.
+    spdlog::info("remote: GPU memory after setup: {} ({} particles)", formatVram(), particle_total);
 
     // Frame/simulation coupling. Decoupled (steps_per_frame <= 0): the sim runs on its own
     // thread and frames sample the latest state — the viewer never slows the run. Lockstep
@@ -449,16 +489,19 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             {
                 const double secs = std::chrono::duration<double>(sim_now - sim_log_time).count();
                 const double rate = static_cast<double>(iters - sim_log_iter) / secs;
+                const std::string prate = formatParticleRate(rate * static_cast<double>(particle_total));
+                const std::string vram = formatVram();
                 if (max_iters != 0)
                 {
-                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {:.0f} steps/s | no viewer",
+                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {:.0f} steps/s | {} | {} | no viewer",
                         iters, max_iters,
                         100.0 * static_cast<double>(iters) / static_cast<double>(max_iters),
-                        rate);
+                        rate, prate, vram);
                 }
                 else
                 {
-                    spdlog::info("[sim] step {} | {:.0f} steps/s | no viewer", iters, rate);
+                    spdlog::info("[sim] step {} | {:.0f} steps/s | {} | {} | no viewer",
+                        iters, rate, prate, vram);
                 }
                 sim_log_time = sim_now;
                 sim_log_iter = iters;
@@ -871,10 +914,12 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         : "encode (" + std::to_string(encoder.sw_threads) + " CPU threads)";
                 }
 #endif
-                spdlog::info("[stats] step {} ({:.0f} steps/s) | frame {:6d} | {:5.1f} fps | "
-                    "{:6d} kbps | {:5.2f} ms render | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller)",
+                const std::string prate = formatParticleRate(sps * static_cast<double>(particle_total));
+                const std::string vram = formatVram();
+                spdlog::info("[stats] step {} ({:.0f} steps/s, {}) | frame {:6d} | {:5.1f} fps | "
+                    "{:6d} kbps | {:5.2f} ms render | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {}",
                     step_str,
-                    sps,
+                    sps, prate,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
@@ -882,7 +927,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     static_cast<double>(st.encode_us) / 1000.0,
                     prod_label,
                     raw_frame_kb, sent_frame_kb,
-                    sent_frame_kb > 0.0 ? raw_frame_kb / sent_frame_kb : 0.0);
+                    sent_frame_kb > 0.0 ? raw_frame_kb / sent_frame_kb : 0.0,
+                    vram);
                 if (csv)
                 {
                     fprintf(csv, "%.3f,%u,%.1f,%.1f,%u,%.3f\n",
