@@ -615,6 +615,11 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         size_t win_start_iter = total_iter.load(); // sim step count at the window's start
         double win_enc_us = 0.0, win_enc_us_sq = 0.0; // sum and sum-of-squares, for mean + std
         double win_render_ms = 0.0;                   // sum of per-frame GPU render time, for the mean
+        double win_build_ms = 0.0, win_trace_ms = 0.0; // path-tracing AS-build vs trace split (GPU timestamps)
+        // Cumulative AS-build tallies at the window's start, so the printed counts are per-window deltas.
+        uint64_t win_start_refits   = rt_enabled ? raytracing.stat_refits : 0;
+        uint64_t win_start_rebuilds = rt_enabled ? raytracing.stat_full_rebuilds : 0;
+        uint64_t win_start_skips    = rt_enabled ? raytracing.stat_skips : 0;
 
         while (true)
         {
@@ -880,6 +885,14 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 win_enc_us += enc_us;
                 win_enc_us_sq += enc_us * enc_us;
                 win_render_ms += render_ms;
+                // Path tracing exposes a GPU-timestamp split of the render: last_tlas_ms is the AS-build
+                // phase (AABB writer + BLAS + TLAS), last_trace_ms the vkCmdTraceRays. Read after
+                // renderFrame() updated them (one frame of latency). Zero for non-PT modes.
+                if (rt_enabled)
+                {
+                    win_build_ms += raytracing.last_tlas_ms;
+                    win_trace_ms += raytracing.last_trace_ms;
+                }
             }
             const auto now = std::chrono::steady_clock::now();
             const double elapsed = std::chrono::duration<double>(now - win_start).count();
@@ -935,14 +948,34 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const std::string prate = formatParticleRate(sps * static_cast<double>(particle_total));
                 const std::string pcount = formatParticleCount(particle_total);
                 const std::string vram = formatVram();
+                // For path tracing, break the render time into its GPU-timestamped AS-build vs trace
+                // phases so it is clear where the frame goes (at large N the build dominates).
+                std::string rt_split;
+                if (rt_enabled)
+                {
+                    // Per-window mix of the AS-build modes: cheap in-place refits vs full rebuilds vs
+                    // skipped (unchanged-scene) frames. A healthy live stream is mostly refits with the
+                    // occasional rebuild; a paused view is mostly skips.
+                    unsigned long long d_refit = raytracing.stat_refits - win_start_refits;
+                    unsigned long long d_rebuild = raytracing.stat_full_rebuilds - win_start_rebuilds;
+                    unsigned long long d_skip = raytracing.stat_skips - win_start_skips;
+                    char buf[128];
+                    snprintf(buf, sizeof(buf),
+                        " (build %.1f + trace %.1f ms | %llu refit, %llu rebuild, %llu skip)",
+                        win_build_ms / static_cast<double>(win_frames),
+                        win_trace_ms / static_cast<double>(win_frames),
+                        d_refit, d_rebuild, d_skip);
+                    rt_split = buf;
+                }
                 spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}) | frame {:6d} | {:5.1f} fps | "
-                    "{:6d} kbps | {:5.2f} ms render | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {}",
+                    "{:6d} kbps | {:5.2f} ms render{} | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {}",
                     step_str,
                     pcount, sps, prate,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
                     render_mean,
+                    rt_split,
                     static_cast<double>(st.encode_us) / 1000.0,
                     prod_label,
                     raw_frame_kb, sent_frame_kb,
@@ -964,6 +997,13 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
                 win_start = now; win_frames = 0; win_bytes = 0;
                 win_enc_us = 0.0; win_enc_us_sq = 0.0; win_render_ms = 0.0;
+                win_build_ms = 0.0; win_trace_ms = 0.0;
+                if (rt_enabled)
+                {
+                    win_start_refits   = raytracing.stat_refits;
+                    win_start_rebuilds = raytracing.stat_full_rebuilds;
+                    win_start_skips    = raytracing.stat_skips;
+                }
                 win_start_iter = iters;
             }
         }

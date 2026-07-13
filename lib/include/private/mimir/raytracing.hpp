@@ -128,6 +128,21 @@ struct RayTracingContext
     std::vector<AccelStruct> scene_blas; // one BLAS per <= maxPrimitiveCount chunk (rebuilt each frame)
     RtBuffer blas_scratch;            // shared BLAS build scratch (largest chunk)
     uint32_t blas_chunk_prims = 0;    // particles per BLAS chunk (<= maxPrimitiveCount)
+    // BLAS refit: a full from-scratch BLAS build over ~5*10^8 AABBs dominates the frame (seconds),
+    // yet the mean-reverting OU walk only nudges each sphere a little per step. So most dirty frames
+    // REFIT the existing BVH in place (VK_..._MODE_UPDATE -- cheap, keeps topology) and a full rebuild
+    // is forced every `rebuild_interval` dirty frames to stop traversal quality from drifting as the
+    // clusters deform. rebuild_interval <= 1 disables refit (always full rebuild). accel_ever_built
+    // gates the mandatory first full build (UPDATE needs a prior BUILD as its source);
+    // frames_since_full_rebuild drives the cadence. Env override: MIMIR_PT_REBUILD_INTERVAL.
+    uint32_t rebuild_interval = 8;
+    uint32_t frames_since_full_rebuild = 0;
+    bool     accel_ever_built = false;
+    // Cumulative recordUpdateScene tallies (one increment per recorded frame), so callers can report
+    // the per-window mix of full rebuilds vs cheap refits vs skipped (unchanged-scene) frames.
+    uint64_t stat_full_rebuilds = 0;
+    uint64_t stat_refits = 0;
+    uint64_t stat_skips = 0;
     RtBuffer tlas_instance_buffer;    // one VkAccelerationStructureInstanceKHR per chunk -> its BLAS
     AccelStruct scene_tlas;           // TLAS over the per-chunk instances
     RtBuffer tlas_scratch;            // TLAS build scratch (tiny: one instance per chunk)
@@ -208,7 +223,7 @@ struct RayTracingContext
     // frame of latency (after the frame's fence). last_*_ms hold the most recent readings.
     VkQueryPool timing_pool = VK_NULL_HANDLE;
     float timestamp_period = 0.f; // nanoseconds per tick (0 = timestamps unsupported, disabled)
-    double last_tlas_ms = 0.0;    // instance-writer + TLAS build time, last completed frame
+    double last_tlas_ms = 0.0;    // AS-build phase (AABB writer + BLAS build/refit + TLAS), last frame
     double last_trace_ms = 0.0;   // vkCmdTraceRays time, last completed frame
     // Backdrop colour (background * intensity) captured from the last recordTrace push constants, so
     // recordDenoise's final à-trous pass can show it on primary-miss pixels (see pathtrace_atrous).
@@ -243,7 +258,11 @@ struct RayTracingContext
     // Record the per-frame scene update for this frame: dispatch the instance-writer compute
     // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a
     // render pass, before recordTrace. No-op if no scene is bound.
-    void recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx);
+    // `rebuild` = the particle positions changed since the last built frame, so the AS must be
+    // (re)built or refitted. When false (paused / no new sim step) the shared BLAS/TLAS are still
+    // valid and the whole AABB-writer + AS-build phase is skipped -- the trace reuses them and the
+    // accumulator keeps converging. The first call always builds regardless (accel_ever_built).
+    void recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx, bool rebuild = true);
 
     // Record the ray-trace for the given frame into its storage image (adds the layout
     // barriers around vkCmdTraceRaysKHR). Must be recorded OUTSIDE a render pass. When

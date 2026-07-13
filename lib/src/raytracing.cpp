@@ -127,9 +127,12 @@ VkAccelerationStructureBuildGeometryInfoKHR blasBuildInfo(
         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
         .pNext = nullptr,
         .type  = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-        // PREFER_FAST_BUILD: the BLAS is rebuilt from scratch every frame (particles move), so build
-        // speed matters more than a marginally faster trace.
-        .flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR,
+        // PREFER_FAST_BUILD: the full BLAS rebuild dominates the frame at large N, so build speed
+        // matters more than a marginally faster trace. ALLOW_UPDATE: permits cheap in-place refits
+        // (VK_..._MODE_UPDATE) on the frames between full rebuilds -- see recordUpdateScene. The flags
+        // must match on the build that sized the AS (createDynamicBlasChunks) and every (re)build/refit.
+        .flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR
+               | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
         .mode  = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
         .srcAccelerationStructure = VK_NULL_HANDLE,
         .dstAccelerationStructure = VK_NULL_HANDLE,
@@ -193,7 +196,10 @@ void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, 
         };
         blas.address = ctx.api.getAccelStructAddress(ctx.device, &addr_info);
 
-        if (sizes.buildScratchSize > max_scratch) { max_scratch = sizes.buildScratchSize; }
+        // Size the shared scratch for the larger of a full build and an in-place refit (UPDATE). In
+        // practice updateScratchSize <= buildScratchSize, but take the max so a refit can never
+        // overrun the scratch on any driver.
+        max_scratch = std::max({ max_scratch, sizes.buildScratchSize, sizes.updateScratchSize });
     }
 
     auto scratch_align = ctx.accel_props.minAccelerationStructureScratchOffsetAlignment;
@@ -203,7 +209,12 @@ void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, 
 
 // Records the (re)build of every chunk BLAS from its AABB slice. The chunks share one scratch buffer,
 // so a barrier serializes each build after the previous one (write-after-write/read on the scratch).
-void recordBlasBuildChunks(RayTracingContext& ctx, VkCommandBuffer cmd, VkDeviceAddress aabb_addr)
+// `update` = refit the existing BVH in place (MODE_UPDATE, src == dst) instead of a full rebuild:
+// far cheaper, but keeps the topology built by the last full rebuild (the caller bounds how stale
+// that gets). The shared scratch is sized for the largest full build, so it also covers any update
+// (updateScratchSize <= buildScratchSize).
+void recordBlasBuildChunks(RayTracingContext& ctx, VkCommandBuffer cmd, VkDeviceAddress aabb_addr,
+    bool update)
 {
     auto scratch_align = ctx.accel_props.minAccelerationStructureScratchOffsetAlignment;
     VkDeviceAddress scratch_addr = alignUp(ctx.blas_scratch.address, scratch_align);
@@ -215,6 +226,12 @@ void recordBlasBuildChunks(RayTracingContext& ctx, VkCommandBuffer cmd, VkDevice
         VkAccelerationStructureGeometryKHR geometry{};
         auto build_info = blasBuildInfo(geometry, chunkAabbAddr(ctx, aabb_addr, c));
         build_info.dstAccelerationStructure = ctx.scene_blas[c].handle;
+        if (update)
+        {
+            // In-place refit: source and destination are the same AS (allowed with ALLOW_UPDATE).
+            build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+            build_info.srcAccelerationStructure = ctx.scene_blas[c].handle;
+        }
         build_info.scratchData.deviceAddress = scratch_addr;
 
         VkAccelerationStructureBuildRangeInfoKHR range{
@@ -1123,6 +1140,23 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     spdlog::info("Path tracing: {} particles in {} BLAS chunk(s) of up to {} prims",
         count, num_chunks, blas_chunk_prims);
 
+    // BLAS refit cadence: full rebuild every rebuild_interval dirty frames, refit in between (see the
+    // members in raytracing.hpp). At ~5*10^8 AABBs the full rebuild is the frame's dominant cost, so a
+    // larger interval trades traversal quality for speed. Env override MIMIR_PT_REBUILD_INTERVAL (0/1
+    // forces a full rebuild every frame = the old behaviour).
+    if (const char* env = std::getenv("MIMIR_PT_REBUILD_INTERVAL"))
+    {
+        rebuild_interval = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
+    }
+    if (rebuild_interval <= 1)
+    {
+        spdlog::info("Path tracing: BLAS refit disabled (full rebuild every frame)");
+    }
+    else
+    {
+        spdlog::info("Path tracing: BLAS refit on, full rebuild every {} frames", rebuild_interval);
+    }
+
     tlas_instance_buffer = makeBuffer(*this,
         VkDeviceSize(num_chunks) * sizeof(VkAccelerationStructureInstanceKHR),
         VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, HOST_VISIBLE, true);
@@ -1174,9 +1208,32 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     spdlog::info("Path tracing scene bound: {} AABB spheres, radius {:.4f}", count, radius);
 }
 
-void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx)
+void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx, bool rebuild)
 {
     if (particle_count == 0) { return; }
+
+    // The first call must build (an UPDATE refit needs a prior full build as its source); after that
+    // the caller's `rebuild` flag decides. A rebuilt-from-scratch BLAS over ~5*10^8 AABBs is the frame's
+    // dominant cost, so we do as little as the scene allows.
+    bool must_build = rebuild || !accel_ever_built;
+
+    if (!must_build)
+    {
+        stat_skips++;
+        // Positions unchanged since the last built frame (paused / no new sim step): the shared
+        // BLAS/TLAS are still valid, so skip the AABB-writer + AS (re)build entirely and let the trace
+        // reuse them (the accumulator keeps converging on the static scene). No writes here means no
+        // write-after-read hazard on the shared resources, so the cross-frame serialize barrier is not
+        // needed. Still reset this frame's timestamps (recordTrace writes slots 2/3, which must be
+        // reset first) and stamp the build phase as ~0 by placing its two marks adjacently.
+        if (timing_pool != VK_NULL_HANDLE)
+        {
+            vkCmdResetQueryPool(cmd, timing_pool, frame_idx * 4, 4);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 0);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 1);
+        }
+        return;
+    }
 
     // Cross-frame serialization: the AABB buffer, BLAS, TLAS, and scratch are single shared copies, so
     // this frame's AABB-writer (overwrites the AABBs) and AS builds (overwrite the BLAS/TLAS + scratch)
@@ -1225,8 +1282,16 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &to_build, 0, nullptr, 0, nullptr);
 
-    // 2) Rebuild every chunk BLAS from its AABB slice (serialized on the shared scratch inside).
-    recordBlasBuildChunks(*this, cmd, aabb_buffer.address);
+    // 2) (Re)build every chunk BLAS from its AABB slice (serialized on the shared scratch inside).
+    // Refit in place most frames; force a full rebuild on the first build and every rebuild_interval
+    // dirty frames (rebuild_interval <= 1 disables refit). The OU walk keeps particles bounded, so the
+    // topology from the last full rebuild stays a good fit between forced rebuilds.
+    bool do_refit = accel_ever_built && rebuild_interval > 1
+                  && (frames_since_full_rebuild + 1) < rebuild_interval;
+    recordBlasBuildChunks(*this, cmd, aabb_buffer.address, do_refit);
+    accel_ever_built = true;
+    frames_since_full_rebuild = do_refit ? frames_since_full_rebuild + 1 : 0;
+    if (do_refit) { stat_refits++; } else { stat_full_rebuilds++; }
 
     // Barrier: BLAS build writes -> TLAS build reads the BLASes (via the instances' AS references).
     VkMemoryBarrier blas_to_tlas{

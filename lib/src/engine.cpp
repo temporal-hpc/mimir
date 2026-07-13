@@ -1916,14 +1916,28 @@ void MimirInstance::renderFrame(bool advance_interop)
         bool cam_moved = camera.matrices.view != pt_last_view || camera.fov != pt_last_fov;
         pt_last_view = camera.matrices.view;
         pt_last_fov  = camera.fov;
-        if (advance_interop || pt_scene_dirty || cam_moved) { pt_accum_frame = 0; }
+        // The particle positions changed (a new sim iteration) iff advance_interop or the host-loop
+        // dirty flag is set; a camera move alone does NOT move geometry. Only a geometry change needs
+        // the AABB buffer + BLAS/TLAS (re)built -- when it is unchanged (paused sim, or a static view
+        // being accumulated) recordUpdateScene skips the whole build phase and reuses the AS.
+        //
+        // Camera motion does NOT invalidate the acceleration structure: the BVH is built in WORLD
+        // space and is independent of the viewpoint. Moving the camera only changes the rays the
+        // raygen shoots (pc.cam_* below) through the same unchanged geometry, so we re-trace the
+        // existing BVH -- never rebuild it. A camera move DOES invalidate the accumulated image
+        // (those samples were for the old view), so it resets the accumulator; it just does not
+        // touch the BVH. Hence rebuild is gated on geo_changed only, while the accumulator reset
+        // below is gated on geo_changed || cam_moved.
+        bool geo_changed = advance_interop || pt_scene_dirty;
+        if (geo_changed || cam_moved) { pt_accum_frame = 0; }
         pt_scene_dirty = false;
         pc.accum_frame = pt_accum_frame;
         pt_accum_frame++;
 
-        // Rebuild this frame's TLAS from the live interop positions, then trace it. When denoising,
-        // the trace leaves the display image in GENERAL and recordDenoise writes the filtered result.
-        raytracing.recordUpdateScene(cmd, frame_idx);
+        // (Re)build/refit this frame's AS from the live interop positions (only when they changed),
+        // then trace it. When denoising, the trace leaves the display image in GENERAL and
+        // recordDenoise writes the filtered result.
+        raytracing.recordUpdateScene(cmd, frame_idx, /*rebuild=*/geo_changed);
         raytracing.recordTrace(cmd, frame_idx, pc, /*leave_image_general=*/options.pt_denoise);
         if (options.pt_denoise) { raytracing.recordDenoise(cmd, frame_idx); }
     }
