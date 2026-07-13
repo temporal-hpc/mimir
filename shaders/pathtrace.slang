@@ -272,7 +272,10 @@ void sphereIntersect()
     // packed into cam_pos.w; for a single BLAS InstanceID()==0 so this reduces to PrimitiveIndex().
     uint chunk = asuint(pc.cam_pos.w);
     uint gid = InstanceID() * chunk + PrimitiveIndex();
-    Aabb box = pc.aabbs[gid];
+    // 64-bit index: a 32-bit index*stride wraps at 4 GiB (~179M particles at 24 B/AABB) and reads
+    // garbage boxes (see pathtrace_aabbs.slang). The gid VALUE fits in 32 bits; only the byte
+    // offset does not.
+    Aabb box = pc.aabbs[uint64_t(gid)];
     float3 mn = float3(box.minx, box.miny, box.minz);
     float3 mx = float3(box.maxx, box.maxy, box.maxz);
     float3 center = 0.5 * (mn + mx);

@@ -32,13 +32,17 @@ void writeAabbsMain(uint3 tid : SV_DispatchThreadID)
     uint i = tid.x;
     if (i >= pc.count) { return; }
 
-    float px = pc.positions[3 * i + 0];
-    float py = pc.positions[3 * i + 1];
-    float pz = pc.positions[3 * i + 2];
+    // BDA pointer indices must be 64-bit: with a 32-bit index the driver's index*stride multiply
+    // wraps at 4 GiB of byte offset -- at stride 24 that is only ~179M particles (stride 12: ~357M),
+    // and the wrapped stores land misaligned across earlier records, shredding the AABB buffer.
+    uint64_t gi = uint64_t(i);
+    float px = pc.positions[gi * 3 + 0];
+    float py = pc.positions[gi * 3 + 1];
+    float pz = pc.positions[gi * 3 + 2];
     float r  = pc.radius;
 
     Aabb a;
     a.minx = px - r; a.miny = py - r; a.minz = pz - r;
     a.maxx = px + r; a.maxy = py + r; a.maxz = pz + r;
-    pc.aabbs[i] = a; // BDA store: pointer indexing, no descriptor-range limit
+    pc.aabbs[gi] = a; // BDA store: pointer indexing, no descriptor-range limit
 }
