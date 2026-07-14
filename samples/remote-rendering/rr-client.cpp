@@ -165,6 +165,12 @@ const char *g_transport = "?";
 // Initial window size the viewer opens at (--window W H). 0 = match the stream resolution.
 // This is purely local: the frame is still stretched to fill the window (server res unchanged).
 int g_win_w = 0, g_win_h = 0;
+// How long to wait for the server's first frame before giving up (--first-frame-timeout SECONDS).
+// The first path-traced frame is a cold full BLAS build + trace with no refit/accumulation shortcut,
+// so it can take a minute-plus at hundreds of millions of particles and scales with N: ~62 s was
+// observed at 2^29, so 2^30 can exceed 4 min. Default generously; a dead connection still exits
+// early via g.running regardless of this cap.
+int g_first_frame_timeout_sec = 300;
 // Set from the Hello handshake: true when the server runs the Fly camera, so the viewer drives
 // it with mouse-look (CameraLook) + WASD (CameraMove) instead of the trackball orbit/zoom/pan.
 std::atomic<bool> g_fly{false};
@@ -1292,12 +1298,13 @@ void key_cb(GLFWwindow *win, int key, int, int action, int mods)
     }
 }
 
-// Waits (up to ~60 s) for the session to deliver the first frame so we know the stream geometry.
-// Generous on purpose: at huge particle counts the server's first path-traced frame can take
-// several seconds, and a dead connection already exits early via g.running.
+// Waits (up to g_first_frame_timeout_sec) for the session to deliver the first frame so we know the
+// stream geometry. Generous on purpose: at huge particle counts the server's first path-traced frame
+// can take minutes, and a dead connection already exits early via g.running.
 bool wait_for_geometry(int& w, int& h)
 {
-    for (int i = 0; i < 6000 && g.running.load(); ++i)
+    const int max_iters = g_first_frame_timeout_sec * 100; // 10 ms per iter => 100 iters/second
+    for (int i = 0; i < max_iters && g.running.load(); ++i)
     {
         { std::lock_guard<std::mutex> lock(g.frame_mtx); if (g.have_geometry) { w = g.w; h = g.h; return true; } }
         if (i > 0 && i % 500 == 0) { printf("rr-client: waiting for first frame (%d s)...\n", i / 100); }
@@ -1428,8 +1435,9 @@ int run_headless(int frames)
 void bench_thread()
 {
     // Wait for the stream to come up so the script timeline starts at the first frame (same
-    // generous window as wait_for_geometry: the first frame can take seconds at huge N).
-    for (int i = 0; i < 6000 && g.running.load() && !g.quit.load(); ++i)
+    // generous window as wait_for_geometry: the first frame can take minutes at huge N).
+    const int max_iters = g_first_frame_timeout_sec * 100; // 10 ms per iter => 100 iters/second
+    for (int i = 0; i < max_iters && g.running.load() && !g.quit.load(); ++i)
     {
         { std::lock_guard<std::mutex> lock(g.frame_mtx); if (g.have_geometry) { break; } }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1510,6 +1518,11 @@ static void usage(const char *prog)
         "                 by the server. Purely local -- the frame is stretched to fill the\n"
         "                 window; the server keeps rendering at its own resolution (not\n"
         "                 renegotiated).\n"
+        "  --first-frame-timeout SECONDS\n"
+        "                 How long to wait for the server's first frame before giving up with\n"
+        "                 'no stream received' (default: 300). The first path-traced frame is a\n"
+        "                 cold full build + trace and scales with particle count: ~62 s at 2^29,\n"
+        "                 several minutes at 2^30. Raise this when driving very large scenes.\n"
         "  --benchmark P  Drive the camera with a deterministic 60 s script in five 12 s phases\n"
         "                 spanning a static-to-high-motion gradient (far: static baseline; orbit:\n"
         "                 one full orbit; zoom_in: dive into the cloud; look_around: turn the gaze\n"
@@ -1577,6 +1590,14 @@ int main(int argc, char *argv[])
             if (i + 1 >= argc) { fprintf(stderr, "missing csv file for --benchmark\n"); return EXIT_FAILURE; }
             benchmark = true;
             bench_csv = argv[++i];
+            continue;
+        }
+        if (a == "--first-frame-timeout")
+        {
+            if (i + 1 >= argc) { fprintf(stderr, "missing SECONDS for --first-frame-timeout\n"); return EXIT_FAILURE; }
+            g_first_frame_timeout_sec = std::atoi(argv[++i]);
+            if (g_first_frame_timeout_sec <= 0)
+            { fprintf(stderr, "invalid --first-frame-timeout (expected positive seconds)\n"); return EXIT_FAILURE; }
             continue;
         }
         if (a == "--window" || a == "--size")
