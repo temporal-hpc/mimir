@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
 
+#include <array> // std::array
 #include <cstdint>
 #include <functional> // std::function
 #include <vector> // std::vector
@@ -95,6 +96,12 @@ struct RayTracingContext
     // Must match the engine's MAX_FRAMES_IN_FLIGHT; frame indices are render_timeline % this.
     static constexpr uint32_t FRAMES = 3;
 
+    // What recordUpdateScene did to the acceleration structure for a given frame. Stored per frame
+    // slot (see slot_build_mode) so the GPU-timestamped build time read back FRAMES frames later can
+    // be attributed to the mode that actually produced it -- the split and its label describe the
+    // same frame, not a frame FRAMES steps apart.
+    enum class BlasBuild : uint8_t { Skip, Refit, Rebuild };
+
     VkDevice device = VK_NULL_HANDLE;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties mem_props{};
@@ -143,6 +150,10 @@ struct RayTracingContext
     uint64_t stat_full_rebuilds = 0;
     uint64_t stat_refits = 0;
     uint64_t stat_skips = 0;
+    // The build mode chosen for each in-flight frame slot, keyed by frame_idx. recordUpdateScene
+    // stamps this frame's slot; readTimings reads slot frame_idx (the frame FRAMES steps ago) and
+    // copies it into last_build_mode alongside that frame's build time -- so the two stay paired.
+    std::array<BlasBuild, FRAMES> slot_build_mode{};
     RtBuffer tlas_instance_buffer;    // one VkAccelerationStructureInstanceKHR per chunk -> its BLAS
     AccelStruct scene_tlas;           // TLAS over the per-chunk instances
     RtBuffer tlas_scratch;            // TLAS build scratch (tiny: one instance per chunk)
@@ -218,13 +229,27 @@ struct RayTracingContext
     VkDescriptorPool atrous_pool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> atrous_sets;
 
-    // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*4 timestamps (per frame:
-    // 0/1 bracket the instance-writer + TLAS build, 2/3 bracket the trace). Read back with one
-    // frame of latency (after the frame's fence). last_*_ms hold the most recent readings.
+    // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*TS_PER_FRAME timestamps. The
+    // build phase is split into its three sub-phases so callers can see where the frame goes (at
+    // large N the build dominates, but which part -- the AABB writer, the BLAS build/refit, or the
+    // TLAS rebuild -- was previously hidden in one lumped "build" number). Per-frame slots:
+    //   +0 build start (TOP_OF_PIPE)   +1 after AABB writer   +2 after BLAS   +3 after TLAS (build end)
+    //   +4 trace start (TOP_OF_PIPE)   +5 trace end
+    // Read back with FRAMES frames of latency (after the frame's fence). last_*_ms hold the most
+    // recent readings; last_build_ms = aabb+blas+tlas (the whole build phase).
+    static constexpr uint32_t TS_PER_FRAME = 6;
     VkQueryPool timing_pool = VK_NULL_HANDLE;
     float timestamp_period = 0.f; // nanoseconds per tick (0 = timestamps unsupported, disabled)
-    double last_tlas_ms = 0.0;    // AS-build phase (AABB writer + BLAS build/refit + TLAS), last frame
+    double last_aabb_ms  = 0.0;   // AABB writer (fills the shared aabb_buffer from positions), last frame
+    double last_blas_ms  = 0.0;   // BLAS build (rebuild) or refit (update) over the AABB chunks, last frame
+    double last_tlas_ms  = 0.0;   // TLAS rebuild over the per-chunk instances, last frame
+    double last_build_ms = 0.0;   // whole AS-build phase = aabb + blas + tlas, last frame
     double last_trace_ms = 0.0;   // vkCmdTraceRays time, last completed frame
+    BlasBuild last_build_mode = BlasBuild::Skip; // mode of the frame the last_*_ms readings are from
+    // False until readTimings first reads real results. For the first FRAMES frames of a session the
+    // readback slot has not been written yet, so last_*_ms/last_build_mode are still defaults (0 ms,
+    // Skip) -- callers use this to suppress a bogus "no build ... 1 skip" line during that warmup.
+    bool have_timings = false;
     // Backdrop colour (background * intensity) captured from the last recordTrace push constants, so
     // recordDenoise's final à-trous pass can show it on primary-miss pixels (see pathtrace_atrous).
     glm::vec3 backdrop_color{0.f};
@@ -277,7 +302,8 @@ struct RayTracingContext
     // after recordTrace(..., leave_image_general=true). No-op if denoiser resources are absent.
     void recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx);
 
-    // Read back the given frame's TLAS-build/trace timestamps into last_tlas_ms/last_trace_ms.
+    // Read back the given frame's build/trace timestamps into last_build_ms/last_trace_ms, and copy
+    // that frame slot's build mode into last_build_mode so the split and its label stay paired.
     // Call after the frame's fence has signalled (its previous submission is complete) and BEFORE
     // recordUpdateScene resets the queries for the new frame. No-op if timing is unsupported.
     void readTimings(uint32_t frame_idx);

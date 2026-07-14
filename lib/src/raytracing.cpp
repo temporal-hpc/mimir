@@ -861,17 +861,18 @@ RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     };
     vkGetPhysicalDeviceProperties2(gpu, &props2);
 
-    // GPU-timestamp timing pool for the HUD/CSV (FRAMES*4 timestamps; see the header). Disabled
-    // if the device reports a 0 timestamp period (no timestamp support), leaving timings at 0.
+    // GPU-timestamp timing pool for the HUD/CSV (FRAMES*TS_PER_FRAME timestamps; see the header).
+    // Disabled if the device reports a 0 timestamp period (no timestamp support), leaving timings at 0.
     ctx.timestamp_period = props2.properties.limits.timestampPeriod;
     if (ctx.timestamp_period > 0.f)
     {
         VkQueryPoolCreateInfo qinfo{
             .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, .pNext = nullptr, .flags = 0,
-            .queryType = VK_QUERY_TYPE_TIMESTAMP, .queryCount = FRAMES * 4, .pipelineStatistics = 0,
+            .queryType = VK_QUERY_TYPE_TIMESTAMP, .queryCount = FRAMES * TS_PER_FRAME,
+            .pipelineStatistics = 0,
         };
         validation::checkVulkan(vkCreateQueryPool(device, &qinfo, nullptr, &ctx.timing_pool));
-        vkResetQueryPool(device, ctx.timing_pool, 0, FRAMES * 4);
+        vkResetQueryPool(device, ctx.timing_pool, 0, FRAMES * TS_PER_FRAME);
     }
 
     // subdiv is no longer used: spheres are analytic procedural AABBs (no tessellated mesh), so the
@@ -1220,17 +1221,21 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     if (!must_build)
     {
         stat_skips++;
+        slot_build_mode[frame_idx] = BlasBuild::Skip;
         // Positions unchanged since the last built frame (paused / no new sim step): the shared
         // BLAS/TLAS are still valid, so skip the AABB-writer + AS (re)build entirely and let the trace
         // reuse them (the accumulator keeps converging on the static scene). No writes here means no
         // write-after-read hazard on the shared resources, so the cross-frame serialize barrier is not
-        // needed. Still reset this frame's timestamps (recordTrace writes slots 2/3, which must be
-        // reset first) and stamp the build phase as ~0 by placing its two marks adjacently.
+        // needed. Still reset this frame's timestamps (recordTrace writes the trace slots, which must
+        // be reset first) and stamp every build sub-phase as ~0 by placing marks +0..+3 adjacently.
         if (timing_pool != VK_NULL_HANDLE)
         {
-            vkCmdResetQueryPool(cmd, timing_pool, frame_idx * 4, 4);
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 0);
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 1);
+            vkCmdResetQueryPool(cmd, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME);
+            uint32_t base = frame_idx * TS_PER_FRAME;
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,    timing_pool, base + 0);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, base + 1);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, base + 2);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, base + 3);
         }
         return;
     }
@@ -1253,12 +1258,14 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
         0, 1, &serialize, 0, nullptr, 0, nullptr);
 
-    // Reset this frame's 4 timestamps (previous readings for frame_idx were already read back in
-    // renderFrame) and stamp the start of the AABB-writer + AS builds.
+    // Reset this frame's TS_PER_FRAME timestamps (previous readings for frame_idx were already read
+    // back in renderFrame) and stamp the start of the build phase (before the AABB writer). The
+    // per-phase boundary marks (+1 after AABB, +2 after BLAS, +3 after TLAS) are stamped below, so
+    // readTimings can attribute the build time to its three sub-phases.
     if (timing_pool != VK_NULL_HANDLE)
     {
-        vkCmdResetQueryPool(cmd, timing_pool, frame_idx * 4, 4);
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 0);
+        vkCmdResetQueryPool(cmd, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 0);
     }
 
     // 1) AABB writer: fill the shared AABB buffer from the live positions (one sphere per particle).
@@ -1282,6 +1289,13 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &to_build, 0, nullptr, 0, nullptr);
 
+    // Sub-phase boundary: AABB writer done. The to_build barrier already made the compute writes
+    // complete before the BLAS build, so a BOTTOM_OF_PIPE mark here fences the AABB writer's time.
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 1);
+    }
+
     // 2) (Re)build every chunk BLAS from its AABB slice (serialized on the shared scratch inside).
     // Refit in place most frames; force a full rebuild on the first build and every rebuild_interval
     // dirty frames (rebuild_interval <= 1 disables refit). The OU walk keeps particles bounded, so the
@@ -1292,6 +1306,7 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     accel_ever_built = true;
     frames_since_full_rebuild = do_refit ? frames_since_full_rebuild + 1 : 0;
     if (do_refit) { stat_refits++; } else { stat_full_rebuilds++; }
+    slot_build_mode[frame_idx] = do_refit ? BlasBuild::Refit : BlasBuild::Rebuild;
 
     // Barrier: BLAS build writes -> TLAS build reads the BLASes (via the instances' AS references).
     VkMemoryBarrier blas_to_tlas{
@@ -1301,6 +1316,12 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
         VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &blas_to_tlas, 0, nullptr, 0, nullptr);
+
+    // Sub-phase boundary: BLAS build/refit done (fenced by the blas_to_tlas barrier above).
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 2);
+    }
 
     // 3) Rebuild the TLAS over the per-chunk instances (their cached BLAS bounds change as particles move).
     recordTlasBuild(*this, cmd, scene_tlas, tlas_scratch, tlas_instance_buffer.address,
@@ -1315,10 +1336,10 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
         VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1, &to_trace, 0, nullptr, 0, nullptr);
 
-    // Stamp the end of the AABB writer + BLAS/TLAS builds.
+    // Sub-phase boundary: TLAS rebuild done = end of the whole build phase (fenced by to_trace).
     if (timing_pool != VK_NULL_HANDLE)
     {
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 1);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 3);
     }
 }
 
@@ -1408,13 +1429,13 @@ void RayTracingContext::recordTrace(VkCommandBuffer cmd, uint32_t frame_idx,
         0, sizeof(RtPushConstants), &push);
     if (timing_pool != VK_NULL_HANDLE)
     {
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 2);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 4);
     }
     api.cmdTraceRays(cmd, &raygen_region, &miss_region, &hit_region, &callable_region,
         extent.width, extent.height, 1);
     if (timing_pool != VK_NULL_HANDLE)
     {
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * 4 + 3);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 5);
     }
 
     // Transition to SHADER_READ_ONLY so the composite fragment shader can sample it -- unless the
@@ -1500,15 +1521,24 @@ void RayTracingContext::recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx)
 void RayTracingContext::readTimings(uint32_t frame_idx)
 {
     if (timing_pool == VK_NULL_HANDLE) { return; }
-    uint64_t ts[4] = { 0, 0, 0, 0 };
+    uint64_t ts[TS_PER_FRAME] = {};
     // No WAIT_BIT: the caller only reads after the frame's fence, so results are ready; if for any
     // reason they are not (VK_NOT_READY), keep the previous values rather than stalling.
-    VkResult r = vkGetQueryPoolResults(device, timing_pool, frame_idx * 4, 4,
+    VkResult r = vkGetQueryPoolResults(device, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME,
         sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
     if (r != VK_SUCCESS) { return; }
+    // Slots: 0 build start, 1 after AABB, 2 after BLAS, 3 after TLAS (build end), 4/5 trace.
     double ms_per_tick = static_cast<double>(timestamp_period) / 1.0e6;
-    last_tlas_ms  = static_cast<double>(ts[1] - ts[0]) * ms_per_tick;
-    last_trace_ms = static_cast<double>(ts[3] - ts[2]) * ms_per_tick;
+    last_aabb_ms  = static_cast<double>(ts[1] - ts[0]) * ms_per_tick;
+    last_blas_ms  = static_cast<double>(ts[2] - ts[1]) * ms_per_tick;
+    last_tlas_ms  = static_cast<double>(ts[3] - ts[2]) * ms_per_tick;
+    last_build_ms = static_cast<double>(ts[3] - ts[0]) * ms_per_tick;
+    last_trace_ms = static_cast<double>(ts[5] - ts[4]) * ms_per_tick;
+    have_timings = true; // readings are now real, not the session-start defaults
+    // Pair the build time with the mode that produced it. slot_build_mode[frame_idx] was stamped by
+    // recordUpdateScene FRAMES frames ago -- the same frame these timestamps are from -- so the split
+    // and its refit/rebuild/skip label describe one frame, not two FRAMES apart.
+    last_build_mode = slot_build_mode[frame_idx];
 }
 
 void RayTracingContext::recordComposite(VkCommandBuffer cmd, uint32_t frame_idx)

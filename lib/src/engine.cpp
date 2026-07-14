@@ -2300,7 +2300,7 @@ PerformanceMetrics MimirInstance::getMetrics()
             .compute  = compute_monitor.total_compute_time,
             .graphics = graphics_monitor.total_graphics_time,
             .pipeline = (float)graphics_monitor.total_pipeline_time,
-            .tlas_build = rt_enabled ? (float)raytracing.last_tlas_ms : 0.f,
+            .tlas_build = rt_enabled ? (float)raytracing.last_build_ms : 0.f,
             .trace      = rt_enabled ? (float)raytracing.last_trace_ms : 0.f,
             .wait   = graphics_monitor.last_wait_ms,
             .record = graphics_monitor.last_record_ms,

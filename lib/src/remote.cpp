@@ -615,11 +615,15 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         size_t win_start_iter = total_iter.load(); // sim step count at the window's start
         double win_enc_us = 0.0, win_enc_us_sq = 0.0; // sum and sum-of-squares, for mean + std
         double win_render_ms = 0.0;                   // sum of per-frame GPU render time, for the mean
-        double win_build_ms = 0.0, win_trace_ms = 0.0; // path-tracing AS-build vs trace split (GPU timestamps)
-        // Cumulative AS-build tallies at the window's start, so the printed counts are per-window deltas.
-        uint64_t win_start_refits   = rt_enabled ? raytracing.stat_refits : 0;
-        uint64_t win_start_rebuilds = rt_enabled ? raytracing.stat_full_rebuilds : 0;
-        uint64_t win_start_skips    = rt_enabled ? raytracing.stat_skips : 0;
+        // Path-tracing GPU-timestamp split, bucketed by the readback frame's actual build mode so the
+        // times and their refit/rebuild/skip counts describe the same frames (see readTimings). The
+        // build phase is broken into its three sub-phases: the AABB writer and the TLAS rebuild are
+        // mode-independent (run identically on refit and rebuild frames), but the BLAS sub-phase is
+        // the mode-sensitive part -- a full rebuild is ~2x a refit -- so it is kept per mode. Trace is
+        // summed over every traced frame (skips still trace, with ~0 build).
+        double win_aabb_ms = 0.0, win_tlas_ms = 0.0, win_trace_ms = 0.0;
+        double win_refit_blas_ms = 0.0, win_rebuild_blas_ms = 0.0;
+        uint64_t win_refit_n = 0, win_rebuild_n = 0, win_skip_n = 0;
 
         while (true)
         {
@@ -885,12 +889,29 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 win_enc_us += enc_us;
                 win_enc_us_sq += enc_us * enc_us;
                 win_render_ms += render_ms;
-                // Path tracing exposes a GPU-timestamp split of the render: last_tlas_ms is the AS-build
-                // phase (AABB writer + BLAS + TLAS), last_trace_ms the vkCmdTraceRays. Read after
-                // renderFrame() updated them (one frame of latency). Zero for non-PT modes.
-                if (rt_enabled)
+                // Path tracing exposes a GPU-timestamp split of the render: last_aabb_ms / last_blas_ms /
+                // last_tlas_ms are the three build sub-phases, last_trace_ms the vkCmdTraceRays, and
+                // last_build_mode the mode that produced them. readTimings paired them all from the same
+                // (FRAMES-old) frame, so the BLAS time is bucketed by that frame's own mode; the AABB and
+                // TLAS sub-phases are mode-independent. Skipped until have_timings, so the session's first
+                // FRAMES frames (readback not written yet, values still defaults) do not pollute the mix.
+                if (rt_enabled && raytracing.have_timings)
                 {
-                    win_build_ms += raytracing.last_tlas_ms;
+                    switch (raytracing.last_build_mode)
+                    {
+                        case RayTracingContext::BlasBuild::Refit:
+                            win_aabb_ms += raytracing.last_aabb_ms;
+                            win_refit_blas_ms += raytracing.last_blas_ms; ++win_refit_n;
+                            win_tlas_ms += raytracing.last_tlas_ms;
+                            break;
+                        case RayTracingContext::BlasBuild::Rebuild:
+                            win_aabb_ms += raytracing.last_aabb_ms;
+                            win_rebuild_blas_ms += raytracing.last_blas_ms; ++win_rebuild_n;
+                            win_tlas_ms += raytracing.last_tlas_ms;
+                            break;
+                        case RayTracingContext::BlasBuild::Skip:
+                            ++win_skip_n; break; // skip build time is ~0 (adjacent timestamps)
+                    }
                     win_trace_ms += raytracing.last_trace_ms;
                 }
             }
@@ -951,20 +972,49 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 // For path tracing, break the render time into its GPU-timestamped AS-build vs trace
                 // phases so it is clear where the frame goes (at large N the build dominates).
                 std::string rt_split;
-                if (rt_enabled)
+                if (rt_enabled && !raytracing.have_timings)
+                {
+                    // Session warmup: the readback slots are not written for the first FRAMES frames.
+                    rt_split = " (build timings warming up)";
+                }
+                else if (rt_enabled)
                 {
                     // Per-window mix of the AS-build modes: cheap in-place refits vs full rebuilds vs
                     // skipped (unchanged-scene) frames. A healthy live stream is mostly refits with the
-                    // occasional rebuild; a paused view is mostly skips.
-                    unsigned long long d_refit = raytracing.stat_refits - win_start_refits;
-                    unsigned long long d_rebuild = raytracing.stat_full_rebuilds - win_start_rebuilds;
-                    unsigned long long d_skip = raytracing.stat_skips - win_start_skips;
-                    char buf[128];
+                    // occasional rebuild; a paused view is mostly skips. The build phase is split into
+                    // aabb (writer) + blas + tlas so it is clear where the time goes; the BLAS part is
+                    // shown per mode when a window mixes them (a full rebuild is ~2x a refit, so a blended
+                    // mean would hide that). Skips have ~0 build and appear only in the count.
+                    auto fmt1 = [](double v) {
+                        char b[32]; snprintf(b, sizeof(b), "%.1f", v); return std::string(b);
+                    };
+                    const uint64_t build_n = win_refit_n + win_rebuild_n; // frames that built (not skips)
+                    std::string build_part;
+                    if (build_n)
+                    {
+                        // BLAS sub-phase: label per mode only when both occurred; the count triple
+                        // disambiguates a single-mode window.
+                        std::string blas;
+                        if (win_refit_n && win_rebuild_n)
+                        {
+                            blas = "refit " + fmt1(win_refit_blas_ms / static_cast<double>(win_refit_n))
+                                 + " / rebuild " + fmt1(win_rebuild_blas_ms / static_cast<double>(win_rebuild_n));
+                        }
+                        else if (win_refit_n)   { blas = fmt1(win_refit_blas_ms / static_cast<double>(win_refit_n)); }
+                        else                    { blas = fmt1(win_rebuild_blas_ms / static_cast<double>(win_rebuild_n)); }
+                        build_part = "aabb " + fmt1(win_aabb_ms / static_cast<double>(build_n))
+                                   + " + blas " + blas
+                                   + " + tlas " + fmt1(win_tlas_ms / static_cast<double>(build_n));
+                    }
+                    else { build_part = "no build"; } // window was all skips
+                    char buf[256];
                     snprintf(buf, sizeof(buf),
-                        " (build %.1f + trace %.1f ms | %llu refit, %llu rebuild, %llu skip)",
-                        win_build_ms / static_cast<double>(win_frames),
+                        " (%s + trace %.1f ms | %llu refit, %llu rebuild, %llu skip)",
+                        build_part.c_str(),
                         win_trace_ms / static_cast<double>(win_frames),
-                        d_refit, d_rebuild, d_skip);
+                        static_cast<unsigned long long>(win_refit_n),
+                        static_cast<unsigned long long>(win_rebuild_n),
+                        static_cast<unsigned long long>(win_skip_n));
                     rt_split = buf;
                 }
                 spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}) | frame {:6d} | {:5.1f} fps | "
@@ -997,13 +1047,9 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
                 win_start = now; win_frames = 0; win_bytes = 0;
                 win_enc_us = 0.0; win_enc_us_sq = 0.0; win_render_ms = 0.0;
-                win_build_ms = 0.0; win_trace_ms = 0.0;
-                if (rt_enabled)
-                {
-                    win_start_refits   = raytracing.stat_refits;
-                    win_start_rebuilds = raytracing.stat_full_rebuilds;
-                    win_start_skips    = raytracing.stat_skips;
-                }
+                win_aabb_ms = 0.0; win_tlas_ms = 0.0; win_trace_ms = 0.0;
+                win_refit_blas_ms = 0.0; win_rebuild_blas_ms = 0.0;
+                win_refit_n = 0; win_rebuild_n = 0; win_skip_n = 0;
                 win_start_iter = iters;
             }
         }
