@@ -25,6 +25,15 @@
 namespace mimir
 {
 
+// LodContext rings its per-frame OUTPUT buffers (reduced_pos/indirect/counter) over NUM_SLOTS slots,
+// and the engine indexes them by render_timeline % MAX_FRAMES_IN_FLIGHT (see recordLodRaster /
+// drawElements below). The two constants MUST match or that index runs out of bounds into unrelated
+// heap memory the moment MAX_FRAMES_IN_FLIGHT is changed without updating lod.hpp. lod.hpp cannot
+// include engine.hpp (circular include), so the check lives here instead, where both are in scope.
+static_assert(LodContext::NUM_SLOTS == MAX_FRAMES_IN_FLIGHT,
+    "LodContext ring size must match frames-in-flight; the engine indexes LOD per-slot buffers by "
+    "render_timeline % MAX_FRAMES_IN_FLIGHT");
+
 VkPresentModeKHR getDesiredPresentMode(PresentMode opts)
 {
     switch (opts)
@@ -234,6 +243,14 @@ void MimirInstance::prepare()
         && (options.light_model == LightModel::None || options.light_model == LightModel::Phong
             || options.light_model == LightModel::PhongMesh)
         && supportsRayTracing(physical_device.handle); // BDA (scatter) needs bufferDeviceAddress
+    if (options.pt_lod_cells > 0 && !rt_enabled && !supportsRayTracing(physical_device.handle))
+    {
+        // Raster LOD needs bufferDeviceAddress (scatter reads positions by BDA); without RT support
+        // there is no BDA guarantee, so raster_point_lod above is forced false and --lod is silently
+        // dropped. Tell the user instead of letting the full unreduced cloud render with no explanation.
+        spdlog::warn("--lod {} ignored: this GPU lacks the ray-tracing/BDA support the LOD reduction "
+                     "needs; rendering all particles", options.pt_lod_cells);
+    }
     if (raster_point_lod && !lod_context.active())
     {
         for (auto* view : views)
@@ -2276,7 +2293,8 @@ void MimirInstance::drawElements(uint32_t image_idx)
         const bool lod_point_draw = !view->use_ibo && lod_context.active() && marker_point_mode;
         // Mesh LOD (phong-mesh): the reduced positions replace the per-INSTANCE centers (binding 1),
         // and instanceCount comes from the GPU indirect-args buffer via vkCmdDrawIndexedIndirect.
-        const bool lod_mesh_draw = view->use_ibo && lod_context.active() && marker_mesh_mode;
+        const bool lod_mesh_draw = view->use_ibo && lod_context.active() && marker_mesh_mode
+            && view->vb_count >= 2;
         if (lod_point_draw)
         {
             VkBuffer     vbos[max_attr_count];

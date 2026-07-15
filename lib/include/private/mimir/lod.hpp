@@ -53,8 +53,10 @@ public:
 
     // Build the LOD stage: create the scatter/emit compute pipelines and allocate the accumulator,
     // counter, and reduced-position buffers for an N^3 grid over `particle_count` particles.
-    // `int64_atomics` gates centroid placement (else cell-center fallback). Idempotent per instance;
-    // call once before the first recordReduction. active() is true afterwards (grid_n = N > 0).
+    // `int64_atomics` gates centroid placement (else cell-center fallback). Call-once: there is no
+    // idempotency guard, so a second call would leak the pipelines/buffers allocated by the first
+    // (callers already guarantee init() runs at most once per instance). active() is true afterwards
+    // (grid_n = N > 0).
     void init(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props,
         bool int64_atomics, uint32_t grid_n, uint32_t particle_count);
 
