@@ -214,7 +214,7 @@ void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, 
 // that gets). The shared scratch is sized for the largest full build, so it also covers any update
 // (updateScratchSize <= buildScratchSize).
 void recordBlasBuildChunks(RayTracingContext& ctx, VkCommandBuffer cmd, VkDeviceAddress aabb_addr,
-    bool update)
+    bool update, uint32_t override_prims = 0)
 {
     auto scratch_align = ctx.accel_props.minAccelerationStructureScratchOffsetAlignment;
     VkDeviceAddress scratch_addr = alignUp(ctx.blas_scratch.address, scratch_align);
@@ -222,7 +222,10 @@ void recordBlasBuildChunks(RayTracingContext& ctx, VkCommandBuffer cmd, VkDevice
 
     for (uint32_t c = 0; c < num_chunks; ++c)
     {
-        uint32_t prims = chunkPrimCount(ctx, c);
+        // LOD builds a single chunk over the compacted occupied-cell list, whose length varies per
+        // frame; override_prims (> 0) supplies that count. The per-particle path passes 0 and uses
+        // the fixed chunk size.
+        uint32_t prims = (override_prims > 0) ? override_prims : chunkPrimCount(ctx, c);
         VkAccelerationStructureGeometryKHR geometry{};
         auto build_info = blasBuildInfo(geometry, chunkAabbAddr(ctx, aabb_addr, c));
         build_info.dstAccelerationStructure = ctx.scene_blas[c].handle;
@@ -1194,7 +1197,24 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     // device address (want_address below), NOT a STORAGE descriptor, so its size is not capped by
     // maxStorageBufferRange; it needs only AS_BUILD_INPUT (BLAS read) and a device address (BDA store
     // + BLAS build input). One shared copy (see raytracing.hpp).
-    VkDeviceSize aabb_size = VkDeviceSize(count) * sizeof(VkAabbPositionsKHR);
+    //
+    // LOD aggregates particles into <= min(N^3, P) occupied-cell spheres, so both the AABB buffer
+    // and the BLAS are sized to that bound (smaller than P at large N). Per-particle mode sizes to P.
+    uint32_t geom_prims = count;
+    if (lod_cells > 0)
+    {
+        uint64_t cells = uint64_t(lod_cells) * lod_cells * lod_cells;
+        lod_max_cells = static_cast<uint32_t>(std::min<uint64_t>(cells, count));
+        geom_prims = lod_max_cells;
+
+        // Per-cell occupancy counts (one uint each) + the emitted-primitive counter (host-readable).
+        lod_cellcount_buffer = makeBuffer(*this, VkDeviceSize(cells) * sizeof(uint32_t),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, false);
+        lod_counter_buffer = makeBuffer(*this, sizeof(uint32_t),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true);
+    }
+
+    VkDeviceSize aabb_size = VkDeviceSize(geom_prims) * sizeof(VkAabbPositionsKHR);
     aabb_buffer = makeBuffer(*this, aabb_size,
         VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
         DEVICE_LOCAL, true);
@@ -1204,8 +1224,8 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     // into the push constant (cam_pos.w) so the intersection shader can turn its local PrimitiveIndex
     // back into a global one.
     blas_chunk_prims = accel_props.maxPrimitiveCount > 0
-        ? static_cast<uint32_t>(std::min<uint64_t>(accel_props.maxPrimitiveCount, count))
-        : count;
+        ? static_cast<uint32_t>(std::min<uint64_t>(accel_props.maxPrimitiveCount, geom_prims))
+        : geom_prims;
     if (const char* env = std::getenv("MIMIR_PT_BLAS_CHUNK"))
     {
         uint32_t override_prims = static_cast<uint32_t>(std::strtoull(env, nullptr, 10));
@@ -1215,13 +1235,14 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     // One BLAS per chunk (rebuilt each frame), then one TLAS instance per chunk (identity transform,
     // instanceCustomIndex = chunk index). BLAS device addresses are stable across rebuilds, so the
     // instances are written once here.
-    createDynamicBlasChunks(*this, aabb_buffer.address, count);
+    createDynamicBlasChunks(*this, aabb_buffer.address, geom_prims);
     uint32_t num_chunks = static_cast<uint32_t>(scene_blas.size());
     spdlog::info("Path tracing: {} particles in {} BLAS chunk(s) of up to {} prims",
         count, num_chunks, blas_chunk_prims);
     if (lod_cells > 0)
     {
-        spdlog::info("Path tracing: LOD grid requested: {}^3 cells (per-particle path still active until wired)", lod_cells);
+        spdlog::info("Path tracing: LOD {}^3 grid, up to {} occupied-cell primitives (from {} particles)",
+            lod_cells, lod_max_cells, count);
     }
 
     // BLAS refit cadence: full rebuild every rebuild_interval dirty frames, refit in between (see the
@@ -1282,6 +1303,27 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
         vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
+    if (lod_cells > 0)
+    {
+        VkDescriptorBufferInfo cc{ .buffer = lod_cellcount_buffer.buffer, .offset = 0, .range = VK_WHOLE_SIZE };
+        VkDescriptorBufferInfo gc{ .buffer = lod_counter_buffer.buffer,  .offset = 0, .range = VK_WHOLE_SIZE };
+        VkWriteDescriptorSet writes[3] = {
+            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = lod_scatter_set,
+              .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
+              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
+              .pBufferInfo = &cc, .pTexelBufferView = nullptr },
+            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = lod_emit_set,
+              .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
+              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
+              .pBufferInfo = &cc, .pTexelBufferView = nullptr },
+            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = lod_emit_set,
+              .dstBinding = 1, .dstArrayElement = 0, .descriptorCount = 1,
+              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
+              .pBufferInfo = &gc, .pTexelBufferView = nullptr },
+        };
+        vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+    }
+
     // Populate the AABBs and build the BLAS + TLAS once (positions are already valid at bind time),
     // so the first rendered frame has a coherent AS even before its own update.
     submit([&](VkCommandBuffer cmd) {
@@ -1300,6 +1342,28 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     // the caller's `rebuild` flag decides. A rebuilt-from-scratch BLAS over ~5*10^8 AABBs is the frame's
     // dominant cost, so we do as little as the scene allows.
     bool must_build = rebuild || !accel_ever_built;
+
+    if (lod_cells > 0)
+    {
+        if (!must_build)
+        {
+            // Same skip bookkeeping as the per-particle path: reuse the existing AS, stamp ~0 build.
+            stat_skips++;
+            slot_build_mode[frame_idx] = BlasBuild::Skip;
+            if (timing_pool != VK_NULL_HANDLE)
+            {
+                vkCmdResetQueryPool(cmd, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME);
+                uint32_t base = frame_idx * TS_PER_FRAME;
+                vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,    timing_pool, base + 0);
+                vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, base + 1);
+                vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, base + 2);
+                vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, base + 3);
+            }
+            return;
+        }
+        recordLodUpdate(cmd, frame_idx);
+        return;
+    }
 
     if (!must_build)
     {
@@ -1423,6 +1487,105 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     if (timing_pool != VK_NULL_HANDLE)
     {
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 3);
+    }
+}
+
+// LOD path: aggregate particles into occupied-cell spheres on the GPU (clear -> scatter -> emit)
+// in an internal one-shot submit, read the emitted count back, then full-rebuild the BLAS/TLAS over
+// exactly that many primitives in the frame command buffer. The one-shot's vkQueueWaitIdle also
+// serializes against the previous frame's trace (which reads the AABB buffer), so no separate
+// cross-frame barrier is needed here. Aggregate time is not itemized in the GPU sub-phase split
+// (it runs outside `cmd`); it shows up in the total wall-clock render time.
+void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
+{
+    const uint32_t grid = lod_cells;
+    const uint64_t num_cells = uint64_t(grid) * grid * grid;
+    const float cell_size = 2.0f / float(grid);
+    const float radius = LOD_COVERAGE * cell_size * 0.5f;
+
+    // 1) Aggregate in a blocking one-shot submit.
+    submit([&](VkCommandBuffer c) {
+        vkCmdFillBuffer(c, lod_cellcount_buffer.buffer, 0, VK_WHOLE_SIZE, 0u);
+        vkCmdFillBuffer(c, lod_counter_buffer.buffer,   0, VK_WHOLE_SIZE, 0u);
+        VkMemoryBarrier clr{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+        vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &clr, 0, nullptr, 0, nullptr);
+
+        LodScatterPush sp{ .positions = position_address, .count = particle_count, .gridN = grid };
+        vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_COMPUTE, lod_scatter_pipeline);
+        vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_COMPUTE, lod_scatter_layout, 0, 1,
+            &lod_scatter_set, 0, nullptr);
+        vkCmdPushConstants(c, lod_scatter_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sp), &sp);
+        vkCmdDispatch(c, (particle_count + 63) / 64, 1, 1);
+
+        VkMemoryBarrier s2e{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+        vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &s2e, 0, nullptr, 0, nullptr);
+
+        LodEmitPush ep{ .aabbs = aabb_buffer.address, .gridN = grid, .radius = radius };
+        vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_COMPUTE, lod_emit_pipeline);
+        vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_COMPUTE, lod_emit_layout, 0, 1,
+            &lod_emit_set, 0, nullptr);
+        vkCmdPushConstants(c, lod_emit_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ep), &ep);
+        vkCmdDispatch(c, static_cast<uint32_t>((num_cells + 63) / 64), 1, 1);
+    });
+
+    // 2) Read the emitted primitive count (HOST_VISIBLE, coherent).
+    uint32_t occupied = 0;
+    void* mapped = nullptr;
+    validation::checkVulkan(vkMapMemory(device, lod_counter_buffer.memory, 0, sizeof(uint32_t), 0, &mapped));
+    std::memcpy(&occupied, mapped, sizeof(uint32_t));
+    vkUnmapMemory(device, lod_counter_buffer.memory);
+    occupied = std::min(occupied, lod_max_cells);
+    lod_prim_count = occupied;
+
+    // 3) Build the AS in the frame command buffer over `occupied` primitives (always a full rebuild).
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdResetQueryPool(cmd, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 0);
+        // Aggregate ran outside `cmd`; mark the AABB sub-phase as ~0 here.
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 1);
+    }
+
+    recordBlasBuildChunks(*this, cmd, aabb_buffer.address, /*update=*/false, /*override_prims=*/occupied);
+    accel_ever_built = true;
+    frames_since_full_rebuild = 0;
+    stat_full_rebuilds++;
+    slot_build_mode[frame_idx] = BlasBuild::Rebuild;
+
+    VkMemoryBarrier blas_to_tlas{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &blas_to_tlas, 0, nullptr, 0, nullptr);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 2);
+    }
+
+    recordTlasBuild(*this, cmd, scene_tlas, tlas_scratch, tlas_instance_buffer.address,
+        static_cast<uint32_t>(scene_blas.size()));
+
+    VkMemoryBarrier to_trace{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1, &to_trace, 0, nullptr, 0, nullptr);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 3);
+    }
+
+    // Log the aggregation result once per bind (frame_idx 0 is the initial bindScene build).
+    if (frame_idx == 0)
+    {
+        spdlog::info("Path tracing: LOD emitted {} occupied cells (reduction {:.0f}:1 vs {} particles)",
+            occupied, occupied ? double(particle_count) / double(occupied) : 0.0, particle_count);
     }
 }
 
@@ -1682,6 +1845,10 @@ void RayTracingContext::destroy()
     scene_blas.clear();
     destroyBuffer(device, blas_scratch);
     destroyBuffer(device, aabb_buffer);
+
+    // LOD grid-aggregation buffers (allocated in bindScene only when lod_cells > 0)
+    destroyBuffer(device, lod_cellcount_buffer);
+    destroyBuffer(device, lod_counter_buffer);
 }
 
 } // namespace mimir

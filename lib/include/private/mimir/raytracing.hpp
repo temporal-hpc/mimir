@@ -243,6 +243,13 @@ struct RayTracingContext
     VkDescriptorSet       lod_scatter_set        = VK_NULL_HANDLE; // written in bindScene
     VkDescriptorSet       lod_emit_set           = VK_NULL_HANDLE; // written in bindScene
 
+    RtBuffer lod_cellcount_buffer; // N^3 uint occupancy counts (DEVICE_LOCAL)
+    RtBuffer lod_counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
+    uint32_t lod_max_cells  = 0;   // min(N^3, particle_count): BLAS/AABB sizing bound
+    uint32_t lod_prim_count = 0;   // occupied cells emitted this frame (per-frame build count)
+    static constexpr float LOD_COVERAGE = 1.2f; // sphere radius = LOD_COVERAGE * cellSize / 2
+    void recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
+
     void createLodPipelines();
 
     // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*TS_PER_FRAME timestamps. The
