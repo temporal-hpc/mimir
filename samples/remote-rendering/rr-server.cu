@@ -179,7 +179,9 @@ static void usage(const char *prog)
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
         "  --lod N            Path-trace LOD: N^3 voxel grid, one sphere per occupied cell\n"
-        "                     (0 = per-particle, default). 0..512. Trades detail for speed.\n"
+        "                     (0 = per-particle, default). 0..VRAM-limited: N is capped so the\n"
+        "                     N^3 accumulator fits half of free device VRAM; larger N needs more\n"
+        "                     memory. Trades detail for speed.\n"
         "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris     (default: 1)\n"
         "  --denoise          Denoise each frame before display/encode; also makes the\n"
         "                     stream H.264-friendly at low bitrates (temporally stable)\n"
@@ -340,9 +342,23 @@ int main(int argc, char *argv[])
     size_t vram_free0 = 0, vram_total = 0;
     cudaMemGetInfo(&vram_free0, &vram_total);
 
-    if (lod_cells > 512) {
-        fprintf(stderr, "rr-server: --lod must be 0..512 (got %u); phase-1 memory cap\n", lod_cells);
+    // Accumulator is N^3 * bytes_per_cell (32 for centroid, 4 for cell-center). Bound N so it fits a
+    // safe fraction of device-local VRAM; keep a hard sanity ceiling. Conservatively assume centroid
+    // placement (32 B/cell) since that's the default on capable GPUs.
+    const unsigned long long bytes_per_cell = 32ull; // conservative (centroid)
+    const unsigned long long budget = (unsigned long long)vram_free0 / 2ull;
+    unsigned long long max_cells = budget / bytes_per_cell;
+    unsigned int max_n = 4096; // hard sanity ceiling
+    while ((unsigned long long)max_n*max_n*max_n > max_cells) { --max_n; }
+    if (lod_cells > max_n) {
+        fprintf(stderr, "rr-server: --lod %u exceeds VRAM budget; max feasible N is %u "
+                        "(accumulator %.1f GB)\n", lod_cells, max_n,
+                        (double)((unsigned long long)lod_cells*lod_cells*lod_cells*bytes_per_cell)/1e9);
         return EXIT_FAILURE;
+    }
+    if (lod_cells > 0 && (unsigned long long)lod_cells*lod_cells*lod_cells > (unsigned long long)point_count/8ull) {
+        fprintf(stderr, "rr-server: note: --lod %u gives little benefit here; occupied cells approach "
+                        "the particle count (%u)\n", lod_cells, point_count);
     }
 
     ViewerOptions options;
