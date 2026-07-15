@@ -35,12 +35,14 @@ struct PointsInput {
     bool         enable_interop_sync = true;
     bool         display     = true;
     float        size_px     = 5.f;         // marker size (pixels in unlit/None mode)
-    LightModel   light_model = LightModel::None;  // None=Flat2D discs, Phong=lit spheres,
-                                                  // PathTracing=RT (falls back to Phong for now)
+    LightModel   light_model = LightModel::None;  // None=Flat2D discs, Phong=lit sphere impostors,
+                                                  // PhongMesh=lit icosphere meshes, PathTracing=RT
     // Path-tracing knobs (only used with --light-model path-tracing).
     unsigned int pt_spp      = 1;            // samples per pixel per frame (--spp)
     unsigned int pt_bounces  = 4;            // max path depth (--bounces; effective in Phase 2)
     unsigned int pt_subdiv   = 1;            // icosphere tessellation 0/1/2 (--subdiv)
+    // LOD (transversal: applies to ALL light models, not just path-tracing).
+    unsigned int pt_lod      = 0;            // N cells/axis of an N^3 voxel grid (--lod); 0 = no LOD
     float3       background  = { 0.f, 0.f, 0.f }; // window/environment color (--background)
     float3       pcolor      = { 0.82f, 0.82f, 0.88f }; // particle color (--pcolor)
     // Camera: interactive fly (WASD + captured mouse-look) vs the default orbit drag controls,
@@ -284,6 +286,37 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.pt_samples_per_pixel = input.pt_spp;
     opts.pt_max_bounces       = input.pt_bounces;
     opts.pt_subdivisions      = input.pt_subdiv;
+    // LOD is transversal (any --light-model). Reject an --lod whose N^3 accumulator would not fit the
+    // GPU memory that is ACTUALLY free at this moment -- queried live via cudaMemGetInfo, with no fixed
+    // budget fraction. The accumulator (the dominant LOD allocation) is N^3 * bytes_per_cell, where
+    // bytes_per_cell is its real per-cell size (uint32 count + 3x uint64 centroid sum). The CUDA context
+    // is already up here (cudaSetDevice(0)/cudaFree(0) ran above), so the free figure reflects whatever
+    // this process and others are currently using.
+    if (input.pt_lod > 0) {
+        size_t vram_free = 0, vram_total = 0;
+        checkCuda(cudaMemGetInfo(&vram_free, &vram_total));
+        const unsigned long long bytes_per_cell = 32ull;
+        const unsigned long long max_cells = (unsigned long long)vram_free / bytes_per_cell;
+        // Largest N whose accumulator fits the currently-free VRAM, then bounded by the uint32
+        // cell-index limit (a correctness bound, NOT memory: the LOD shaders index cells in 32-bit, so
+        // N^3 must stay < 2^32 -- 1625^3 < 2^32 <= 1626^3).
+        unsigned int max_n = 0;
+        while (max_n < 1625u &&
+               (unsigned long long)(max_n + 1) * (max_n + 1) * (max_n + 1) <= max_cells) { ++max_n; }
+        if (input.pt_lod > max_n) {
+            fprintf(stderr, "benchmark_mimir: --lod %u needs %.1f GB for its N^3 accumulator but only "
+                            "%.1f GB is free on the GPU right now; max feasible N is %u\n",
+                            input.pt_lod,
+                            ((double)input.pt_lod * input.pt_lod * input.pt_lod * bytes_per_cell) / 1e9,
+                            (double)vram_free / 1e9, max_n);
+            exit(EXIT_FAILURE);
+        }
+        if ((unsigned long long)input.pt_lod * input.pt_lod * input.pt_lod > (unsigned long long)n / 8ull) {
+            fprintf(stderr, "benchmark_mimir: note: --lod %u gives little benefit here; occupied "
+                            "cells approach the particle count (%zu)\n", input.pt_lod, n);
+        }
+    }
+    opts.pt_lod_cells         = input.pt_lod;
     // datoviz's perspective projection is hardcoded to GLM_PI_4 (45° vertical); match it so
     // both benchmarks frame the [-1,1]^3 domain identically (mimir's default is 40°).
     opts.camera_fov          = 45.f;
@@ -802,6 +835,10 @@ static void usage(const char* prog)
         "                     (default: 0 = black). Under path-tracing this is also the\n"
         "                     sky/miss and ambient fill; black = sun-only lighting.\n"
         "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1] (default: light grey)\n"
+        "  --lod N            Level of detail: N^3 voxel grid, one representative per occupied cell,\n"
+        "                     for ANY --light-model (0 = per-particle, default). N is capped so the\n"
+        "                     N^3 accumulator fits ~half of free VRAM (and N<=1625). Under lit modes\n"
+        "                     --size scales the representative sphere's cell-fill radius.\n"
         "  --axes             Draw the world +XYZ orientation triad at the origin\n"
         "                     (X=red, Y=green, Z=blue; letter labels at the tips) as an\n"
         "                     unlit depth-free overlay. Same triad as benchmark_datoviz.\n"
@@ -859,6 +896,7 @@ int main(int argc, char* argv[])
             else if (a == "--spp")          input.pt_spp = (unsigned int)std::stoul(v);
             else if (a == "--bounces")      input.pt_bounces = (unsigned int)std::stoul(v);
             else if (a == "--subdiv")       input.pt_subdiv = (unsigned int)std::stoul(v);
+            else if (a == "--lod")          input.pt_lod = (unsigned int)std::stoul(v);
             else if (a == "--background")   input.background = parseColor(v);
             else if (a == "--pcolor")       input.pcolor = parseColor(v);
             else if (a == "--orbit-speed")  input.orbit_speed = std::stof(v);

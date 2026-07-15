@@ -344,24 +344,25 @@ int main(int argc, char *argv[])
     size_t vram_free0 = 0, vram_total = 0;
     cudaMemGetInfo(&vram_free0, &vram_total);
 
-    // Accumulator is N^3 * bytes_per_cell (32 for centroid, 4 for cell-center). Bound N so it fits a
-    // safe fraction of device-local VRAM; keep a hard sanity ceiling. Conservatively assume centroid
-    // placement (32 B/cell) since that's the default on capable GPUs.
+    // Accumulator is N^3 * bytes_per_cell (32 for centroid, 4 for cell-center). Reject an --lod whose
+    // accumulator would not fit the device memory that is ACTUALLY free at this moment (vram_free0,
+    // queried live above via cudaMemGetInfo -- no fixed budget fraction). Conservatively assume
+    // centroid placement (32 B/cell) since that's the default on capable GPUs.
     const unsigned long long bytes_per_cell = 32ull; // conservative (centroid)
-    const unsigned long long budget = (unsigned long long)vram_free0 / 2ull;
-    unsigned long long max_cells = budget / bytes_per_cell;
-    unsigned int max_n = 4096; // hard sanity ceiling
-    while ((unsigned long long)max_n*max_n*max_n > max_cells) { --max_n; }
-    // The LOD shaders (pathtrace_lod_scatter.slang, pathtrace_lod_emit.slang) compute the linear
-    // cell index and total cell count in 32-bit uint (total = gridN*gridN*gridN,
-    // lin = cx + gridN*(cy + gridN*cz)), which is only safe while N^3 < 2^32. Clamp max_n to that
-    // uint32 cell-index ceiling independent of the VRAM budget above (1625^3 < 2^32 <= 1626^3), so we
-    // never accept an N that silently overflows the shader's occupancy math.
-    if (max_n > 1625u) { max_n = 1625u; }
+    const unsigned long long max_cells = (unsigned long long)vram_free0 / bytes_per_cell;
+    // Largest N whose accumulator fits the currently-free VRAM, bounded by the uint32 cell-index limit.
+    // The LOD shaders (pathtrace_lod_scatter.slang, pathtrace_lod_emit.slang) compute the linear cell
+    // index and total cell count in 32-bit uint (total = gridN^3, lin = cx + gridN*(cy + gridN*cz)),
+    // only safe while N^3 < 2^32 -- so this 1625 clamp is a CORRECTNESS bound (1625^3 < 2^32 <= 1626^3),
+    // not a memory heuristic, and never allows an N that silently overflows the shader's occupancy math.
+    unsigned int max_n = 0;
+    while (max_n < 1625u &&
+           (unsigned long long)(max_n + 1) * (max_n + 1) * (max_n + 1) <= max_cells) { ++max_n; }
     if (lod_cells > max_n) {
-        fprintf(stderr, "rr-server: --lod %u exceeds VRAM budget; max feasible N is %u "
-                        "(accumulator %.1f GB)\n", lod_cells, max_n,
-                        ((double)lod_cells*lod_cells*lod_cells*bytes_per_cell)/1e9);
+        fprintf(stderr, "rr-server: --lod %u needs %.1f GB for its N^3 accumulator but only %.1f GB is "
+                        "free on the GPU right now; max feasible N is %u\n", lod_cells,
+                        ((double)lod_cells*lod_cells*lod_cells*bytes_per_cell)/1e9,
+                        (double)vram_free0/1e9, max_n);
         return EXIT_FAILURE;
     }
     if (lod_cells > 0 && (unsigned long long)lod_cells*lod_cells*lod_cells > (unsigned long long)point_count/8ull) {

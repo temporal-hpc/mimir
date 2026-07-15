@@ -169,9 +169,13 @@ struct ViewerOptions
     // edge-avoiding wavelet filter (runs on any GPU). Edge-stopping is guided by the first-hit
     // normal/depth G-buffer, so noise is smoothed while silhouettes and shading edges survive.
     bool pt_denoise = false;
-    // Level-of-detail for path tracing: N = cells per axis of an N^3 voxel grid over the [-1,1]^3
-    // domain. 0 (default) = one primitive per particle (no LOD). N>0 aggregates particles into one
-    // sphere per occupied cell, trading fidelity for BVH build+trace speed. Capped at 512 (--lod).
+    // Level-of-detail data reduction: N = cells per axis of an N^3 voxel grid over the [-1,1]^3
+    // domain. 0 (default) = one primitive per particle (no LOD). N>0 draws one representative per
+    // occupied cell (at the cell's mass centroid), trading fidelity for build/trace/draw speed.
+    // NOTE: despite sitting among the path-tracing knobs, this is TRANSVERSAL -- it applies to ALL
+    // light models (none/phong/phong-mesh/path-tracing), reducing how many primitives each renderer
+    // draws. The caller must bound N to available VRAM (the N^3 accumulator is up to 32 B/cell) and to
+    // N <= 1625 (cells are indexed in uint32, so N^3 must stay < 2^32).
     unsigned int pt_lod_cells = 0;
 
     // Vertical field of view of the perspective camera, in degrees. Datoviz-comparable
