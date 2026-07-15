@@ -225,12 +225,14 @@ void MimirInstance::prepare()
         }
     }
 
-    // Raster point-mode LOD (none/phong): the same shared reduction feeds the raster draw. PT already
-    // inited lod_context above (rt_enabled); here we init it for the raster point modes so --lod
-    // reduces the drawn cloud identically. Bound to the first Markers view's interop positions. Mesh
-    // markers (phong-mesh) are a later task -- excluded here (lod_context stays inactive, full draw).
+    // Raster LOD (none/phong/phong-mesh): the same shared reduction feeds the raster draw. PT already
+    // inited lod_context above (rt_enabled); here we init it for the raster modes so --lod reduces the
+    // drawn cloud identically. Point modes (none/phong) bind the reduced positions as the interop vbo
+    // (binding 0) and draw indirect; mesh (phong-mesh) binds them as the per-instance vbo (binding 1)
+    // and draws INDEXED indirect (one icosphere per occupied cell).
     const bool raster_point_lod = !rt_enabled && options.pt_lod_cells > 0
-        && (options.light_model == LightModel::None || options.light_model == LightModel::Phong)
+        && (options.light_model == LightModel::None || options.light_model == LightModel::Phong
+            || options.light_model == LightModel::PhongMesh)
         && supportsRayTracing(physical_device.handle); // BDA (scatter) needs bufferDeviceAddress
     if (raster_point_lod && !lod_context.active())
     {
@@ -238,15 +240,27 @@ void MimirInstance::prepare()
         {
             if (view->desc.type == ViewType::Markers && view->vb_count > 0)
             {
+                // Mesh markers (SphereMesh) store the per-INSTANCE particle centers in vbo binding 1
+                // (binding 0 = shared icosphere template), and the drawn primitive count is
+                // instance_count (draw_count is the icosphere index count for mesh). Point markers
+                // keep positions in vbo[0] with draw_count = particle count.
+                const bool is_mesh = std::holds_alternative<MarkerOptions>(view->desc.options)
+                    && std::get<MarkerOptions>(view->desc.options).render_mode
+                           == MarkerOptions::RenderMode::SphereMesh
+                    && view->use_ibo && view->vb_count >= 2;
+                lod_raster_mesh = is_mesh;
+
+                VkBuffer  pos_buffer = is_mesh ? view->vbo[1] : view->vbo[0];
+                uint32_t  particle_count = is_mesh ? view->instance_count : view->draw_count;
                 VkBufferDeviceAddressInfo addr_info{
                     .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-                    .pNext = nullptr, .buffer = view->vbo[0], // slot 0 = interop float3 positions
+                    .pNext = nullptr, .buffer = pos_buffer, // interop float3 particle positions
                 };
                 lod_raster_pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
-                lod_raster_count    = view->draw_count;
+                lod_raster_count    = particle_count;
                 lod_context.init(device, physical_device.memory.memoryProperties,
                     supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
-                    view->draw_count);
+                    particle_count);
                 deletors.context.add([this]{ lod_context.destroy(); });
 
                 // One-time reduction + occupied-count log at setup (mirrors the path tracer's
@@ -257,12 +271,16 @@ void MimirInstance::prepare()
                     lod_context.recordReduction(c, lod_raster_pos_addr, lod_raster_count, /*slot=*/0u);
                 });
                 uint32_t occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
+                const char* mode_name = options.light_model == LightModel::None ? "none"
+                    : (options.light_model == LightModel::Phong ? "phong" : "phong-mesh");
+                // none = flat 2D points (plain --size); phong/phong-mesh = world spheres (cell-fill radius).
+                float log_size = options.light_model == LightModel::None
+                    ? view->desc.default_size : lod_context.sphereRadius(view->desc.default_size);
                 spdlog::info("Raster LOD ({}): emitted {} occupied cells (reduction {:.0f}:1 vs {} "
                     "particles); marker size {:.5f}",
-                    options.light_model == LightModel::None ? "none" : "phong", occupied,
+                    mode_name, occupied,
                     occupied ? double(lod_raster_count) / double(occupied) : 0.0, lod_raster_count,
-                    options.light_model == LightModel::Phong
-                        ? lod_context.sphereRadius(view->desc.default_size) : view->desc.default_size);
+                    log_size);
                 break;
             }
         }
@@ -2192,9 +2210,22 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
         0, 1, &emit_vis, 0, nullptr, 0, nullptr);
 
-    // Build the VkDrawIndirectCommand from the occupied count: vertexCount (offset 0) = count,
-    // instanceCount = 1. recordIndirectArgs ends with an INDIRECT_COMMAND_READ barrier for the draw.
-    lod_context.recordIndirectArgs(cmd, /*fixed_instance_count=*/1u, /*varying_byte_offset=*/0u, slot);
+    // Build the indirect command from the occupied count. Layout depends on the active LOD view:
+    //   - mesh (phong-mesh, VkDrawIndexedIndirectCommand): FIXED indexCount@0 = sphere_index_count;
+    //     VARYING instanceCount@4 = occupied cells (one icosphere instance per cell).
+    //   - point (none/phong, VkDrawIndirectCommand):        FIXED instanceCount@4 = 1;
+    //     VARYING vertexCount@0 = occupied cells.
+    // recordIndirectArgs ends with an INDIRECT_COMMAND_READ barrier for the draw.
+    if (lod_raster_mesh)
+    {
+        lod_context.recordIndirectArgs(cmd, /*fixed_byte_offset=*/0u, /*fixed_value=*/sphere_index_count,
+            /*varying_byte_offset=*/4u, slot);
+    }
+    else
+    {
+        lod_context.recordIndirectArgs(cmd, /*fixed_byte_offset=*/4u, /*fixed_value=*/1u,
+            /*varying_byte_offset=*/0u, slot);
+    }
 }
 
 void MimirInstance::drawElements(uint32_t image_idx)
@@ -2233,14 +2264,19 @@ void MimirInstance::drawElements(uint32_t image_idx)
         // non-indexed view is never silently handed the reduced vbo. SphereMesh (phong-mesh) uses an IBO
         // (use_ibo) and is excluded anyway. `image_idx` is the frame-in-flight slot recordLodRaster wrote.
         bool marker_point_mode = false;
+        bool marker_mesh_mode  = false;
         if (view->desc.type == ViewType::Markers
             && std::holds_alternative<MarkerOptions>(view->desc.options))
         {
             auto rm = std::get<MarkerOptions>(view->desc.options).render_mode;
             marker_point_mode = (rm == MarkerOptions::RenderMode::Flat2D
                               || rm == MarkerOptions::RenderMode::Sphere3D);
+            marker_mesh_mode  = (rm == MarkerOptions::RenderMode::SphereMesh);
         }
         const bool lod_point_draw = !view->use_ibo && lod_context.active() && marker_point_mode;
+        // Mesh LOD (phong-mesh): the reduced positions replace the per-INSTANCE centers (binding 1),
+        // and instanceCount comes from the GPU indirect-args buffer via vkCmdDrawIndexedIndirect.
+        const bool lod_mesh_draw = view->use_ibo && lod_context.active() && marker_mesh_mode;
         if (lod_point_draw)
         {
             VkBuffer     vbos[max_attr_count];
@@ -2248,6 +2284,17 @@ void MimirInstance::drawElements(uint32_t image_idx)
             for (uint32_t s = 0; s < view->vb_count; ++s) { vbos[s] = view->vbo[s]; offs[s] = view->offsets[s]; }
             vbos[0] = lod_context.reducedPositionsBuffer(image_idx);
             offs[0] = 0;
+            vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
+        }
+        else if (lod_mesh_draw)
+        {
+            // Keep binding 0 = icosphere template; swap binding 1 (per-instance centers) for the
+            // reduced representative positions this frame's reduction wrote to `image_idx`.
+            VkBuffer     vbos[max_attr_count];
+            VkDeviceSize offs[max_attr_count];
+            for (uint32_t s = 0; s < view->vb_count; ++s) { vbos[s] = view->vbo[s]; offs[s] = view->offsets[s]; }
+            vbos[1] = lod_context.reducedPositionsBuffer(image_idx);
+            offs[1] = 0;
             vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
         }
         else
@@ -2259,7 +2306,14 @@ void MimirInstance::drawElements(uint32_t image_idx)
         {
             // instance_count > 1 for SphereMesh markers (one icosphere instance per particle).
             vkCmdBindIndexBuffer(cmd, view->ibo, 0, view->index_type);
-            vkCmdDrawIndexed(cmd, view->draw_count, view->instance_count, 0, 0, 0);
+            if (lod_mesh_draw) // Reduced icospheres: instanceCount comes from the GPU indirect-args buffer.
+            {
+                vkCmdDrawIndexedIndirect(cmd, lod_context.indirectBuffer(image_idx), 0, 1, 0);
+            }
+            else
+            {
+                vkCmdDrawIndexed(cmd, view->draw_count, view->instance_count, 0, 0, 0);
+            }
         }
         else if (lod_point_draw) // Reduced cloud: vertexCount comes from the GPU indirect-args buffer.
         {
@@ -2365,16 +2419,19 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
         };
 
         auto color = view->desc.default_color;
-        // Marker size. Under raster LOD, phong (Sphere3D) blobs use the cell-fill world radius scaled
-        // by --size (lod->sphereRadius), matching the path-tracer's LOD sphere so switching light model
-        // at a fixed --lod looks consistent; --size stays a live multiplier. Flat2D (none) keeps
-        // --size as the pixel point size (no world radius / cell-fill in flat 2D), and non-LOD keeps
-        // the plain default_size in every mode.
+        // Marker size. Under raster LOD, world-sphere modes -- phong (Sphere3D impostor) and phong-mesh
+        // (SphereMesh instanced icosphere) -- use the cell-fill world radius scaled by --size
+        // (lod->sphereRadius), matching the path-tracer's LOD sphere so switching light model at a fixed
+        // --lod looks consistent; --size stays a live multiplier. Flat2D (none) keeps --size as the
+        // pixel point size (no world radius / cell-fill in flat 2D), and non-LOD keeps the plain
+        // default_size in every mode.
         float marker_size = view->desc.default_size;
         if (lod_context.active() && view->desc.type == ViewType::Markers
             && std::holds_alternative<MarkerOptions>(view->desc.options)
-            && std::get<MarkerOptions>(view->desc.options).render_mode
-                   == MarkerOptions::RenderMode::Sphere3D)
+            && (std::get<MarkerOptions>(view->desc.options).render_mode
+                   == MarkerOptions::RenderMode::Sphere3D
+             || std::get<MarkerOptions>(view->desc.options).render_mode
+                   == MarkerOptions::RenderMode::SphereMesh))
         {
             marker_size = lod_context.sphereRadius(view->desc.default_size);
         }

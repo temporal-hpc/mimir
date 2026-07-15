@@ -87,12 +87,13 @@ struct LodEmitPush
     uint32_t gridN; uint32_t centroid;
 };
 // Push constants for lod_indirect_args.slang: the indirect-command buffer and the occupied-cell
-// count as BDA pointers (offsets 0/8), then the byte offset of the command's varying field and the
-// fixed instanceCount value. Matches PushConstants in the shader.
+// count as BDA pointers (offsets 0/8), then the byte offset of the command's varying field. The
+// fixed field is pre-filled host-side (command template), so it is not passed here. Matches
+// PushConstants in the shader.
 struct LodIndirectPush
 {
     VkDeviceAddress indirect; VkDeviceAddress count;
-    uint32_t varyingByteOffset; uint32_t fixedInstanceCount;
+    uint32_t varyingByteOffset;
 };
 
 } // namespace
@@ -192,10 +193,11 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     //  - reduced_pos: compacted list of occupied-cell centroids (float3), sized to the occupied bound.
     //    Usage covers every consumer: a raster vertex buffer, a BDA-read input to the path-tracer's AABB
     //    writer, a storage-buffer emit target, and a transfer destination.
-    //  - indirect_buffer: a single VkDrawIndirectCommand (16 B) the raster draw sources via
-    //    vkCmdDrawIndirect. recordIndirectArgs fills the fixed fields (TRANSFER_DST) then a compute pass
-    //    writes the count (STORAGE); it is also an INDIRECT_BUFFER. BDA so the finalize shader addresses
-    //    it as a raw pointer.
+    //  - indirect_buffer: a single Vk*IndirectCommand the raster draw sources via vkCmdDraw*Indirect.
+    //    Sized to max(VkDrawIndirectCommand=16 B, VkDrawIndexedIndirectCommand=20 B) = 20 B so it fits
+    //    either the point (non-indexed) or mesh (indexed) layout. recordIndirectArgs fills the fixed
+    //    fields (TRANSFER_DST) then a compute pass writes the count (STORAGE); it is also an
+    //    INDIRECT_BUFFER. BDA so the finalize shader addresses it as a raw pointer.
     for (uint32_t s = 0; s < NUM_SLOTS; ++s)
     {
         counter_buffer[s] = makeBuffer(device, mem_props, sizeof(uint32_t),
@@ -203,7 +205,8 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
         reduced_pos[s] = makeBuffer(device, mem_props, VkDeviceSize(max_cells) * 3 * sizeof(float),
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
             | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
-        indirect_buffer[s] = makeBuffer(device, mem_props, sizeof(VkDrawIndirectCommand),
+        indirect_buffer[s] = makeBuffer(device, mem_props,
+            std::max(sizeof(VkDrawIndirectCommand), sizeof(VkDrawIndexedIndirectCommand)),
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
             | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
 
@@ -277,26 +280,30 @@ void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_
     vkCmdDispatch(cmd, static_cast<uint32_t>((num_cells + 63) / 64), 1, 1);
 }
 
-void LodContext::recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_instance_count,
-    uint32_t varying_byte_offset, uint32_t slot)
+void LodContext::recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_byte_offset,
+    uint32_t fixed_value, uint32_t varying_byte_offset, uint32_t slot)
 {
-    // 1) Fill the whole command with zero (firstVertex = firstInstance = 0; vertexCount /
-    // instanceCount are overwritten by the finalize dispatch below). vkCmdFillBuffer counts as a
-    // TRANSFER write. Reads/writes slot `slot`'s ringed counter/indirect buffers.
-    vkCmdFillBuffer(cmd, indirect_buffer[slot].buffer, 0, VK_WHOLE_SIZE, 0u);
+    // 1) Write the WHOLE command template in one transfer: all fields zero (firstVertex/firstIndex/
+    // vertexOffset/firstInstance = 0, and the varying field a placeholder 0 the finalize dispatch
+    // overwrites) except the FIXED field, which gets `fixed_value` at `fixed_byte_offset` (point:
+    // instanceCount@4=1; mesh: indexCount@0=icosphere index count). Five uints (20 B) cover both the
+    // 16 B non-indexed and 20 B indexed layouts. vkCmdUpdateBuffer is a single TRANSFER write, so no
+    // fill/update intra-transfer ordering hazard. Reads/writes slot `slot`'s ringed buffers.
+    uint32_t cmd_template[5] = { 0u, 0u, 0u, 0u, 0u };
+    cmd_template[fixed_byte_offset / sizeof(uint32_t)] = fixed_value;
+    vkCmdUpdateBuffer(cmd, indirect_buffer[slot].buffer, 0, sizeof(cmd_template), cmd_template);
     VkMemoryBarrier fill_to_finalize{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         0, 1, &fill_to_finalize, 0, nullptr, 0, nullptr);
 
-    // 2) One thread copies the occupied count into the varying field and writes the fixed
-    // instanceCount. Reads the same HOST_VISIBLE emit counter the emit pass wrote -- the caller must
-    // have made that write visible (the emit's compute write precedes this dispatch on the same queue;
-    // recordReduction's own emit runs earlier in `cmd`, and the raster call site adds the emit->args
-    // barrier before invoking this).
+    // 2) One thread copies the occupied count into the varying field. Reads the same HOST_VISIBLE emit
+    // counter the emit pass wrote -- the caller must have made that write visible (the emit's compute
+    // write precedes this dispatch on the same queue; recordReduction's own emit runs earlier in `cmd`,
+    // and the raster call site adds the emit->args barrier before invoking this).
     LodIndirectPush ip{ .indirect = indirect_buffer[slot].address, .count = counter_buffer[slot].address,
-        .varyingByteOffset = varying_byte_offset, .fixedInstanceCount = fixed_instance_count };
+        .varyingByteOffset = varying_byte_offset };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, finalize_pipeline);
     vkCmdPushConstants(cmd, finalize_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ip), &ip);
     vkCmdDispatch(cmd, 1, 1, 1);

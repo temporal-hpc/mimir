@@ -75,12 +75,15 @@ public:
     void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint32_t particle_count,
         uint32_t slot);
 
-    // Record the indirect-args build INTO `cmd`: fill the command template (firstVertex/firstInstance
-    // = 0), then a 1-thread compute dispatch writes the occupied count into the command's varying
-    // field at `varying_byte_offset` and `fixed_instance_count` into the instanceCount field. Ends
-    // with a barrier (SHADER_WRITE -> INDIRECT_COMMAND_READ, dstStage DRAW_INDIRECT) so a following
-    // vkCmdDraw*Indirect from indirectBuffer() reads the finished command. No host readback.
-    void recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_instance_count,
+    // Record the indirect-args build INTO `cmd` for EITHER command layout. The host writes the whole
+    // command template (vkCmdUpdateBuffer): all bytes zero except `fixed_value` placed at
+    // `fixed_byte_offset` (its FIXED field). Then a 1-thread compute dispatch writes the occupied
+    // count into the command's VARYING field at `varying_byte_offset`. This generalizes both modes:
+    //   - point (VkDrawIndirectCommand):        fixed = instanceCount@4 = 1, varying = vertexCount@0.
+    //   - mesh  (VkDrawIndexedIndirectCommand):  fixed = indexCount@0    = N, varying = instanceCount@4.
+    // Ends with a barrier (SHADER_WRITE -> INDIRECT_COMMAND_READ, dstStage DRAW_INDIRECT) so a
+    // following vkCmdDraw*Indirect from indirectBuffer() reads the finished command. No host readback.
+    void recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_byte_offset, uint32_t fixed_value,
         uint32_t varying_byte_offset, uint32_t slot);
 
     // Read back slot `slot`'s emitted occupied-cell count (HOST_VISIBLE, coherent). Call after
@@ -128,7 +131,7 @@ private:
     // are particle-bounded (small), so tripling them is cheap.
     std::array<RtBuffer, NUM_SLOTS> counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
     std::array<RtBuffer, NUM_SLOTS> reduced_pos;      // min(N^3,P) float3 representative positions (DEVICE_LOCAL, BDA + VBO)
-    std::array<RtBuffer, NUM_SLOTS> indirect_buffer;  // 1 VkDrawIndirectCommand (16 B) for raster indirect draw (DEVICE_LOCAL, BDA)
+    std::array<RtBuffer, NUM_SLOTS> indirect_buffer;  // 1 Vk*IndirectCommand (max(16,20)=20 B) for raster indirect draw (DEVICE_LOCAL, BDA)
 
     // Scatter/emit compute pipelines. Scatter binds no descriptors (all accumulators are BDA); emit
     // keeps one descriptor for the global emit counter (binding 0). Finalize (indirect-args build) is
