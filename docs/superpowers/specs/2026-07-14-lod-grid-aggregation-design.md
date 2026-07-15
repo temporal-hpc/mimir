@@ -32,8 +32,15 @@ out the quality-vs-speed curve at scale. Not an automatic/adaptive system.
 ## Chosen approach: grid aggregation (voxel binning)
 
 Overlay an `N x N x N` grid over the scene domain. Each occupied cell emits one
-representative sphere placed at the centroid of its particles, sized to the
-cell. Primitive count drops from P particles to the number of occupied cells.
+representative sphere placed at the cell's geometric center (see Cell
+placement), sized to the cell. Primitive count drops from P particles to the
+number of occupied cells.
+
+The feature is a **library capability**: the aggregation passes, shaders,
+buffers, and a new `ViewerOptions::pt_lod_cells` knob live in `lib/` and
+`shaders/`. Samples are ordinary consumers — `rr-server.cu` only parses
+`--lod N` into `options.pt_lod_cells`, exactly as it does for `--spp` /
+`--bounces` / `--denoise`.
 
 Rejected alternatives:
 - **Stride decimation** (keep every k-th particle, grow radius by cbrt(k)):
@@ -86,25 +93,33 @@ domain are clamped into edge cells.
    - computes `cell = floor((clamp(pos, -1, 1-eps) + 1) / cellSize)` per axis,
      clamped to `[0, N-1]`;
    - linear index `lin = cx + N*(cy + N*cz)`;
-   - `atomicAdd(count[lin], 1u)`;
-   - adds its position into a **fixed-point integer** running sum for the cell
-     (quantize each axis of the [-1,1] position to a large integer scale;
-     `atomicAdd` as `uint`), 3 components. See Determinism.
+   - `atomicAdd(count[lin], 1u)` — count only, no position sum (the
+     representative is placed at the cell CENTER, see Cell placement).
 
 3. **Emit / compact** — `shaders/pathtrace_lod_emit.slang`, compute, dispatched
    over N^3 cells. For each cell with `count > 0`:
    - `slot = atomicAdd(globalCount, 1u)`;
-   - `centroid = dequantize(fixedSum) / count`;
+   - `center = domainMin + (cellIndex + 0.5) * cellSize` (the cell's geometric
+     center, derived from its 3-D index — no particle positions needed);
    - `radius = coverage * cellSize / 2` (constant `coverage` ~1.2 so neighboring
      occupied cells' spheres overlap and the aggregate stays opaque);
-   - write `AABB[slot] = box(centroid, radius)` via explicit 64-bit BDA address.
+   - write `AABB[slot] = box(center, radius)` via explicit 64-bit BDA address.
    `globalCount` ends equal to the primitive count (number of occupied cells).
 
 4. **Readback + build** — copy `globalCount` (4 B) to host; build the BLAS/TLAS
-   over exactly that many primitives. At multi-second frame times the
-   device->host sync is negligible. Because `N <= 512` -> `N^3 <= 134 M < 2^29`,
-   the result is always a single BLAS chunk; the existing chunking path is
-   bypassed.
+   over exactly that many primitives. The count read-back and the AS build are
+   contained inside `recordUpdateScene`: in LOD mode it issues the clear/scatter/
+   emit as an internal one-shot submit (the existing `submit()` helper), waits,
+   reads the count, then records the BLAS/TLAS build into the frame command
+   buffer with that exact count. No engine.cpp frame-loop change and no new
+   Vulkan entry point. At multi-second frame times the extra submit+wait is
+   negligible. Because `N <= 512` -> `N^3 <= 134 M < 2^29`, the result is always
+   a single BLAS chunk; the existing chunking path is bypassed. LOD mode always
+   does a full rebuild (no refit): the occupied-cell topology changes frame to
+   frame, and the LOD primitive count is small enough that a full rebuild is
+   cheap. The BLAS is sized once (in bindScene) for the worst case
+   `maxCells = min(N^3, P)`; each per-frame build uses `primitiveCount = the
+   read-back count <= maxCells` (allowed for a full MODE_BUILD).
 
 ## Host wiring & buffers
 
@@ -113,12 +128,14 @@ domain are clamped into edge cells.
   with a clear error message (phase-1 memory cap).
 - **New buffers** (allocated in `RayTracingContext::bindScene` when
   `pt_lod_cells > 0`):
-  - accumulator: `N^3 * 16 B` (1 `uint` count + 3 `uint` fixed-point position
-    sum). 512^3 = 2.1 GB.
-  - `globalCount`: a 4-byte device buffer, host-readable, for the primitive
-    count.
-- **Compacted AABB output reuses the existing per-particle AABB buffer**
-  (occupied cells <= P always, so it fits). No new geometry buffer.
+  - accumulator: `N^3 * 4 B` (1 `uint` count per cell — cell-center placement
+    needs no position sum). 512^3 = 537 MB.
+  - `globalCount`: a 4-byte host-visible buffer for the primitive count read-back.
+- **Compacted AABB output** is sized to `min(N^3, P) * 24 B` (occupied cells
+  <= min(N^3, P) always). At N=512 that is 134 M * 24 B = 3.2 GB, LESS than the
+  per-particle path's P * 24 B (12.9 GB at 2^29), so LOD mode reduces the AABB
+  buffer allocation. When `pt_lod_cells == 0` the AABB buffer keeps its current
+  `P * 24 B` size.
 - **`recordUpdateScene`:** when `pt_lod_cells > 0`, replace the single
   AABB-writer dispatch with: fill -> barrier -> scatter -> barrier -> emit ->
   barrier -> readback -> build (BLAS uses the read-back count). When
@@ -133,16 +150,33 @@ domain are clamped into edge cells.
 
 This is a benchmark knob, so results must be reproducible run-to-run.
 
-- Float `atomicAdd` is order-dependent (float addition is non-associative), so
-  the scatter pass accumulates the per-cell position sum in **fixed-point
-  integers** (`atomicAdd` on `uint`). Integer addition is associative, so the
-  occupied-cell set and the centroids are bit-identical on every run.
+- The scatter pass uses only a `uint` count `atomicAdd` per cell. Integer
+  addition is associative and order-independent, and the representative sphere's
+  position is the cell's geometric center (a pure function of the cell index, no
+  particle data), so the occupied-cell set and every sphere position are
+  bit-identical on every run.
 - The emit pass's `globalCount` atomic makes the *slot ordering* of primitives
   non-deterministic, but this affects neither the primitive **count** (=
   #occupied cells, fixed) nor the rendered **image** (the BVH is
   order-independent). Every benchmarked metric — primitive count, build ms,
   trace ms, image — is therefore reproducible.
+- Cell-center placement was chosen over the mass-weighted centroid to keep this
+  determinism trivial (no float/int64 atomics) and the accumulator at 4 B/cell;
+  the placement difference is sub-cell at useful N (see Cell placement).
 - Path-trace RNG is already frame-index-seeded and thus deterministic per frame.
+
+## Cell placement (center vs centroid)
+
+Each occupied cell's sphere is placed at the cell's **geometric center**
+(`domainMin + (cellIndex + 0.5) * cellSize`), NOT the particle centroid. The
+centroid (mass-weighted average of the cell's particle positions) tracks the
+cloud silhouette marginally better in coarse/edge cells, but computing it needs
+a per-cell position sum whose fixed-point form overflows a 32-bit atomic (a
+single coarse cell can hold a large fraction of P ~ 5*10^8 particles), forcing
+64-bit atomics (a device feature) and 32 B/cell (4.3 GB at 512^3). Cell-center
+needs only a count, no extra feature, 4 B/cell, and the sphere radius already
+spans the whole cell so the placement difference is sub-cell and negligible at
+any N worth benchmarking.
 
 ## Radius / coverage
 
