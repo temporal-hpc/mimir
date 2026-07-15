@@ -1552,6 +1552,17 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 1);
     }
 
+    // Barrier: the emit compute shader's writes to aabb_buffer happened inside the one-shot submit
+    // above. vkQueueWaitIdle (inside submit()) gives host-domain execution ordering only -- it does
+    // not guarantee device-domain memory availability/visibility for `cmd`, which is a separate
+    // submission on the same queue. Without this, the BLAS build below reading aabb_buffer as an
+    // acceleration-structure build input is a Read-After-Write hazard per the Vulkan memory model.
+    VkMemoryBarrier emit_to_build{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &emit_to_build, 0, nullptr, 0, nullptr);
+
     recordBlasBuildChunks(*this, cmd, aabb_buffer.address, /*update=*/false, /*override_prims=*/occupied);
     accel_ever_built = true;
     frames_since_full_rebuild = 0;
