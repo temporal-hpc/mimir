@@ -248,11 +248,19 @@ struct RayTracingContext
     VkDescriptorSet       lod_scatter_set        = VK_NULL_HANDLE; // written in bindScene
     VkDescriptorSet       lod_emit_set           = VK_NULL_HANDLE; // written in bindScene
 
-    RtBuffer lod_cellcount_buffer; // N^3 uint occupancy counts (DEVICE_LOCAL)
+    RtBuffer lod_cellcount_buffer; // N^3 uint occupancy counts (DEVICE_LOCAL, BDA)
+    RtBuffer lod_cellsum_buffer;   // 3 * N^3 uint64 fixed-point position sums (DEVICE_LOCAL, BDA;
+                                   // allocated only when lod_centroid). Layout [3*lin + 0..2].
     RtBuffer lod_counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
     uint32_t lod_max_cells  = 0;   // min(N^3, particle_count): BLAS/AABB sizing bound
     uint32_t lod_prim_count = 0;   // occupied cells emitted this frame (per-frame build count)
+    bool     lod_centroid   = false; // centroid placement active (= int64_atomics at bindScene);
+                                     // false -> cell-center fallback (int64 atomics unavailable).
     static constexpr float LOD_COVERAGE = 1.2f; // sphere radius = LOD_COVERAGE * cellSize / 2
+    // Fixed-point scale for the centroid position sum: maps [-1,1] -> [0, 2^30]. Integer atomics are
+    // order-independent (deterministic); 2^30 keeps a sum of ~5*10^8 particles inside int64. Must
+    // match SCALE in pathtrace_lod_scatter.slang / pathtrace_lod_emit.slang.
+    static constexpr double LOD_FIXEDPOINT_SCALE = 1073741824.0; // 2^30
     void recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
 
     void createLodPipelines();

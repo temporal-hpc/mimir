@@ -925,17 +925,25 @@ uint64_t runInt64AtomicSpike(RayTracingContext& ctx)
 
 // ---- LOD grid-aggregation compute pipelines ---------------------------------------
 
-// Push constants for pathtrace_lod_scatter.slang: positions BDA pointer (offset 0), then the
-// particle count and grid resolution. The per-cell count buffer is a descriptor (binding 0).
-struct LodScatterPush { VkDeviceAddress positions; uint32_t count; uint32_t gridN; };
-// Push constants for pathtrace_lod_emit.slang: AABB output BDA pointer (offset 0), grid
-// resolution, sphere radius. Cell counts (binding 0) and the global counter (binding 1) are
-// descriptors.
-struct LodEmitPush { VkDeviceAddress aabbs; uint32_t gridN; float radius; };
+// Push constants for pathtrace_lod_scatter.slang: positions, per-cell count, and per-cell sum all as
+// BDA pointers (offsets 0/8/16), then particle count, grid resolution, and the centroid flag. No
+// descriptors: the count/sum accumulators are BDA (the sum exceeds maxStorageBufferRange at large N).
+struct LodScatterPush {
+    VkDeviceAddress positions; VkDeviceAddress cellCounts; VkDeviceAddress cellSums;
+    uint32_t count; uint32_t gridN; uint32_t centroid;
+};
+// Push constants for pathtrace_lod_emit.slang: AABB output, per-cell count, and per-cell sum as BDA
+// pointers, then grid resolution, sphere radius, and the centroid flag. Only the small global emit
+// counter stays a descriptor (binding 0).
+struct LodEmitPush {
+    VkDeviceAddress aabbs; VkDeviceAddress cellCounts; VkDeviceAddress cellSums;
+    uint32_t gridN; float radius; uint32_t centroid;
+};
 
 void RayTracingContext::createLodPipelines()
 {
-    // One-binding set for scatter (cell counts), two-binding set for emit (cell counts + counter).
+    // Scatter uses no descriptors (all accumulators are BDA); emit keeps a one-binding set for the
+    // global emit counter (binding 0). VK_NULL_HANDLE set_layout => a pipeline layout with no sets.
     auto make_set_layout = [&](uint32_t binding_count) {
         std::vector<VkDescriptorSetLayoutBinding> b(binding_count);
         for (uint32_t i = 0; i < binding_count; ++i) {
@@ -951,8 +959,8 @@ void RayTracingContext::createLodPipelines()
         validation::checkVulkan(vkCreateDescriptorSetLayout(device, &info, nullptr, &layout));
         return layout;
     };
-    lod_scatter_set_layout = make_set_layout(1);
-    lod_emit_set_layout    = make_set_layout(2);
+    lod_scatter_set_layout = VK_NULL_HANDLE;      // scatter binds no descriptors
+    lod_emit_set_layout    = make_set_layout(1);  // emit: global counter only (binding 0)
 
     auto make_pipeline = [&](VkDescriptorSetLayout set_layout, uint32_t push_size,
                              const char* module, const char* entry,
@@ -960,7 +968,8 @@ void RayTracingContext::createLodPipelines()
         VkPushConstantRange range{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = push_size };
         VkPipelineLayoutCreateInfo li{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr, .flags = 0,
-            .setLayoutCount = 1, .pSetLayouts = &set_layout,
+            .setLayoutCount = (set_layout != VK_NULL_HANDLE) ? 1u : 0u,
+            .pSetLayouts = (set_layout != VK_NULL_HANDLE) ? &set_layout : nullptr,
             .pushConstantRangeCount = 1, .pPushConstantRanges = &range };
         validation::checkVulkan(vkCreatePipelineLayout(device, &li, nullptr, &out_layout));
 
@@ -984,21 +993,19 @@ void RayTracingContext::createLodPipelines()
     make_pipeline(lod_emit_set_layout, sizeof(LodEmitPush),
         "shaders/pathtrace_lod_emit.slang", "emitMain", lod_emit_layout, lod_emit_pipeline);
 
-    // One set of each (the aggregate runs in an internal one-shot submit, not per-frame-in-flight).
-    VkDescriptorPoolSize pool_size{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 }; // 1 (scatter) + 2 (emit)
+    // Only the emit set exists now (scatter is descriptor-free); the aggregate runs in an internal
+    // one-shot submit, not per-frame-in-flight, so one set suffices.
+    VkDescriptorPoolSize pool_size{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 }; // emit: global counter
     VkDescriptorPoolCreateInfo pool_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .pNext = nullptr, .flags = 0,
-        .maxSets = 2, .poolSizeCount = 1, .pPoolSizes = &pool_size };
+        .maxSets = 1, .poolSizeCount = 1, .pPoolSizes = &pool_size };
     validation::checkVulkan(vkCreateDescriptorPool(device, &pool_info, nullptr, &lod_desc_pool));
 
-    VkDescriptorSetLayout layouts[2] = { lod_scatter_set_layout, lod_emit_set_layout };
-    VkDescriptorSet sets[2] = {};
     VkDescriptorSetAllocateInfo ai{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, .pNext = nullptr,
-        .descriptorPool = lod_desc_pool, .descriptorSetCount = 2, .pSetLayouts = layouts };
-    validation::checkVulkan(vkAllocateDescriptorSets(device, &ai, sets));
-    lod_scatter_set = sets[0];
-    lod_emit_set    = sets[1];
+        .descriptorPool = lod_desc_pool, .descriptorSetCount = 1, .pSetLayouts = &lod_emit_set_layout };
+    validation::checkVulkan(vkAllocateDescriptorSets(device, &ai, &lod_emit_set));
+    lod_scatter_set = VK_NULL_HANDLE;
 }
 
 RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
@@ -1302,11 +1309,28 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
         lod_max_cells = static_cast<uint32_t>(std::min<uint64_t>(cells, count));
         geom_prims = lod_max_cells;
 
-        // Per-cell occupancy counts (one uint each) + the emitted-primitive counter (host-readable).
+        // Centroid placement needs int64 fixed-point atomics through a BDA pointer (Task 1 feature
+        // gate). When unavailable, fall back to cell-center placement (no sum buffer).
+        lod_centroid = int64_atomics;
+
+        // Per-cell occupancy counts (one uint each) -- now BDA (the sum below exceeds the descriptor
+        // cap at large N, and the count moves to BDA alongside it) -- plus the emitted-primitive
+        // counter (host-readable). The count buffer is cleared each frame via vkCmdFillBuffer.
         lod_cellcount_buffer = makeBuffer(*this, VkDeviceSize(cells) * sizeof(uint32_t),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, false);
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
         lod_counter_buffer = makeBuffer(*this, sizeof(uint32_t),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true);
+
+        // Per-cell fixed-point position sum (3 * uint64 per cell) for centroid placement, BDA. Only
+        // allocated when centroid is active; up to 3 * N^3 * 8 B (>4 GiB at large N), past the
+        // maxStorageBufferRange descriptor cap -- hence BDA.
+        if (lod_centroid)
+        {
+            lod_cellsum_buffer = makeBuffer(*this, VkDeviceSize(cells) * 3 * sizeof(uint64_t),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+        }
+        spdlog::info("Path tracing: LOD placement: {}",
+            lod_centroid ? "centroid" : "cell-center (int64 atomics unavailable)");
     }
 
     VkDeviceSize aabb_size = VkDeviceSize(geom_prims) * sizeof(VkAabbPositionsKHR);
@@ -1412,23 +1436,15 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
 
     if (lod_cells > 0)
     {
-        VkDescriptorBufferInfo cc{ .buffer = lod_cellcount_buffer.buffer, .offset = 0, .range = VK_WHOLE_SIZE };
-        VkDescriptorBufferInfo gc{ .buffer = lod_counter_buffer.buffer,  .offset = 0, .range = VK_WHOLE_SIZE };
-        VkWriteDescriptorSet writes[3] = {
-            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = lod_scatter_set,
-              .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
-              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
-              .pBufferInfo = &cc, .pTexelBufferView = nullptr },
-            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = lod_emit_set,
-              .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
-              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
-              .pBufferInfo = &cc, .pTexelBufferView = nullptr },
-            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = lod_emit_set,
-              .dstBinding = 1, .dstArrayElement = 0, .descriptorCount = 1,
-              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
-              .pBufferInfo = &gc, .pTexelBufferView = nullptr },
-        };
-        vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+        // Only the global emit counter is a descriptor now (emit binding 0). The per-cell count and
+        // sum accumulators ride the scatter/emit push constants as BDA addresses; scatter has no set.
+        VkDescriptorBufferInfo gc{ .buffer = lod_counter_buffer.buffer, .offset = 0, .range = VK_WHOLE_SIZE };
+        VkWriteDescriptorSet write{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = lod_emit_set,
+            .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
+            .pBufferInfo = &gc, .pTexelBufferView = nullptr };
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
     // Populate the AABBs and build the BLAS + TLAS once (positions are already valid at bind time),
@@ -1616,19 +1632,21 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     const float radius = LOD_COVERAGE * cell_size * 0.5f;
 
     // 1) Aggregate in a blocking one-shot submit.
+    const uint32_t centroid_flag = lod_centroid ? 1u : 0u;
+    const VkDeviceAddress cellsum_addr = lod_centroid ? lod_cellsum_buffer.address : VkDeviceAddress(0);
     submit([&](VkCommandBuffer c) {
         vkCmdFillBuffer(c, lod_cellcount_buffer.buffer, 0, VK_WHOLE_SIZE, 0u);
         vkCmdFillBuffer(c, lod_counter_buffer.buffer,   0, VK_WHOLE_SIZE, 0u);
+        if (lod_centroid) { vkCmdFillBuffer(c, lod_cellsum_buffer.buffer, 0, VK_WHOLE_SIZE, 0u); }
         VkMemoryBarrier clr{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
             .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
             .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
         vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             0, 1, &clr, 0, nullptr, 0, nullptr);
 
-        LodScatterPush sp{ .positions = position_address, .count = particle_count, .gridN = grid };
+        LodScatterPush sp{ .positions = position_address, .cellCounts = lod_cellcount_buffer.address,
+            .cellSums = cellsum_addr, .count = particle_count, .gridN = grid, .centroid = centroid_flag };
         vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_COMPUTE, lod_scatter_pipeline);
-        vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_COMPUTE, lod_scatter_layout, 0, 1,
-            &lod_scatter_set, 0, nullptr);
         vkCmdPushConstants(c, lod_scatter_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sp), &sp);
         vkCmdDispatch(c, (particle_count + 63) / 64, 1, 1);
 
@@ -1638,7 +1656,8 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
         vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             0, 1, &s2e, 0, nullptr, 0, nullptr);
 
-        LodEmitPush ep{ .aabbs = aabb_buffer.address, .gridN = grid, .radius = radius };
+        LodEmitPush ep{ .aabbs = aabb_buffer.address, .cellCounts = lod_cellcount_buffer.address,
+            .cellSums = cellsum_addr, .gridN = grid, .radius = radius, .centroid = centroid_flag };
         vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_COMPUTE, lod_emit_pipeline);
         vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_COMPUTE, lod_emit_layout, 0, 1,
             &lod_emit_set, 0, nullptr);
@@ -1972,6 +1991,7 @@ void RayTracingContext::destroy()
 
     // LOD grid-aggregation buffers (allocated in bindScene only when lod_cells > 0)
     destroyBuffer(device, lod_cellcount_buffer);
+    destroyBuffer(device, lod_cellsum_buffer);
     destroyBuffer(device, lod_counter_buffer);
 }
 
