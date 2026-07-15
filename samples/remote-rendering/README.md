@@ -185,6 +185,28 @@ X:
 ./rr-client 127.0.0.1 9000 "" auto 60
 ```
 
+### Path-tracing options
+
+#### `--lod N` (path-tracing level of detail)
+
+Aggregates particles into an `N x N x N` voxel grid over the `[-1,1]³` domain and renders
+one sphere per **occupied** cell (placed at the cell centre, sized to the cell), instead of one
+sphere per particle. This cuts the number of BVH primitives, reducing both the BLAS build time and
+the trace time, and — because the cell spheres are opaque and overlapping — removes the
+transparency noise that tiny per-particle spheres produce at high counts.
+
+- `N = 0` (default): one primitive per particle (no LOD).
+- `N` in `1..512`: `N` cells per axis. Larger `N` = finer detail, more primitives, slower.
+- Deterministic: the same `N` yields the same occupied-cell count and image every run, so it is a
+  reproducible benchmark knob.
+- Memory: the grid accumulator is `N³ * 4 bytes` (512³ = 537 MB).
+
+Example:
+
+```sh
+./rr-server 9000 1920 1080 $((2**29)) 1 --light-model path-tracing --lod 128
+```
+
 ## Controls (interactive window)
 
 | Input              | Action          |
