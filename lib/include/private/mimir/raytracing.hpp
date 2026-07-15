@@ -232,6 +232,19 @@ struct RayTracingContext
     VkDescriptorPool atrous_pool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> atrous_sets;
 
+    // ---- LOD grid-aggregation compute pipelines (pt_lod_cells > 0) ----
+    VkDescriptorSetLayout lod_scatter_set_layout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout lod_emit_set_layout    = VK_NULL_HANDLE;
+    VkPipelineLayout      lod_scatter_layout     = VK_NULL_HANDLE;
+    VkPipelineLayout      lod_emit_layout        = VK_NULL_HANDLE;
+    VkPipeline            lod_scatter_pipeline   = VK_NULL_HANDLE;
+    VkPipeline            lod_emit_pipeline       = VK_NULL_HANDLE;
+    VkDescriptorPool      lod_desc_pool          = VK_NULL_HANDLE;
+    VkDescriptorSet       lod_scatter_set        = VK_NULL_HANDLE; // written in bindScene
+    VkDescriptorSet       lod_emit_set           = VK_NULL_HANDLE; // written in bindScene
+
+    void createLodPipelines();
+
     // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*TS_PER_FRAME timestamps. The
     // build phase is split into its three sub-phases so callers can see where the frame goes (at
     // large N the build dominates, but which part -- the AABB writer, the BLAS build/refit, or the

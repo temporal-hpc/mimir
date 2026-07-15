@@ -834,6 +834,84 @@ void allocateDescriptorSets(RayTracingContext& ctx)
 
 } // namespace
 
+// ---- LOD grid-aggregation compute pipelines ---------------------------------------
+
+// Push constants for pathtrace_lod_scatter.slang: positions BDA pointer (offset 0), then the
+// particle count and grid resolution. The per-cell count buffer is a descriptor (binding 0).
+struct LodScatterPush { VkDeviceAddress positions; uint32_t count; uint32_t gridN; };
+// Push constants for pathtrace_lod_emit.slang: AABB output BDA pointer (offset 0), grid
+// resolution, sphere radius. Cell counts (binding 0) and the global counter (binding 1) are
+// descriptors.
+struct LodEmitPush { VkDeviceAddress aabbs; uint32_t gridN; float radius; };
+
+void RayTracingContext::createLodPipelines()
+{
+    // One-binding set for scatter (cell counts), two-binding set for emit (cell counts + counter).
+    auto make_set_layout = [&](uint32_t binding_count) {
+        std::vector<VkDescriptorSetLayoutBinding> b(binding_count);
+        for (uint32_t i = 0; i < binding_count; ++i) {
+            b[i] = VkDescriptorSetLayoutBinding{
+                .binding = i, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                .pImmutableSamplers = nullptr };
+        }
+        VkDescriptorSetLayoutCreateInfo info{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = nullptr, .flags = 0, .bindingCount = binding_count, .pBindings = b.data() };
+        VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+        validation::checkVulkan(vkCreateDescriptorSetLayout(device, &info, nullptr, &layout));
+        return layout;
+    };
+    lod_scatter_set_layout = make_set_layout(1);
+    lod_emit_set_layout    = make_set_layout(2);
+
+    auto make_pipeline = [&](VkDescriptorSetLayout set_layout, uint32_t push_size,
+                             const char* module, const char* entry,
+                             VkPipelineLayout& out_layout, VkPipeline& out_pipe) {
+        VkPushConstantRange range{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = push_size };
+        VkPipelineLayoutCreateInfo li{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr, .flags = 0,
+            .setLayoutCount = 1, .pSetLayouts = &set_layout,
+            .pushConstantRangeCount = 1, .pPushConstantRanges = &range };
+        validation::checkVulkan(vkCreatePipelineLayout(device, &li, nullptr, &out_layout));
+
+        auto orig = std::filesystem::current_path();
+        std::filesystem::current_path(getDefaultShaderPath());
+        auto builder = ShaderBuilder::make();
+        ShaderCompileParams params{ .module_path = module, .entrypoints = { entry }, .specializations = {} };
+        auto stages = builder.compileModule(device, params);
+        std::filesystem::current_path(orig);
+        if (stages.size() != 1) { spdlog::error("{}: expected 1 compute stage, got {}", module, stages.size()); }
+
+        VkComputePipelineCreateInfo pi{
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr, .flags = 0,
+            .stage = stages[0], .layout = out_layout,
+            .basePipelineHandle = VK_NULL_HANDLE, .basePipelineIndex = 0 };
+        validation::checkVulkan(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pi, nullptr, &out_pipe));
+        vkDestroyShaderModule(device, stages[0].module, nullptr);
+    };
+    make_pipeline(lod_scatter_set_layout, sizeof(LodScatterPush),
+        "shaders/pathtrace_lod_scatter.slang", "scatterMain", lod_scatter_layout, lod_scatter_pipeline);
+    make_pipeline(lod_emit_set_layout, sizeof(LodEmitPush),
+        "shaders/pathtrace_lod_emit.slang", "emitMain", lod_emit_layout, lod_emit_pipeline);
+
+    // One set of each (the aggregate runs in an internal one-shot submit, not per-frame-in-flight).
+    VkDescriptorPoolSize pool_size{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 }; // 1 (scatter) + 2 (emit)
+    VkDescriptorPoolCreateInfo pool_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .pNext = nullptr, .flags = 0,
+        .maxSets = 2, .poolSizeCount = 1, .pPoolSizes = &pool_size };
+    validation::checkVulkan(vkCreateDescriptorPool(device, &pool_info, nullptr, &lod_desc_pool));
+
+    VkDescriptorSetLayout layouts[2] = { lod_scatter_set_layout, lod_emit_set_layout };
+    VkDescriptorSet sets[2] = {};
+    VkDescriptorSetAllocateInfo ai{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, .pNext = nullptr,
+        .descriptorPool = lod_desc_pool, .descriptorSetCount = 2, .pSetLayouts = layouts };
+    validation::checkVulkan(vkAllocateDescriptorSets(device, &ai, sets));
+    lod_scatter_set = sets[0];
+    lod_emit_set    = sets[1];
+}
+
 RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     VkPhysicalDeviceMemoryProperties mem_props, SubmitFn submit,
     uint32_t subdiv, uint32_t max_recursion, std::vector<MaterialData> materials)
@@ -882,6 +960,7 @@ RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     createCompositeResources(ctx);
     createAabbWriter(ctx);
     createAtrousPipeline(ctx);
+    ctx.createLodPipelines();
     allocateDescriptorSets(ctx);
 
     spdlog::info("Path tracing ready: procedural AABB spheres; scene bound per view");
@@ -1576,6 +1655,15 @@ void RayTracingContext::destroy()
     // AABB-writer compute (push-constant-only: no descriptor set/pool)
     if (iw_pipeline)        { vkDestroyPipeline(device, iw_pipeline, nullptr); }
     if (iw_pipeline_layout) { vkDestroyPipelineLayout(device, iw_pipeline_layout, nullptr); }
+
+    // LOD grid-aggregation compute (scatter + emit)
+    if (lod_scatter_pipeline   != VK_NULL_HANDLE) { vkDestroyPipeline(device, lod_scatter_pipeline, nullptr); }
+    if (lod_emit_pipeline      != VK_NULL_HANDLE) { vkDestroyPipeline(device, lod_emit_pipeline, nullptr); }
+    if (lod_scatter_layout     != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device, lod_scatter_layout, nullptr); }
+    if (lod_emit_layout        != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device, lod_emit_layout, nullptr); }
+    if (lod_scatter_set_layout != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device, lod_scatter_set_layout, nullptr); }
+    if (lod_emit_set_layout    != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device, lod_emit_set_layout, nullptr); }
+    if (lod_desc_pool          != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device, lod_desc_pool, nullptr); }
 
     // Shared dynamic scene (one-instance TLAS + AABB BLAS + AABB buffer + scratch)
     if (scene_tlas.handle)
