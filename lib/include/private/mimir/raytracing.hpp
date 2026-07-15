@@ -147,6 +147,10 @@ struct RayTracingContext
     // ViewerOptions::pt_lod_cells before bindScene. See
     // docs/superpowers/specs/2026-07-14-lod-grid-aggregation-design.md.
     uint32_t lod_cells = 0;
+    // Device supports shaderBufferInt64Atomics + shaderInt64 (set from supportsInt64Atomics at
+    // device creation, threaded through make). Gates the LOD-centroid int64 BDA position-sum
+    // accumulator; when false, --lod falls back to cell-center placement. See the LOD centroid spec.
+    bool int64_atomics = false;
     uint32_t frames_since_full_rebuild = 0;
     bool     accel_ever_built = false;
     // Cumulative recordUpdateScene tallies (one increment per recorded frame), so callers can report
@@ -284,7 +288,7 @@ struct RayTracingContext
     // diffuse material is used. bindScene overwrites material 0's albedo with the view color.
     static RayTracingContext make(VkDevice device, VkPhysicalDevice gpu,
         VkPhysicalDeviceMemoryProperties mem_props, SubmitFn submit,
-        uint32_t subdiv, uint32_t max_recursion,
+        uint32_t subdiv, uint32_t max_recursion, bool int64_atomics = false,
         std::vector<MaterialData> materials = {});
 
     // Rewrite material `index`'s shader-record data into the SBT hit record (host-visible buffer).

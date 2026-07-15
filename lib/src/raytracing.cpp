@@ -836,6 +836,91 @@ void allocateDescriptorSets(RayTracingContext& ctx)
     validation::checkVulkan(vkAllocateDescriptorSets(ctx.device, &atrous_alloc, ctx.atrous_sets.data()));
 }
 
+// ---- int64 BDA-atomics feasibility spike (Task 1, GATING) --------------------------
+
+// Push constants for lod_atomic_spike.slang (16 bytes). Must match its PushConstants:
+// uint64_t* sink (BDA, offset 0), uint addend, uint count.
+struct SpikePush { VkDeviceAddress sink; uint32_t addend; uint32_t count; };
+
+// Known-answer check that a 64-bit integer atomic-add through a buffer-device-address
+// (PhysicalStorageBuffer) pointer works on this Slang/driver/GPU: a HOST_VISIBLE uint64 BDA
+// accumulator initialized to 0, then `count` threads each atomically adding `addend`, read back
+// after the one-shot submit. Env-gated by the caller; runs only when int64_atomics is supported.
+// Logs "LOD atomic spike: got {} expected {}". Returns the observed sum.
+uint64_t runInt64AtomicSpike(RayTracingContext& ctx)
+{
+    constexpr uint32_t kCount  = 100000; // dispatched contributing threads
+    constexpr uint32_t kAddend = 7;      // per-thread add
+    const uint64_t expected = uint64_t(kCount) * kAddend; // 700000
+
+    // Pipeline layout: just the push-constant range (accumulator is a BDA pointer, no descriptors).
+    VkPushConstantRange push_range{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(SpikePush),
+    };
+    VkPipelineLayoutCreateInfo layout_info{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr, .flags = 0,
+        .setLayoutCount = 0, .pSetLayouts = nullptr,
+        .pushConstantRangeCount = 1, .pPushConstantRanges = &push_range,
+    };
+    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreatePipelineLayout(ctx.device, &layout_info, nullptr, &pipeline_layout));
+
+    auto orig_path = std::filesystem::current_path();
+    std::filesystem::current_path(getDefaultShaderPath());
+    auto builder = ShaderBuilder::make();
+    ShaderCompileParams params{
+        .module_path = "shaders/lod_atomic_spike.slang",
+        .entrypoints = { "spikeMain" }, .specializations = {},
+    };
+    auto stages = builder.compileModule(ctx.device, params);
+    std::filesystem::current_path(orig_path);
+    if (stages.size() != 1)
+    {
+        spdlog::error("lod_atomic_spike.slang: expected 1 compute stage, got {}", stages.size());
+    }
+    VkComputePipelineCreateInfo pipeline_info{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr, .flags = 0,
+        .stage = stages[0], .layout = pipeline_layout,
+        .basePipelineHandle = VK_NULL_HANDLE, .basePipelineIndex = 0,
+    };
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    validation::checkVulkan(vkCreateComputePipelines(
+        ctx.device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline));
+    vkDestroyShaderModule(ctx.device, stages[0].module, nullptr);
+
+    // HOST_VISIBLE + BDA uint64 accumulator, initialized to 0 through the mapping.
+    RtBuffer sink = makeBuffer(ctx, sizeof(uint64_t),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true);
+    {
+        void* mapped = nullptr;
+        validation::checkVulkan(vkMapMemory(ctx.device, sink.memory, 0, sizeof(uint64_t), 0, &mapped));
+        *static_cast<uint64_t*>(mapped) = 0ull;
+        vkUnmapMemory(ctx.device, sink.memory);
+    }
+
+    SpikePush push{ .sink = sink.address, .addend = kAddend, .count = kCount };
+    uint32_t groups = (kCount + 63) / 64;
+    ctx.submit([&](VkCommandBuffer cmd) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+        vkCmdDispatch(cmd, groups, 1, 1);
+    });
+
+    uint64_t got = 0;
+    {
+        void* mapped = nullptr;
+        validation::checkVulkan(vkMapMemory(ctx.device, sink.memory, 0, sizeof(uint64_t), 0, &mapped));
+        got = *static_cast<uint64_t*>(mapped);
+        vkUnmapMemory(ctx.device, sink.memory);
+    }
+    spdlog::info("LOD atomic spike: got {} expected {}", got, expected);
+
+    destroyBuffer(ctx.device, sink);
+    vkDestroyPipeline(ctx.device, pipeline, nullptr);
+    vkDestroyPipelineLayout(ctx.device, pipeline_layout, nullptr);
+    return got;
+}
+
 } // namespace
 
 // ---- LOD grid-aggregation compute pipelines ---------------------------------------
@@ -918,7 +1003,8 @@ void RayTracingContext::createLodPipelines()
 
 RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     VkPhysicalDeviceMemoryProperties mem_props, SubmitFn submit,
-    uint32_t subdiv, uint32_t max_recursion, std::vector<MaterialData> materials)
+    uint32_t subdiv, uint32_t max_recursion, bool int64_atomics,
+    std::vector<MaterialData> materials)
 {
     RayTracingContext ctx{};
     ctx.device = device;
@@ -927,6 +1013,7 @@ RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     ctx.submit = std::move(submit);
     ctx.api = RayTracingApi::load(device);
     ctx.max_recursion = max_recursion;
+    ctx.int64_atomics = int64_atomics;
 
     // Seed the multi-material SBT. At least one material always exists (material 0 = the particle
     // surface, whose albedo bindScene later overwrites with the view color).
@@ -966,6 +1053,13 @@ RayTracingContext RayTracingContext::make(VkDevice device, VkPhysicalDevice gpu,
     createAtrousPipeline(ctx);
     ctx.createLodPipelines();
     allocateDescriptorSets(ctx);
+
+    // Task 1 GATING spike: prove int64 atomic-add through a BDA pointer is correct+deterministic
+    // before Task 2 commits to the BDA accumulator. Env-gated so it never runs in normal use.
+    if (ctx.int64_atomics && std::getenv("MIMIR_LOD_ATOMIC_SPIKE"))
+    {
+        runInt64AtomicSpike(ctx);
+    }
 
     spdlog::info("Path tracing ready: procedural AABB spheres; scene bound per view");
     return ctx;

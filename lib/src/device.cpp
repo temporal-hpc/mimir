@@ -216,6 +216,25 @@ bool supportsRayTracing(VkPhysicalDevice dev)
         && vk12_features.bufferDeviceAddress    == VK_TRUE;
 }
 
+bool supportsInt64Atomics(VkPhysicalDevice dev)
+{
+    // shaderInt64 lives in the base feature struct; shaderBufferInt64Atomics is the promoted
+    // Vulkan 1.2 feature. Both must be reported before createLogicalDevice may request them.
+    VkPhysicalDeviceFeatures base_features{};
+    vkGetPhysicalDeviceFeatures(dev, &base_features);
+
+    VkPhysicalDeviceVulkan12Features vk12_features{};
+    vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+
+    VkPhysicalDeviceFeatures2 features2{};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &vk12_features;
+    vkGetPhysicalDeviceFeatures2(dev, &features2);
+
+    return base_features.shaderInt64              == VK_TRUE
+        && vk12_features.shaderBufferInt64Atomics == VK_TRUE;
+}
+
 bool checkAllExtensionsSupported(VkPhysicalDevice dev, std::span<const char*> expected)
 {
     // Enumerate extensions and check if all required extensions are included
@@ -428,6 +447,21 @@ VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_fam
         accel_features.pNext = &rtp_features;
         vk12features.pNext   = &accel_features;
         spdlog::info("Ray tracing extensions enabled (device is path-tracing capable)");
+
+        // int64 buffer atomics for deterministic LOD-centroid position sums (see LOD centroid spec).
+        // Support-checked: vkCreateDevice rejects unsupported requested features. Enabled here (inside
+        // the RT block) because LOD only runs under path tracing, and vk12features already rides the
+        // pNext chain that vkCreateDevice reads.
+        if (supportsInt64Atomics(gpu))
+        {
+            device_features.shaderInt64           = VK_TRUE;
+            vk12features.shaderBufferInt64Atomics = VK_TRUE;
+            spdlog::info("int64 buffer atomics enabled (LOD centroid available)");
+        }
+        else
+        {
+            spdlog::warn("int64 buffer atomics unsupported; LOD will use cell-center placement");
+        }
     }
     else
     {

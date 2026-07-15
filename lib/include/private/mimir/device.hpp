@@ -60,6 +60,13 @@ std::vector<const char*> getRayTracingExtensions();
 // (acceleration structures, RT pipeline, buffer device address).
 bool supportsRayTracing(VkPhysicalDevice dev);
 
+// True when the device supports 64-bit integer buffer atomics: both shaderInt64
+// (VkPhysicalDeviceFeatures) and shaderBufferInt64Atomics (VkPhysicalDeviceVulkan12Features).
+// Required by the LOD-centroid position-sum accumulator (see the LOD centroid spec). When false,
+// --lod falls back to cell-center placement. createLogicalDevice enables both features iff this
+// returns true (vkCreateDevice rejects unsupported requested features).
+bool supportsInt64Atomics(VkPhysicalDevice dev);
+
 static_assert(std::is_default_constructible_v<PhysicalDevice>);
 static_assert(std::is_nothrow_default_constructible_v<PhysicalDevice>);
 static_assert(std::is_trivially_default_constructible_v<PhysicalDevice>);

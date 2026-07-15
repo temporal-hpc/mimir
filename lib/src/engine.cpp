@@ -1336,9 +1336,13 @@ void MimirInstance::initVulkan()
             MaterialData{ .albedo = { 0.82f, 0.82f, 0.88f }, .emission = 0.f }, // diffuse (particles)
             MaterialData{ .albedo = { 1.00f, 0.85f, 0.55f }, .emission = 4.f }, // spare emissive light
         };
+        // int64 buffer atomics were enabled at device creation iff supported (see
+        // createLogicalDevice); mirror that query so the RT context knows whether the LOD-centroid
+        // int64 BDA accumulator is available (else --lod falls back to cell-center placement).
+        bool int64_atomics = supportsInt64Atomics(physical_device.handle);
         raytracing = RayTracingContext::make(device, physical_device.handle,
             physical_device.memory.memoryProperties, submit,
-            options.pt_subdivisions, /*max_recursion=*/2, std::move(materials)
+            options.pt_subdivisions, /*max_recursion=*/2, int64_atomics, std::move(materials)
         );
         deletors.context.add([this]{ raytracing.destroy(); });
     }
