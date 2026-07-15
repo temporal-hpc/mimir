@@ -350,10 +350,16 @@ int main(int argc, char *argv[])
     unsigned long long max_cells = budget / bytes_per_cell;
     unsigned int max_n = 4096; // hard sanity ceiling
     while ((unsigned long long)max_n*max_n*max_n > max_cells) { --max_n; }
+    // The LOD shaders (pathtrace_lod_scatter.slang, pathtrace_lod_emit.slang) compute the linear
+    // cell index and total cell count in 32-bit uint (total = gridN*gridN*gridN,
+    // lin = cx + gridN*(cy + gridN*cz)), which is only safe while N^3 < 2^32. Clamp max_n to that
+    // uint32 cell-index ceiling independent of the VRAM budget above (1625^3 < 2^32 <= 1626^3), so we
+    // never accept an N that silently overflows the shader's occupancy math.
+    if (max_n > 1625u) { max_n = 1625u; }
     if (lod_cells > max_n) {
         fprintf(stderr, "rr-server: --lod %u exceeds VRAM budget; max feasible N is %u "
                         "(accumulator %.1f GB)\n", lod_cells, max_n,
-                        (double)((unsigned long long)lod_cells*lod_cells*lod_cells*bytes_per_cell)/1e9);
+                        ((double)lod_cells*lod_cells*lod_cells*bytes_per_cell)/1e9);
         return EXIT_FAILURE;
     }
     if (lod_cells > 0 && (unsigned long long)lod_cells*lod_cells*lod_cells > (unsigned long long)point_count/8ull) {
