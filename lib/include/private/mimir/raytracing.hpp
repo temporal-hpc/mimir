@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
 
+#include <array> // std::array
 #include <cstdint>
 #include <functional> // std::function
 #include <vector> // std::vector
@@ -63,6 +64,10 @@ struct RtPushConstants
     // the first frame after a reset). The engine resets to 0 on camera motion or a new simulation
     // iteration, then increments; the raygen keeps a running HDR mean so static views converge.
     uint32_t accum_frame = 0;
+    // Device address of the per-particle AABB buffer (VkAabbPositionsKHR[]); the sphere intersection
+    // shader reads AABB[PrimitiveIndex] to recover each sphere's centre + radius. Set by recordTrace
+    // from the bound scene, not by the engine. At offset 120, keeping RtPushConstants at 128 bytes.
+    VkDeviceAddress aabbs = 0;
 };
 
 // Per-material surface parameters, stored as shader-record data in each SBT hit record (must match
@@ -91,6 +96,12 @@ struct RayTracingContext
     // Must match the engine's MAX_FRAMES_IN_FLIGHT; frame indices are render_timeline % this.
     static constexpr uint32_t FRAMES = 3;
 
+    // What recordUpdateScene did to the acceleration structure for a given frame. Stored per frame
+    // slot (see slot_build_mode) so the GPU-timestamped build time read back FRAMES frames later can
+    // be attributed to the mode that actually produced it -- the split and its label describe the
+    // same frame, not a frame FRAMES steps apart.
+    enum class BlasBuild : uint8_t { Skip, Refit, Rebuild };
+
     VkDevice device = VK_NULL_HANDLE;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties mem_props{};
@@ -101,31 +112,64 @@ struct RayTracingContext
     // One-time GPU submit callback (engine's immediateSubmit) used for AS builds/transitions.
     SubmitFn submit;
 
-    // Icosphere geometry + bottom-level acceleration structure (one, built once)
-    RtBuffer vertex_buffer;
-    RtBuffer index_buffer;
-    uint32_t index_count = 0;
-    uint32_t vertex_count = 0;
-    AccelStruct blas;
-
-    // Dynamic scene (Phase 2): a per-frame TLAS rebuilt each frame from the live interop
-    // position buffer. Bound after view creation via bindScene(). Per-frame (indexed by
-    // frame-in-flight) so a frame's TLAS/instances are never overwritten while still in use.
+    // Dynamic scene (BLAS-of-primitives): each particle is a procedural AABB sphere primitive in a
+    // single bottom-level AS, rebuilt each frame from the live interop positions. This lifts the
+    // particle cap from maxInstanceCount (~2^24, when each particle was its own TLAS instance) to
+    // maxPrimitiveCount (~2^29). The AABB buffer + BLAS + scratch are SINGLE shared copies (not
+    // per-frame): at ~5*10^8 particles the AABB buffer alone is N*24 B = ~12 GiB, so triple-
+    // buffering would be unaffordable. Sharing one copy is made safe by a cross-frame barrier in
+    // recordUpdateScene that serializes each frame's AABB-writer + AS builds after the previous
+    // frame's trace (same queue, submission-ordered) -- the same technique the accumulator image
+    // uses. The cost is losing write/build-vs-trace overlap; negligible for the huge-N monitoring
+    // case this enables. The TLAS holds ONE instance pointing at the BLAS (identity transform).
     bool scene_bound = false;
-    VkBuffer position_buffer = VK_NULL_HANDLE; // interop positions (owned by the view, not us)
+    VkDeviceAddress position_address = 0; // interop positions, read by BDA (owned by the view, not us)
     uint32_t particle_count = 0;
     float particle_radius = 0.f;
     glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
-    AccelStruct scene_tlas[FRAMES];       // per-frame TLAS
-    RtBuffer instance_buffers[FRAMES];    // per-frame VkAccelerationStructureInstanceKHR[]
-    RtBuffer tlas_scratch[FRAMES];        // persistent per-frame build scratch
+    // maxPrimitiveCount (~2^29) is a PER-BLAS limit, so particle counts above it are split across
+    // several BLASes of blas_chunk_prims AABBs each (chunk c = AABBs [c*chunk, ...)), with one TLAS
+    // instance per chunk. The intersection shader recovers the global index from InstanceID()*chunk +
+    // PrimitiveIndex(). One shared scratch (sized for the largest chunk); chunk builds serialize on it.
+    RtBuffer aabb_buffer;              // per-particle VkAabbPositionsKHR[] (writer output, BLAS input)
+    std::vector<AccelStruct> scene_blas; // one BLAS per <= maxPrimitiveCount chunk (rebuilt each frame)
+    RtBuffer blas_scratch;            // shared BLAS build scratch (largest chunk)
+    uint32_t blas_chunk_prims = 0;    // particles per BLAS chunk (<= maxPrimitiveCount)
+    // BLAS refit: a full from-scratch BLAS build over ~5*10^8 AABBs dominates the frame (seconds),
+    // yet the mean-reverting OU walk only nudges each sphere a little per step. So most dirty frames
+    // REFIT the existing BVH in place (VK_..._MODE_UPDATE -- cheap, keeps topology) and a full rebuild
+    // is forced every `rebuild_interval` dirty frames to stop traversal quality from drifting as the
+    // clusters deform. rebuild_interval <= 1 disables refit (always full rebuild). accel_ever_built
+    // gates the mandatory first full build (UPDATE needs a prior BUILD as its source);
+    // frames_since_full_rebuild drives the cadence. Env override: MIMIR_PT_REBUILD_INTERVAL.
+    uint32_t rebuild_interval = 8;
+    // LOD grid resolution (cells per axis); 0 = per-particle (no LOD). Set from
+    // ViewerOptions::pt_lod_cells before bindScene. See
+    // docs/superpowers/specs/2026-07-14-lod-grid-aggregation-design.md.
+    uint32_t lod_cells = 0;
+    // Device supports shaderBufferInt64Atomics + shaderInt64 (set from supportsInt64Atomics at
+    // device creation, threaded through make). Gates the LOD-centroid int64 BDA position-sum
+    // accumulator; when false, --lod falls back to cell-center placement. See the LOD centroid spec.
+    bool int64_atomics = false;
+    uint32_t frames_since_full_rebuild = 0;
+    bool     accel_ever_built = false;
+    // Cumulative recordUpdateScene tallies (one increment per recorded frame), so callers can report
+    // the per-window mix of full rebuilds vs cheap refits vs skipped (unchanged-scene) frames.
+    uint64_t stat_full_rebuilds = 0;
+    uint64_t stat_refits = 0;
+    uint64_t stat_skips = 0;
+    // The build mode chosen for each in-flight frame slot, keyed by frame_idx. recordUpdateScene
+    // stamps this frame's slot; readTimings reads slot frame_idx (the frame FRAMES steps ago) and
+    // copies it into last_build_mode alongside that frame's build time -- so the two stay paired.
+    std::array<BlasBuild, FRAMES> slot_build_mode{};
+    RtBuffer tlas_instance_buffer;    // one VkAccelerationStructureInstanceKHR per chunk -> its BLAS
+    AccelStruct scene_tlas;           // TLAS over the per-chunk instances
+    RtBuffer tlas_scratch;            // TLAS build scratch (tiny: one instance per chunk)
 
-    // Instance-writer compute (fills instance_buffers[frame] from position_buffer)
-    VkDescriptorSetLayout iw_set_layout = VK_NULL_HANDLE;
+    // AABB-writer compute (fills the shared aabb_buffer from the positions; both are BDA push-constant
+    // pointers, so there is no descriptor set/pool -- just the pipeline + its push-constant layout).
     VkPipelineLayout iw_pipeline_layout = VK_NULL_HANDLE;
     VkPipeline iw_pipeline = VK_NULL_HANDLE;
-    VkDescriptorPool iw_pool = VK_NULL_HANDLE;
-    VkDescriptorSet iw_sets[FRAMES] = {};
 
     // Ray-tracing pipeline + shader binding table
     VkDescriptorSetLayout rt_set_layout = VK_NULL_HANDLE;
@@ -193,13 +237,55 @@ struct RayTracingContext
     VkDescriptorPool atrous_pool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> atrous_sets;
 
-    // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*4 timestamps (per frame:
-    // 0/1 bracket the instance-writer + TLAS build, 2/3 bracket the trace). Read back with one
-    // frame of latency (after the frame's fence). last_*_ms hold the most recent readings.
+    // ---- LOD grid-aggregation compute pipelines (pt_lod_cells > 0) ----
+    VkDescriptorSetLayout lod_scatter_set_layout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout lod_emit_set_layout    = VK_NULL_HANDLE;
+    VkPipelineLayout      lod_scatter_layout     = VK_NULL_HANDLE;
+    VkPipelineLayout      lod_emit_layout        = VK_NULL_HANDLE;
+    VkPipeline            lod_scatter_pipeline   = VK_NULL_HANDLE;
+    VkPipeline            lod_emit_pipeline       = VK_NULL_HANDLE;
+    VkDescriptorPool      lod_desc_pool          = VK_NULL_HANDLE;
+    VkDescriptorSet       lod_scatter_set        = VK_NULL_HANDLE; // written in bindScene
+    VkDescriptorSet       lod_emit_set           = VK_NULL_HANDLE; // written in bindScene
+
+    RtBuffer lod_cellcount_buffer; // N^3 uint occupancy counts (DEVICE_LOCAL, BDA)
+    RtBuffer lod_cellsum_buffer;   // 3 * N^3 uint64 fixed-point position sums (DEVICE_LOCAL, BDA;
+                                   // allocated only when lod_centroid). Layout [3*lin + 0..2].
+    RtBuffer lod_counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
+    uint32_t lod_max_cells  = 0;   // min(N^3, particle_count): BLAS/AABB sizing bound
+    uint32_t lod_prim_count = 0;   // occupied cells emitted this frame (per-frame build count)
+    bool     lod_centroid   = false; // centroid placement active (= int64_atomics at bindScene);
+                                     // false -> cell-center fallback (int64 atomics unavailable).
+    static constexpr float LOD_COVERAGE = 1.2f; // sphere radius = LOD_COVERAGE * cellSize / 2
+    // Fixed-point scale for the centroid position sum: maps [-1,1] -> [0, 2^30]. Integer atomics are
+    // order-independent (deterministic); 2^30 keeps a sum of ~5*10^8 particles inside int64. Must
+    // match SCALE in pathtrace_lod_scatter.slang / pathtrace_lod_emit.slang.
+    static constexpr double LOD_FIXEDPOINT_SCALE = 1073741824.0; // 2^30
+    void recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
+
+    void createLodPipelines();
+
+    // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*TS_PER_FRAME timestamps. The
+    // build phase is split into its three sub-phases so callers can see where the frame goes (at
+    // large N the build dominates, but which part -- the AABB writer, the BLAS build/refit, or the
+    // TLAS rebuild -- was previously hidden in one lumped "build" number). Per-frame slots:
+    //   +0 build start (TOP_OF_PIPE)   +1 after AABB writer   +2 after BLAS   +3 after TLAS (build end)
+    //   +4 trace start (TOP_OF_PIPE)   +5 trace end
+    // Read back with FRAMES frames of latency (after the frame's fence). last_*_ms hold the most
+    // recent readings; last_build_ms = aabb+blas+tlas (the whole build phase).
+    static constexpr uint32_t TS_PER_FRAME = 6;
     VkQueryPool timing_pool = VK_NULL_HANDLE;
     float timestamp_period = 0.f; // nanoseconds per tick (0 = timestamps unsupported, disabled)
-    double last_tlas_ms = 0.0;    // instance-writer + TLAS build time, last completed frame
+    double last_aabb_ms  = 0.0;   // AABB writer (fills the shared aabb_buffer from positions), last frame
+    double last_blas_ms  = 0.0;   // BLAS build (rebuild) or refit (update) over the AABB chunks, last frame
+    double last_tlas_ms  = 0.0;   // TLAS rebuild over the per-chunk instances, last frame
+    double last_build_ms = 0.0;   // whole AS-build phase = aabb + blas + tlas, last frame
     double last_trace_ms = 0.0;   // vkCmdTraceRays time, last completed frame
+    BlasBuild last_build_mode = BlasBuild::Skip; // mode of the frame the last_*_ms readings are from
+    // False until readTimings first reads real results. For the first FRAMES frames of a session the
+    // readback slot has not been written yet, so last_*_ms/last_build_mode are still defaults (0 ms,
+    // Skip) -- callers use this to suppress a bogus "no build ... 1 skip" line during that warmup.
+    bool have_timings = false;
     // Backdrop colour (background * intensity) captured from the last recordTrace push constants, so
     // recordDenoise's final à-trous pass can show it on primary-miss pixels (see pathtrace_atrous).
     glm::vec3 backdrop_color{0.f};
@@ -210,7 +296,7 @@ struct RayTracingContext
     // diffuse material is used. bindScene overwrites material 0's albedo with the view color.
     static RayTracingContext make(VkDevice device, VkPhysicalDevice gpu,
         VkPhysicalDeviceMemoryProperties mem_props, SubmitFn submit,
-        uint32_t subdiv, uint32_t max_recursion,
+        uint32_t subdiv, uint32_t max_recursion, bool int64_atomics = false,
         std::vector<MaterialData> materials = {});
 
     // Rewrite material `index`'s shader-record data into the SBT hit record (host-visible buffer).
@@ -223,16 +309,21 @@ struct RayTracingContext
     // Destroy the extent-dependent frame resources (call on swapchain rebuild).
     void destroyFrameResources();
 
-    // Bind the dynamic scene: the interop position buffer (VkBuffer, particle_count points of
-    // tightly-packed float3) drives a per-frame TLAS of icosphere instances of the given world
-    // radius. Allocates the per-frame instance buffers/TLAS/scratch, wires the instance-writer
-    // and RT (TLAS) descriptors, and builds an initial TLAS. Call once after view creation.
-    void bindScene(VkBuffer positions, uint32_t particle_count, float radius, glm::vec4 color);
+    // Bind the dynamic scene: the interop position buffer's device address (particle_count points of
+    // tightly-packed float3) drives a per-frame BLAS of AABB spheres of the given world radius.
+    // Allocates the AABB buffer / BLAS / one-instance TLAS / scratch and builds them once. The AABB
+    // writer reads positions by buffer-device-address (no storage-range cap). Call once after view
+    // creation.
+    void bindScene(VkDeviceAddress positions, uint32_t particle_count, float radius, glm::vec4 color);
 
     // Record the per-frame scene update for this frame: dispatch the instance-writer compute
     // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a
     // render pass, before recordTrace. No-op if no scene is bound.
-    void recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx);
+    // `rebuild` = the particle positions changed since the last built frame, so the AS must be
+    // (re)built or refitted. When false (paused / no new sim step) the shared BLAS/TLAS are still
+    // valid and the whole AABB-writer + AS-build phase is skipped -- the trace reuses them and the
+    // accumulator keeps converging. The first call always builds regardless (accel_ever_built).
+    void recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_idx, bool rebuild = true);
 
     // Record the ray-trace for the given frame into its storage image (adds the layout
     // barriers around vkCmdTraceRaysKHR). Must be recorded OUTSIDE a render pass. When
@@ -247,7 +338,8 @@ struct RayTracingContext
     // after recordTrace(..., leave_image_general=true). No-op if denoiser resources are absent.
     void recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx);
 
-    // Read back the given frame's TLAS-build/trace timestamps into last_tlas_ms/last_trace_ms.
+    // Read back the given frame's build/trace timestamps into last_build_ms/last_trace_ms, and copy
+    // that frame slot's build mode into last_build_mode so the split and its label stay paired.
     // Call after the frame's fence has signalled (its previous submission is complete) and BEFORE
     // recordUpdateScene resets the queries for the new frame. No-op if timing is unsupported.
     void readTimings(uint32_t frame_idx);

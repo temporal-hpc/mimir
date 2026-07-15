@@ -6,6 +6,7 @@
 
 #include <cuda_runtime_api.h>
 
+#include <cstdint> // uint64_t (DeviceBufferLimits)
 #include <functional> // std::function
 
 namespace mimir
@@ -34,6 +35,32 @@ void destroyInstance(InstanceHandle engine);
 
 // Query to check if a visualization window created by this engine is open.
 bool isRunning(InstanceHandle engine);
+
+// Total size (bytes) of the selected GPU's Vulkan DEVICE_LOCAL memory heaps -- i.e. the VRAM the
+// renderer can actually allocate from. On some datacenter GPUs this is smaller than the CUDA-
+// reported total, so it's the honest ceiling for mimir's allocations.
+size_t deviceLocalMemory(InstanceHandle engine);
+
+// Per-buffer size limits (bytes) that cap a SINGLE Vulkan buffer/allocation, independent of how
+// much VRAM is free. A storage-buffer binding cannot exceed max_storage_buffer_range; a buffer
+// object cannot exceed max_buffer_size (VK_KHR_maintenance4/Vulkan 1.3, 0 if unreported); one
+// memory allocation cannot exceed max_memory_allocation_size. These -- not total VRAM -- are what
+// make vkCreateBuffer fail with VK_ERROR_OUT_OF_DEVICE_MEMORY for a multi-GiB buffer on a card with
+// hundreds of GB free (e.g. the path-tracing instance buffer at >~2^24 particles). 0 = unreported.
+struct DeviceBufferLimits
+{
+    uint64_t max_storage_buffer_range;
+    uint64_t max_buffer_size;
+    uint64_t max_memory_allocation_size;
+    // Max instances in a single top-level acceleration structure and max primitives in a single
+    // bottom-level one (ray tracing). mimir's path tracer packs all particles as AABB primitives in
+    // one BLAS (one TLAS instance), so max_primitive_count -- not max_instance_count (~2^24) -- is the
+    // ray-tracing particle ceiling; NVIDIA reports ~2^29 for it. 0 if the device lacks acceleration
+    // structures.
+    uint64_t max_instance_count;
+    uint64_t max_primitive_count;
+};
+DeviceBufferLimits deviceBufferLimits(InstanceHandle engine);
 
 // Starts display and blocks program execution until the display window closes
 // The function passed as argument can perform updates over interop-mapped memory,
@@ -70,15 +97,22 @@ void saveFrame(InstanceHandle engine, const char *path);
 // 'bitrate_kbps' is the H.264 target bitrate (ignored for raw frames); temporally noisy content
 // such as undenoised path tracing needs far more than the 8000 default to avoid ghosting.
 // 'stats_csv' (optional) writes the per-second server telemetry to a CSV file
-// (time_s,frame,fps,kbps,encode_ms) for benchmarking; nullptr/empty disables it.
-// 'fps' > 0 caps the streamed session at that rate and sets the encoder's rate-control
+// (time_s,frame,fps,steps_s,kbps,encode_ms) for benchmarking; nullptr/empty disables it.
+// 'fps' > 0 caps the streamed FRAME rate at that rate and sets the encoder's rate-control
 // framerate (so bitrate_kbps is honored at that cadence); 0 = uncapped, sessions run at the
 // natural render+encode+send rate, paced only by the link and the client.
+// 'steps_per_frame' selects how the simulation relates to frame production:
+//   0 (default) = decoupled: the sim runs on its own thread at full speed, and each streamed
+//                 frame samples the latest state (monitoring; the viewer never slows the run,
+//                 at the cost of a torn-latest read). 'fps' caps pixels-on-the-wire only.
+//   N >= 1      = lockstep: advance exactly N sim steps, then render one frame, sequentially
+//                 (tear-free, deterministic; good for recording/reproducing). N=1 is the
+//                 classic 1-step-per-frame behavior. Here 'fps' paces both frames AND steps.
 void serveRemote(InstanceHandle engine, unsigned short port,
     std::function<void(void)> func, size_t max_iters, bool use_h264 = false,
     remote::TransportKind kind = remote::TransportKind::Tcp,
     const char *token = "", int bitrate_kbps = 8000, const char *stats_csv = nullptr,
-    int fps = 0
+    int fps = 0, int steps_per_frame = 0
 );
 
 // Starts a GPU interop critical section.

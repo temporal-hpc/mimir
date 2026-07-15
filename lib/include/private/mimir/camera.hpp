@@ -31,6 +31,12 @@ struct Camera
     // (columns = right/up/forward, translation = eye) that the LookAt updateViewMatrix produces.
     // Used by the scripted auto-orbit; leaves `rotation` untouched.
     void setLookAt(glm::vec3 eye, glm::vec3 center, glm::vec3 world_up);
+    // First-person "turn the gaze" about the eye: yaw about world-up, pitch about the camera's
+    // right, keeping the eye fixed. Decodes the current eye/look direction from matrices.view
+    // (the trackball world-to-view the manual-orbit and remote paths use) and rewrites it as a
+    // proper glm::lookAt, so the render decodes it on the same (uninverted) branch as an orbit --
+    // unlike setFlyLook, which writes the camera-to-world Fly branch. Roll-free (world-up locked).
+    void freeLook(float yaw_deg, float pitch_deg);
     // Rebuild a roll-free FPS view from the stored yaw (rotation.y) / pitch (rotation.x), in
     // degrees, at the current position. Derives forward from yaw+pitch and routes through
     // setLookAt so `right` stays horizontal for any pitch/yaw -- unlike the euler updateViewMatrix

@@ -59,7 +59,8 @@ bool recvAll(int fd, void *buf, size_t len)
 class TcpTransport final : public Transport
 {
 public:
-    explicit TcpTransport(int client_fd) : client_fd_(client_fd)
+    TcpTransport(int client_fd, std::string peer)
+        : client_fd_(client_fd), peer_(std::move(peer))
     {
         receiver_ = std::thread([this]
         {
@@ -97,8 +98,11 @@ public:
         return alive_.load();
     }
 
+    std::string peerName() const override { return peer_; }
+
 private:
     int client_fd_ = -1;
+    std::string peer_;
     std::atomic<bool> alive_{true};
     std::mutex mutex_;
     std::deque<ControlMsg> events_;
@@ -136,8 +140,9 @@ public:
         }
         timeval no_timeout{ 0, 0 };
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &no_timeout, sizeof(no_timeout));
+        char peer[HOST_MAX + 1] = {}; std::memcpy(peer, auth.client, HOST_MAX);
         spdlog::info("remote(tcp): client connected and authenticated");
-        return std::make_unique<TcpTransport>(client);
+        return std::make_unique<TcpTransport>(client, peer);
     }
 
 private:

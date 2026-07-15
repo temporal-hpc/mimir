@@ -169,6 +169,10 @@ struct ViewerOptions
     // edge-avoiding wavelet filter (runs on any GPU). Edge-stopping is guided by the first-hit
     // normal/depth G-buffer, so noise is smoothed while silhouettes and shading edges survive.
     bool pt_denoise = false;
+    // Level-of-detail for path tracing: N = cells per axis of an N^3 voxel grid over the [-1,1]^3
+    // domain. 0 (default) = one primitive per particle (no LOD). N>0 aggregates particles into one
+    // sphere per occupied cell, trading fidelity for BVH build+trace speed. Capped at 512 (--lod).
+    unsigned int pt_lod_cells = 0;
 
     // Vertical field of view of the perspective camera, in degrees. Datoviz-comparable
     // samples set 45 to match datoviz's fixed GLM_PI_4 perspective, so both libraries

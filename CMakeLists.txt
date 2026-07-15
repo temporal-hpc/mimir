@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
-project(mimir VERSION 0.1 LANGUAGES CXX CUDA)
+
+# Viewer-only mode: build just the mimir-client remote viewer, skipping the library and everything
+# server-side. Needs no CUDA toolkit, Vulkan, or NVIDIA hardware, so any Linux machine
+# (Intel/AMD graphics included) can build a viewer for a remote mimir server.
+option(MIMIR_RR_CLIENT_ONLY "Build only the mimir-client remote viewer (no CUDA/library)" OFF)
+
+if(MIMIR_RR_CLIENT_ONLY)
+    project(mimir VERSION 0.1 LANGUAGES CXX)
+else()
+    project(mimir VERSION 0.1 LANGUAGES CXX CUDA)
+endif()
 
 option(MIMIR_ENABLE_ASAN "Enable address sanitizer (ASAN)" OFF)
 option(MIMIR_BUILD_SLANG "Build slang library from source" OFF)
@@ -20,9 +30,13 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
-include(deps) # cmake/deps.cmake
 
-add_subdirectory(lib)
-if(MIMIR_BUILD_CLIENT)
+# In viewer-only mode nothing is fetched or built besides the viewer: its dependencies
+# (system GLFW included) are resolved in client/CMakeLists.txt via MimirRemoteClient.cmake.
+if(NOT MIMIR_RR_CLIENT_ONLY)
+    include(deps) # cmake/deps.cmake
+    add_subdirectory(lib)
+endif()
+if(MIMIR_BUILD_CLIENT OR MIMIR_RR_CLIENT_ONLY)
     add_subdirectory(client)
 endif()

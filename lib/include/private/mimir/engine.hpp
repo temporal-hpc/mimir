@@ -100,6 +100,13 @@ struct MimirInstance
     cudaExternalMemory_t frame_cuda_extmem_ = nullptr;
     void               *frame_cuda_ptr_    = nullptr;
 
+    // Host-visible staging buffer reused by readFrameBytes across frames (the host readback path).
+    // Allocating/freeing it per frame is a heavyweight driver call that dominated readback; kept
+    // here and recreated only when the resolution changes.
+    VkBuffer            readback_buf_      = VK_NULL_HANDLE;
+    VkDeviceMemory      readback_mem_      = VK_NULL_HANDLE;
+    VkDeviceSize        readback_size_     = 0;
+
     // Synchronization structures
     std::array<SyncData, MAX_FRAMES_IN_FLIGHT> sync_data;
     interop::Barrier interop;
@@ -220,7 +227,7 @@ struct MimirInstance
         bool use_h264 = false,
         remote::TransportKind kind = remote::TransportKind::Tcp,
         std::string token = {}, int bitrate_kbps = 8000, std::string stats_csv = {},
-        int target_fps = 0);
+        int target_fps = 0, int steps_per_frame = 0);
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
 

@@ -5,13 +5,14 @@ network; the client displays the frames and sends interaction (camera, pause) ba
 researcher on a laptop driving a visualization that runs on a remote GPU box (cluster node,
 workstation) over the internet.
 
-Two binaries, built from the repository root after building the mimir library:
+Two binaries:
 
 - **`rr-server`** — renders headless with mimir, encodes (H.264 via NVENC, or raw), and streams to
-  one client at a time. Links the `mimir` library + CUDA.
+  one client at a time. Links the `mimir` library + CUDA, so it needs a full build.
 - **`rr-client`** — a thin viewer: receives the stream, decodes it, shows it in a window, and sends
   control back. Depends only on the wire protocol + ngtcp2 + OpenSSL + ffmpeg + GLFW/OpenGL — **no
-  mimir, CUDA, or Vulkan**, so it runs on a GPU-less laptop.
+  mimir, CUDA, or Vulkan**, so it builds and runs on a laptop with no NVIDIA stack at all (see
+  [Viewer only](#viewer-only-no-nvidia-gpu--cuda-needed)).
 
 `rr-client` is **workload-agnostic** — it knows nothing about the point-cloud server, so the *same*
 client views any mimir server built with `serveRemote()`. The build also installs this exact program
@@ -43,13 +44,43 @@ same as its local counterpart.
 
 ## Building
 
-> **New here?** Start from the repository root [`README.md`](../../README.md) to build the
-> mimir library first, then come back here. This sample cannot be built without it.
+Pick the path that matches the machine you are on:
+
+- **Viewer only** — the machine will just *view* a remote server (laptop, ultrabook, anything
+  with Intel/AMD graphics). No CUDA toolkit, Vulkan, NVIDIA hardware, or mimir library needed.
+  → [Viewer only](#viewer-only-no-nvidia-gpu--cuda-needed), one command.
+- **Full build** — the machine has an NVIDIA GPU + CUDA and will run `rr-server` (and optionally
+  the client too). → [Full build](#full-build-rr-server--rr-client), two steps.
 
 **Extra system packages** (install before building):
 - ffmpeg — H.264 encoding/decoding (`libavcodec`, `libavutil`, `libswscale`)
 - ngtcp2 + OpenSSL — QUIC transport
-- On Arch: `pacman -S ffmpeg libngtcp2 openssl`
+- GLFW — the client's window (viewer-only builds; full builds compile their own)
+- On Arch: `pacman -S ffmpeg libngtcp2 openssl glfw`
+
+### Viewer only (no NVIDIA GPU / CUDA needed)
+
+`rr-client` depends only on the wire protocol + the packages above, so it builds anywhere:
+
+```sh
+./samples-build-from-zero.sh --rr-client-only    # from the repository root
+```
+
+**Or, manually:**
+```sh
+cmake -B samples/remote-rendering/build -S samples/remote-rendering/ -DMIMIR_RR_CLIENT_ONLY=ON
+cmake --build samples/remote-rendering/build -j
+```
+
+That's it — skip ahead to [Running](#running). The same flag also works at the repository root
+(`./mimir-build-from-zero.sh --rr-client-only`), where it builds/installs the identical
+standalone `mimir-client` instead. H.264 decoding falls back to ffmpeg's software decoder when
+there is no NVDEC, so integrated graphics are enough.
+
+### Full build (rr-server + rr-client)
+
+> **New here?** Start from the repository root [`README.md`](../../README.md) to build the
+> mimir library first, then come back here. `rr-server` cannot be built without it.
 
 **Step 1 — build the mimir library** from the repository root with the remote rendering flags:
 
@@ -78,8 +109,8 @@ cmake -B samples/remote-rendering/build -S samples/remote-rendering/ -Dmimir_DIR
 cmake --build samples/remote-rendering/build -j
 ```
 
-- `rr-client` is built automatically when ngtcp2 + ffmpeg + OpenGL are all found; otherwise it
-  is skipped and only `rr-server` is built.
+- `rr-client` is built automatically when ngtcp2 + ffmpeg + OpenGL + GLFW are all found; otherwise
+  it is skipped and only `rr-server` is built.
 
 Binaries land in `samples/remote-rendering/build/`. Run them from there.
 
@@ -91,8 +122,9 @@ rr-client [host] [port] [token] [auto|quic|tcp] [frames]
 ```
 
 `rr-server` also takes named options after the positional args — `--light-model`, `--spp`,
-`--bounces`, `--subdiv`, `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`
-(run `./rr-server --help` for the full list).
+`--bounces`, `--subdiv`, `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`,
+`--max-steps`, `--dev` (GPU device id on a multi-GPU host, default 0) (run `./rr-server --help`
+for the full list).
 
 ### Local, raw frames (simplest, no optional deps)
 
@@ -153,6 +185,36 @@ X:
 ./rr-client 127.0.0.1 9000 "" auto 60
 ```
 
+### Path-tracing options
+
+#### `--lod N` (path-tracing level of detail)
+
+Aggregates particles into an `N x N x N` voxel grid over the `[-1,1]³` domain and renders
+one sphere per **occupied** cell (sized to the cell), instead of one sphere per particle. This cuts
+the number of BVH primitives, reducing both the BLAS build time and the trace time, and — because
+the cell spheres are opaque and overlapping — removes the transparency noise that tiny per-particle
+spheres produce at high counts.
+
+Spheres are placed at the per-cell **mass centroid** (the average of the particles' positions within
+each cell), which makes blobs follow the cloud's shape and motion smoothly. This requires the GPU
+feature `shaderBufferInt64Atomics` for atomic centroid accumulation; if unsupported, placement falls
+back to the cell geometric center (a warning is logged). Determinism is preserved via fixed-point
+integer atomics.
+
+- `N = 0` (default): one primitive per particle (no LOD).
+- `N` in `1..max`: `N` cells per axis. Larger `N` = finer detail, more primitives, slower. The cap
+  is VRAM-scaled, bounded by available device memory. An over-budget `--lod N` is rejected with the
+  largest feasible N reported.
+- Deterministic: the same `N` yields the same occupied-cell count and image every run, so it is a
+  reproducible benchmark knob.
+- Memory: the grid accumulator is `N³ * 32 bytes` (with centroid; e.g. 256³ = 512 MB).
+
+Example:
+
+```sh
+./rr-server 9000 1920 1080 $((2**29)) 1 --light-model path-tracing --lod 128
+```
+
 ## Controls (interactive window)
 
 | Input              | Action          |
@@ -161,7 +223,13 @@ X:
 | Right-drag         | Zoom            |
 | Middle-drag        | Pan             |
 | `P`                | Pause/resume sim|
-| `Q` / `Esc`        | Quit            |
+| `H`                | Toggle the HUD  |
+| `Q` / `Esc` / `Ctrl+W` | Quit        |
+
+A minimal HUD overlay in the top-left corner shows where the simulation is running
+(`user@host:port`, transport, codec, resolution), the end-to-end latency, the stream fps, and the
+simulation progress — `step x of y` when the server was started with `--max-steps N`, or
+`step x of unlimited` for an endless run.
 
 The window is freely resizable; the frame is **stretched** to fill it (it may look softer when
 enlarged). The client never asks the server to re-render at a new resolution — the server's render

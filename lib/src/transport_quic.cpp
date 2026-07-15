@@ -36,6 +36,15 @@ namespace mimir::remote
 #  define ngtcp2_conn_get_expiry2 ngtcp2_conn_get_expiry
 #endif
 
+// ngtcp2 1.22.0 added the "2"-suffixed get_new_connection_id / get_path_challenge_data callbacks
+// and the ngtcp2_stateless_reset_token struct (the pre-1.22 forms take a raw uint8_t* token).
+// Support both so mimir builds on older distro ngtcp2 (e.g. Ubuntu 26.04 ships 1.16.0).
+#if defined(NGTCP2_VERSION_NUM) && NGTCP2_VERSION_NUM >= 0x011600
+#  define MIMIR_NGTCP2_CALLBACKS2 1
+#else
+#  define MIMIR_NGTCP2_CALLBACKS2 0
+#endif
+
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
@@ -158,6 +167,8 @@ public:
 
     bool unreliableVideoReady() const override { return dgram_ok_.load(); }
 
+    std::string peerName() const override { return peer_; }
+
     // Queues one video frame as DatagramFrag-headed QUIC datagrams. Drop-don't-queue policy:
     // if the I/O thread has not flushed the previous frame yet (congestion), the stale fragments
     // AND this frame are discarded and false is returned, keeping latency bounded — exactly the
@@ -272,6 +283,7 @@ private:
         RAND_bytes(dest, static_cast<int>(destlen));
     }
 
+#if MIMIR_NGTCP2_CALLBACKS2
     static int getNewCidCb(ngtcp2_conn*, ngtcp2_cid *cid, ngtcp2_stateless_reset_token *token,
         size_t cidlen, void*)
     {
@@ -280,6 +292,16 @@ private:
         if (RAND_bytes(token->data, sizeof(token->data)) != 1) { return NGTCP2_ERR_CALLBACK_FAILURE; }
         return 0;
     }
+#else // ngtcp2 < 1.22.0: token is a raw uint8_t buffer, not a struct
+    static int getNewCidCb(ngtcp2_conn*, ngtcp2_cid *cid, uint8_t *token,
+        size_t cidlen, void*)
+    {
+        if (RAND_bytes(cid->data, static_cast<int>(cidlen)) != 1) { return NGTCP2_ERR_CALLBACK_FAILURE; }
+        cid->datalen = cidlen;
+        if (RAND_bytes(token, NGTCP2_STATELESS_RESET_TOKENLEN) != 1) { return NGTCP2_ERR_CALLBACK_FAILURE; }
+        return 0;
+    }
+#endif
 
     static int handshakeCompletedCb(ngtcp2_conn *conn, void *user_data)
     {
@@ -318,6 +340,8 @@ private:
                 std::memcpy(&auth, ctrl_buf_.data(), sizeof(auth));
                 ctrl_buf_.erase(ctrl_buf_.begin(),
                     ctrl_buf_.begin() + static_cast<long>(sizeof(AuthMsg)));
+                char peer[HOST_MAX + 1] = {}; std::memcpy(peer, auth.client, HOST_MAX);
+                peer_ = peer;
                 auth_ok_.store(authOk(auth, token_));
                 auth_done_.store(true);
                 just_authed = true;
@@ -397,11 +421,16 @@ private:
         cb.update_key               = ngtcp2_crypto_update_key_cb;
         cb.delete_crypto_aead_ctx   = ngtcp2_crypto_delete_crypto_aead_ctx_cb;
         cb.delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb;
-        cb.get_path_challenge_data2 = ngtcp2_crypto_get_path_challenge_data2_cb;
         cb.version_negotiation      = ngtcp2_crypto_version_negotiation_cb;
         cb.rand                     = randCb;
-        cb.get_new_connection_id2   = getNewCidCb;
         cb.handshake_completed      = handshakeCompletedCb;
+#if MIMIR_NGTCP2_CALLBACKS2
+        cb.get_path_challenge_data2 = ngtcp2_crypto_get_path_challenge_data2_cb;
+        cb.get_new_connection_id2   = getNewCidCb;
+#else // ngtcp2 < 1.22.0: the callbacks without the "2" suffix
+        cb.get_path_challenge_data  = ngtcp2_crypto_get_path_challenge_data_cb;
+        cb.get_new_connection_id    = getNewCidCb;
+#endif
         cb.recv_stream_data         = recvStreamDataCb;
 
         ngtcp2_cid scid{};
@@ -625,6 +654,7 @@ private:
 
     int64_t video_stream_ = -1;
     std::string token_;                    // expected auth token (empty = accept any)
+    std::string peer_;                     // client hostname from its AuthMsg (for benchmark tags)
 
     // Unreliable video (QUIC DATAGRAM) state.
     std::atomic<bool> dgram_ok_{false};    // peer negotiated RFC 9221 with usable size

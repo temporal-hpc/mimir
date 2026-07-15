@@ -31,24 +31,47 @@ int main(int argc, char** argv)
     InstanceHandle engine = nullptr;
     createInstance(opts, &engine);
 
-    // A 5x5x5 grid of particles in [-1,1]^3, driving the dynamic TLAS.
-    constexpr int N = 5;
-    constexpr unsigned int n = N * N * N;
+    // An NxNxN grid of particles in [-1,1]^3, driving the dynamic TLAS. N defaults to 5;
+    // PT_GRID_N overrides it (e.g. 564 -> 179.4M particles, crossing the 4 GiB AABB-buffer
+    // boundary at ~179M where BDA address truncation corrupted the record stream).
+    int N = 5;
+    if (const char* g = getenv("PT_GRID_N")) { N = atoi(g); }
+    const unsigned int n = (unsigned int)N * N * N;
     float* d_pos = nullptr;
     AllocHandle pos_alloc{};
     allocLinear(engine, (void**)&d_pos, sizeof(float) * 3 * n, &pos_alloc);
 
     std::vector<float> host(3 * n);
-    unsigned int idx = 0;
-    for (int z = 0; z < N; ++z)
-    for (int y = 0; y < N; ++y)
-    for (int x = 0; x < N; ++x)
+    if (getenv("PT_RANDOM"))
     {
-        auto coord = [](int i){ return -1.f + 2.f * (float(i) + 0.5f) / float(N); };
-        host[3 * idx + 0] = coord(x);
-        host[3 * idx + 1] = coord(y);
-        host[3 * idx + 2] = coord(z);
-        idx++;
+        // Uniform random positions in [-1,1]^3: consecutive INDICES land far apart in space,
+        // like the kmodal benchmark. This is what makes BDA record-splicing corruption visible
+        // as giant spheres (a spliced grid record mixes two nearly identical positions and
+        // stays small; a spliced random record spans the domain).
+        uint64_t s = 0x9E3779B97F4A7C15ull;
+        for (size_t j = 0; j < host.size(); ++j)
+        {
+            s += 0x9E3779B97F4A7C15ull;
+            uint64_t z = s;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+            z ^= z >> 31;
+            host[j] = -1.f + 2.f * float(z >> 40) / float(1 << 24);
+        }
+    }
+    else
+    {
+        unsigned int idx = 0;
+        for (int z = 0; z < N; ++z)
+        for (int y = 0; y < N; ++y)
+        for (int x = 0; x < N; ++x)
+        {
+            auto coord = [N](int i){ return -1.f + 2.f * (float(i) + 0.5f) / float(N); };
+            host[3 * idx + 0] = coord(x);
+            host[3 * idx + 1] = coord(y);
+            host[3 * idx + 2] = coord(z);
+            idx++;
+        }
     }
     cudaMemcpy(d_pos, host.data(), sizeof(float) * 3 * n, cudaMemcpyHostToDevice);
     cudaDeviceSynchronize();
@@ -65,7 +88,11 @@ int main(int argc, char** argv)
         },
         .layout        = Layout::make(n),
         .default_color = { 0.90f, 0.50f, 0.20f, 1.f }, // warm orange: verifies --pcolor -> PT albedo
-        .default_size  = 0.12f, // world radius of each icosphere instance
+        // World radius of each sphere, scaled with the grid spacing so overridden PT_GRID_N stays
+        // a resolvable cloud instead of a solid block (N = 5 keeps the historical 0.12). PT_SIZE_FRAC
+        // overrides the fraction, e.g. 0.1 for a see-through cloud that exposes interior geometry.
+        .default_size  = (getenv("PT_SIZE_FRAC") ? (float)atof(getenv("PT_SIZE_FRAC")) : 0.3f)
+                       * (2.f / float(N)),
     };
     ViewHandle view = nullptr;
     createView(engine, &desc, &view);

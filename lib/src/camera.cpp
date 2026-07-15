@@ -101,6 +101,32 @@ void Camera::setFlyLook()
     setLookAt(position, position + forward, glm::vec3(0.f, 1.f, 0.f));
 }
 
+void Camera::freeLook(float yaw_deg, float pitch_deg)
+{
+    // Decode eye + world look direction from the current world-to-view matrix (the trackball
+    // form translate(pos)*rotmat, and the same form glm::lookAt produces): R = mat3(view), the
+    // eye is -R^T * translation, and the view looks down -z so world forward = -(R^T)[2]. This
+    // mirrors the manual-orbit decode in the path tracer (engine.cpp), so the gaze turn renders
+    // on the same branch as an orbit -- no camera-to-world / Fly inversion.
+    const glm::mat3 rt = glm::transpose(glm::mat3(matrices.view)); // R^T: columns are world axes
+    const glm::vec3 eye = -(rt * glm::vec3(matrices.view[3]));
+    glm::vec3 fwd = -rt[2];
+
+    // Yaw about world-up, pitch about the camera's (horizontal) right: locking right to the
+    // world-up plane keeps the horizon level for any yaw/pitch (no roll), as glm::lookAt below
+    // rebuilds up = right x forward from world-up anyway.
+    const glm::vec3 world_up(0.f, 1.f, 0.f);
+    const glm::vec3 right = glm::normalize(glm::cross(fwd, world_up));
+    glm::mat4 turn = glm::rotate(glm::mat4(1.f), glm::radians(yaw_deg), world_up);
+    turn = glm::rotate(turn, glm::radians(pitch_deg), right);
+    fwd = glm::normalize(glm::vec3(turn * glm::vec4(fwd, 0.f)));
+
+    // Only matrices.view is updated: position/rotation stay the trackball (pos, rot) they were,
+    // so a later orbit/zoom/pan still composes from a valid trackball pose (a look that returns
+    // to center leaves that pose showing the same view, so there is no jump).
+    matrices.view = glm::lookAt(eye, eye + fwd, world_up);
+}
+
 void Camera::setLookAt(glm::vec3 eye, glm::vec3 center, glm::vec3 world_up)
 {
     // Build camera-to-world directly (right-handed, matching the euler LookAt: at rotation 0,

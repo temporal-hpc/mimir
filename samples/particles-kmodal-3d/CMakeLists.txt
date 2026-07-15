@@ -24,13 +24,19 @@ set_target_properties(benchmark_mimir PROPERTIES
     CUDA_ARCHITECTURES       native
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
-add_custom_command(TARGET benchmark_mimir POST_BUILD
+# Dependency-tracked shader copy (not POST_BUILD, which skips when only .slang files changed
+# and leaves stale copies in bin/shaders -- the directory the engine actually compiles from).
+file(GLOB_RECURSE KMODAL_SHADER_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../shaders/*")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shaders.stamp"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/../../shaders"
         "$<TARGET_FILE_DIR:benchmark_mimir>/shaders"
+    COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/shaders.stamp"
+    DEPENDS ${KMODAL_SHADER_FILES}
     COMMENT "Copying shaders next to benchmark_mimir"
     VERBATIM
 )
+add_custom_target(benchmark-mimir-shaders ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/shaders.stamp")
 
 # Headless acceptance check for LightModel::PathTracing (renders the scene to a PPM).
 # EXCLUDE_FROM_ALL so normal builds skip it; build explicitly with: --target pt_check.

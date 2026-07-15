@@ -4,7 +4,10 @@
 // Deliberately dependency-free so a thin native client can include just this header.
 // All multi-byte fields are little-endian; for now both ends are assumed same-endian.
 
+#include <cctype>  // std::isalnum/std::toupper for benchmark-filename tags
 #include <cstdint>
+#include <ctime>   // std::strftime for the date stamp
+#include <string>  // benchmark-filename helpers
 
 namespace mimir::remote
 {
@@ -38,6 +41,15 @@ enum class ControlKind : uint8_t
     // Ask the encoder for an IDR on the next frame. Sent by a client that lost a frame on an
     // unreliable (datagram) video path and cannot decode further P-frames until a keyframe.
     RequestKeyframe = 7,
+    // First-person "turn the gaze" about the eye: a = dx (yaw), b = dy (pitch). Unlike
+    // CameraRotate (a trackball that orbits the scene about the world origin), the eye stays
+    // put and only the look direction turns -- used to look around from inside the scene.
+    CameraLook   = 8,
+    // Fly-camera movement (only meaningful when the server runs the Fly camera, see
+    // HELLO_CAMERA_FLY): a = strafe (right +), b = forward (+), in camera-local axes. The server
+    // moves the eye along its current view basis (looking up + forward climbs). Ignored by a
+    // trackball (Orbit) server.
+    CameraMove   = 9,
 };
 
 // Identifies the client's authentication message ("MIMA"). The client always sends an AuthMsg
@@ -45,6 +57,19 @@ enum class ControlKind : uint8_t
 // started with a non-empty one (empty = accept any client).
 constexpr uint32_t AUTH_MAGIC = 0x4D494D41;
 constexpr unsigned TOKEN_MAX  = 32;
+
+// Sizes of the server-identity strings carried in Hello (NUL-padded, may be empty).
+constexpr unsigned USER_MAX = 16;
+constexpr unsigned HOST_MAX = 40;
+constexpr unsigned GPU_MAX  = 48; // GPU model name, e.g. "NVIDIA A100-SXM4-40GB"
+
+// Flags in Hello::flags describing the session's camera/interaction model.
+enum HelloFlags : uint32_t
+{
+    // The server runs the Fly (first-person) camera: the client should drive it with mouse-look
+    // and WASD (sending CameraLook / CameraMove) instead of the trackball orbit/zoom/pan.
+    HELLO_CAMERA_FLY = 1u << 0,
+};
 
 // Flags on FrameHeader describing the payload that follows.
 enum FrameFlags : uint32_t
@@ -65,6 +90,12 @@ struct Hello
     uint32_t height;
     uint32_t format; // PixelFormat (pixel layout once decoded)
     uint32_t codec;  // Codec (how each frame payload is encoded)
+    // Where the simulation is running, so the client can show it (HUD): the server-side account
+    // and hostname. NUL-padded; empty when the server could not determine them.
+    char     user[USER_MAX];
+    char     host[HOST_MAX];
+    uint32_t flags;  // HelloFlags (e.g. HELLO_CAMERA_FLY); 0 = trackball/orbit session
+    char     gpu[GPU_MAX]; // GPU model rendering/encoding the stream (HUD); NUL-padded, may be empty
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
@@ -100,6 +131,17 @@ struct Stats
     uint32_t fps_milli;    // current frames/sec * 1000
     uint32_t kbps;         // current video bitrate, kilobits/sec
     uint32_t encode_us;    // mean per-frame production latency, microseconds
+    // Simulation progress (lifetime, not per session: the sim also advances unwatched).
+    uint64_t step;         // simulation steps completed so far
+    uint64_t step_limit;   // step count the server stops at (0 = runs endlessly)
+    // Appended after step_limit so a newer client reading an older server's shorter Stats keeps
+    // the fields above intact (it copies min(payload, sizeof) and leaves this zero).
+    uint32_t encode_std_us; // std-dev of per-frame production latency this window, microseconds
+    // Appended (same forward-compat rule -- newer fields at the end, zero when absent). The total
+    // number of particles the sim advances, and the current throughput (= particle_count * steps/s)
+    // in particles/sec, so the client HUD can show scene size and sim throughput.
+    uint64_t particle_count;
+    uint64_t particles_per_sec;
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.
@@ -107,6 +149,7 @@ struct AuthMsg
 {
     uint32_t magic;             // AUTH_MAGIC
     char     token[TOKEN_MAX];  // shared secret (NUL-padded); empty when no auth is used
+    char     client[HOST_MAX];  // client's hostname, so the server can tag its benchmark CSV
 };
 
 // Fixed-size control message sent client -> server.
@@ -123,5 +166,80 @@ struct ControlMsg
 };
 
 #pragma pack(pop)
+
+// -------------------------------------------------------------------------------------------------
+// Benchmark CSV auto-naming (shared by rr-client and rr-server): both derive the same filename
+//   <prefix>-<YYYYMMDD>-rr-<role>-c<client>-s<server>-<gpu>.csv
+// from the client/server hostnames and the server GPU, so a run's two files pair up by name.
+// -------------------------------------------------------------------------------------------------
+
+// First hostname component, alphanumerics only, uppercased (e.g. "patagon.hpc.cl" -> "PATAGON").
+inline std::string hostTag(const std::string& host)
+{
+    std::string out;
+    for (char c : host)
+    {
+        if (c == '.') { break; } // strip the domain
+        if (std::isalnum(static_cast<unsigned char>(c)))
+        {
+            out += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+        else if (c == '-' && !out.empty() && out.back() != '-') { out += '-'; }
+    }
+    return out.empty() ? "UNKNOWN" : out;
+}
+
+// Compact GPU tag: drop vendor/marketing words, keep the model, uppercased alnum+dash
+// ("NVIDIA A100-SXM4-40GB" -> "A100-SXM4-40GB", "NVIDIA GeForce RTX 4090 Laptop GPU" -> "RTX4090").
+inline std::string gpuTag(std::string name)
+{
+    for (auto& c : name) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); }
+    for (const char *w : {"NVIDIA", "GEFORCE", "LAPTOP", "GPU"})
+    {
+        for (size_t p; (p = name.find(w)) != std::string::npos; )
+        {
+            name.erase(p, std::string(w).size());
+        }
+    }
+    std::string out;
+    for (char c : name)
+    {
+        if (std::isalnum(static_cast<unsigned char>(c))) { out += c; }
+        else if (c == '-' && !out.empty() && out.back() != '-') { out += '-'; }
+    }
+    while (!out.empty() && out.back()  == '-') { out.pop_back(); }
+    while (!out.empty() && out.front() == '-') { out.erase(out.begin()); }
+    return out.empty() ? "GPU" : out;
+}
+
+// Local calendar date as YYYYMMDD.
+inline std::string dateStamp()
+{
+    std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[16];
+    std::strftime(buf, sizeof(buf), "%Y%m%d", &tm);
+    return buf;
+}
+
+// Assembles the full CSV path from a caller-supplied path+prefix and the run's identities.
+inline std::string benchmarkCsvPath(const std::string& prefix, const char *role,
+    const std::string& client, const std::string& server, const std::string& gpu)
+{
+    std::string p = prefix;
+    if (!p.empty() && p.back() != '/' && p.back() != '-') { p += '-'; }
+    p += dateStamp();
+    p += "-rr-"; p += role;
+    p += "-c" + hostTag(client);
+    p += "-s" + hostTag(server);
+    p += "-"  + gpuTag(gpu);
+    p += ".csv";
+    return p;
+}
 
 } // namespace mimir::remote

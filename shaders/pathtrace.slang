@@ -5,12 +5,28 @@
 // environment/background color. spp samples per pixel per frame are averaged (the scene
 // animates every frame, so this is antialiasing + noise reduction, not accumulation).
 
+// Per-particle AABB (VkAabbPositionsKHR: 6 tightly packed floats). The intersection shader reads it
+// by primitive index to recover the sphere centre + radius (centre = (min+max)/2, r = (max-min)/2).
+struct Aabb
+{
+    float minx, miny, minz;
+    float maxx, maxy, maxz;
+};
+
+// Hit attributes produced by the sphere intersection shader and consumed by the closest-hit shader.
+// The single TLAS instance is identity, so object space == world space and the normal is already
+// world-space (no normal-matrix transform needed).
+struct SphereHit
+{
+    float3 normal;
+};
+
 // Must match mimir::RtPushConstants (raytracing.hpp). Camera is an explicit world-space basis
-// so the raygen is a plain pinhole (sidesteps mimir's pre-transposed matrix convention). 120
-// bytes, within the 128-byte guaranteed push-constant limit.
+// so the raygen is a plain pinhole (sidesteps mimir's pre-transposed matrix convention). 128
+// bytes (with the trailing AABB pointer), at the 128-byte guaranteed push-constant limit.
 struct PushConstants
 {
-    float4 cam_pos;     // xyz camera world position; w unused
+    float4 cam_pos;     // xyz camera world position; w = BLAS chunk size (primitives) as uint bits
     float4 cam_right;   // xyz world-space camera basis; w = light_color R (sun tint/intensity)
     float4 cam_up;      // xyz ...                       w = light_color G
     float4 cam_forward; // xyz ...                       w = light_color B
@@ -22,6 +38,11 @@ struct PushConstants
     uint spp;
     uint bounces;
     uint accum_frame;   // temporal accumulation: # of frames already averaged (0 = first/reset)
+    // Procedural-sphere geometry: the per-particle AABB buffer as a buffer-device-address pointer
+    // (physical storage buffer). The intersection shader reads AABB[PrimitiveIndex] to recover the
+    // sphere centre + radius. A pointer (not a descriptor) so it isn't capped by maxStorageBufferRange
+    // at large N. Lands at offset 120, keeping the block at exactly the 128-byte guaranteed limit.
+    Aabb* aabbs;
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -238,27 +259,53 @@ void missMain(inout Payload payload)
     payload.hit_t = -1.0;
 }
 
-[shader("closesthit")]
-void closestHitMain(inout Payload payload, in BuiltInTriangleIntersectionAttributes attr)
+// Ray-sphere intersection for the procedural AABB geometry. Each primitive is a sphere whose
+// centre + radius are recovered from its AABB (pc.aabbs[PrimitiveIndex]). Reports the nearest hit
+// within the ray interval and hands the world-space normal to the closest-hit shader. The single
+// TLAS instance is identity, so object space == world space here.
+[shader("intersection")]
+void sphereIntersect()
 {
-    // BLAS vertices lie on a unit sphere centered at the object origin, so the smooth normal is
-    // the normalized object-space hit position.
-    float3 obj_pos = ObjectRayOrigin() + RayTCurrent() * ObjectRayDirection();
-    float3 obj_n   = normalize(obj_pos);
+    // Particles above maxPrimitiveCount are split across several BLASes (one TLAS instance each), so
+    // PrimitiveIndex() is LOCAL to this instance's BLAS. Recover the global particle index into the
+    // shared AABB buffer: instance c (InstanceID) covers globals [c*chunk, c*chunk+chunk). chunk is
+    // packed into cam_pos.w; for a single BLAS InstanceID()==0 so this reduces to PrimitiveIndex().
+    uint chunk = asuint(pc.cam_pos.w);
+    uint gid = InstanceID() * chunk + PrimitiveIndex();
+    // Explicit 64-bit address + cast, NOT pointer indexing: OpPtrAccessChain offsets are truncated
+    // to 32 bits by the NVIDIA compiler even with a 64-bit index, wrapping reads past 4 GiB into
+    // the AABB buffer (~179M particles) onto garbage boxes (see pathtrace_aabbs.slang).
+    Aabb box = *(Aabb*)(uint64_t(pc.aabbs) + uint64_t(gid) * 24ull);
+    float3 mn = float3(box.minx, box.miny, box.minz);
+    float3 mx = float3(box.maxx, box.maxy, box.maxz);
+    float3 center = 0.5 * (mn + mx);
+    float  radius = 0.5 * (mx.x - mn.x);
 
-    // Transform the object-space normal to world space with the normal matrix, i.e. the
-    // inverse-transpose of the object->world matrix. Normals transform by inverse-transpose so
-    // that non-uniform scale / rotation keeps them perpendicular to the surface (a plain
-    // ObjectToWorld would shear them off the surface). WorldToObject3x4() is already the inverse
-    // of ObjectToWorld, so mul(obj_n, worldToObject) == transpose(worldToObject) * obj_n gives the
-    // inverse-transpose product without an explicit transpose. Renormalize (scale changes length).
-    // The current spheres carry only uniform scale + translation, so this reduces to the identity
-    // rotation here, but it's the correct general form for rotated / non-uniformly scaled geometry.
-    float3x3 world_to_object = (float3x3)WorldToObject3x4();
-    payload.normal   = normalize(mul(obj_n, world_to_object));
+    float3 o = ObjectRayOrigin() - center;
+    float3 d = ObjectRayDirection(); // world dir is normalized; identity instance => object dir too
+    float b = dot(o, d);
+    float c = dot(o, o) - radius * radius;
+    float disc = b * b - c;          // dot(d,d) == 1
+    if (disc < 0.0) { return; }
+    float sq = sqrt(disc);
+
+    float t = -b - sq;               // near root
+    if (t < RayTMin()) { t = -b + sq; } // inside the sphere: take the far root
+    if (t < RayTMin() || t > RayTCurrent()) { return; }
+
+    SphereHit hit;
+    hit.normal = normalize((ObjectRayOrigin() + t * d) - center);
+    ReportHit(t, 0u, hit);
+}
+
+[shader("closesthit")]
+void closestHitMain(inout Payload payload, in SphereHit attr)
+{
+    // Procedural sphere: the intersection shader already produced the world-space normal (the single
+    // TLAS instance is identity, so no normal-matrix transform is needed).
+    payload.normal   = attr.normal;
     payload.position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-    // Surface parameters come from this instance's material (its SBT hit record), so different
-    // instances shade differently through the same closest-hit shader.
+    // Surface parameters come from this hit's material (its SBT hit record).
     payload.albedo   = material.albedo;
     payload.emission = material.albedo * material.emission;
     payload.hit_t    = RayTCurrent();

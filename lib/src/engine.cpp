@@ -159,6 +159,12 @@ void MimirInstance::deinit()
 
     vkDeviceWaitIdle(device);
     freeFrameCudaBuffer();
+    if (readback_buf_ != VK_NULL_HANDLE)
+    {
+        vkDestroyBuffer(device, readback_buf_, nullptr);
+        vkFreeMemory(device, readback_mem_, nullptr);
+        readback_buf_ = VK_NULL_HANDLE;
+    }
     cleanupGraphics();
     if (!isHeadless())
     {
@@ -189,7 +195,15 @@ void MimirInstance::prepare()
             if (view->desc.type == ViewType::Markers && view->vb_count > 0)
             {
                 auto c = view->desc.default_color; // particle albedo for PT (also --pcolor)
-                raytracing.bindScene(view->vbo[0], view->draw_count, view->desc.default_size,
+                // Positions are read by buffer-device-address in the AABB writer (no storage-range
+                // cap), so hand bindScene the buffer's device address rather than the VkBuffer.
+                VkBufferDeviceAddressInfo addr_info{
+                    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                    .pNext = nullptr, .buffer = view->vbo[0],
+                };
+                VkDeviceAddress pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
+                raytracing.lod_cells = options.pt_lod_cells;
+                raytracing.bindScene(pos_addr, view->draw_count, view->desc.default_size,
                     glm::vec4(c.x, c.y, c.z, c.w));
                 break;
             }
@@ -405,19 +419,37 @@ void MimirInstance::readFrameBytes(std::vector<unsigned char>& out)
     auto height = swapchain.extent.height;
     VkDeviceSize memsize = static_cast<VkDeviceSize>(width) * height * 4;
 
-    // Staging buffer to receive the rendered image (host-visible for readback)
-    auto staging = createBuffer(device, memsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    auto available = physical_device.memory.memoryProperties;
-    VkMemoryRequirements mem_req{};
-    vkGetBufferMemoryRequirements(device, staging, &mem_req);
-    auto memory = allocateMemory(device, available, mem_req,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    validation::checkVulkan(vkBindBufferMemory(device, staging, memory, 0));
+    // Reuse a cached host-visible staging buffer across frames. Allocating + freeing one per frame
+    // (vkCreateBuffer/vkAllocateMemory/... /vkFreeMemory, heavyweight driver calls) dominated the
+    // readback cost; recreate only when the resolution (and so memsize) changes.
+    if (readback_size_ != memsize)
+    {
+        if (readback_buf_ != VK_NULL_HANDLE)
+        {
+            vkDestroyBuffer(device, readback_buf_, nullptr);
+            vkFreeMemory(device, readback_mem_, nullptr);
+        }
+        readback_buf_ = createBuffer(device, memsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        VkMemoryRequirements mem_req{};
+        vkGetBufferMemoryRequirements(device, readback_buf_, &mem_req);
+        // Prefer HOST_CACHED: the readback does a large CPU-side memcpy *out* of this buffer, and
+        // HOST_COHERENT memory is typically write-combined on NVIDIA -> uncached CPU reads that are
+        // many times slower. Fall back to coherent if the device exposes no cached host type.
+        const auto& memprops = physical_device.memory.memoryProperties;
+        VkMemoryPropertyFlags want =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+        if (findMemoryType(memprops, mem_req.memoryTypeBits, want) == ~0u)
+        {
+            want = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        }
+        readback_mem_ = allocateMemory(device, memprops, mem_req, want);
+        validation::checkVulkan(vkBindBufferMemory(device, readback_buf_, readback_mem_, 0));
+        readback_size_ = memsize;
+    }
 
     // The offscreen image is already in TRANSFER_SRC layout (render pass final layout)
     VkImage src = offscreen_images[last_image_idx];
-    immediateSubmit([=](VkCommandBuffer cmd)
+    immediateSubmit([=, this](VkCommandBuffer cmd)
     {
         VkBufferImageCopy region{
             .bufferOffset      = 0,
@@ -428,17 +460,20 @@ void MimirInstance::readFrameBytes(std::vector<unsigned char>& out)
             .imageExtent       = { width, height, 1 },
         };
         vkCmdCopyImageToBuffer(cmd, src,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_buf_, 1, &region
         );
     });
 
     unsigned char *data = nullptr;
-    validation::checkVulkan(vkMapMemory(device, memory, 0, memsize, 0, (void**)&data));
+    validation::checkVulkan(vkMapMemory(device, readback_mem_, 0, memsize, 0, (void**)&data));
+    // Make the GPU's writes visible to this CPU read (a no-op on coherent memory, required on the
+    // cached, non-coherent type preferred above).
+    VkMappedMemoryRange range{ .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+        .pNext = nullptr, .memory = readback_mem_, .offset = 0, .size = VK_WHOLE_SIZE };
+    vkInvalidateMappedMemoryRanges(device, 1, &range);
     out.resize(static_cast<size_t>(memsize));
     std::memcpy(out.data(), data, static_cast<size_t>(memsize));
-    vkUnmapMemory(device, memory);
-    vkDestroyBuffer(device, staging, nullptr);
-    vkFreeMemory(device, memory, nullptr);
+    vkUnmapMemory(device, readback_mem_);
 }
 
 void MimirInstance::freeFrameCudaBuffer()
@@ -749,7 +784,11 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 
-    auto usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    // Path tracing reads the interop positions by buffer-device-address (in the AABB writer), so the
+    // buffer needs the SHADER_DEVICE_ADDRESS usage and its memory the DEVICE_ADDRESS alloc flag. Only
+    // on RT-capable devices, where bufferDeviceAddress is enabled (see device.cpp).
+    if (rt_enabled) { usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
     // Create temporary buffer for querying the desired memory properties
     VkExternalMemoryBufferCreateInfo extmem_info{
         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
@@ -760,15 +799,22 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
     VkMemoryRequirements memreq{};
     vkGetBufferMemoryRequirements(device, query_buf, &memreq);
 
-    // Allocate external device memory
+    // Allocate external device memory. When RT is on, chain the DEVICE_ADDRESS alloc flag so the
+    // bound buffer can expose a device address for the BDA position read.
     VkExportMemoryAllocateInfoKHR export_info{
         .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
         .pNext       = nullptr,
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
     };
+    VkMemoryAllocateFlagsInfo addr_flags{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, .pNext = &export_info,
+        .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, .deviceMask = 0,
+    };
     auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    auto vk_memory = allocateMemory(device, available, memreq, memflags, &export_info);
+    const void *alloc_chain = rt_enabled ? static_cast<const void*>(&addr_flags)
+                                         : static_cast<const void*>(&export_info);
+    auto vk_memory = allocateMemory(device, available, memreq, memflags, alloc_chain);
     // The real allocated amount is determined by the memory requirements structure
     spdlog::debug("Allocated {} bytes for interop ({} requested)", memreq.size, size);
 
@@ -1064,13 +1110,19 @@ View *MimirInstance::createView(ViewDescription *desc)
         // Source is always mapped this way for position attributes
         else if (type == AttributeType::Position || !hasIndexing(attr))
         {
-            VkDeviceSize vb_size = attr.format.getSize() * attr.size; // sizeof(Vertex) * attr.size;
+            // 64-bit multiply: getSize() and attr.size are both 32-bit, so their product overflows
+            // for large point counts -- at n = 2^30 float3 positions, 12 * 2^30 = 3 * 2^32 wraps to
+            // exactly 0, creating a zero-size vertex buffer that renders nothing (silently blank
+            // frame). Widen before multiplying.
+            VkDeviceSize vb_size = static_cast<VkDeviceSize>(attr.format.getSize()) * attr.size;
             spdlog::trace("Position vertex buffer created for {} bytes ({} elements)",
                 vb_size, getSourceSize(attr.source)
             );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            // Path tracing reads positions as an SSBO in the instance-writer compute shader.
-            if (rt_enabled) { vb_usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; }
+            // Path tracing reads positions by buffer-device-address in the AABB-writer compute shader,
+            // so the position buffer needs the SHADER_DEVICE_ADDRESS usage (its interop memory already
+            // carries the DEVICE_ADDRESS alloc flag from allocLinear).
+            if (rt_enabled) { vb_usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
             VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
@@ -1079,7 +1131,7 @@ View *MimirInstance::createView(ViewDescription *desc)
         // If a non-position attribute uses indirect mapping, its source is mapped to a storage buffer
         else
         {
-            VkDeviceSize sb_size = attr.format.getSize() * attr.size;
+            VkDeviceSize sb_size = static_cast<VkDeviceSize>(attr.format.getSize()) * attr.size;
             spdlog::trace("Position storage buffer created for {} bytes ({} elements)",
                 sb_size, getSourceSize(attr.source)
             );
@@ -1094,7 +1146,7 @@ View *MimirInstance::createView(ViewDescription *desc)
         // Create indirect buffers as index buffer for position attributes,
         // and as vertex buffers for all other attributes
         VkDeviceMemory memory = getMemoryVulkan(attr.indexing.source);
-        VkDeviceSize memsize = attr.indexing.index_size * attr.indexing.size;
+        VkDeviceSize memsize = static_cast<VkDeviceSize>(attr.indexing.index_size) * attr.indexing.size;
         spdlog::trace("Attribute buffer created for {} bytes", memsize);
         if (type == AttributeType::Position)
         {
@@ -1293,9 +1345,13 @@ void MimirInstance::initVulkan()
             MaterialData{ .albedo = { 0.82f, 0.82f, 0.88f }, .emission = 0.f }, // diffuse (particles)
             MaterialData{ .albedo = { 1.00f, 0.85f, 0.55f }, .emission = 4.f }, // spare emissive light
         };
+        // int64 buffer atomics were enabled at device creation iff supported (see
+        // createLogicalDevice); mirror that query so the RT context knows whether the LOD-centroid
+        // int64 BDA accumulator is available (else --lod falls back to cell-center placement).
+        bool int64_atomics = supportsInt64Atomics(physical_device.handle);
         raytracing = RayTracingContext::make(device, physical_device.handle,
             physical_device.memory.memoryProperties, submit,
-            options.pt_subdivisions, /*max_recursion=*/2, std::move(materials)
+            options.pt_subdivisions, /*max_recursion=*/2, int64_atomics, std::move(materials)
         );
         deletors.context.add([this]{ raytracing.destroy(); });
     }
@@ -1874,14 +1930,28 @@ void MimirInstance::renderFrame(bool advance_interop)
         bool cam_moved = camera.matrices.view != pt_last_view || camera.fov != pt_last_fov;
         pt_last_view = camera.matrices.view;
         pt_last_fov  = camera.fov;
-        if (advance_interop || pt_scene_dirty || cam_moved) { pt_accum_frame = 0; }
+        // The particle positions changed (a new sim iteration) iff advance_interop or the host-loop
+        // dirty flag is set; a camera move alone does NOT move geometry. Only a geometry change needs
+        // the AABB buffer + BLAS/TLAS (re)built -- when it is unchanged (paused sim, or a static view
+        // being accumulated) recordUpdateScene skips the whole build phase and reuses the AS.
+        //
+        // Camera motion does NOT invalidate the acceleration structure: the BVH is built in WORLD
+        // space and is independent of the viewpoint. Moving the camera only changes the rays the
+        // raygen shoots (pc.cam_* below) through the same unchanged geometry, so we re-trace the
+        // existing BVH -- never rebuild it. A camera move DOES invalidate the accumulated image
+        // (those samples were for the old view), so it resets the accumulator; it just does not
+        // touch the BVH. Hence rebuild is gated on geo_changed only, while the accumulator reset
+        // below is gated on geo_changed || cam_moved.
+        bool geo_changed = advance_interop || pt_scene_dirty;
+        if (geo_changed || cam_moved) { pt_accum_frame = 0; }
         pt_scene_dirty = false;
         pc.accum_frame = pt_accum_frame;
         pt_accum_frame++;
 
-        // Rebuild this frame's TLAS from the live interop positions, then trace it. When denoising,
-        // the trace leaves the display image in GENERAL and recordDenoise writes the filtered result.
-        raytracing.recordUpdateScene(cmd, frame_idx);
+        // (Re)build/refit this frame's AS from the live interop positions (only when they changed),
+        // then trace it. When denoising, the trace leaves the display image in GENERAL and
+        // recordDenoise writes the filtered result.
+        raytracing.recordUpdateScene(cmd, frame_idx, /*rebuild=*/geo_changed);
         raytracing.recordTrace(cmd, frame_idx, pc, /*leave_image_general=*/options.pt_denoise);
         if (options.pt_denoise) { raytracing.recordDenoise(cmd, frame_idx); }
     }
@@ -2244,7 +2314,7 @@ PerformanceMetrics MimirInstance::getMetrics()
             .compute  = compute_monitor.total_compute_time,
             .graphics = graphics_monitor.total_graphics_time,
             .pipeline = (float)graphics_monitor.total_pipeline_time,
-            .tlas_build = rt_enabled ? (float)raytracing.last_tlas_ms : 0.f,
+            .tlas_build = rt_enabled ? (float)raytracing.last_build_ms : 0.f,
             .trace      = rt_enabled ? (float)raytracing.last_trace_ms : 0.f,
             .wait   = graphics_monitor.last_wait_ms,
             .record = graphics_monitor.last_record_ms,
