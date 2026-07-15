@@ -13,6 +13,7 @@ target_sources(mimir
         src/framelimit.cpp
         src/gui.cpp
         src/interop.cpp
+        src/lod.cpp
         src/metrics.cpp
         src/pipeline.cpp
         src/raytracing.cpp

@@ -203,6 +203,20 @@ void MimirInstance::prepare()
                 };
                 VkDeviceAddress pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
                 raytracing.lod_cells = options.pt_lod_cells;
+                // LOD is a shared pre-render reduction owned by the engine. Init it (buffers +
+                // scatter/emit pipelines) before bindScene so the path-tracer -- which reads it in its
+                // very first build inside bindScene -- has it ready. For this task only PT consumes it.
+                if (options.pt_lod_cells > 0)
+                {
+                    auto lod_submit = [this](std::function<void(VkCommandBuffer)> fn) {
+                        immediateSubmit(std::move(fn));
+                    };
+                    lod_context.init(device, physical_device.memory.memoryProperties, lod_submit,
+                        supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
+                        view->draw_count);
+                    raytracing.lod = &lod_context;
+                    deletors.context.add([this]{ lod_context.destroy(); });
+                }
                 raytracing.bindScene(pos_addr, view->draw_count, view->desc.default_size,
                     glm::vec4(c.x, c.y, c.z, c.w));
                 break;

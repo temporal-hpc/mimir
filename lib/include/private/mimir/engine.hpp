@@ -19,6 +19,7 @@
 #include "device.hpp"
 #include "framebuffer.hpp"
 #include "interop.hpp"
+#include "lod.hpp"
 #include "metrics.hpp"
 #include "pipeline.hpp"
 #include "raytracing.hpp"
@@ -153,6 +154,10 @@ struct MimirInstance
     // extent-dependent frame resources are (re)built in initGraphics.
     bool rt_enabled = false;
     RayTracingContext raytracing{};
+    // Shared LOD data-reduction stage (lib/src/lod.cpp). Engine-owned; initialized when
+    // options.pt_lod_cells > 0. For now only the path-tracer consumes it (raytracing.lod points here);
+    // a later task wires the raster modes to the same reduced set.
+    LodContext lod_context{};
 
     // Shared template icosphere for the instanced mesh marker mode (LightModel::PhongMesh /
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is
