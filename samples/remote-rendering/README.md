@@ -190,16 +190,24 @@ X:
 #### `--lod N` (path-tracing level of detail)
 
 Aggregates particles into an `N x N x N` voxel grid over the `[-1,1]³` domain and renders
-one sphere per **occupied** cell (placed at the cell centre, sized to the cell), instead of one
-sphere per particle. This cuts the number of BVH primitives, reducing both the BLAS build time and
-the trace time, and — because the cell spheres are opaque and overlapping — removes the
-transparency noise that tiny per-particle spheres produce at high counts.
+one sphere per **occupied** cell (sized to the cell), instead of one sphere per particle. This cuts
+the number of BVH primitives, reducing both the BLAS build time and the trace time, and — because
+the cell spheres are opaque and overlapping — removes the transparency noise that tiny per-particle
+spheres produce at high counts.
+
+Spheres are placed at the per-cell **mass centroid** (the average of the particles' positions within
+each cell), which makes blobs follow the cloud's shape and motion smoothly. This requires the GPU
+feature `shaderBufferInt64Atomics` for atomic centroid accumulation; if unsupported, placement falls
+back to the cell geometric center (a warning is logged). Determinism is preserved via fixed-point
+integer atomics.
 
 - `N = 0` (default): one primitive per particle (no LOD).
-- `N` in `1..512`: `N` cells per axis. Larger `N` = finer detail, more primitives, slower.
+- `N` in `1..max`: `N` cells per axis. Larger `N` = finer detail, more primitives, slower. The cap
+  is VRAM-scaled, bounded by available device memory. An over-budget `--lod N` is rejected with the
+  largest feasible N reported.
 - Deterministic: the same `N` yields the same occupied-cell count and image every run, so it is a
   reproducible benchmark knob.
-- Memory: the grid accumulator is `N³ * 4 bytes` (512³ = 537 MB).
+- Memory: the grid accumulator is `N³ * 32 bytes` (with centroid; e.g. 256³ = 512 MB).
 
 Example:
 
