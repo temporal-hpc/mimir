@@ -185,34 +185,59 @@ X:
 ./rr-client 127.0.0.1 9000 "" auto 60
 ```
 
-### Path-tracing options
+### Level of detail
 
-#### `--lod N` (path-tracing level of detail)
+#### `--lod N` (level of detail — all light models)
 
-Aggregates particles into an `N x N x N` voxel grid over the `[-1,1]³` domain and renders
-one sphere per **occupied** cell (sized to the cell), instead of one sphere per particle. This cuts
-the number of BVH primitives, reducing both the BLAS build time and the trace time, and — because
-the cell spheres are opaque and overlapping — removes the transparency noise that tiny per-particle
-spheres produce at high counts.
+`--lod` is **transversal**: it applies to every `--light-model` (`none`, `phong`, `phong-mesh`,
+`path-tracing`), not just path-tracing. It's data reduction, orthogonal to shading — `--light-model`
+and `--lod` are picked independently, and the reduced particle set feeds whichever renderer is
+active.
 
-Spheres are placed at the per-cell **mass centroid** (the average of the particles' positions within
-each cell), which makes blobs follow the cloud's shape and motion smoothly. This requires the GPU
-feature `shaderBufferInt64Atomics` for atomic centroid accumulation; if unsupported, placement falls
-back to the cell geometric center (a warning is logged). Determinism is preserved via fixed-point
-integer atomics.
+Aggregates particles into an `N x N x N` voxel grid over the `[-1,1]³` domain and draws
+one representative per **occupied** cell instead of one per particle: in the lit modes (`phong`,
+`phong-mesh`, `path-tracing`) that representative is a sphere sized to the cell; in `none` it's a
+point. Fewer primitives means less BVH build/trace time for path-tracing and fewer verts/instances
+for raster, and — because the lit cell spheres are opaque and overlapping — it removes the
+transparency noise that tiny per-particle spheres produce at high counts.
 
-- `N = 0` (default): one primitive per particle (no LOD).
-- `N` in `1..max`: `N` cells per axis. Larger `N` = finer detail, more primitives, slower. The cap
-  is VRAM-scaled, bounded by available device memory. An over-budget `--lod N` is rejected with the
-  largest feasible N reported.
+Representatives are placed at the per-cell **mass centroid** (the average of the particles'
+positions within each cell), which makes blobs follow the cloud's shape and motion smoothly. This
+requires the GPU feature `shaderBufferInt64Atomics` for atomic centroid accumulation; if
+unsupported, placement falls back to the cell geometric center (a warning is logged). Determinism
+is preserved via fixed-point integer atomics.
+
+- `N = 0` (default): one representative per particle (no LOD).
+- `N` in `1..max`: `N` cells per axis. Larger `N` = finer detail, more representatives, slower. The
+  cap is VRAM-scaled, bounded by available device memory. An over-budget `--lod N` is rejected with
+  the largest feasible N reported.
 - Deterministic: the same `N` yields the same occupied-cell count and image every run, so it is a
   reproducible benchmark knob.
+- The occupied-cell count at a given `N` is **identical across all four light models** — they share
+  the same reduction, so switching `--light-model` at a fixed `--lod N` shows a consistent scene.
 - Memory: the grid accumulator is `N³ * 32 bytes` (with centroid; e.g. 256³ = 512 MB).
 
-Example:
+**`--size` under `--lod`:**
+
+- **Lit modes** (`phong`, `phong-mesh`, `path-tracing`): `--size` scales the representative sphere's
+  cell-fill radius instead of setting an absolute size:
+  `radius = cellFill * (default_size / LOD_REFERENCE_SIZE)`, where
+  `cellFill = 1.2 * (2/N) * 0.5` and `LOD_REFERENCE_SIZE = 0.05` (the lit default `--size`, since
+  the server maps `--size S` pixels to `S/100` world units and `5/100 = 0.05`). At the default
+  `--size 5`, the sphere exactly fills its cell — the classic opaque, overlapping-blob look. A
+  larger `--size` makes blobs chunkier (more overlap); a smaller one makes them thinner/gappy.
+  `--size` is never dead under `--lod`, unlike the old cell-derived-only radius.
+- **`none`:** `--size` is just the pixel point size of each drawn point, exactly as without `--lod`;
+  LOD only reduces how many points are drawn.
+
+Examples:
 
 ```sh
+# Path-tracing, 128^3 LOD grid
 ./rr-server 9000 1920 1080 $((2**29)) 1 --light-model path-tracing --lod 128
+
+# Same LOD grid under phong instead -- identical occupied-cell count, raster shading
+./rr-server 9000 1920 1080 $((2**29)) 1 --light-model phong --lod 128
 ```
 
 ## Controls (interactive window)
