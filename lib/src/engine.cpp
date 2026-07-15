@@ -208,10 +208,7 @@ void MimirInstance::prepare()
                 // very first build inside bindScene -- has it ready. For this task only PT consumes it.
                 if (options.pt_lod_cells > 0)
                 {
-                    auto lod_submit = [this](std::function<void(VkCommandBuffer)> fn) {
-                        immediateSubmit(std::move(fn));
-                    };
-                    lod_context.init(device, physical_device.memory.memoryProperties, lod_submit,
+                    lod_context.init(device, physical_device.memory.memoryProperties,
                         supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
                         view->draw_count);
                     raytracing.lod = &lod_context;
@@ -247,10 +244,7 @@ void MimirInstance::prepare()
                 };
                 lod_raster_pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
                 lod_raster_count    = view->draw_count;
-                auto lod_submit = [this](std::function<void(VkCommandBuffer)> fn) {
-                    immediateSubmit(std::move(fn));
-                };
-                lod_context.init(device, physical_device.memory.memoryProperties, lod_submit,
+                lod_context.init(device, physical_device.memory.memoryProperties,
                     supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
                     view->draw_count);
                 deletors.context.add([this]{ lod_context.destroy(); });
@@ -260,9 +254,9 @@ void MimirInstance::prepare()
                 // (renderFrame only runs once a client connects). A single blocking submit + readback
                 // here; the per-frame raster path (recordLodRaster) never reads back -- no stall.
                 immediateSubmit([&](VkCommandBuffer c) {
-                    lod_context.recordReduction(c, lod_raster_pos_addr, lod_raster_count);
+                    lod_context.recordReduction(c, lod_raster_pos_addr, lod_raster_count, /*slot=*/0u);
                 });
-                uint32_t occupied = std::min(lod_context.readCount(), lod_context.maxCells());
+                uint32_t occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
                 spdlog::info("Raster LOD ({}): emitted {} occupied cells (reduction {:.0f}:1 vs {} "
                     "particles); marker size {:.5f}",
                     options.light_model == LightModel::None ? "none" : "phong", occupied,
@@ -1862,9 +1856,17 @@ void MimirInstance::renderFrame(bool advance_interop)
         // use wait_value here to pass the correct expected CUDA signal value.
         waits.push_back(interop.vk_semaphore);
         // The first GPU consumer of the interop positions is the vertex shader for raster, but
-        // the instance-writer compute for path tracing; gate the wait on the right stage.
-        stages.push_back(rt_enabled
-            ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_VERTEX_INPUT_BIT);
+        // the instance-writer compute for path tracing; gate the wait on the right stage. A semaphore
+        // wait only gates the stages named in its mask, so when raster LOD is active this frame the mask
+        // MUST also include COMPUTE_SHADER: recordLodRaster records the reduction's scatter (a COMPUTE
+        // pass that BDA-reads the live interop positions) BEFORE the render pass, so without gating
+        // COMPUTE it could read positions mid-CUDA-write (torn / nondeterministic reduced set). PT
+        // already waits at COMPUTE, so its case is unchanged.
+        const bool raster_lod = !rt_enabled && lod_context.active();
+        VkPipelineStageFlags interop_stage = rt_enabled
+            ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+        if (raster_lod) { interop_stage |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT; }
+        stages.push_back(interop_stage);
         signals.push_back(interop.vk_semaphore);
         wait_values.push_back(wait_value);
         signal_values.push_back(signal_value);
@@ -2018,7 +2020,7 @@ void MimirInstance::renderFrame(bool advance_interop)
     // Raster point-mode LOD: reduce the live particles and build the indirect draw args here, BEFORE
     // the render pass (compute dispatches cannot run inside a render pass). No-op unless the raster
     // point-mode LOD path is active. drawElements then binds the reduced buffer + draws indirect.
-    recordLodRaster(cmd);
+    recordLodRaster(cmd, static_cast<uint32_t>(frame_idx));
 
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
@@ -2170,13 +2172,15 @@ void MimirInstance::renderFrame(bool advance_interop)
 // Records the per-frame LOD reduction + indirect-args build for the raster point modes (none/phong),
 // before the render pass. drawElements consumes the results (reduced vbo + indirect draw). No-op when
 // the raster point-mode LOD path is inactive (rt_enabled, or lod_context never inited for raster).
-void MimirInstance::recordLodRaster(VkCommandBuffer cmd)
+void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
 {
     if (rt_enabled || !lod_context.active()) { return; }
 
     // Reduce the live interop positions into the shared reduced-position buffer (clear -> scatter ->
-    // emit), recorded inline in the frame cmd (no host stall, unlike PT's one-shot submit).
-    lod_context.recordReduction(cmd, lod_raster_pos_addr, lod_raster_count);
+    // emit), recorded inline in the frame cmd (no host stall, unlike PT's one-shot submit). Outputs go
+    // to this frame-in-flight `slot`; drawElements(slot) reads the SAME slot this frame wrote, so an
+    // overlapping frame T+1's reduction (a different slot) can't clobber frame T's draw inputs.
+    lod_context.recordReduction(cmd, lod_raster_pos_addr, lod_raster_count, slot);
 
     // Make the emit pass's writes visible to BOTH consumers: the finalize compute reads the emit
     // counter (SHADER_READ), and the indirect draw reads the reduced positions as vertex attributes
@@ -2190,7 +2194,7 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd)
 
     // Build the VkDrawIndirectCommand from the occupied count: vertexCount (offset 0) = count,
     // instanceCount = 1. recordIndirectArgs ends with an INDIRECT_COMMAND_READ barrier for the draw.
-    lod_context.recordIndirectArgs(cmd, /*fixed_instance_count=*/1u, /*varying_byte_offset=*/0u);
+    lod_context.recordIndirectArgs(cmd, /*fixed_instance_count=*/1u, /*varying_byte_offset=*/0u, slot);
 }
 
 void MimirInstance::drawElements(uint32_t image_idx)
@@ -2224,13 +2228,25 @@ void MimirInstance::drawElements(uint32_t image_idx)
         // indirect, sourcing vertexCount = occupied cells from the GPU indirect-args buffer that
         // recordLodRaster built this frame -- no host readback. Other slots (if any) keep the view's
         // buffers; the sample marker views have position-only, so slot 0 is the whole binding.
-        const bool lod_point_draw = !view->use_ibo && lod_context.active();
+        // Only a non-indexed MARKERS view in a point render mode (Flat2D = none, Sphere3D = phong) gets
+        // the reduced cloud -- match the render-mode gate used in updateUniformBuffers so a non-marker
+        // non-indexed view is never silently handed the reduced vbo. SphereMesh (phong-mesh) uses an IBO
+        // (use_ibo) and is excluded anyway. `image_idx` is the frame-in-flight slot recordLodRaster wrote.
+        bool marker_point_mode = false;
+        if (view->desc.type == ViewType::Markers
+            && std::holds_alternative<MarkerOptions>(view->desc.options))
+        {
+            auto rm = std::get<MarkerOptions>(view->desc.options).render_mode;
+            marker_point_mode = (rm == MarkerOptions::RenderMode::Flat2D
+                              || rm == MarkerOptions::RenderMode::Sphere3D);
+        }
+        const bool lod_point_draw = !view->use_ibo && lod_context.active() && marker_point_mode;
         if (lod_point_draw)
         {
             VkBuffer     vbos[max_attr_count];
             VkDeviceSize offs[max_attr_count];
             for (uint32_t s = 0; s < view->vb_count; ++s) { vbos[s] = view->vbo[s]; offs[s] = view->offsets[s]; }
-            vbos[0] = lod_context.reducedPositionsBuffer();
+            vbos[0] = lod_context.reducedPositionsBuffer(image_idx);
             offs[0] = 0;
             vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
         }
@@ -2247,7 +2263,7 @@ void MimirInstance::drawElements(uint32_t image_idx)
         }
         else if (lod_point_draw) // Reduced cloud: vertexCount comes from the GPU indirect-args buffer.
         {
-            vkCmdDrawIndirect(cmd, lod_context.indirectBuffer(), 0, 1, 0);
+            vkCmdDrawIndirect(cmd, lod_context.indirectBuffer(image_idx), 0, 1, 0);
         }
         else // Perform regular draw with bound vertex buffers (full particle count)
         {

@@ -165,7 +165,7 @@ struct MimirInstance
     uint32_t        lod_raster_count    = 0;
     // Records the per-frame reduction + indirect-args build for raster point modes, BEFORE the render
     // pass (compute cannot run inside one). No-op when the raster LOD path is inactive.
-    void recordLodRaster(VkCommandBuffer cmd);
+    void recordLodRaster(VkCommandBuffer cmd, uint32_t slot);
 
     // Shared template icosphere for the instanced mesh marker mode (LightModel::PhongMesh /
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is

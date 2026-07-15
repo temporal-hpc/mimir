@@ -2,8 +2,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
-#include <functional> // std::function
 
 #include "mimir/raytracing.hpp" // RtBuffer (shared device-buffer helper type)
 
@@ -26,7 +26,12 @@ namespace mimir
 class LodContext
 {
 public:
-    using SubmitFn = std::function<void(std::function<void(VkCommandBuffer)>)>;
+    // Number of frame-in-flight slots the per-frame OUTPUT buffers are ringed over. Must equal
+    // MimirInstance::MAX_FRAMES_IN_FLIGHT (engine.hpp): the engine passes render_timeline %
+    // MAX_FRAMES_IN_FLIGHT as the slot so frame T's draw reads the SAME slot frame T's reduction wrote.
+    // Only the small particle-bounded outputs (reduced_pos, indirect, counter) are ringed; the N^3
+    // accumulator (cellcount/cellsum -- the memory hog) stays single and is cross-frame serialized.
+    static constexpr uint32_t NUM_SLOTS = 3;
 
     // Reference world radius (--size) at which the LOD sphere exactly fills the cell (cellFill),
     // matching the pre-transversal opaque look. It is the LIT-mode DEFAULT --size world value from
@@ -50,7 +55,7 @@ public:
     // counter, and reduced-position buffers for an N^3 grid over `particle_count` particles.
     // `int64_atomics` gates centroid placement (else cell-center fallback). Idempotent per instance;
     // call once before the first recordReduction. active() is true afterwards (grid_n = N > 0).
-    void init(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props, SubmitFn submit,
+    void init(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props,
         bool int64_atomics, uint32_t grid_n, uint32_t particle_count);
 
     // Record the reduction for this frame INTO `cmd` (clear -> scatter -> emit), reading the live
@@ -60,7 +65,15 @@ public:
     // wraps it in its own one-shot submit so it can readCount() before building the AS. The caller is
     // responsible for the barrier that makes the emit's reduced-position writes visible to its
     // consumer (vertex-input read for raster, AABB-writer read for PT).
-    void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint32_t particle_count);
+    //
+    // `slot` (0..NUM_SLOTS-1) selects which ringed OUTPUT buffers (reduced_pos, counter) receive this
+    // frame's reduction; the engine passes render_timeline % MAX_FRAMES_IN_FLIGHT so overlapping frames
+    // never clobber each other's outputs. PT serializes itself and uses a fixed slot 0. The N^3
+    // accumulator is shared across slots, so this records a cross-frame serialize barrier at the START
+    // (prior-frame COMPUTE read/write on the accumulator -> this frame's TRANSFER clear) before the
+    // clear fill, ordering this reduction after the previous frame's scatter/emit still reading it.
+    void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint32_t particle_count,
+        uint32_t slot);
 
     // Record the indirect-args build INTO `cmd`: fill the command template (firstVertex/firstInstance
     // = 0), then a 1-thread compute dispatch writes the occupied count into the command's varying
@@ -68,18 +81,19 @@ public:
     // with a barrier (SHADER_WRITE -> INDIRECT_COMMAND_READ, dstStage DRAW_INDIRECT) so a following
     // vkCmdDraw*Indirect from indirectBuffer() reads the finished command. No host readback.
     void recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_instance_count,
-        uint32_t varying_byte_offset);
+        uint32_t varying_byte_offset, uint32_t slot);
 
-    // Read back the emitted occupied-cell count (HOST_VISIBLE, coherent). Call after recordReduction
-    // has EXECUTED (path tracing's one-shot submit). NOT clamped to maxCells(); the consumer clamps.
-    uint32_t readCount();
+    // Read back slot `slot`'s emitted occupied-cell count (HOST_VISIBLE, coherent). Call after
+    // recordReduction on that slot has EXECUTED (path tracing's one-shot submit). NOT clamped to
+    // maxCells(); the consumer clamps.
+    uint32_t readCount(uint32_t slot);
 
-    // The compacted occupied-cell representative positions (float3[], BDA + vertex buffer).
-    VkBuffer        reducedPositionsBuffer()  const { return reduced_pos.buffer; }
-    VkDeviceAddress reducedPositionsAddress() const { return reduced_pos.address; }
+    // The compacted occupied-cell representative positions for `slot` (float3[], BDA + vertex buffer).
+    VkBuffer        reducedPositionsBuffer(uint32_t slot)  const { return reduced_pos[slot].buffer; }
+    VkDeviceAddress reducedPositionsAddress(uint32_t slot) const { return reduced_pos[slot].address; }
 
-    // The GPU-resident VkDrawIndirectCommand written by recordIndirectArgs (INDIRECT_BUFFER usage).
-    VkBuffer indirectBuffer() const { return indirect_buffer.buffer; }
+    // The GPU-resident VkDrawIndirectCommand written by recordIndirectArgs for `slot` (INDIRECT_BUFFER).
+    VkBuffer indirectBuffer(uint32_t slot) const { return indirect_buffer[slot].buffer; }
 
     // World radius of an LOD representative sphere given the view's default --size (lit world value).
     // = cellFill * (default_size / LOD_REFERENCE_SIZE), cellFill = LOD_COVERAGE * (2/N) * 0.5.
@@ -97,19 +111,24 @@ public:
 private:
     VkDevice device = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties mem_props{};
-    SubmitFn submit;
 
     uint32_t grid_n = 0;          // cells per axis (N); 0 = inactive
     uint32_t max_cells = 0;       // min(N^3, particle_count)
     bool     centroid_active = false; // centroid placement (int64 atomics available) vs cell-center
 
-    // Accumulators (BDA): per-cell occupancy count and the fixed-point position sum (centroid only),
-    // plus the small HOST_VISIBLE emit counter. Reduced positions: compacted representative float3[].
+    // Accumulators (BDA): per-cell occupancy count and the fixed-point position sum (centroid only).
+    // SINGLE-buffered (shared across frame slots): this is the N^3 memory hog (~30 GB at 1024^3) and is
+    // per-frame scratch (cleared -> scattered -> emitted, never read cross-frame), so it is not ringed;
+    // recordReduction serializes the reduction across frames instead (a cross-frame barrier on it).
     RtBuffer cellcount_buffer; // N^3 uint occupancy counts (DEVICE_LOCAL, BDA)
     RtBuffer cellsum_buffer;   // 3 * N^3 uint64 fixed-point sums (DEVICE_LOCAL, BDA; centroid only)
-    RtBuffer counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
-    RtBuffer reduced_pos;      // min(N^3,P) float3 representative positions (DEVICE_LOCAL, BDA + VBO)
-    RtBuffer indirect_buffer;  // 1 VkDrawIndirectCommand (16 B) for raster indirect draw (DEVICE_LOCAL, BDA)
+
+    // Per-frame OUTPUT buffers -- RINGED over NUM_SLOTS so frame T's draw reads the same slot frame T's
+    // reduction wrote while frame T+1's reduction targets a different slot (no cross-frame WAR). These
+    // are particle-bounded (small), so tripling them is cheap.
+    std::array<RtBuffer, NUM_SLOTS> counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
+    std::array<RtBuffer, NUM_SLOTS> reduced_pos;      // min(N^3,P) float3 representative positions (DEVICE_LOCAL, BDA + VBO)
+    std::array<RtBuffer, NUM_SLOTS> indirect_buffer;  // 1 VkDrawIndirectCommand (16 B) for raster indirect draw (DEVICE_LOCAL, BDA)
 
     // Scatter/emit compute pipelines. Scatter binds no descriptors (all accumulators are BDA); emit
     // keeps one descriptor for the global emit counter (binding 0). Finalize (indirect-args build) is
@@ -122,7 +141,8 @@ private:
     VkPipeline            emit_pipeline     = VK_NULL_HANDLE;
     VkPipeline            finalize_pipeline = VK_NULL_HANDLE;
     VkDescriptorPool      desc_pool       = VK_NULL_HANDLE;
-    VkDescriptorSet       emit_set        = VK_NULL_HANDLE;
+    // One emit descriptor set per slot: each binds its slot's (ringed) HOST_VISIBLE emit counter.
+    std::array<VkDescriptorSet, NUM_SLOTS> emit_set{};
 };
 
 } // namespace mimir

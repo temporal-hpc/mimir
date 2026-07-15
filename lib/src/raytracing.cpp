@@ -1518,8 +1518,10 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     // one-shot's vkQueueWaitIdle also serializes against the previous frame's trace. (Raster instead
     // records the reduction inline in the frame cmd with no stall -- it never calls readCount.) The
     // reduced positions live in lod->reducedPositionsBuffer().
-    submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address, particle_count); });
-    uint32_t occupied = std::min(lod->readCount(), lod_max_cells);
+    // PT serializes itself (blocking one-shot submit + vkQueueWaitIdle), so a fixed slot 0 of the ringed
+    // output buffers is safe -- no two PT reductions are ever in flight at once.
+    submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address, particle_count, /*slot=*/0u); });
+    uint32_t occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
     lod_prim_count = occupied;
 
     // 2) Build the AS in the frame command buffer over `occupied` primitives (always a full rebuild).
@@ -1545,7 +1547,7 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     // push-constant pointers -- no descriptor set to bind.
     AabbWriterPush push{
         .aabbs = aabb_buffer.address,
-        .positions = lod->reducedPositionsAddress(),
+        .positions = lod->reducedPositionsAddress(/*slot=*/0u),
         .count = occupied, .radius = lod->sphereRadius(particle_radius),
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);

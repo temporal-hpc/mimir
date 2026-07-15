@@ -97,12 +97,11 @@ struct LodIndirectPush
 
 } // namespace
 
-void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp, SubmitFn sub,
+void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     bool int64_atomics, uint32_t grid, uint32_t particle_count)
 {
     device    = dev;
     mem_props = mp;
-    submit    = std::move(sub);
     grid_n    = grid;
 
     const uint64_t num_cells = uint64_t(grid) * grid * grid;
@@ -159,27 +158,26 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp, SubmitF
     make_pipeline(VK_NULL_HANDLE, sizeof(LodIndirectPush),
         "shaders/lod_indirect_args.slang", "finalizeMain", finalize_layout, finalize_pipeline);
 
-    // Only the emit set exists (scatter is descriptor-free); the aggregate runs in an internal
-    // one-shot submit, not per-frame-in-flight, so one set suffices.
-    VkDescriptorPoolSize pool_size{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 };
+    // One emit set per ringed slot (each binds that slot's HOST_VISIBLE emit counter). Scatter is
+    // descriptor-free.
+    VkDescriptorPoolSize pool_size{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, NUM_SLOTS };
     VkDescriptorPoolCreateInfo pool_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .pNext = nullptr, .flags = 0,
-        .maxSets = 1, .poolSizeCount = 1, .pPoolSizes = &pool_size };
+        .maxSets = NUM_SLOTS, .poolSizeCount = 1, .pPoolSizes = &pool_size };
     validation::checkVulkan(vkCreateDescriptorPool(device, &pool_info, nullptr, &desc_pool));
 
+    std::array<VkDescriptorSetLayout, NUM_SLOTS> set_layouts;
+    set_layouts.fill(emit_set_layout);
     VkDescriptorSetAllocateInfo ai{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, .pNext = nullptr,
-        .descriptorPool = desc_pool, .descriptorSetCount = 1, .pSetLayouts = &emit_set_layout };
-    validation::checkVulkan(vkAllocateDescriptorSets(device, &ai, &emit_set));
+        .descriptorPool = desc_pool, .descriptorSetCount = NUM_SLOTS, .pSetLayouts = set_layouts.data() };
+    validation::checkVulkan(vkAllocateDescriptorSets(device, &ai, emit_set.data()));
 
     // ---- Buffers ----
     // Per-cell occupancy counts (one uint each), BDA (the sum below exceeds the descriptor cap at
     // large N, and the count moves to BDA alongside it), cleared each frame via vkCmdFillBuffer.
     cellcount_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
-    // Emitted-primitive counter (host-readable).
-    counter_buffer = makeBuffer(device, mem_props, sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true);
     // Per-cell fixed-point position sum (3 * uint64 per cell) for centroid placement, BDA. Only
     // allocated when centroid is active; up to 3 * N^3 * 8 B (>4 GiB at large N), past the
     // maxStorageBufferRange descriptor cap -- hence BDA.
@@ -189,47 +187,69 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp, SubmitF
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
     }
 
-    // Reduced representative positions: compacted list of occupied-cell centroids (float3), sized to
-    // the occupied bound. Usage covers every consumer: a raster vertex buffer, a BDA-read input to the
-    // path-tracer's AABB writer, a storage-buffer emit target, and a transfer destination.
-    reduced_pos = makeBuffer(device, mem_props, VkDeviceSize(max_cells) * 3 * sizeof(float),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-        | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+    // Per-slot RINGED output buffers (NUM_SLOTS copies each). These are the only buffers multi-buffered:
+    //  - counter_buffer: emitted-primitive counter (host-readable).
+    //  - reduced_pos: compacted list of occupied-cell centroids (float3), sized to the occupied bound.
+    //    Usage covers every consumer: a raster vertex buffer, a BDA-read input to the path-tracer's AABB
+    //    writer, a storage-buffer emit target, and a transfer destination.
+    //  - indirect_buffer: a single VkDrawIndirectCommand (16 B) the raster draw sources via
+    //    vkCmdDrawIndirect. recordIndirectArgs fills the fixed fields (TRANSFER_DST) then a compute pass
+    //    writes the count (STORAGE); it is also an INDIRECT_BUFFER. BDA so the finalize shader addresses
+    //    it as a raw pointer.
+    for (uint32_t s = 0; s < NUM_SLOTS; ++s)
+    {
+        counter_buffer[s] = makeBuffer(device, mem_props, sizeof(uint32_t),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true);
+        reduced_pos[s] = makeBuffer(device, mem_props, VkDeviceSize(max_cells) * 3 * sizeof(float),
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+            | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+        indirect_buffer[s] = makeBuffer(device, mem_props, sizeof(VkDrawIndirectCommand),
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+            | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
 
-    // Indirect draw args: a single VkDrawIndirectCommand (16 B) the raster point-mode draw sources via
-    // vkCmdDrawIndirect. recordIndirectArgs fills the fixed fields (TRANSFER_DST) then a compute pass
-    // writes the count (STORAGE); it is also an INDIRECT_BUFFER. BDA so the finalize shader addresses
-    // it as a raw pointer.
-    indirect_buffer = makeBuffer(device, mem_props, sizeof(VkDrawIndirectCommand),
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-        | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
-
-    // Point the emit set's global-counter binding (0) at the counter buffer.
-    VkDescriptorBufferInfo gc{ .buffer = counter_buffer.buffer, .offset = 0, .range = VK_WHOLE_SIZE };
-    VkWriteDescriptorSet write{
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = emit_set,
-        .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
-        .pBufferInfo = &gc, .pTexelBufferView = nullptr };
-    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        // Point this slot's emit set global-counter binding (0) at this slot's counter buffer.
+        VkDescriptorBufferInfo gc{ .buffer = counter_buffer[s].buffer, .offset = 0, .range = VK_WHOLE_SIZE };
+        VkWriteDescriptorSet write{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = emit_set[s],
+            .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr,
+            .pBufferInfo = &gc, .pTexelBufferView = nullptr };
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
 
     spdlog::info("LOD: {}^3 grid, up to {} occupied cells (from {} particles), placement: {}",
         grid, max_cells, particle_count, centroid_active ? "centroid" : "cell-center (int64 atomics unavailable)");
 }
 
 void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr,
-    uint32_t particle_count)
+    uint32_t particle_count, uint32_t slot)
 {
     // Record-only: the clear -> scatter -> emit passes go into `cmd`; the caller executes it (raster
     // inline in the frame cmd; PT in its own one-shot submit so it can readCount()). No internal
     // submit here, so raster incurs no host stall. Internal barriers (clear->scatter, scatter->emit)
-    // stay here; the caller adds the trailing barrier for its own consumer.
+    // stay here; the caller adds the trailing barrier for its own consumer. Outputs go to slot `slot`.
     const uint64_t num_cells = uint64_t(grid_n) * grid_n * grid_n;
     const uint32_t centroid_flag = centroid_active ? 1u : 0u;
     const VkDeviceAddress cellsum_addr = centroid_active ? cellsum_buffer.address : VkDeviceAddress(0);
 
-    vkCmdFillBuffer(cmd, cellcount_buffer.buffer, 0, VK_WHOLE_SIZE, 0u);
-    vkCmdFillBuffer(cmd, counter_buffer.buffer,   0, VK_WHOLE_SIZE, 0u);
+    // Cross-frame accumulator serialization: cellcount_buffer/cellsum_buffer are SINGLE-buffered (the
+    // N^3 memory hog stays single), so this frame's clear must not overwrite the accumulator while the
+    // PREVIOUS frame's scatter/emit (a different slot, overlapping in flight) is still reading/writing
+    // it -- a write-after-read/write hazard. Same queue + submission order means an execution + memory
+    // dependency from prior COMPUTE (scatter/emit shader read+write) to this frame's TRANSFER (the clear
+    // fill) orders us after the previous reduction's accumulator accesses. The ringed OUTPUT buffers
+    // (reduced_pos/indirect/counter) are per-slot, so draws still overlap; only the reduction compute
+    // is serialized. On the first frame there is no prior reduction, so this is a no-op. (PT wraps
+    // recordReduction in its own vkQueueWaitIdle one-shot submit, so this barrier is redundant-but-
+    // harmless there.)
+    VkMemoryBarrier accum_serialize{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 1, &accum_serialize, 0, nullptr, 0, nullptr);
+
+    vkCmdFillBuffer(cmd, cellcount_buffer.buffer,     0, VK_WHOLE_SIZE, 0u);
+    vkCmdFillBuffer(cmd, counter_buffer[slot].buffer, 0, VK_WHOLE_SIZE, 0u);
     if (centroid_active) { vkCmdFillBuffer(cmd, cellsum_buffer.buffer, 0, VK_WHOLE_SIZE, 0u); }
     VkMemoryBarrier clr{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -249,21 +269,21 @@ void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         0, 1, &s2e, 0, nullptr, 0, nullptr);
 
-    LodEmitPush ep{ .reducedPos = reduced_pos.address, .cellCounts = cellcount_buffer.address,
+    LodEmitPush ep{ .reducedPos = reduced_pos[slot].address, .cellCounts = cellcount_buffer.address,
         .cellSums = cellsum_addr, .gridN = grid_n, .centroid = centroid_flag };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_layout, 0, 1, &emit_set, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_layout, 0, 1, &emit_set[slot], 0, nullptr);
     vkCmdPushConstants(cmd, emit_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ep), &ep);
     vkCmdDispatch(cmd, static_cast<uint32_t>((num_cells + 63) / 64), 1, 1);
 }
 
 void LodContext::recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_instance_count,
-    uint32_t varying_byte_offset)
+    uint32_t varying_byte_offset, uint32_t slot)
 {
     // 1) Fill the whole command with zero (firstVertex = firstInstance = 0; vertexCount /
     // instanceCount are overwritten by the finalize dispatch below). vkCmdFillBuffer counts as a
-    // TRANSFER write.
-    vkCmdFillBuffer(cmd, indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0u);
+    // TRANSFER write. Reads/writes slot `slot`'s ringed counter/indirect buffers.
+    vkCmdFillBuffer(cmd, indirect_buffer[slot].buffer, 0, VK_WHOLE_SIZE, 0u);
     VkMemoryBarrier fill_to_finalize{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
@@ -275,7 +295,7 @@ void LodContext::recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_instance
     // have made that write visible (the emit's compute write precedes this dispatch on the same queue;
     // recordReduction's own emit runs earlier in `cmd`, and the raster call site adds the emit->args
     // barrier before invoking this).
-    LodIndirectPush ip{ .indirect = indirect_buffer.address, .count = counter_buffer.address,
+    LodIndirectPush ip{ .indirect = indirect_buffer[slot].address, .count = counter_buffer[slot].address,
         .varyingByteOffset = varying_byte_offset, .fixedInstanceCount = fixed_instance_count };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, finalize_pipeline);
     vkCmdPushConstants(cmd, finalize_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ip), &ip);
@@ -289,13 +309,13 @@ void LodContext::recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_instance
         0, 1, &args_to_draw, 0, nullptr, 0, nullptr);
 }
 
-uint32_t LodContext::readCount()
+uint32_t LodContext::readCount(uint32_t slot)
 {
     uint32_t occupied = 0;
     void* mapped = nullptr;
-    validation::checkVulkan(vkMapMemory(device, counter_buffer.memory, 0, sizeof(uint32_t), 0, &mapped));
+    validation::checkVulkan(vkMapMemory(device, counter_buffer[slot].memory, 0, sizeof(uint32_t), 0, &mapped));
     std::memcpy(&occupied, mapped, sizeof(uint32_t));
-    vkUnmapMemory(device, counter_buffer.memory);
+    vkUnmapMemory(device, counter_buffer[slot].memory);
     return occupied;
 }
 
@@ -321,13 +341,16 @@ void LodContext::destroy()
     scatter_layout = emit_layout = finalize_layout = VK_NULL_HANDLE;
     emit_set_layout = VK_NULL_HANDLE;
     desc_pool = VK_NULL_HANDLE;
-    emit_set = VK_NULL_HANDLE;
+    emit_set.fill(VK_NULL_HANDLE);
 
     destroyBuffer(device, cellcount_buffer);
     destroyBuffer(device, cellsum_buffer);
-    destroyBuffer(device, counter_buffer);
-    destroyBuffer(device, reduced_pos);
-    destroyBuffer(device, indirect_buffer);
+    for (uint32_t s = 0; s < NUM_SLOTS; ++s)
+    {
+        destroyBuffer(device, counter_buffer[s]);
+        destroyBuffer(device, reduced_pos[s]);
+        destroyBuffer(device, indirect_buffer[s]);
+    }
     grid_n = 0;
 }
 
