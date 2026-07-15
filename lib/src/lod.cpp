@@ -86,6 +86,14 @@ struct LodEmitPush
     VkDeviceAddress reducedPos; VkDeviceAddress cellCounts; VkDeviceAddress cellSums;
     uint32_t gridN; uint32_t centroid;
 };
+// Push constants for lod_indirect_args.slang: the indirect-command buffer and the occupied-cell
+// count as BDA pointers (offsets 0/8), then the byte offset of the command's varying field and the
+// fixed instanceCount value. Matches PushConstants in the shader.
+struct LodIndirectPush
+{
+    VkDeviceAddress indirect; VkDeviceAddress count;
+    uint32_t varyingByteOffset; uint32_t fixedInstanceCount;
+};
 
 } // namespace
 
@@ -147,6 +155,9 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp, SubmitF
         "shaders/pathtrace_lod_scatter.slang", "scatterMain", scatter_layout, scatter_pipeline);
     make_pipeline(emit_set_layout, sizeof(LodEmitPush),
         "shaders/pathtrace_lod_emit.slang", "emitMain", emit_layout, emit_pipeline);
+    // Indirect-args finalize: descriptor-free (indirect + count buffers ride the push constants as BDA).
+    make_pipeline(VK_NULL_HANDLE, sizeof(LodIndirectPush),
+        "shaders/lod_indirect_args.slang", "finalizeMain", finalize_layout, finalize_pipeline);
 
     // Only the emit set exists (scatter is descriptor-free); the aggregate runs in an internal
     // one-shot submit, not per-frame-in-flight, so one set suffices.
@@ -185,6 +196,14 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp, SubmitF
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
         | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
 
+    // Indirect draw args: a single VkDrawIndirectCommand (16 B) the raster point-mode draw sources via
+    // vkCmdDrawIndirect. recordIndirectArgs fills the fixed fields (TRANSFER_DST) then a compute pass
+    // writes the count (STORAGE); it is also an INDIRECT_BUFFER. BDA so the finalize shader addresses
+    // it as a raw pointer.
+    indirect_buffer = makeBuffer(device, mem_props, sizeof(VkDrawIndirectCommand),
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+        | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+
     // Point the emit set's global-counter binding (0) at the counter buffer.
     VkDescriptorBufferInfo gc{ .buffer = counter_buffer.buffer, .offset = 0, .range = VK_WHOLE_SIZE };
     VkWriteDescriptorSet write{
@@ -201,41 +220,73 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp, SubmitF
 void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr,
     uint32_t particle_count)
 {
-    (void)cmd; // Task 1: the aggregation runs in the internal one-shot submit below, not in `cmd`.
-
+    // Record-only: the clear -> scatter -> emit passes go into `cmd`; the caller executes it (raster
+    // inline in the frame cmd; PT in its own one-shot submit so it can readCount()). No internal
+    // submit here, so raster incurs no host stall. Internal barriers (clear->scatter, scatter->emit)
+    // stay here; the caller adds the trailing barrier for its own consumer.
     const uint64_t num_cells = uint64_t(grid_n) * grid_n * grid_n;
     const uint32_t centroid_flag = centroid_active ? 1u : 0u;
     const VkDeviceAddress cellsum_addr = centroid_active ? cellsum_buffer.address : VkDeviceAddress(0);
 
-    submit([&](VkCommandBuffer c) {
-        vkCmdFillBuffer(c, cellcount_buffer.buffer, 0, VK_WHOLE_SIZE, 0u);
-        vkCmdFillBuffer(c, counter_buffer.buffer,   0, VK_WHOLE_SIZE, 0u);
-        if (centroid_active) { vkCmdFillBuffer(c, cellsum_buffer.buffer, 0, VK_WHOLE_SIZE, 0u); }
-        VkMemoryBarrier clr{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
-            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
-        vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0, 1, &clr, 0, nullptr, 0, nullptr);
+    vkCmdFillBuffer(cmd, cellcount_buffer.buffer, 0, VK_WHOLE_SIZE, 0u);
+    vkCmdFillBuffer(cmd, counter_buffer.buffer,   0, VK_WHOLE_SIZE, 0u);
+    if (centroid_active) { vkCmdFillBuffer(cmd, cellsum_buffer.buffer, 0, VK_WHOLE_SIZE, 0u); }
+    VkMemoryBarrier clr{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0, 1, &clr, 0, nullptr, 0, nullptr);
 
-        LodScatterPush sp{ .positions = positions_addr, .cellCounts = cellcount_buffer.address,
-            .cellSums = cellsum_addr, .count = particle_count, .gridN = grid_n, .centroid = centroid_flag };
-        vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_COMPUTE, scatter_pipeline);
-        vkCmdPushConstants(c, scatter_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sp), &sp);
-        vkCmdDispatch(c, (particle_count + 63) / 64, 1, 1);
+    LodScatterPush sp{ .positions = positions_addr, .cellCounts = cellcount_buffer.address,
+        .cellSums = cellsum_addr, .count = particle_count, .gridN = grid_n, .centroid = centroid_flag };
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, scatter_pipeline);
+    vkCmdPushConstants(cmd, scatter_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sp), &sp);
+    vkCmdDispatch(cmd, (particle_count + 63) / 64, 1, 1);
 
-        VkMemoryBarrier s2e{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
-            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
-        vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0, 1, &s2e, 0, nullptr, 0, nullptr);
+    VkMemoryBarrier s2e{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0, 1, &s2e, 0, nullptr, 0, nullptr);
 
-        LodEmitPush ep{ .reducedPos = reduced_pos.address, .cellCounts = cellcount_buffer.address,
-            .cellSums = cellsum_addr, .gridN = grid_n, .centroid = centroid_flag };
-        vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline);
-        vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_COMPUTE, emit_layout, 0, 1, &emit_set, 0, nullptr);
-        vkCmdPushConstants(c, emit_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ep), &ep);
-        vkCmdDispatch(c, static_cast<uint32_t>((num_cells + 63) / 64), 1, 1);
-    });
+    LodEmitPush ep{ .reducedPos = reduced_pos.address, .cellCounts = cellcount_buffer.address,
+        .cellSums = cellsum_addr, .gridN = grid_n, .centroid = centroid_flag };
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_layout, 0, 1, &emit_set, 0, nullptr);
+    vkCmdPushConstants(cmd, emit_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ep), &ep);
+    vkCmdDispatch(cmd, static_cast<uint32_t>((num_cells + 63) / 64), 1, 1);
+}
+
+void LodContext::recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_instance_count,
+    uint32_t varying_byte_offset)
+{
+    // 1) Fill the whole command with zero (firstVertex = firstInstance = 0; vertexCount /
+    // instanceCount are overwritten by the finalize dispatch below). vkCmdFillBuffer counts as a
+    // TRANSFER write.
+    vkCmdFillBuffer(cmd, indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0u);
+    VkMemoryBarrier fill_to_finalize{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0, 1, &fill_to_finalize, 0, nullptr, 0, nullptr);
+
+    // 2) One thread copies the occupied count into the varying field and writes the fixed
+    // instanceCount. Reads the same HOST_VISIBLE emit counter the emit pass wrote -- the caller must
+    // have made that write visible (the emit's compute write precedes this dispatch on the same queue;
+    // recordReduction's own emit runs earlier in `cmd`, and the raster call site adds the emit->args
+    // barrier before invoking this).
+    LodIndirectPush ip{ .indirect = indirect_buffer.address, .count = counter_buffer.address,
+        .varyingByteOffset = varying_byte_offset, .fixedInstanceCount = fixed_instance_count };
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, finalize_pipeline);
+    vkCmdPushConstants(cmd, finalize_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ip), &ip);
+    vkCmdDispatch(cmd, 1, 1, 1);
+
+    // 3) Make the finished command visible to the indirect-draw consumer.
+    VkMemoryBarrier args_to_draw{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+        0, 1, &args_to_draw, 0, nullptr, 0, nullptr);
 }
 
 uint32_t LodContext::readCount()
@@ -260,12 +311,14 @@ void LodContext::destroy()
 {
     if (scatter_pipeline   != VK_NULL_HANDLE) { vkDestroyPipeline(device, scatter_pipeline, nullptr); }
     if (emit_pipeline      != VK_NULL_HANDLE) { vkDestroyPipeline(device, emit_pipeline, nullptr); }
+    if (finalize_pipeline  != VK_NULL_HANDLE) { vkDestroyPipeline(device, finalize_pipeline, nullptr); }
     if (scatter_layout     != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device, scatter_layout, nullptr); }
     if (emit_layout        != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device, emit_layout, nullptr); }
+    if (finalize_layout    != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device, finalize_layout, nullptr); }
     if (emit_set_layout    != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device, emit_set_layout, nullptr); }
     if (desc_pool          != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device, desc_pool, nullptr); }
-    scatter_pipeline = emit_pipeline = VK_NULL_HANDLE;
-    scatter_layout = emit_layout = VK_NULL_HANDLE;
+    scatter_pipeline = emit_pipeline = finalize_pipeline = VK_NULL_HANDLE;
+    scatter_layout = emit_layout = finalize_layout = VK_NULL_HANDLE;
     emit_set_layout = VK_NULL_HANDLE;
     desc_pool = VK_NULL_HANDLE;
     emit_set = VK_NULL_HANDLE;
@@ -274,6 +327,7 @@ void LodContext::destroy()
     destroyBuffer(device, cellsum_buffer);
     destroyBuffer(device, counter_buffer);
     destroyBuffer(device, reduced_pos);
+    destroyBuffer(device, indirect_buffer);
     grid_n = 0;
 }
 

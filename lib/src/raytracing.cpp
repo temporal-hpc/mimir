@@ -1512,9 +1512,13 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     assert(lod != nullptr && "LOD active but no LodContext bound (engine must set rt.lod)");
     bool first_build = !accel_ever_built;
 
-    // 1) Reduce (one-shot submit inside the LodContext), then read the occupied-cell count and clamp
-    // to the sizing bound. The reduced positions live in lod->reducedPositionsBuffer().
-    lod->recordReduction(cmd, position_address, particle_count);
+    // 1) Reduce, then read the occupied-cell count and clamp to the sizing bound. recordReduction is
+    // now record-only (Task 2 refactor), so PT wraps it in its own blocking one-shot submit: PT needs
+    // the count on the host BEFORE it can build the AS over `occupied` primitives in `cmd`. The
+    // one-shot's vkQueueWaitIdle also serializes against the previous frame's trace. (Raster instead
+    // records the reduction inline in the frame cmd with no stall -- it never calls readCount.) The
+    // reduced positions live in lod->reducedPositionsBuffer().
+    submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address, particle_count); });
     uint32_t occupied = std::min(lod->readCount(), lod_max_cells);
     lod_prim_count = occupied;
 

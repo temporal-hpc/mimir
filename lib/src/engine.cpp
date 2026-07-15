@@ -228,6 +228,52 @@ void MimirInstance::prepare()
         }
     }
 
+    // Raster point-mode LOD (none/phong): the same shared reduction feeds the raster draw. PT already
+    // inited lod_context above (rt_enabled); here we init it for the raster point modes so --lod
+    // reduces the drawn cloud identically. Bound to the first Markers view's interop positions. Mesh
+    // markers (phong-mesh) are a later task -- excluded here (lod_context stays inactive, full draw).
+    const bool raster_point_lod = !rt_enabled && options.pt_lod_cells > 0
+        && (options.light_model == LightModel::None || options.light_model == LightModel::Phong)
+        && supportsRayTracing(physical_device.handle); // BDA (scatter) needs bufferDeviceAddress
+    if (raster_point_lod && !lod_context.active())
+    {
+        for (auto* view : views)
+        {
+            if (view->desc.type == ViewType::Markers && view->vb_count > 0)
+            {
+                VkBufferDeviceAddressInfo addr_info{
+                    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                    .pNext = nullptr, .buffer = view->vbo[0], // slot 0 = interop float3 positions
+                };
+                lod_raster_pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
+                lod_raster_count    = view->draw_count;
+                auto lod_submit = [this](std::function<void(VkCommandBuffer)> fn) {
+                    immediateSubmit(std::move(fn));
+                };
+                lod_context.init(device, physical_device.memory.memoryProperties, lod_submit,
+                    supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
+                    view->draw_count);
+                deletors.context.add([this]{ lod_context.destroy(); });
+
+                // One-time reduction + occupied-count log at setup (mirrors the path tracer's
+                // first-build log), so headless runs verify the reduction matches PT WITHOUT a viewer
+                // (renderFrame only runs once a client connects). A single blocking submit + readback
+                // here; the per-frame raster path (recordLodRaster) never reads back -- no stall.
+                immediateSubmit([&](VkCommandBuffer c) {
+                    lod_context.recordReduction(c, lod_raster_pos_addr, lod_raster_count);
+                });
+                uint32_t occupied = std::min(lod_context.readCount(), lod_context.maxCells());
+                spdlog::info("Raster LOD ({}): emitted {} occupied cells (reduction {:.0f}:1 vs {} "
+                    "particles); marker size {:.5f}",
+                    options.light_model == LightModel::None ? "none" : "phong", occupied,
+                    occupied ? double(lod_raster_count) / double(occupied) : 0.0, lod_raster_count,
+                    options.light_model == LightModel::Phong
+                        ? lod_context.sphereRadius(view->desc.default_size) : view->desc.default_size);
+                break;
+            }
+        }
+    }
+
     // Fly camera starts with the cursor captured for immediate mouse-look (TAB frees it for the
     // HUD). Skipped in headless (no window).
     if (window_context.window && options.camera_control == CameraControl::Fly)
@@ -796,10 +842,13 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
     assert(size > 0);
 
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    // Path tracing reads the interop positions by buffer-device-address (in the AABB writer), so the
-    // buffer needs the SHADER_DEVICE_ADDRESS usage and its memory the DEVICE_ADDRESS alloc flag. Only
-    // on RT-capable devices, where bufferDeviceAddress is enabled (see device.cpp).
-    if (rt_enabled) { usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
+    // Path tracing reads the interop positions by buffer-device-address (in the AABB writer), and the
+    // shared LOD reduction (any light model) reads them by BDA in its scatter pass, so the buffer needs
+    // the SHADER_DEVICE_ADDRESS usage and its memory the DEVICE_ADDRESS alloc flag. bufferDeviceAddress
+    // is only enabled on RT-capable devices (see device.cpp), so gate LOD's need on that too.
+    const bool want_addr = rt_enabled
+        || (options.pt_lod_cells > 0 && supportsRayTracing(physical_device.handle));
+    if (want_addr) { usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
     // Create temporary buffer for querying the desired memory properties
     VkExternalMemoryBufferCreateInfo extmem_info{
         .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
@@ -823,8 +872,8 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
     };
     auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    const void *alloc_chain = rt_enabled ? static_cast<const void*>(&addr_flags)
-                                         : static_cast<const void*>(&export_info);
+    const void *alloc_chain = want_addr ? static_cast<const void*>(&addr_flags)
+                                        : static_cast<const void*>(&export_info);
     auto vk_memory = allocateMemory(device, available, memreq, memflags, alloc_chain);
     // The real allocated amount is determined by the memory requirements structure
     spdlog::debug("Allocated {} bytes for interop ({} requested)", memreq.size, size);
@@ -1124,10 +1173,15 @@ View *MimirInstance::createView(ViewDescription *desc)
                 vb_size, getSourceSize(attr.source)
             );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            // Path tracing reads positions by buffer-device-address in the AABB-writer compute shader,
-            // so the position buffer needs the SHADER_DEVICE_ADDRESS usage (its interop memory already
-            // carries the DEVICE_ADDRESS alloc flag from allocLinear).
-            if (rt_enabled) { vb_usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
+            // Path tracing (AABB writer) AND the shared LOD reduction (scatter pass) read positions by
+            // buffer-device-address, so the position buffer needs the SHADER_DEVICE_ADDRESS usage (its
+            // interop memory already carries the DEVICE_ADDRESS alloc flag from allocLinear). Same gate
+            // as allocLinear: bufferDeviceAddress is only enabled on RT-capable devices.
+            if (rt_enabled
+                || (options.pt_lod_cells > 0 && supportsRayTracing(physical_device.handle)))
+            {
+                vb_usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            }
             VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
@@ -1961,6 +2015,11 @@ void MimirInstance::renderFrame(bool advance_interop)
         if (options.pt_denoise) { raytracing.recordDenoise(cmd, frame_idx); }
     }
 
+    // Raster point-mode LOD: reduce the live particles and build the indirect draw args here, BEFORE
+    // the render pass (compute dispatches cannot run inside a render pass). No-op unless the raster
+    // point-mode LOD path is active. drawElements then binds the reduced buffer + draws indirect.
+    recordLodRaster(cmd);
+
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
     std::memcpy(clear_values[0].color.float32, &options.background_color.x, sizeof(options.background_color));
@@ -2108,6 +2167,32 @@ void MimirInstance::renderFrame(bool advance_interop)
     //spdlog::trace("frame {} finished", render_timeline-1);
 }
 
+// Records the per-frame LOD reduction + indirect-args build for the raster point modes (none/phong),
+// before the render pass. drawElements consumes the results (reduced vbo + indirect draw). No-op when
+// the raster point-mode LOD path is inactive (rt_enabled, or lod_context never inited for raster).
+void MimirInstance::recordLodRaster(VkCommandBuffer cmd)
+{
+    if (rt_enabled || !lod_context.active()) { return; }
+
+    // Reduce the live interop positions into the shared reduced-position buffer (clear -> scatter ->
+    // emit), recorded inline in the frame cmd (no host stall, unlike PT's one-shot submit).
+    lod_context.recordReduction(cmd, lod_raster_pos_addr, lod_raster_count);
+
+    // Make the emit pass's writes visible to BOTH consumers: the finalize compute reads the emit
+    // counter (SHADER_READ), and the indirect draw reads the reduced positions as vertex attributes
+    // (VERTEX_ATTRIBUTE_READ at the VERTEX_INPUT stage).
+    VkMemoryBarrier emit_vis{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+        0, 1, &emit_vis, 0, nullptr, 0, nullptr);
+
+    // Build the VkDrawIndirectCommand from the occupied count: vertexCount (offset 0) = count,
+    // instanceCount = 1. recordIndirectArgs ends with an INDIRECT_COMMAND_READ barrier for the draw.
+    lod_context.recordIndirectArgs(cmd, /*fixed_instance_count=*/1u, /*varying_byte_offset=*/0u);
+}
+
 void MimirInstance::drawElements(uint32_t image_idx)
 {
     auto min_alignment = physical_device.getUboOffsetAlignment();
@@ -2133,7 +2218,26 @@ void MimirInstance::drawElements(uint32_t image_idx)
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, view->pipeline);
-        vkCmdBindVertexBuffers(cmd, 0, view->vb_count, view->vbo, view->offsets);
+
+        // Raster point-mode LOD (none/phong): a non-indexed marker view draws the REDUCED cloud. Bind
+        // the shared reduced-position buffer as vbo slot 0 (the interop positions, replaced) and draw
+        // indirect, sourcing vertexCount = occupied cells from the GPU indirect-args buffer that
+        // recordLodRaster built this frame -- no host readback. Other slots (if any) keep the view's
+        // buffers; the sample marker views have position-only, so slot 0 is the whole binding.
+        const bool lod_point_draw = !view->use_ibo && lod_context.active();
+        if (lod_point_draw)
+        {
+            VkBuffer     vbos[max_attr_count];
+            VkDeviceSize offs[max_attr_count];
+            for (uint32_t s = 0; s < view->vb_count; ++s) { vbos[s] = view->vbo[s]; offs[s] = view->offsets[s]; }
+            vbos[0] = lod_context.reducedPositionsBuffer();
+            offs[0] = 0;
+            vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
+        }
+        else
+        {
+            vkCmdBindVertexBuffers(cmd, 0, view->vb_count, view->vbo, view->offsets);
+        }
 
         if (view->use_ibo) // Index buffer exists, bind it and perform indexed draw
         {
@@ -2141,7 +2245,11 @@ void MimirInstance::drawElements(uint32_t image_idx)
             vkCmdBindIndexBuffer(cmd, view->ibo, 0, view->index_type);
             vkCmdDrawIndexed(cmd, view->draw_count, view->instance_count, 0, 0, 0);
         }
-        else // Perform regular draw with bound vertex buffers
+        else if (lod_point_draw) // Reduced cloud: vertexCount comes from the GPU indirect-args buffer.
+        {
+            vkCmdDrawIndirect(cmd, lod_context.indirectBuffer(), 0, 1, 0);
+        }
+        else // Perform regular draw with bound vertex buffers (full particle count)
         {
             uint32_t first_vertex = 0;
             vkCmdDraw(cmd, view->draw_count, view->instance_count, first_vertex, 0);
@@ -2241,9 +2349,22 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
         };
 
         auto color = view->desc.default_color;
+        // Marker size. Under raster LOD, phong (Sphere3D) blobs use the cell-fill world radius scaled
+        // by --size (lod->sphereRadius), matching the path-tracer's LOD sphere so switching light model
+        // at a fixed --lod looks consistent; --size stays a live multiplier. Flat2D (none) keeps
+        // --size as the pixel point size (no world radius / cell-fill in flat 2D), and non-LOD keeps
+        // the plain default_size in every mode.
+        float marker_size = view->desc.default_size;
+        if (lod_context.active() && view->desc.type == ViewType::Markers
+            && std::holds_alternative<MarkerOptions>(view->desc.options)
+            && std::get<MarkerOptions>(view->desc.options).render_mode
+                   == MarkerOptions::RenderMode::Sphere3D)
+        {
+            marker_size = lod_context.sphereRadius(view->desc.default_size);
+        }
         ViewUniforms vu{
             .color     = glm::vec4(color.x, color.y, color.z, color.w),
-            .size      = view->desc.default_size,
+            .size      = marker_size,
             .linewidth = view->desc.linewidth,
             .antialias = view->desc.antialias,
         };

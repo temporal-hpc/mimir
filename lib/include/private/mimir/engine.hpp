@@ -155,9 +155,17 @@ struct MimirInstance
     bool rt_enabled = false;
     RayTracingContext raytracing{};
     // Shared LOD data-reduction stage (lib/src/lod.cpp). Engine-owned; initialized when
-    // options.pt_lod_cells > 0. For now only the path-tracer consumes it (raytracing.lod points here);
-    // a later task wires the raster modes to the same reduced set.
+    // options.pt_lod_cells > 0. Path tracing consumes it via raytracing.lod; the raster point modes
+    // (none/phong) reduce inline in the frame cmd and draw the reduced set via vkCmdDrawIndirect.
     LodContext lod_context{};
+    // Raster LOD (none/phong): the interop position buffer address + full particle count captured at
+    // init, used each frame to record the reduction inline. Set only when the raster point-mode LOD
+    // path is active (rt_enabled uses raytracing's own address instead).
+    VkDeviceAddress lod_raster_pos_addr = 0;
+    uint32_t        lod_raster_count    = 0;
+    // Records the per-frame reduction + indirect-args build for raster point modes, BEFORE the render
+    // pass (compute cannot run inside one). No-op when the raster LOD path is inactive.
+    void recordLodRaster(VkCommandBuffer cmd);
 
     // Shared template icosphere for the instanced mesh marker mode (LightModel::PhongMesh /
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is

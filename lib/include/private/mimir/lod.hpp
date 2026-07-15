@@ -17,7 +17,8 @@ namespace mimir
 //
 // This is a pre-render stage independent of the render mode: it produces a reduced particle set
 // (positions + count) that any consumer draws. Path-tracing feeds the reduced positions to its AABB
-// writer; raster modes (future task) bind the reduced buffer as a vertex buffer + indirect draw.
+// writer; raster point modes (none/phong) bind the reduced buffer as a vertex buffer and draw it via
+// vkCmdDrawIndirect, sourcing the count from the GPU indirect-args buffer (recordIndirectArgs).
 //
 // Extracted from raytracing.cpp's former in-pipeline scatter/emit (the count/centroids are
 // unchanged by the move -- same integer atomics, same reduction). See
@@ -52,20 +53,33 @@ public:
     void init(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props, SubmitFn submit,
         bool int64_atomics, uint32_t grid_n, uint32_t particle_count);
 
-    // Run the reduction for this frame in a blocking one-shot submit (clear -> scatter -> emit),
-    // reading the live positions at `positions_addr` (tightly-packed float3, BDA). Writes the
-    // reduced positions + the occupied-cell counter. The one-shot's vkQueueWaitIdle also serializes
-    // against the previous frame's consumer. `cmd` is accepted for interface stability (a future
-    // in-frame variant) but unused here -- the aggregation runs in the internal submit, as before.
+    // Record the reduction for this frame INTO `cmd` (clear -> scatter -> emit), reading the live
+    // positions at `positions_addr` (tightly-packed float3, BDA). Writes the reduced positions + the
+    // occupied-cell counter. This is now RECORD-ONLY (no internal submit): the caller decides how to
+    // execute it. Raster records it inline in the frame command buffer (no host stall); path tracing
+    // wraps it in its own one-shot submit so it can readCount() before building the AS. The caller is
+    // responsible for the barrier that makes the emit's reduced-position writes visible to its
+    // consumer (vertex-input read for raster, AABB-writer read for PT).
     void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint32_t particle_count);
 
-    // Read back the emitted occupied-cell count (HOST_VISIBLE, coherent). Call after recordReduction.
-    // NOT clamped to maxCells(); the consumer clamps.
+    // Record the indirect-args build INTO `cmd`: fill the command template (firstVertex/firstInstance
+    // = 0), then a 1-thread compute dispatch writes the occupied count into the command's varying
+    // field at `varying_byte_offset` and `fixed_instance_count` into the instanceCount field. Ends
+    // with a barrier (SHADER_WRITE -> INDIRECT_COMMAND_READ, dstStage DRAW_INDIRECT) so a following
+    // vkCmdDraw*Indirect from indirectBuffer() reads the finished command. No host readback.
+    void recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_instance_count,
+        uint32_t varying_byte_offset);
+
+    // Read back the emitted occupied-cell count (HOST_VISIBLE, coherent). Call after recordReduction
+    // has EXECUTED (path tracing's one-shot submit). NOT clamped to maxCells(); the consumer clamps.
     uint32_t readCount();
 
     // The compacted occupied-cell representative positions (float3[], BDA + vertex buffer).
     VkBuffer        reducedPositionsBuffer()  const { return reduced_pos.buffer; }
     VkDeviceAddress reducedPositionsAddress() const { return reduced_pos.address; }
+
+    // The GPU-resident VkDrawIndirectCommand written by recordIndirectArgs (INDIRECT_BUFFER usage).
+    VkBuffer indirectBuffer() const { return indirect_buffer.buffer; }
 
     // World radius of an LOD representative sphere given the view's default --size (lit world value).
     // = cellFill * (default_size / LOD_REFERENCE_SIZE), cellFill = LOD_COVERAGE * (2/N) * 0.5.
@@ -95,14 +109,18 @@ private:
     RtBuffer cellsum_buffer;   // 3 * N^3 uint64 fixed-point sums (DEVICE_LOCAL, BDA; centroid only)
     RtBuffer counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
     RtBuffer reduced_pos;      // min(N^3,P) float3 representative positions (DEVICE_LOCAL, BDA + VBO)
+    RtBuffer indirect_buffer;  // 1 VkDrawIndirectCommand (16 B) for raster indirect draw (DEVICE_LOCAL, BDA)
 
     // Scatter/emit compute pipelines. Scatter binds no descriptors (all accumulators are BDA); emit
-    // keeps one descriptor for the global emit counter (binding 0).
+    // keeps one descriptor for the global emit counter (binding 0). Finalize (indirect-args build) is
+    // descriptor-free (indirect + count are BDA push-constant pointers).
     VkDescriptorSetLayout emit_set_layout = VK_NULL_HANDLE;
     VkPipelineLayout      scatter_layout  = VK_NULL_HANDLE;
     VkPipelineLayout      emit_layout     = VK_NULL_HANDLE;
-    VkPipeline            scatter_pipeline = VK_NULL_HANDLE;
-    VkPipeline            emit_pipeline    = VK_NULL_HANDLE;
+    VkPipelineLayout      finalize_layout = VK_NULL_HANDLE;
+    VkPipeline            scatter_pipeline  = VK_NULL_HANDLE;
+    VkPipeline            emit_pipeline     = VK_NULL_HANDLE;
+    VkPipeline            finalize_pipeline = VK_NULL_HANDLE;
     VkDescriptorPool      desc_pool       = VK_NULL_HANDLE;
     VkDescriptorSet       emit_set        = VK_NULL_HANDLE;
 };
