@@ -144,7 +144,8 @@ struct RayTracingContext
     // frames_since_full_rebuild drives the cadence. Env override: MIMIR_PT_REBUILD_INTERVAL.
     uint32_t rebuild_interval = 8;
     // LOD grid resolution (cells per axis); 0 = per-particle (no LOD). Set from
-    // ViewerOptions::pt_lod_cells before bindScene. See DESIGN_lod.md.
+    // ViewerOptions::pt_lod_cells before bindScene. See
+    // docs/superpowers/specs/2026-07-14-lod-grid-aggregation-design.md.
     uint32_t lod_cells = 0;
     uint32_t frames_since_full_rebuild = 0;
     bool     accel_ever_built = false;

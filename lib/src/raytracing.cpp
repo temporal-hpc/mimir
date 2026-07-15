@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>     // std::max
+#include <cassert>       // assert (LOD single-chunk invariant)
 #include <cstring>       // std::memcpy
 #include <cstdlib>       // std::getenv, std::strtoull (MIMIR_PT_BLAS_CHUNK)
 #include <cmath>         // std::sqrt
@@ -1226,10 +1227,22 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     blas_chunk_prims = accel_props.maxPrimitiveCount > 0
         ? static_cast<uint32_t>(std::min<uint64_t>(accel_props.maxPrimitiveCount, geom_prims))
         : geom_prims;
-    if (const char* env = std::getenv("MIMIR_PT_BLAS_CHUNK"))
+    // LOD mode requires exactly one BLAS chunk: recordLodUpdate() passes the per-frame `occupied`
+    // count as override_prims to recordBlasBuildChunks(), which applies it to EVERY chunk. If the env
+    // override shrank blas_chunk_prims below lod_max_cells here, num_chunks would become > 1 and
+    // chunk c>0 would read past the emitted primitive list / AABB buffer. So the override only applies
+    // in per-particle mode, where blas_chunk_prims is already <= maxPrimitiveCount as computed above.
+    if (lod_cells == 0)
     {
-        uint32_t override_prims = static_cast<uint32_t>(std::strtoull(env, nullptr, 10));
-        if (override_prims > 0 && override_prims < blas_chunk_prims) { blas_chunk_prims = override_prims; }
+        if (const char* env = std::getenv("MIMIR_PT_BLAS_CHUNK"))
+        {
+            uint32_t override_prims = static_cast<uint32_t>(std::strtoull(env, nullptr, 10));
+            if (override_prims > 0 && override_prims < blas_chunk_prims) { blas_chunk_prims = override_prims; }
+        }
+    }
+    else if (std::getenv("MIMIR_PT_BLAS_CHUNK") != nullptr)
+    {
+        spdlog::info("Path tracing: MIMIR_PT_BLAS_CHUNK ignored in LOD mode (single chunk required)");
     }
 
     // One BLAS per chunk (rebuilt each frame), then one TLAS instance per chunk (identity transform,
@@ -1498,6 +1511,11 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
 // (it runs outside `cmd`); it shows up in the total wall-clock render time.
 void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
 {
+    // Belt-and-suspenders: LOD assumes a single BLAS chunk (see the MIMIR_PT_BLAS_CHUNK guard in
+    // bindScene) because override_prims below is applied to every chunk in recordBlasBuildChunks.
+    assert(scene_blas.size() == 1 && "LOD requires a single BLAS chunk");
+    bool first_build = !accel_ever_built;
+
     const uint32_t grid = lod_cells;
     const uint64_t num_cells = uint64_t(grid) * grid * grid;
     const float cell_size = 2.0f / float(grid);
@@ -1592,8 +1610,9 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 3);
     }
 
-    // Log the aggregation result once per bind (frame_idx 0 is the initial bindScene build).
-    if (frame_idx == 0)
+    // Log the aggregation result once, on the first build for this scene (frame_idx is the in-flight
+    // slot index 0..FRAMES-1, not a build counter, so gating on it would reprint every FRAMES frames).
+    if (first_build)
     {
         spdlog::info("Path tracing: LOD emitted {} occupied cells (reduction {:.0f}:1 vs {} particles)",
             occupied, occupied ? double(particle_count) / double(occupied) : 0.0, particle_count);
