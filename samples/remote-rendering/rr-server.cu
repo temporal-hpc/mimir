@@ -178,6 +178,8 @@ static void usage(const char *prog)
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
+        "  --lod N            Path-trace LOD: N^3 voxel grid, one sphere per occupied cell\n"
+        "                     (0 = per-particle, default). 0..512. Trades detail for speed.\n"
         "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris     (default: 1)\n"
         "  --denoise          Denoise each frame before display/encode; also makes the\n"
         "                     stream H.264-friendly at low bitrates (temporally stable)\n"
@@ -234,6 +236,7 @@ int main(int argc, char *argv[])
     unsigned int pt_subdiv  = 1;
     bool subdiv_set         = false;
     bool pt_denoise         = false;
+    unsigned int lod_cells   = 0;
     bool fly                = false;
     int bitrate_kbps        = 8000;
     int fps_cap             = 0;
@@ -265,6 +268,7 @@ int main(int argc, char *argv[])
             else if (a == "--epsilon")     pts.epsilon = std::stof(v);
             else if (a == "--spp")         pt_spp = (unsigned int)std::stoul(v);
             else if (a == "--bounces")     pt_bounces = (unsigned int)std::stoul(v);
+            else if (a == "--lod")         lod_cells = (unsigned int)std::stoul(v);
             else if (a == "--subdiv")    { pt_subdiv = (unsigned int)std::stoul(v); subdiv_set = true; }
             else if (a == "--bitrate")     bitrate_kbps = std::stoi(v);
             else if (a == "--benchmark")   bench_csv = v;
@@ -336,6 +340,11 @@ int main(int argc, char *argv[])
     size_t vram_free0 = 0, vram_total = 0;
     cudaMemGetInfo(&vram_free0, &vram_total);
 
+    if (lod_cells > 512) {
+        fprintf(stderr, "rr-server: --lod must be 0..512 (got %u); phase-1 memory cap\n", lod_cells);
+        return EXIT_FAILURE;
+    }
+
     ViewerOptions options;
     options.window.title      = "Mimir - remote kmodal-3d";
     options.render_mode       = RenderMode::Headless;
@@ -351,6 +360,7 @@ int main(int argc, char *argv[])
     options.pt_max_bounces       = pt_bounces;
     options.pt_subdivisions      = pt_subdiv;
     options.pt_denoise           = pt_denoise;
+    options.pt_lod_cells         = lod_cells;
     // Match datoviz/particles-kmodal-3d framing of the [-1,1]^3 domain (45 deg vertical FOV).
     options.camera_fov        = 45.f;
     // --fly: run the first-person camera. serveRemote seeds the fly pose and interprets the

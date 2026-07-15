@@ -143,6 +143,9 @@ struct RayTracingContext
     // gates the mandatory first full build (UPDATE needs a prior BUILD as its source);
     // frames_since_full_rebuild drives the cadence. Env override: MIMIR_PT_REBUILD_INTERVAL.
     uint32_t rebuild_interval = 8;
+    // LOD grid resolution (cells per axis); 0 = per-particle (no LOD). Set from
+    // ViewerOptions::pt_lod_cells before bindScene. See DESIGN_lod.md.
+    uint32_t lod_cells = 0;
     uint32_t frames_since_full_rebuild = 0;
     bool     accel_ever_built = false;
     // Cumulative recordUpdateScene tallies (one increment per recorded frame), so callers can report

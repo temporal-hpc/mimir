@@ -202,6 +202,7 @@ void MimirInstance::prepare()
                     .pNext = nullptr, .buffer = view->vbo[0],
                 };
                 VkDeviceAddress pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
+                raytracing.lod_cells = options.pt_lod_cells;
                 raytracing.bindScene(pos_addr, view->draw_count, view->desc.default_size,
                     glm::vec4(c.x, c.y, c.z, c.w));
                 break;

@@ -1140,6 +1140,10 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     uint32_t num_chunks = static_cast<uint32_t>(scene_blas.size());
     spdlog::info("Path tracing: {} particles in {} BLAS chunk(s) of up to {} prims",
         count, num_chunks, blas_chunk_prims);
+    if (lod_cells > 0)
+    {
+        spdlog::info("Path tracing: LOD grid requested: {}^3 cells (per-particle path still active until wired)", lod_cells);
+    }
 
     // BLAS refit cadence: full rebuild every rebuild_interval dirty frames, refit in between (see the
     // members in raytracing.hpp). At ~5*10^8 AABBs the full rebuild is the frame's dominant cost, so a
