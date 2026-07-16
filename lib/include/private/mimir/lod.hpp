@@ -5,7 +5,9 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 
+#include "mimir/lod_reduce.hpp"  // LodReduce (native-CUDA reduction, pure C++ pImpl facade)
 #include "mimir/raytracing.hpp" // RtBuffer (shared device-buffer helper type)
 
 namespace mimir
@@ -108,6 +110,20 @@ public:
     void*     reducedPositionsDevicePtr(uint32_t slot) const { return reduced_pos_cuda[slot]; }
     uint32_t* occupiedDevicePtr(uint32_t slot)          const { return occupied_cuda[slot]; }
 
+    // True when the CUDA reduction path is active (the default; false only under
+    // MIMIR_LOD_NO_CUDA, which forces the Vulkan scatter/emit fallback).
+    bool usesCuda() const { return use_cuda; }
+
+    // Run the CUDA reduction for `slot` on `stream`: reads `count` positions from `positions_dev`
+    // (device ptr, packed float3), writes this slot's reduced-position + occupied-count CUDA
+    // aliases. No-op when !usesCuda() -- must not be called on the Vulkan-fallback path.
+    void reduceCuda(cudaStream_t stream, const void* positions_dev, uint64_t count, uint32_t slot);
+
+    // Device->host copy of slot `slot`'s CUDA-reduced occupied-cell count, clamped to maxCells().
+    // The caller must have already synchronized `stream` (or otherwise ordered against it) before
+    // calling this -- the copy itself is a plain blocking cudaMemcpy.
+    uint32_t occupiedFromCuda(uint32_t slot);
+
     // World radius of an LOD representative sphere given the view's default --size (lit world value).
     // = cellFill * (default_size / LOD_REFERENCE_SIZE), cellFill = LOD_COVERAGE * (2/N) * 0.5.
     float sphereRadius(float default_size) const;
@@ -129,11 +145,17 @@ private:
     uint32_t max_cells = 0;       // min(N^3, particle_count)
     bool     centroid_active = false; // centroid placement (int64 atomics available) vs cell-center
 
-    // Gates whether init() allocates reduced_pos[]/counter_buffer[] as CUDA-exportable and imports CUDA
-    // device-pointer aliases for them. Defaults false (dormant): nothing in this class sets it yet, so
-    // the Vulkan-only path is completely unchanged. The native-CUDA reduction wiring (a later stage)
-    // sets this before init() runs its buffer allocations.
+    // Selects the CUDA-primary reduction path: true unless MIMIR_LOD_NO_CUDA is set (see init()). When
+    // true, init() constructs `lod_reduce`, imports the CUDA device-pointer aliases for
+    // reduced_pos[]/counter_buffer[], and SKIPS allocating the Vulkan N^3 accumulator
+    // (cellcount_buffer/cellsum_buffer) -- LodReduce owns the one and only N^3 accumulator. When false
+    // (the MIMIR_LOD_NO_CUDA fallback), the Vulkan scatter/emit path and its N^3 accumulator are used
+    // exactly as before, unchanged.
     bool use_cuda = false;
+
+    // Native-CUDA reduction (Task 1). Owns its own N^3 accumulator; constructed in init() only when
+    // use_cuda is true. Non-copyable, so held by pointer; reset() in destroy() to free its accumulator.
+    std::unique_ptr<LodReduce> lod_reduce;
 
     // Accumulators (BDA): per-cell occupancy count and the fixed-point position sum (centroid only).
     // SINGLE-buffered (shared across frame slots): this is the N^3 memory hog (~30 GB at 1024^3) and is

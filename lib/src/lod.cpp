@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>  // std::min
+#include <cstdlib>    // std::getenv
 #include <cstring>    // std::memcpy
 #include <filesystem> // std::filesystem
 
@@ -144,6 +145,25 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     // scatter -- markedly cheaper at huge particle counts since it drops the 3 int64 atomics/particle).
     centroid_active = int64_atomics && want_centroid;
 
+    // CUDA-primary path selection: the native-CUDA reduction (LodReduce) is the default; set
+    // MIMIR_LOD_NO_CUDA to force the Vulkan compute-shader scatter/emit fallback (e.g. for
+    // debugging/comparison). No VRAM-fit gate here -- LodReduce's N^3 accumulator is the exact same
+    // size as the Vulkan one it replaces (LodReduce::accumulatorBytes(grid_n, centroid_active)), so if
+    // the Vulkan path would have fit, so does this. This must be decided BEFORE the buffer allocations
+    // below run: when use_cuda, the Vulkan N^3 accumulator (cellcount_buffer/cellsum_buffer) is skipped
+    // entirely (LodReduce owns the only N^3 accumulator) and the per-slot output buffers are allocated
+    // CUDA-exportable so their device-pointer aliases can be imported.
+    use_cuda = (std::getenv("MIMIR_LOD_NO_CUDA") == nullptr);
+    if (use_cuda)
+    {
+        lod_reduce = std::make_unique<LodReduce>(particle_count, grid_n, centroid_active);
+        spdlog::info("LOD reduction: custom CUDA kernels");
+    }
+    else
+    {
+        spdlog::info("LOD reduction: Vulkan scatter (MIMIR_LOD_NO_CUDA set)");
+    }
+
     // ---- Pipelines (scatter is descriptor-free; emit keeps a one-binding set for the counter) ----
     {
         // Emit descriptor set layout: a single STORAGE_BUFFER binding (the global emit counter).
@@ -209,15 +229,25 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     // ---- Buffers ----
     // Per-cell occupancy counts (one uint each), BDA (the sum below exceeds the descriptor cap at
     // large N, and the count moves to BDA alongside it), cleared each frame via vkCmdFillBuffer.
-    cellcount_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
-    // Per-cell fixed-point position sum (3 * uint64 per cell) for centroid placement, BDA. Only
-    // allocated when centroid is active; up to 3 * N^3 * 8 B (>4 GiB at large N), past the
-    // maxStorageBufferRange descriptor cap -- hence BDA.
-    if (centroid_active)
+    //
+    // SINGLE N^3 accumulator either way: when use_cuda, LodReduce (constructed above) already owns its
+    // OWN N^3 accumulator (counts + optional sums), so the Vulkan cellcount_buffer/cellsum_buffer below
+    // are skipped entirely -- allocating both would double the N^3 footprint (the memory hog, up to
+    // ~30-60 GB at 1024^3) and blow the VRAM budget. The Vulkan scatter/emit pipelines above are still
+    // created (harmless: never dispatched on the CUDA path, since callers branch on usesCuda()), and
+    // destroy()/destroyBuffer already no-op on these buffers' null handles.
+    if (!use_cuda)
     {
-        cellsum_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * 3 * sizeof(uint64_t),
+        cellcount_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * sizeof(uint32_t),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+        // Per-cell fixed-point position sum (3 * uint64 per cell) for centroid placement, BDA. Only
+        // allocated when centroid is active; up to 3 * N^3 * 8 B (>4 GiB at large N), past the
+        // maxStorageBufferRange descriptor cap -- hence BDA.
+        if (centroid_active)
+        {
+            cellsum_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * 3 * sizeof(uint64_t),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+        }
     }
 
     // Per-slot RINGED output buffers (NUM_SLOTS copies each). These are the only buffers multi-buffered:
@@ -391,6 +421,25 @@ uint32_t LodContext::readCount(uint32_t slot)
     return occupied;
 }
 
+void LodContext::reduceCuda(cudaStream_t stream, const void* positions_dev, uint64_t count, uint32_t slot)
+{
+    // Must-not-be-called on the Vulkan-fallback path (no LodReduce instance exists there); guard
+    // anyway so a stray call is a silent no-op rather than a null-deref.
+    if (!use_cuda) { return; }
+    lod_reduce->reduce(stream, positions_dev, count,
+        reducedPositionsDevicePtr(slot), occupiedDevicePtr(slot));
+}
+
+uint32_t LodContext::occupiedFromCuda(uint32_t slot)
+{
+    // Blocking device->host copy: the caller is responsible for having already synchronized (or
+    // otherwise ordered against) the stream that reduceCuda ran on, so the occupied count is final
+    // by the time this reads it.
+    uint32_t occupied = 0;
+    validation::checkCuda(cudaMemcpy(&occupied, occupiedDevicePtr(slot), sizeof(uint32_t), cudaMemcpyDeviceToHost));
+    return std::min(occupied, maxCells());
+}
+
 float LodContext::sphereRadius(float default_size) const
 {
     // cellFill reproduces the old cell-derived radius (LOD_COVERAGE * cellSize / 2) at the reference
@@ -433,6 +482,10 @@ void LodContext::destroy()
         destroyBuffer(device, reduced_pos[s]);
         destroyBuffer(device, indirect_buffer[s]);
     }
+
+    // Free LodReduce's N^3 accumulator (a no-op unique_ptr::reset when the CUDA path was never active).
+    lod_reduce.reset();
+
     grid_n = 0;
 }
 
