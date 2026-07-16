@@ -6,6 +6,7 @@
 //
 // Compare with benchmark_datoviz.cpp which must round-trip GPU -> host -> GPU.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <vector>
@@ -59,6 +60,11 @@ struct HudData {
     int          grid_w, grid_h;
     float        density;
     uint32_t     seed;
+    bool         reduce;        // true when presenting via a resampled display buffer (clipmap)
+    int          disp_w, disp_h;// presented image resolution
+    int          view_ox, view_oy; // top-left cell of the visible window (pan)
+    int          view_vw, view_vh; // visible window size in cells (zoom)
+    float        pack_ms;       // resample (grid -> display buffer) kernel time
 };
 
 struct GPUMemoryMetrics { double free, reserved, total, used; };
@@ -67,6 +73,9 @@ struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics    power;
     GPUMemoryMetrics   memory;
+    // Grid->display downsample time (seconds), mimir's on-GPU analog of datoviz's pack step.
+    // 0 when the grid fits within maxImageDimension2D and is presented zero-copy.
+    float              pack_time = 0.f;
 };
 
 // ---------------------------------------------------------------------------
@@ -93,7 +102,8 @@ static void printAligned(std::initializer_list<std::pair<const char*, std::strin
     fprintf(stderr, "\n");
 }
 
-static void printSystemInfo(CAInput input)
+// disp_n = presented image cell count; ds = downsample factor (1 = grid presented at native res).
+static void printSystemInfo(CAInput input, size_t disp_n, bool reduce, int dw, int dh)
 {
     char gpu_name[256] = "Unknown";
     nvmlDeviceGetName(getNvmlDevice(), gpu_name, sizeof(gpu_name));
@@ -106,9 +116,22 @@ static void printSystemInfo(CAInput input)
     fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
     fprintf(stderr, "Grid: %d x %d  (%.2f M cells)\n", input.ca.width, input.ca.height, N / 1e6);
     fprintf(stderr, "Buffers:\n");
-    fprintf(stderr, "  d_grid[0]  (interop):  %s\n", smb(N).c_str());
-    fprintf(stderr, "  d_grid[1]  (interop):  %s\n", smb(N).c_str());
-    fprintf(stderr, "  Total:                 %s\n", smb(2 * N).c_str());
+    if (reduce)
+    {
+        // Grid too large or misaligned to present directly: full-res sim buffers are plain CUDA, and
+        // two aligned display buffers (dw x dh) are the interop images actually presented/resampled.
+        fprintf(stderr, "  d_grid[0]  (cuda):     %s\n", smb(N).c_str());
+        fprintf(stderr, "  d_grid[1]  (cuda):     %s\n", smb(N).c_str());
+        fprintf(stderr, "  d_disp[0]  (interop):  %s  (%dx%d)\n", smb(disp_n).c_str(), dw, dh);
+        fprintf(stderr, "  d_disp[1]  (interop):  %s  (%dx%d)\n", smb(disp_n).c_str(), dw, dh);
+        fprintf(stderr, "  Total:                 %s\n", smb(2 * N + 2 * disp_n).c_str());
+    }
+    else
+    {
+        fprintf(stderr, "  d_grid[0]  (interop):  %s\n", smb(N).c_str());
+        fprintf(stderr, "  d_grid[1]  (interop):  %s\n", smb(N).c_str());
+        fprintf(stderr, "  Total:                 %s\n", smb(2 * N).c_str());
+    }
 }
 
 void formatResults(CAInput input, BenchmarkResult result)
@@ -123,9 +146,9 @@ void formatResults(CAInput input, BenchmarkResult result)
     auto gpu  = result.power;
     auto nvml = result.memory;
 
-    // pack_time/d2h_time/h2h_time are 0 for mimir (zero-copy, no pack step).
-    // graphics_time = mimir's internal render time.
-    // Column layout matches benchmark_datoviz for direct CSV comparison.
+    // pack_time is the grid->display downsample (0 for grids that fit and are presented zero-copy);
+    // d2h_time/h2h_time are always 0 for mimir (no host round-trip). graphics_time = mimir's
+    // internal render time. Column layout matches benchmark_datoviz for direct CSV comparison.
     printAligned({
         {"mode",          mode},
         {"windowres",     resolution},
@@ -146,7 +169,7 @@ void formatResults(CAInput input, BenchmarkResult result)
         {"nvml_reserved", sf((float)nvml.reserved)},
         {"nvml_total",    sf((float)nvml.total)},
         {"nvml_used",     sf((float)nvml.used)},
-        {"pack_time",     sf(0.f)},
+        {"pack_time",     sf(result.pack_time)},
         {"d2h_time",      sf(0.f)},
         {"h2h_time",      sf(0.f)},
     });
@@ -157,7 +180,7 @@ void formatResults(CAInput input, BenchmarkResult result)
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
         nvml.free, nvml.reserved, nvml.total, nvml.used,
-        0.f, 0.f, 0.f);
+        result.pack_time, 0.f, 0.f);
 }
 
 // ---------------------------------------------------------------------------
@@ -212,28 +235,84 @@ BenchmarkResult runExperiment(CAInput input)
     InstanceHandle instance = nullptr;
     createInstance(opts, &instance);
 
-    // Two ping-pong CA grid buffers (uint8).
-    // In display mode both are interop allocations so Vulkan can read them directly.
-    // In headless mode plain CUDA allocations suffice.
-    uint8_t*    d_grid[2]      = {};
-    AllocHandle grid_alloc[2]  = {};
-    ViewHandle  view[2]        = {};
-    int r = 0, w = 1;
+    // We present the grid as one R8 image. Two device constraints shape how:
+    //   1. maxImageDimension2D (like OpenGL's GL_MAX_TEXTURE_SIZE): a grid larger than this cannot
+    //      be a single image regardless of VRAM.
+    //   2. A LINEAR interop image's row pitch is driver-aligned (128 B on NVIDIA); a width that is
+    //      not a multiple of that alignment shears, because our buffer is tightly packed.
+    // The simulation is a linear buffer with neither constraint, so we keep it full-res and present
+    // through a resampled display buffer whose width is a multiple of the alignment (fully filled,
+    // aspect-preserved). Only when the grid already fits AND its width is aligned do we alias it
+    // directly -- the zero-copy fast path.
+    const FormatDescription r8_fmt{ .kind = FormatKind::UnsignedNormalized, .size = 1, .components = 1 };
+    uint32_t img_cap = maxImageDimension2D(instance);
+    if (img_cap == 0) img_cap = 16384;  // portable floor if no device is selected
+    int align = (int)linearImageRowAlignment(instance, r8_fmt);   // e.g. 128 texels for R8 on NVIDIA
+    if (align < 1) align = 1;
+    const int cap = (int)std::min<uint32_t>(img_cap,
+        std::max(1, std::max(input.win_width, input.win_height)));
 
-    auto h_grid = initGrid(input.ca);
+    auto align_up   = [](int v, int a) { return ((v + a - 1) / a) * a; };
+    auto align_down = [](int v, int a) { return (v / a) * a; };
+
+    const bool fits    = (W <= cap && H <= cap);
+    const bool aligned = (W % align == 0);
+    const bool reduce  = !(fits && aligned);   // alias the grid only when it's safe to
+
+    int DW, DH;
+    if (reduce)
+    {
+        DW = align_up(std::min(W, cap), align);          // multiple of align -> rowPitch == DW, no shear
+        const int dwmax = align_down((int)img_cap, align);
+        if (DW > dwmax) DW = dwmax;
+        DH = (int)((long)DW * H / W);                    // preserve the grid's aspect (rows need no align)
+        DH = std::clamp(DH, 1, (int)img_cap);
+    }
+    else { DW = W; DH = H; }
+    const size_t DN = (size_t)DW * DH;
+
+    // Full-res ping-pong sim buffers (uint8). When reducing, these are plain CUDA (never imaged)
+    // and the presented images are the separate reduced-resolution display buffers below. When the
+    // grid fits, the interop grid buffers ARE the presented images (zero-copy fast path).
+    uint8_t*    d_grid[2]      = {};
+    // Display buffers actually bound to the Image views: reduced-res interop buffers when reducing,
+    // otherwise aliased onto the interop grid buffers.
+    uint8_t*    d_disp[2]      = {};
+    AllocHandle disp_alloc[2]  = {};
+    ViewHandle  view[2]        = {};
+    int r = 0, w = 1;    // sim ping-pong
+    int dr = 0, dw = 1;  // display ping-pong (kept in lockstep with r/w)
 
     if (input.display)
     {
-        for (int k = 0; k < 2; ++k)
-            allocLinear(instance, (void**)&d_grid[k], N, &grid_alloc[k]);
+        if (reduce)
+        {
+            checkCuda(cudaMalloc(&d_grid[0], N));
+            checkCuda(cudaMalloc(&d_grid[1], N));
+            for (int k = 0; k < 2; ++k)
+                allocLinear(instance, (void**)&d_disp[k], DN, &disp_alloc[k]);
+        }
+        else
+        {
+            for (int k = 0; k < 2; ++k)
+                allocLinear(instance, (void**)&d_grid[k], N, &disp_alloc[k]);
+            d_disp[0] = d_grid[0];
+            d_disp[1] = d_grid[1];
+        }
 
-        // Load initial state into buffer 0.
-        checkCuda(cudaMemcpy(d_grid[0], h_grid.data(), N, cudaMemcpyHostToDevice));
+        // Generate the initial state directly on the GPU (no multi-GB host RNG fill / H2D copy).
+        launchInitGrid(d_grid[0], W, H, input.ca.seed, input.ca.density);
         checkCuda(cudaDeviceSynchronize());
 
-        // R8 UNORM format: cells store 0 (dead) or 255 (alive).
-        FormatDescription r8_fmt{ .kind = FormatKind::UnsignedNormalized, .size = 1, .components = 1 };
+        // Seed the first display buffer so frame 0 already shows the initial state (whole grid).
+        if (reduce)
+        {
+            launchResample(d_grid[0], d_disp[0], W, H, DW, DH, 0, 0, W, H);
+            checkCuda(cudaDeviceSynchronize());
+        }
 
+        // Views are bound to the display buffers at display resolution (DW x DH == W x H when
+        // not reducing), so this path is identical to the original when the grid fits.
         for (int k = 0; k < 2; ++k)
         {
             ViewDescription desc{
@@ -243,13 +322,13 @@ BenchmarkResult runExperiment(CAInput input)
                 .attributes = {
                     { AttributeType::Position, makeImageFrame(instance) },
                     { AttributeType::Color, AttributeDescription{
-                        .source = grid_alloc[k],
-                        .size   = (unsigned int)N,
+                        .source = disp_alloc[k],
+                        .size   = (unsigned int)DN,
                         .format = r8_fmt,
                     }}
                 },
-                .layout  = Layout::make(W, H),
-                .visible = (k == r),  // only view[r] starts visible
+                .layout  = Layout::make(DW, DH),
+                .visible = (k == dr),  // only view[dr] starts visible
             };
             createView(instance, &desc, &view[k]);
         }
@@ -258,19 +337,35 @@ BenchmarkResult runExperiment(CAInput input)
     {
         checkCuda(cudaMalloc(&d_grid[0], N));
         checkCuda(cudaMalloc(&d_grid[1], N));
-        checkCuda(cudaMemcpy(d_grid[0], h_grid.data(), N, cudaMemcpyHostToDevice));
+        launchInitGrid(d_grid[0], W, H, input.ca.seed, input.ca.density);
     }
 
     // Ctrl+W closes the window; set by the GUI callback, polled by the main loop.
     std::atomic<bool> quit_flag{false};
 
+    // Clipmap view state for panning/zooming a grid too large to present at native resolution.
+    // Shared between the ImGui callback (writes from input) and the loop (reads to place the sample
+    // window). (ox,oy) = top-left cell; vw = visible width in cells (vh derived to match the display
+    // aspect). Smaller vw = deeper zoom (down to a few cells, magnified); vw == W shows the grid.
+    struct ClipView { std::atomic<int> ox{0}, oy{0}, vw{1}; };
+    ClipView clip;
+    clip.vw.store(W);
+    const int VW_MIN = std::min(W, 8);  // deepest zoom: as few as 8 cells across the display
+
     // HUD data shared between the simulation loop and the ImGui callback.
     HudData hud{};
-    hud.cells   = (unsigned int)N;
-    hud.grid_w  = W;
-    hud.grid_h  = H;
-    hud.density = input.ca.density;
-    hud.seed    = input.ca.seed;
+    hud.cells     = (unsigned int)N;
+    hud.grid_w    = W;
+    hud.grid_h    = H;
+    hud.density   = input.ca.density;
+    hud.seed      = input.ca.seed;
+    hud.reduce    = reduce;
+    hud.disp_w    = DW;
+    hud.disp_h    = DH;
+    hud.view_ox   = 0;
+    hud.view_oy   = 0;
+    hud.view_vw   = W;
+    hud.view_vh   = H;
 
     if (input.display)
     {
@@ -278,7 +373,8 @@ BenchmarkResult runExperiment(CAInput input)
         // ready now: external + cuda_ctx are measured (checkpoints), buf + render + vulkan computed.
         hud.vram_external_mb = (float)vram_external;
         hud.cuda_ctx_mb      = (float)cuda_ctx_mb;
-        hud.buf_mb    = (float)((2 * N) / (1024.0 * 1024.0));  // 2 × uint8 interop grid
+        // 2 x full-res uint8 sim grid, plus (when reducing) 2 x reduced-res uint8 display buffers.
+        hud.buf_mb    = (float)((2 * N + (reduce ? 2 * DN : 0)) / (1024.0 * 1024.0));
         hud.render_mb = 0.f;  // image view samples the interop grid directly; no extra geometry
         // Vulkan render targets mimir's swapchain allocates, no MSAA: 3 swapchain (B8G8R8A8, 4 B)
         // + 1 depth (D32_SFLOAT, 4 B), each win_width*win_height.
@@ -291,10 +387,54 @@ BenchmarkResult runExperiment(CAInput input)
         snprintf(hud.gpu_device, sizeof(hud.gpu_device), "%d (CC %d.%d)",
             device_id, prop.major, prop.minor);
 
-        setGuiCallback(instance, [&hud, &quit_flag]() {
+        setGuiCallback(instance, [&hud, &quit_flag, &clip, W, H, DW, DH, reduce, VW_MIN]() {
             auto& io = ImGui::GetIO();
             if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_W, /*repeat=*/false))
                 quit_flag.store(true);
+
+            // Clipmap navigation (only meaningful when the grid is larger than the display image):
+            // mouse wheel zooms, arrow keys / WASD pan, R resets to the whole grid.
+            if (reduce)
+            {
+                // Visible height derived from width to keep the display's aspect ratio.
+                auto vh_of = [&](int vw) { int v = (int)((long)vw * DH / DW); return v < 1 ? 1 : v; };
+
+                if (io.MouseWheel != 0.f && !io.WantCaptureMouse)
+                {
+                    int cvw = clip.vw.load();
+                    int nvw = io.MouseWheel > 0.f ? cvw - std::max(1, cvw / 8)   // zoom in (shrink window)
+                                                  : cvw + std::max(1, cvw / 8);  // zoom out (grow window)
+                    nvw = std::clamp(nvw, VW_MIN, W);
+                    if (nvw != cvw)
+                    {
+                        // Keep the view center fixed across the zoom.
+                        int cvh = vh_of(cvw), nvh = vh_of(nvw);
+                        long cx = clip.ox.load() + (long)cvw / 2, cy = clip.oy.load() + (long)cvh / 2;
+                        clip.vw.store(nvw);
+                        clip.ox.store((int)std::clamp(cx - nvw / 2, 0L, (long)std::max(0, W - nvw)));
+                        clip.oy.store((int)std::clamp(cy - nvh / 2, 0L, (long)std::max(0, H - nvh)));
+                    }
+                }
+                if (!io.WantCaptureKeyboard && !io.KeyCtrl)
+                {
+                    if (ImGui::IsKeyPressed(ImGuiKey_R, /*repeat=*/false))
+                    {
+                        clip.vw.store(W); clip.ox.store(0); clip.oy.store(0);
+                    }
+                    else
+                    {
+                        int vw = clip.vw.load(), vh = vh_of(vw);
+                        int stepx = std::max(1, vw / 20), stepy = std::max(1, vh / 20);
+                        int nox = clip.ox.load(), noy = clip.oy.load();
+                        if (ImGui::IsKeyDown(ImGuiKey_RightArrow) || ImGui::IsKeyDown(ImGuiKey_D)) nox += stepx;
+                        if (ImGui::IsKeyDown(ImGuiKey_LeftArrow)  || ImGui::IsKeyDown(ImGuiKey_A)) nox -= stepx;
+                        if (ImGui::IsKeyDown(ImGuiKey_DownArrow)  || ImGui::IsKeyDown(ImGuiKey_S)) noy += stepy;
+                        if (ImGui::IsKeyDown(ImGuiKey_UpArrow)    || ImGui::IsKeyDown(ImGuiKey_W)) noy -= stepy;
+                        clip.ox.store(std::clamp(nox, 0, std::max(0, W - vw)));
+                        clip.oy.store(std::clamp(noy, 0, std::max(0, H - vh)));
+                    }
+                }
+            }
 
             ImVec2 disp = io.DisplaySize;
             ImGui::SetNextWindowPos(ImVec2(disp.x - 10.f, 10.f),
@@ -316,6 +456,19 @@ BenchmarkResult runExperiment(CAInput input)
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Grid");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%d x %d", hud.grid_w, hud.grid_h);
+                if (hud.reduce) {
+                    // Grid exceeds maxImageDimension2D: presented via a resampled clipmap window.
+                    float cpt = (float)hud.view_vw / hud.disp_w;  // cells per display texel
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Display");
+                    ImGui::TableSetColumnIndex(1);
+                    if (cpt >= 1.f) ImGui::Text("%d x %d  (1/%.0f)", hud.disp_w, hud.disp_h, cpt);
+                    else            ImGui::Text("%d x %d  (%.0fx zoom)", hud.disp_w, hud.disp_h, 1.f / cpt);
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("View");
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("(%d, %d) %dx%d",
+                        hud.view_ox, hud.view_oy, hud.view_vw, hud.view_vh);
+                }
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Seed");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.seed);
@@ -366,8 +519,12 @@ BenchmarkResult runExperiment(CAInput input)
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Transfer");
                 ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
                 ImGui::TableNextRow();
+                // "Pack" is the grid->display resample (mimir's on-GPU analog of datoviz's pack
+                // step). N/A when the grid fits and is presented zero-copy.
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Pack");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
+                ImGui::TableSetColumnIndex(1);
+                if (hud.reduce) ImGui::Text("%.2f ms", hud.pack_ms);
+                else            ImGui::TextUnformatted("N/A");
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    D2H");
                 ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
@@ -397,14 +554,24 @@ BenchmarkResult runExperiment(CAInput input)
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
                 ImGui::EndTable();
             }
+            if (hud.reduce) {
+                ImGui::Separator();
+                ImGui::TextDisabled("Wheel: zoom   Arrows/WASD: pan   R: reset view");
+            }
             ImGui::End();
         });
     }
 
-    // CUDA timing events.
+    // CUDA timing events. pstart/pstop bracket the downsample ("pack") kernel when reducing.
     cudaEvent_t cstart = nullptr, cstop = nullptr, cstop_prev = nullptr;
+    cudaEvent_t pstart = nullptr, pstop = nullptr;
     checkCuda(cudaEventCreate(&cstart));
     checkCuda(cudaEventCreate(&cstop));
+    if (reduce && input.display)
+    {
+        checkCuda(cudaEventCreate(&pstart));
+        checkCuda(cudaEventCreate(&pstop));
+    }
     if (input.enable_interop_sync && input.display)
     {
         checkCuda(cudaEventCreate(&cstop_prev));
@@ -413,7 +580,8 @@ BenchmarkResult runExperiment(CAInput input)
     }
 
     GPUPowerBegin("gpu", 100);
-    printSystemInfo(input);
+    // Headless never allocates display buffers, so report the plain 2xN grid there (ds = 1).
+    printSystemInfo(input, DN, input.display && reduce, DW, DH);
 
     if (input.display)
     {
@@ -433,6 +601,12 @@ BenchmarkResult runExperiment(CAInput input)
     auto frame_start = Clock::now();
     auto loop_start  = Clock::now();
     size_t frame_count = 0;
+    // Accumulate the benchmark's own per-frame kernel time (ms). The engine's compute_monitor only
+    // ticks inside prepareViews/updateViews when enable_interop_sync is on, so in async mode
+    // (--interop-sync 0) getMetrics().times.compute would be 0. Feed this measured total (seconds)
+    // into the returned metrics below, matching benchmark_datoviz's compute semantics.
+    double total_compute_ms = 0.0;
+    double total_pack_ms    = 0.0;
 
     for (int i = 0; i < input.iter_count && (!input.display || (isRunning(instance) && !quit_flag)); ++i)
     {
@@ -442,25 +616,51 @@ BenchmarkResult runExperiment(CAInput input)
         launchStepGoL(d_grid[r], d_grid[w], W, H);
         if (input.display) checkCuda(cudaEventRecord(cstop));
 
+        // When the grid is larger than a single image can hold, downsample the just-written state
+        // into the display buffer. Same stream as the step, so it is ordered after it. When not
+        // reducing, d_disp aliases the grid buffers and no pack pass runs (zero-copy path).
+        int vox = 0, voy = 0, vvw = W, vvh = H;  // current clipmap view, read from the GUI thread
+        if (input.display && reduce)
+        {
+            vox = clip.ox.load(); voy = clip.oy.load();
+            vvw = clip.vw.load(); vvh = std::max(1, (int)((long)vvw * DH / DW));
+            checkCuda(cudaEventRecord(pstart));
+            launchResample(d_grid[w], d_disp[dw], W, H, DW, DH, vox, voy, vvw, vvh);
+            checkCuda(cudaEventRecord(pstop));
+        }
+
         if (input.display)
         {
-            // Switch visibility: hide the source buffer, show the just-written one.
-            toggleVisibility(view[r]);
-            toggleVisibility(view[w]);
+            // Switch visibility: hide the source display buffer, show the just-written one.
+            toggleVisibility(view[dr]);
+            toggleVisibility(view[dw]);
         }
 
         std::swap(r, w);
+        if (input.display) std::swap(dr, dw);
 
         if (input.display)
         {
             updateViews(instance);
 
-            checkCuda(cudaEventSynchronize(cstop));
+            // Sync on the last GPU event this frame (pack when reducing, else the step) so both
+            // timings below are ready.
+            checkCuda(cudaEventSynchronize(reduce ? pstop : cstop));
             float kernel_ms = 0.f;
             checkCuda(cudaEventElapsedTime(&kernel_ms, cstart, cstop));
+            total_compute_ms += kernel_ms;
 
-            // Render time: from end of previous frame's pack kernel to start of this
-            // frame's compute — i.e. the time Vulkan spent rendering frame (i-1).
+            float pack_ms = 0.f;
+            if (reduce)
+            {
+                checkCuda(cudaEventElapsedTime(&pack_ms, pstart, pstop));
+                total_pack_ms += pack_ms;
+            }
+
+            // Render time: from end of previous frame's compute region to start of this frame's
+            // compute — i.e. the time Vulkan spent rendering frame (i-1). When reducing, this
+            // interval also contains the downsample pass, so the on-screen Render figure is a
+            // slight over-estimate; the CSV graphics_time (from the engine) is unaffected.
             if (input.enable_interop_sync && i > 0)
             {
                 float render_ms = 0.f;
@@ -475,6 +675,11 @@ BenchmarkResult runExperiment(CAInput input)
             float frame_ms = ms(now - frame_start).count();
             float new_fps  = frame_ms > 0.f ? 1000.f / frame_ms : 0.f;
             hud.frame      = i;
+            hud.view_ox    = vox;  // reflect live zoom/pan in the HUD
+            hud.view_oy    = voy;
+            hud.view_vw    = vvw;
+            hud.view_vh    = vvh;
+            hud.pack_ms    = (i == 0) ? pack_ms : 0.9f * hud.pack_ms + 0.1f * pack_ms;
             hud.compute_ms = (i == 0) ? kernel_ms : 0.9f * hud.compute_ms + 0.1f * kernel_ms;
             hud.fps        = (i == 0) ? new_fps   : 0.9f * hud.fps        + 0.1f * new_fps;
             // Render sub-costs from the engine (GPU frame latency + CPU phases), same EMA
@@ -521,12 +726,20 @@ BenchmarkResult runExperiment(CAInput input)
     if (cstart)     cudaEventDestroy(cstart);
     if (cstop)      cudaEventDestroy(cstop);
     if (cstop_prev) cudaEventDestroy(cstop_prev);
+    if (pstart)     cudaEventDestroy(pstart);
+    if (pstop)      cudaEventDestroy(pstop);
 
     if (input.display)
     {
         exit(instance);
         destroyInstance(instance);
-        // grid_alloc[0/1] are interop allocations owned by mimir; freed via destroyInstance.
+        // Display buffers (disp_alloc) are interop allocations owned by mimir; freed via
+        // destroyInstance. When reducing, the full-res sim grids are plain CUDA and are ours to free.
+        if (reduce)
+        {
+            checkCuda(cudaFree(d_grid[0]));
+            checkCuda(cudaFree(d_grid[1]));
+        }
     }
     else
     {
@@ -536,7 +749,13 @@ BenchmarkResult runExperiment(CAInput input)
     }
 
     metrics.frame_rate = frame_rate;
-    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+    // Override compute with the benchmark's measured total (seconds); the engine only populates
+    // times.compute in interop-sync mode, so this makes async runs report correctly too.
+    if (input.display) metrics.times.compute = (float)(total_compute_ms / 1000.0);
+    return BenchmarkResult{
+        .perf = metrics, .power = gpu_power, .memory = nvml,
+        .pack_time = (float)(total_pack_ms / 1000.0),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -565,9 +784,14 @@ static void usage(const char* prog)
         "Keys: F1 toggles the HUD (and every other GUI window) for clean screenshots;\n"
         "      Ctrl+G shows the engine scene-parameters panel; Ctrl+W/Ctrl+Q quit.\n"
         "\n"
+        "Large grids: a grid larger than the device's max 2D image size cannot be presented as one\n"
+        "      image, so it is shown through a downsampled clipmap window. Navigate it with the\n"
+        "      mouse wheel (zoom), arrow keys (pan) and R (reset to whole grid).\n"
+        "\n"
         "Frame rate is always uncapped (no target_fps limiter).\n"
         "Output: one CSV row to stdout.\n"
-        "        Column layout matches benchmark_datoviz; pack/d2h/h2h columns are 0.\n"
+        "        Column layout matches benchmark_datoviz; d2h/h2h columns are 0. pack_time is the\n"
+        "        grid->display downsample when the grid is too large to present natively, else 0.\n"
         "        graphics_time = mimir internal render time (zero-copy, no upload).\n",
         prog);
 }

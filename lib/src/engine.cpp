@@ -1158,6 +1158,25 @@ View *MimirInstance::createView(ViewDescription *desc)
             auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
             vkBindImageMemory(device, teximg, getMemoryVulkan(attr.source), 0);
 
+            // The interop buffer is aliased directly to this image. A LINEAR image's row pitch is
+            // driver-aligned; if it exceeds the buffer's tight row stride the sampled result shears.
+            // Warn loudly -- silent visual corruption is worse than a log line.
+            if (params.tiling == VK_IMAGE_TILING_LINEAR)
+            {
+                VkImageSubresource sub{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+                VkSubresourceLayout lay{};
+                vkGetImageSubresourceLayout(device, teximg, &sub, &lay);
+                VkDeviceSize tight = (VkDeviceSize)params.extent.width * attr.format.getSize();
+                if (lay.rowPitch != tight)
+                {
+                    spdlog::warn("Image view width {} shears: device LINEAR row pitch is {} B but the "
+                        "interop buffer is tightly packed at {} B/row. Pad the presented width to a "
+                        "multiple of {} texels (see linearImageRowAlignment).",
+                        params.extent.width, lay.rowPitch, tight,
+                        lay.rowPitch / std::max<VkDeviceSize>(1, attr.format.getSize()));
+                }
+            }
+
             Texture tex{
                 .image    = teximg,
                 .img_view = createImageView(device, tex.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
