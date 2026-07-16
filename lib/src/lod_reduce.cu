@@ -24,6 +24,7 @@
 
 #include <cuda_runtime.h>
 
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 
@@ -181,9 +182,13 @@ __global__ void emitKernel(const uint32_t* counts, const unsigned long long* sum
         }
 
         uint32_t slot = atomicAdd(occupied, 1u);
-        reduced_pos[slot * 3 + 0] = rep.x;
-        reduced_pos[slot * 3 + 1] = rep.y;
-        reduced_pos[slot * 3 + 2] = rep.z;
+        // 64-bit base: slot can approach N^3 (< 2^32), so slot*3 must be computed in 64 bits or it
+        // wraps past ~1.43 B occupied cells and scatters representatives to garbage low offsets. The
+        // slang emit widens the same way (uint64_t(slot) * 12ull). Mirrors the AABB-path 64-bit fix.
+        size_t base = static_cast<size_t>(slot) * 3;
+        reduced_pos[base + 0] = rep.x;
+        reduced_pos[base + 1] = rep.y;
+        reduced_pos[base + 2] = rep.z;
     }
 }
 
@@ -222,6 +227,9 @@ struct LodReduce::Impl
     {
         const float* positions = static_cast<const float*>(positions_dev);
         float* reduced_pos = static_cast<float*>(reduced_pos_dev);
+
+        // positions_dev is sized for max_particles; a larger count would over-read it in scatterKernel.
+        assert(count <= max_particles && "LodReduce::reduce count exceeds the configured max_particles");
 
         checkCuda(cudaMemsetAsync(occupied_dev, 0, sizeof(uint32_t), stream),
                   "memsetAsync occupied");

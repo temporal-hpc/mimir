@@ -227,10 +227,11 @@ void MimirInstance::prepare()
                     deletors.context.add([this]{ lod_context.destroy(); });
                     // On the CUDA reduction path, hand the path tracer the interop stream + the CUDA
                     // device pointer aliasing the SAME positions its Vulkan AABB writer reads by BDA,
-                    // so recordLodUpdate can run the native reduction. The interop Barrier (and thus
-                    // cuda_stream) is created in createSyncObjects() during initVulkan(), which runs at
-                    // make()-time BEFORE prepare() reaches this bind block, so interop.cuda_stream is
-                    // valid here; both the stream and the mapped pointer are stable once set.
+                    // so recordLodUpdate can run the native reduction. interop.cuda_stream is the CUDA
+                    // default stream (0) -- Barrier::make sets it to 0, it is never a created stream --
+                    // so it is valid immediately and stable; the sim, the interop semaphore ops, and the
+                    // reduction all serialize on stream 0, which is what makes the blocking host-sync
+                    // reduction model correct here. The mapped positions pointer is likewise stable.
                     if (lod_context.usesCuda())
                     {
                         void* pos_cuda = getDevicePtrCuda(
