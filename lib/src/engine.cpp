@@ -219,7 +219,8 @@ void MimirInstance::prepare()
                 if (options.pt_lod_cells > 0)
                 {
                     lod_context.init(device, physical_device.memory.memoryProperties,
-                        supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
+                        supportsInt64Atomics(physical_device.handle), options.lod_centroid,
+                        options.pt_lod_cells,
                         // LodContext::init takes the 64-bit count directly (Task 5).
                         view->element_count);
                     raytracing.lod = &lod_context;
@@ -283,8 +284,8 @@ void MimirInstance::prepare()
                 // the first ~4.29B particles.
                 lod_raster_count    = particle_count;
                 lod_context.init(device, physical_device.memory.memoryProperties,
-                    supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
-                    particle_count);
+                    supportsInt64Atomics(physical_device.handle), options.lod_centroid,
+                    options.pt_lod_cells, particle_count);
                 deletors.context.add([this]{ lod_context.destroy(); });
 
                 // One-time reduction + occupied-count log at setup (mirrors the path tracer's

@@ -148,6 +148,11 @@ static void usage(const char *prog)
         "                     larger N needs more memory. Trades detail for speed. Under lit\n"
         "                     modes, --size scales the representative sphere's cell-fill radius;\n"
         "                     under none, --size is unaffected (still the point's pixel size).\n"
+        "  --lod-placement P  Where each cell's representative sits: centroid (default) = the mass\n"
+        "                     centroid of the cell's particles; cell = the cell's geometric center.\n"
+        "                     cell drops 3 int64 atomics/particle in the reduction, so it is much\n"
+        "                     faster at huge N (the reduction is atomic-bound there) and needs 8x\n"
+        "                     less accumulator VRAM, at slightly coarser positions. No-op without --lod.\n"
         "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1]    (default: light grey)\n"
         "  --background C     Window/sky color: grey 'G' or 'R,G,B' in [0,1]  (default: 0.1,0.1,0.12)\n"
         "  --seed N           RNG seed for positions/walk                     (default: 12345)\n"
@@ -254,6 +259,7 @@ int main(int argc, char *argv[])
     bool subdiv_set         = false;
     bool pt_denoise         = false;
     unsigned int lod_cells   = 0;
+    bool lod_centroid       = true;   // LOD placement: centroid (default) vs cell-center
     bool fly                = false;
     int bitrate_kbps        = 8000;
     int fps_cap             = 0;
@@ -286,6 +292,7 @@ int main(int argc, char *argv[])
             else if (a == "--spp")         pt_spp = (unsigned int)std::stoul(v);
             else if (a == "--bounces")     pt_bounces = (unsigned int)std::stoul(v);
             else if (a == "--lod")         lod_cells = (unsigned int)std::stoul(v);
+            else if (a == "--lod-placement") lod_centroid = (v != "cell" && v != "cell-center");
             else if (a == "--subdiv")    { pt_subdiv = (unsigned int)std::stoul(v); subdiv_set = true; }
             else if (a == "--bitrate")     bitrate_kbps = std::stoi(v);
             else if (a == "--benchmark")   bench_csv = v;
@@ -379,11 +386,11 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Accumulator is N^3 * bytes_per_cell (32 for centroid, 4 for cell-center). Reject an --lod whose
-    // accumulator would not fit the device memory that is ACTUALLY free at this moment (vram_free0,
-    // queried live above via cudaMemGetInfo -- no fixed budget fraction). Conservatively assume
-    // centroid placement (32 B/cell) since that's the default on capable GPUs.
-    const unsigned long long bytes_per_cell = 32ull; // conservative (centroid)
+    // Accumulator is N^3 * bytes_per_cell. Reject an --lod whose accumulator would not fit the device
+    // memory ACTUALLY free at this moment (vram_free0, queried live above via cudaMemGetInfo -- no
+    // fixed budget fraction). Centroid placement keeps a per-cell count (u32) + a 3*u64 position sum
+    // (~32 B/cell); cell-center keeps only the count (4 B/cell), so it fits a much larger N.
+    const unsigned long long bytes_per_cell = lod_centroid ? 32ull : 4ull;
     const unsigned long long max_cells = (unsigned long long)vram_free0 / bytes_per_cell;
     // Largest N whose accumulator fits the currently-free VRAM, bounded by the uint32 cell-index limit.
     // The LOD shaders (pathtrace_lod_scatter.slang, pathtrace_lod_emit.slang) compute the linear cell
@@ -421,6 +428,7 @@ int main(int argc, char *argv[])
     options.pt_subdivisions      = pt_subdiv;
     options.pt_denoise           = pt_denoise;
     options.pt_lod_cells         = lod_cells;
+    options.lod_centroid         = lod_centroid;
     // Match datoviz/particles-kmodal-3d framing of the [-1,1]^3 domain (45 deg vertical FOV).
     options.camera_fov        = 45.f;
     // --fly: run the first-person camera. serveRemote seeds the fly pose and interprets the

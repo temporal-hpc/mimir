@@ -53,12 +53,13 @@ public:
 
     // Build the LOD stage: create the scatter/emit compute pipelines and allocate the accumulator,
     // counter, and reduced-position buffers for an N^3 grid over `particle_count` particles.
-    // `int64_atomics` gates centroid placement (else cell-center fallback). Call-once: there is no
-    // idempotency guard, so a second call would leak the pipelines/buffers allocated by the first
-    // (callers already guarantee init() runs at most once per instance). active() is true afterwards
-    // (grid_n = N > 0).
+    // Centroid placement is used only when BOTH the hardware has int64 atomics (`int64_atomics`)
+    // AND the caller requests it (`want_centroid`); otherwise it falls back to cell-center placement
+    // (no sum buffer, no int64 atomics in the scatter). Call-once: there is no idempotency guard, so
+    // a second call would leak the pipelines/buffers allocated by the first (callers already
+    // guarantee init() runs at most once per instance). active() is true afterwards (grid_n = N > 0).
     void init(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props,
-        bool int64_atomics, uint32_t grid_n, uint64_t particle_count);
+        bool int64_atomics, bool want_centroid, uint32_t grid_n, uint64_t particle_count);
 
     // Record the reduction for this frame INTO `cmd` (clear -> scatter -> emit), reading the live
     // positions at `positions_addr` (tightly-packed float3, BDA). Writes the reduced positions + the

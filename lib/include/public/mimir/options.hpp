@@ -178,6 +178,16 @@ struct ViewerOptions
     // N <= 1625 (cells are indexed in uint32, so N^3 must stay < 2^32).
     unsigned int pt_lod_cells = 0;
 
+    // LOD representative placement (only meaningful when pt_lod_cells > 0):
+    //   true  (default) = each cell's representative sits at the mass CENTROID of the particles in
+    //                     it. Needs int64 atomics (auto-falls back to cell-center without them);
+    //                     the reduction scatter does 3 extra int64 position-sum atomics per particle.
+    //   false           = the cell's geometric CENTER. Skips those 3 int64 atomics per particle, so
+    //                     the reduction is markedly faster at huge particle counts (the atomics are
+    //                     the bottleneck there), at the cost of slightly coarser representative
+    //                     positions -- negligible at fine grids where cells are small.
+    bool lod_centroid = true;
+
     // Vertical field of view of the perspective camera, in degrees. Datoviz-comparable
     // samples set 45 to match datoviz's fixed GLM_PI_4 perspective, so both libraries
     // frame the same domain identically.

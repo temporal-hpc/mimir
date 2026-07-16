@@ -102,7 +102,7 @@ struct LodIndirectPush
 } // namespace
 
 void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
-    bool int64_atomics, uint32_t grid, uint64_t particle_count)
+    bool int64_atomics, bool want_centroid, uint32_t grid, uint64_t particle_count)
 {
     device    = dev;
     mem_props = mp;
@@ -111,9 +111,10 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     const uint64_t num_cells = uint64_t(grid) * grid * grid;
     max_cells = static_cast<uint32_t>(std::min<uint64_t>(num_cells, particle_count));
 
-    // Centroid placement needs int64 fixed-point atomics through a BDA pointer; when unavailable,
-    // fall back to cell-center placement (no sum buffer).
-    centroid_active = int64_atomics;
+    // Centroid placement needs int64 fixed-point atomics through a BDA pointer AND the caller opting
+    // in; when either is missing, fall back to cell-center placement (no sum buffer, count-only
+    // scatter -- markedly cheaper at huge particle counts since it drops the 3 int64 atomics/particle).
+    centroid_active = int64_atomics && want_centroid;
 
     // ---- Pipelines (scatter is descriptor-free; emit keeps a one-binding set for the counter) ----
     {
@@ -223,8 +224,10 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
         vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
+    const char* placement = centroid_active ? "centroid"
+        : (want_centroid ? "cell-center (int64 atomics unavailable)" : "cell-center (selected)");
     spdlog::info("LOD: {}^3 grid, up to {} occupied cells (from {} particles), placement: {}",
-        grid, max_cells, particle_count, centroid_active ? "centroid" : "cell-center (int64 atomics unavailable)");
+        grid, max_cells, particle_count, placement);
 }
 
 void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr,
