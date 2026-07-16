@@ -670,8 +670,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 {
                     case remote::ControlKind::CameraRotate:
                         // Fly: a mouse drag turns the gaze; trackball: it orbits the scene.
+                        // Pitch is -ev.b so drag-up tilts the scene's top toward the viewer
+                        // (matches drag direction); yaw stays -ev.a.
                         if (fly) { flyLook(ev.a, ev.b); }
-                        else { camera.rotate(glm::vec3(ev.b * speed, -ev.a * speed, 0.f)); }
+                        else { camera.rotate(glm::vec3(-ev.b * speed, -ev.a * speed, 0.f)); }
                         break;
                     case remote::ControlKind::CameraLook:
                         // Fly: mouse-look about the eye (setFlyLook). Trackball: an in-place gaze
