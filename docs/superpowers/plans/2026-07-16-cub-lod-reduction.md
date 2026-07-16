@@ -4,7 +4,7 @@
 Edition: parity holds (CUDA vs `MIMIR_LOD_NO_CUDA=1` Vulkan fallback agree on occupied-cell counts,
 including the `--lod 32` / 2^20-particle = 1472 invariant), both render paths (PT and raster) surface
 a `lod X ms` telemetry split, and the CUDA reduction measures single-digit-to-tens-of-ms at 300M
-particles / `--lod 256` -- roughly 4-6x faster than the Vulkan fallback (see Task 6's report for the
+particles / `--lod 256` -- roughly 3.8-6x faster than the Vulkan fallback (see Task 6's report for the
 full before/after numbers). See `.superpowers/sdd/task-6-report.md` for the final verification run.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to
