@@ -185,7 +185,7 @@ install(
 # Standalone custom-CUDA LOD reduction parity test (Task 1 of the LOD custom-CUDA rewrite; see
 # .superpowers/sdd/task-1-brief.md). Build/run explicitly with
 # `cmake --build build --target lod_reduce_test && ./build/lod_reduce_test`.
-add_executable(lod_reduce_test tests/lod_reduce_test.cu src/lod_reduce.cu)
+add_executable(lod_reduce_test EXCLUDE_FROM_ALL tests/lod_reduce_test.cu src/lod_reduce.cu)
 target_include_directories(lod_reduce_test PRIVATE include/private include/public)
 target_link_libraries(lod_reduce_test PRIVATE CUDA::cudart)
 set_target_properties(lod_reduce_test PROPERTIES CUDA_STANDARD 20 CUDA_ARCHITECTURES native)
