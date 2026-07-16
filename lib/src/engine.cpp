@@ -870,7 +870,9 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 
-    VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    // TRANSFER_SRC lets an interop Image view use this buffer as the source of a per-frame
+    // buffer->image copy when it cannot be aliased directly (row-pitch mismatch); harmless otherwise.
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     // Path tracing reads the interop positions by buffer-device-address (in the AABB writer), and the
     // shared LOD reduction (any light model) reads them by BDA in its scatter pass, so the buffer needs
     // the SHADER_DEVICE_ADDRESS usage and its memory the DEVICE_ADDRESS alloc flag. bufferDeviceAddress
@@ -1142,48 +1144,75 @@ View *MimirInstance::createView(ViewDescription *desc)
         spdlog::trace("Processing {} attribute", getAttributeType(type));
         if (type == AttributeType::Color && desc->type == ViewType::Image)
         {
-            ImageParams params{
-                .type   = getImageType(desc->layout),
-                .format = getVulkanFormat(attr.format),
-                .extent = getVulkanExtent(desc->layout),
-                .tiling = getImageTiling(attr.source),
-                .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                .levels = 1,
-            };
-            VkExternalMemoryImageCreateInfo extmem_info{
-                .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-                .pNext       = nullptr,
-                .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-            };
-            auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
-            vkBindImageMemory(device, teximg, getMemoryVulkan(attr.source), 0);
+            const VkImageType  itype = getImageType(desc->layout);
+            const VkFormat     vkfmt = getVulkanFormat(attr.format);
+            const VkExtent3D   extent = getVulkanExtent(desc->layout);
+            const VkDeviceSize tight  = (VkDeviceSize)extent.width * attr.format.getSize();
+            const bool src_linear = (getImageTiling(attr.source) == VK_IMAGE_TILING_LINEAR);
 
-            // The interop buffer is aliased directly to this image. A LINEAR image's row pitch is
-            // driver-aligned; if it exceeds the buffer's tight row stride the sampled result shears.
-            // Warn loudly -- silent visual corruption is worse than a log line.
-            if (params.tiling == VK_IMAGE_TILING_LINEAR)
+            Texture tex{};
+            tex.format = vkfmt;
+            tex.extent = extent;
+
+            // Prefer aliasing the interop buffer directly to the sampled image (zero-copy). For a
+            // LINEAR-tiled source this is only valid when the driver's row pitch equals the buffer's
+            // tight packing; a wider pitch would shear. When it would, we fall back to a device-local
+            // image refreshed from the shared buffer by a per-frame vkCmdCopyBufferToImage -- still no
+            // host round-trip, correct for any width. OPTIMAL sources (cudaArray textures) always alias.
+            bool can_alias = true;
+            if (src_linear)
             {
+                ImageParams lp{ .type = itype, .format = vkfmt, .extent = extent,
+                    .tiling = VK_IMAGE_TILING_LINEAR,
+                    .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, .levels = 1 };
+                VkExternalMemoryImageCreateInfo ext{
+                    .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+                    .pNext = nullptr, .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT };
+                VkImage lin = createImage(device, physical_device.handle, lp, &ext);
                 VkImageSubresource sub{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
                 VkSubresourceLayout lay{};
-                vkGetImageSubresourceLayout(device, teximg, &sub, &lay);
-                VkDeviceSize tight = (VkDeviceSize)params.extent.width * attr.format.getSize();
-                if (lay.rowPitch != tight)
+                vkGetImageSubresourceLayout(device, lin, &sub, &lay);
+                can_alias = (lay.rowPitch == tight);
+                if (can_alias)
                 {
-                    spdlog::warn("Image view width {} shears: device LINEAR row pitch is {} B but the "
-                        "interop buffer is tightly packed at {} B/row. Pad the presented width to a "
-                        "multiple of {} texels (see linearImageRowAlignment).",
-                        params.extent.width, lay.rowPitch, tight,
-                        lay.rowPitch / std::max<VkDeviceSize>(1, attr.format.getSize()));
+                    vkBindImageMemory(device, lin, getMemoryVulkan(attr.source), 0);
+                    tex.image = lin;
                 }
+                else { vkDestroyImage(device, lin, nullptr); }  // rebuilt device-local below
             }
 
-            Texture tex{
-                .image    = teximg,
-                .img_view = createImageView(device, tex.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
-                .sampler  = createSampler(device, VK_FILTER_LINEAR, false),
-                .format   = params.format,
-                .extent   = params.extent,
-            };
+            // Params for the image view / final image. Alias keeps the source tiling; the copy
+            // fallback uses OPTIMAL (its own memory) for efficient sampling.
+            ImageParams params{ .type = itype, .format = vkfmt, .extent = extent,
+                .tiling = can_alias ? getImageTiling(attr.source) : VK_IMAGE_TILING_OPTIMAL,
+                .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, .levels = 1 };
+
+            if (can_alias && !src_linear)
+            {
+                // OPTIMAL interop source (cudaArray): alias directly, as before.
+                VkExternalMemoryImageCreateInfo ext{
+                    .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+                    .pNext = nullptr, .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT };
+                tex.image = createImage(device, physical_device.handle, params, &ext);
+                vkBindImageMemory(device, tex.image, getMemoryVulkan(attr.source), 0);
+            }
+            else if (!can_alias)
+            {
+                // Copy path: device-local image (own memory) refreshed each frame from a buffer over
+                // the shared interop memory.
+                tex.image = createImage(device, physical_device.handle, params);
+                VkMemoryRequirements mr{};
+                vkGetImageMemoryRequirements(device, tex.image, &mr);
+                tex.own_mem = allocateMemory(device, physical_device.memory.memoryProperties, mr,
+                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                validation::checkVulkan(vkBindImageMemory(device, tex.image, tex.own_mem, 0));
+                tex.copy_src = createAttributeBuffer(getSourceSize(attr.source),
+                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT, getMemoryVulkan(attr.source));
+            }
+            // (can_alias && src_linear) already set tex.image above.
+
+            tex.img_view = createImageView(device, tex.image, params, VK_IMAGE_ASPECT_COLOR_BIT);
+            tex.sampler  = createSampler(device, VK_FILTER_LINEAR, false);
 
             transitionImageLayout(tex.image,
                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
@@ -1194,6 +1223,8 @@ View *MimirInstance::createView(ViewDescription *desc)
                 vkDestroyImageView(device, tex.img_view, nullptr);
                 vkDestroyImage(device, tex.image, nullptr);
                 vkDestroySampler(device, tex.sampler, nullptr);
+                if (tex.own_mem) { vkFreeMemory(device, tex.own_mem, nullptr); }
+                // tex.copy_src is registered for destruction by createAttributeBuffer.
             });
 
             view.textures[view.tex_count++] = tex;
@@ -2076,6 +2107,10 @@ void MimirInstance::renderFrame(bool advance_interop)
     // point-mode LOD path is active. drawElements then binds the reduced buffer + draws indirect.
     recordLodRaster(cmd, static_cast<uint32_t>(frame_idx));
 
+    // Refresh copy-path interop Image views from their shared buffers before the render pass samples
+    // them (no-op for zero-copy aliased views). Outside the render pass: copies can't run inside one.
+    recordImageCopies(cmd);
+
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
     std::memcpy(clear_values[0].color.float32, &options.background_color.x, sizeof(options.background_color));
@@ -2226,6 +2261,54 @@ void MimirInstance::renderFrame(bool advance_interop)
 // Records the per-frame LOD reduction + indirect-args build for the raster point modes (none/phong),
 // before the render pass. drawElements consumes the results (reduced vbo + indirect draw). No-op when
 // the raster point-mode LOD path is inactive (rt_enabled, or lod_context never inited for raster).
+void MimirInstance::recordImageCopies(VkCommandBuffer cmd)
+{
+    for (auto* view : views)
+    {
+        for (uint32_t t = 0; t < view->tex_count; ++t)
+        {
+            const Texture& tex = view->textures[t];
+            if (tex.copy_src == VK_NULL_HANDLE) { continue; }  // zero-copy aliased view: nothing to do
+
+            const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            VkImageMemoryBarrier barrier{
+                .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .pNext               = nullptr,
+                .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+                .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image               = tex.image,
+                .subresourceRange    = range,
+            };
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            // bufferRowLength/Height 0 == tightly packed (== extent), which is exactly how the CUDA
+            // side wrote the shared buffer; the copy lays it into the image's own (padded) row pitch.
+            VkBufferImageCopy region{
+                .bufferOffset      = 0,
+                .bufferRowLength   = 0,
+                .bufferImageHeight = 0,
+                .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+                .imageOffset       = { 0, 0, 0 },
+                .imageExtent       = tex.extent,
+            };
+            vkCmdCopyBufferToImage(cmd, tex.copy_src, tex.image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        }
+    }
+}
+
 void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
 {
     if (rt_enabled || !lod_context.active()) { return; }

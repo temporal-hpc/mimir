@@ -170,6 +170,9 @@ struct MimirInstance
     // Records the per-frame reduction + indirect-args build for raster point modes, BEFORE the render
     // pass (compute cannot run inside one). No-op when the raster LOD path is inactive.
     void recordLodRaster(VkCommandBuffer cmd, uint32_t slot);
+    // Refresh copy-path interop Image views from their shared buffers (vkCmdCopyBufferToImage) before
+    // the render pass. No-op for zero-copy aliased image views. See the ViewType::Image creation path.
+    void recordImageCopies(VkCommandBuffer cmd);
 
     // Shared template icosphere for the instanced mesh marker mode (LightModel::PhongMesh /
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is

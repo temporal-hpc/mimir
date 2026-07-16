@@ -52,6 +52,13 @@ struct Texture
     VkFormat format;
     // Texture image dimensions.
     VkExtent3D extent;
+    // Copy-path fields, set only when the interop buffer CANNOT be aliased directly to the image
+    // (the device's LINEAR row pitch would differ from the buffer's tight packing and shear). Then
+    // `image` is a device-local image, `copy_src` is a buffer over the shared interop memory, and
+    // `image` is refreshed from `copy_src` each frame via vkCmdCopyBufferToImage (no host round-trip).
+    // Both are VK_NULL_HANDLE on the zero-copy alias path.
+    VkBuffer       copy_src = VK_NULL_HANDLE;
+    VkDeviceMemory own_mem  = VK_NULL_HANDLE;
 };
 
 struct View

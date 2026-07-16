@@ -235,37 +235,26 @@ BenchmarkResult runExperiment(CAInput input)
     InstanceHandle instance = nullptr;
     createInstance(opts, &instance);
 
-    // We present the grid as one R8 image. Two device constraints shape how:
-    //   1. maxImageDimension2D (like OpenGL's GL_MAX_TEXTURE_SIZE): a grid larger than this cannot
-    //      be a single image regardless of VRAM.
-    //   2. A LINEAR interop image's row pitch is driver-aligned (128 B on NVIDIA); a width that is
-    //      not a multiple of that alignment shears, because our buffer is tightly packed.
-    // The simulation is a linear buffer with neither constraint, so we keep it full-res and present
-    // through a resampled display buffer whose width is a multiple of the alignment (fully filled,
-    // aspect-preserved). Only when the grid already fits AND its width is aligned do we alias it
-    // directly -- the zero-copy fast path.
+    // A grid larger than the device's maxImageDimension2D (like OpenGL's GL_MAX_TEXTURE_SIZE) cannot
+    // be presented as one image regardless of VRAM. The simulation is a linear buffer with no such
+    // limit, so we keep it full-res and, when it doesn't fit, present a resampled display buffer sized
+    // to the window (aspect-preserved). When it fits we alias the grid buffers directly (zero-copy) at
+    // ANY width -- the library transparently handles the interop image's row-pitch alignment.
     const FormatDescription r8_fmt{ .kind = FormatKind::UnsignedNormalized, .size = 1, .components = 1 };
     uint32_t img_cap = maxImageDimension2D(instance);
     if (img_cap == 0) img_cap = 16384;  // portable floor if no device is selected
-    int align = (int)linearImageRowAlignment(instance, r8_fmt);   // e.g. 128 texels for R8 on NVIDIA
-    if (align < 1) align = 1;
     const int cap = (int)std::min<uint32_t>(img_cap,
         std::max(1, std::max(input.win_width, input.win_height)));
 
-    auto align_up   = [](int v, int a) { return ((v + a - 1) / a) * a; };
-    auto align_down = [](int v, int a) { return (v / a) * a; };
-
-    const bool fits    = (W <= cap && H <= cap);
-    const bool aligned = (W % align == 0);
-    const bool reduce  = !(fits && aligned);   // alias the grid only when it's safe to
+    const bool fits   = (W <= cap && H <= cap);
+    const bool reduce = !fits;
 
     int DW, DH;
     if (reduce)
     {
-        DW = align_up(std::min(W, cap), align);          // multiple of align -> rowPitch == DW, no shear
-        const int dwmax = align_down((int)img_cap, align);
-        if (DW > dwmax) DW = dwmax;
-        DH = (int)((long)DW * H / W);                    // preserve the grid's aspect (rows need no align)
+        DW = std::min(W, cap);
+        if (DW > (int)img_cap) DW = (int)img_cap;
+        DH = (int)((long)DW * H / W);              // preserve the grid's aspect
         DH = std::clamp(DH, 1, (int)img_cap);
     }
     else { DW = W; DH = H; }
