@@ -15,11 +15,12 @@
 #include <atomic> // std::atomic_ref
 #include <iostream>
 #include <fstream> // std::ofstream
-#include <algorithm> // std::max
+#include <algorithm> // std::max, std::min
 #include <chrono> // std::chrono
 #include <set> // std::set
 #include <unordered_map> // std::unordered_map (icosphere edge cache)
 #include <cmath> // std::sqrt
+#include <cstdint> // uint64_t, UINT32_MAX
 #include <cstring> // std::memcpy
 
 namespace mimir
@@ -219,12 +220,15 @@ void MimirInstance::prepare()
                 {
                     lod_context.init(device, physical_device.memory.memoryProperties,
                         supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
-                        view->draw_count);
+                        // TODO(Task 5): LodContext::init still takes uint32_t; widen with the LOD context.
+                        static_cast<uint32_t>(std::min<uint64_t>(view->element_count, UINT32_MAX)));
                     raytracing.lod = &lod_context;
                     deletors.context.add([this]{ lod_context.destroy(); });
                 }
-                raytracing.bindScene(pos_addr, view->draw_count, view->desc.default_size,
-                    glm::vec4(c.x, c.y, c.z, c.w));
+                // TODO(Task 4): bindScene still takes uint32_t; widen when the PT path chunks.
+                raytracing.bindScene(pos_addr,
+                    static_cast<uint32_t>(std::min<uint64_t>(view->element_count, UINT32_MAX)),
+                    view->desc.default_size, glm::vec4(c.x, c.y, c.z, c.w));
                 break;
             }
         }
@@ -268,16 +272,19 @@ void MimirInstance::prepare()
                 lod_raster_mesh = is_mesh;
 
                 VkBuffer  pos_buffer = is_mesh ? view->vbo[1] : view->vbo[0];
-                uint32_t  particle_count = is_mesh ? view->instance_count : view->draw_count;
+                // element_count is the true particle total in both mesh and point modes.
+                uint64_t  particle_count = view->element_count;
                 VkBufferDeviceAddressInfo addr_info{
                     .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
                     .pNext = nullptr, .buffer = pos_buffer, // interop float3 particle positions
                 };
                 lod_raster_pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
-                lod_raster_count    = particle_count;
+                // TODO(Task 5): lod_raster_count/LodContext::init/recordReduction still take
+                // uint32_t; widen with the LOD context.
+                lod_raster_count    = static_cast<uint32_t>(std::min<uint64_t>(particle_count, UINT32_MAX));
                 lod_context.init(device, physical_device.memory.memoryProperties,
                     supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
-                    particle_count);
+                    lod_raster_count);
                 deletors.context.add([this]{ lod_context.destroy(); });
 
                 // One-time reduction + occupied-count log at setup (mirrors the path tracer's
@@ -1050,7 +1057,7 @@ bool validateViewDescription(ViewDescription *desc)
     return has_elements && has_position_attr;
 }
 
-uint32_t getDrawCount(ViewDescription *desc)
+uint64_t getDrawCount(ViewDescription *desc)
 {
     auto& pos_attr = desc->attributes[AttributeType::Position];
     return hasIndexing(pos_attr)? pos_attr.indexing.size : pos_attr.size;
@@ -1079,7 +1086,7 @@ View *MimirInstance::createView(ViewDescription *desc)
 
     View view{
         .pipeline    = VK_NULL_HANDLE,
-        .draw_count  = getDrawCount(desc),
+        .draw_count  = static_cast<uint32_t>(std::min<uint64_t>(getDrawCount(desc), UINT32_MAX)),
         .vb_count    = 0,
         .vbo         = {VK_NULL_HANDLE},
         .offsets     = {0},
@@ -1095,6 +1102,7 @@ View *MimirInstance::createView(ViewDescription *desc)
         .scale       = glm::mat4(1.f),
         .desc        = *desc,
     };
+    view.element_count = getDrawCount(desc);
 
     // If no option value is set (the variant is default-initialized to std::monostate)
     if (view.desc.options.index() == 0)
@@ -1313,7 +1321,7 @@ View *MimirInstance::createView(ViewDescription *desc)
     {
         ensureSphereMesh();
         VkBuffer instance_positions = view.vbo[0]; // interop particle centers (per-instance)
-        uint32_t particle_count     = view.draw_count;
+        uint64_t particle_count     = view.element_count;
         view.vbo[0]        = sphere_vbo;           // binding 0: unit icosphere vertices
         view.offsets[0]    = 0;
         view.vbo[1]        = instance_positions;   // binding 1: particle centers
@@ -1322,8 +1330,9 @@ View *MimirInstance::createView(ViewDescription *desc)
         view.ibo           = sphere_ibo;
         view.index_type    = VK_INDEX_TYPE_UINT32;
         view.use_ibo       = true;
-        view.draw_count    = sphere_index_count;   // template icosphere indices
-        view.instance_count = particle_count;      // one instance per particle
+        view.draw_count     = sphere_index_count;  // icosphere index count (uint32, small)
+        view.instance_count = static_cast<uint32_t>(std::min<uint64_t>(particle_count, UINT32_MAX));
+        // element_count already holds the true particle total; the Task 3 chunk loop reads it.
     }
 
     auto handle = new View(view);

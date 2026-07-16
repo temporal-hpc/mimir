@@ -70,6 +70,9 @@ struct View
     // Instances to draw (default 1). >1 for instanced marker meshes: draw_count is the template
     // icosphere's index count and instance_count is the particle count (SphereMesh render mode).
     uint32_t instance_count = 1;
+    // True element (particle/vertex) total — 64-bit source of truth for the chunk loops.
+    // draw_count/instance_count stay uint32 (per-chunk or the mesh index count).
+    uint64_t element_count = 0;
     // Number of vertex buffers in the view.
     uint32_t vb_count;
     // Array of vertex buffer objects associated to the view.
