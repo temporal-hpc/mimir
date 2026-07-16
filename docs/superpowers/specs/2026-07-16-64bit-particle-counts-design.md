@@ -68,9 +68,11 @@ loops); PT/compute-only (leaves raster capped, violating the all-modes goal).
 ### 2. Raster draw-chunking (`engine.cpp::drawElements`)
 
 Replace the single `vkCmdDraw(total, …)` with a loop over chunks of ≤ `CAP` =
-2^31 vertices. Because `firstVertex` is `uint32` and cannot express a start past
-2^32, each chunk **rebinds the vertex buffer at a 64-bit byte offset**
-(`vkCmdBindVertexBuffers` takes `VkDeviceSize`) and draws with `firstVertex = 0`:
+`UINT32_MAX` (2^32-1) vertices — the Vulkan hard max for `vertexCount`, with no
+separate device limit on vertices-per-draw. Because `firstVertex` is `uint32` and
+cannot express a start past 2^32, each chunk **rebinds the vertex buffer at a
+64-bit byte offset** (`vkCmdBindVertexBuffers` takes `VkDeviceSize`) and draws
+with `firstVertex = 0`:
 
 ```
 for (uint64_t start = 0; start < total; start += CAP) {
@@ -87,8 +89,12 @@ for (uint64_t start = 0; start < total; start += CAP) {
 - **With `--lod`:** the loop runs once (the reduced set is ≤ N^3 < 2^32), so LOD
   remains a no-cost special case; the LOD indirect-draw paths are unchanged.
 
-`CAP = 2^31` (well within `uint32` and every driver's `maxDrawIndirectCount`/
-vertex limits). Counts < 2^31 run exactly one chunk (unchanged behavior).
+`CAP = UINT32_MAX` keeps the chunking a pure **extension**: every count that
+renders today (≤ 2^32-1, including the 2^31–2^32 band) still runs as a *single*
+draw, byte-for-byte unchanged, and the loop engages a second chunk only for
+counts that cannot render today at all (> 2^32-1). A smaller CAP would needlessly
+re-chunk already-working counts. The loop uses 64-bit `start`/`total`, so
+`start += CAP` and `total - start` never overflow.
 
 ### 3. PT BLAS chunk-math → 64-bit (`raytracing.cpp`)
 
@@ -163,9 +169,12 @@ memory because only occupied-cell representatives reach the BVH / draw.
 
 ## Determinism & invariants
 
-- Counts below `CAP` (2^31) render exactly as today (one chunk / one dispatch).
-- Counts in 2^31–2^32 now cross the chunk boundary — the output image must be
-  **byte-identical** to the single-draw result (chunking is a pure partition).
+- Counts ≤ 2^32-1 render exactly as today: the raster loop runs one chunk (the
+  draw path is unchanged — only the count *type* widened), so no existing scene
+  changes.
+- Counts > 2^32-1 (new territory) chunk into multiple draws; the chunk boundary is
+  a pure partition of a contiguous vertex range, so the rendered cloud must show
+  **no seam or gap** between chunks.
 - LOD determinism (integer count + int64 centroid atomics) is unchanged; the
   grid-stride loop visits every particle exactly once, so occupied counts and
   centroids are identical to the pre-change reduction.
@@ -191,9 +200,11 @@ memory because only occupied-cell representatives reach the BVH / draw.
   multiple `vkCmdDraw`s with no wrap; a client receives non-blank frames.
 - **PT without LOD > 2^32**: memory-bound to the B300 (154 GB at 4.3 B); verified
   there. NOT reproducible on the 96 GB card (documented limitation).
-- **Regression:** a count in 2^31–2^32 (e.g. 3 B) produces a byte-identical image
-  to the pre-change build (the chunk boundary must not alter output); counts
-  < 2^31 and `--lod 0` are unchanged in every mode.
+- **Regression:** a count ≤ 2^32-1 (e.g. 3 B) produces a byte-identical image to
+  the pre-change build (its raster path is a single draw — only the count type
+  changed); `--lod 0` and every light model are unchanged at existing counts. The
+  new >2^32-1 chunked draw must render a seamless cloud (no gap at the chunk
+  boundary).
 - **Determinism:** repeated LOD runs at a fixed N above 2^32 give the identical
   occupied count.
 
@@ -213,7 +224,7 @@ memory because only occupied-cell representatives reach the BVH / draw.
   without LOD, bounded only by free VRAM — no silent wrap, no `IOT`/OOM abort.
 - An over-memory count is rejected up front with a clear "needs X / Y free"
   message.
-- Counts ≤ 2^32 (including the 2^31–2^32 chunk-crossing band) are visually
-  identical to the current build; `--lod 0` and determinism preserved.
+- Counts ≤ 2^32-1 are visually identical to the current build (single-draw path
+  unchanged; only the count type widened); `--lod 0` and determinism preserved.
 - The public API (`Layout`, `AttributeDescription::size`) is 64-bit and all
   samples compile and run against it.
