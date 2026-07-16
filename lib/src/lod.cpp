@@ -6,6 +6,7 @@
 #include <cstring>    // std::memcpy
 #include <filesystem> // std::filesystem
 
+#include "mimir/interop.hpp"
 #include "mimir/resources.hpp"
 #include "mimir/shader.hpp"
 #include "mimir/validation.hpp"
@@ -37,25 +38,52 @@ VkDeviceAddress getBufferAddress(VkDevice device, VkBuffer buffer)
 // Creates a buffer + memory. When want_address is set, the SHADER_DEVICE_ADDRESS usage bit and the
 // matching allocate flag are added and the device address is resolved. Mirrors raytracing.cpp's
 // makeBuffer (kept local so the LOD module is independent of the RT context).
+//
+// When `exportable` is set, the buffer/memory are created with OPAQUE_FD external-memory handles
+// (mirroring engine.cpp's allocLinear interop-export pattern exactly): a
+// VkExternalMemoryBufferCreateInfo chained onto buffer creation, and a VkExportMemoryAllocateInfoKHR
+// chained into the allocation -- nested under the VkMemoryAllocateFlagsInfo (addr_flags.pNext) when
+// want_address is ALSO set, since both extensions must reach vkAllocateMemory's pNext chain.
+//
+// `out_alloc_size` (optional) receives the ACTUAL allocated size (VkMemoryRequirements::size,
+// padded/aligned up from `size`). A CUDA OPAQUE_FD import must use this allocated size for its
+// external-memory handle size, NOT the requested `size`, or cudaImportExternalMemory /
+// GetMappedBuffer fails with cudaErrorInvalidValue -- exactly why engine.cpp:921 imports with
+// memreq.size (while still using the logical `size` for the mapped-buffer view descriptor).
 RtBuffer makeBuffer(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props, VkDeviceSize size,
-    VkBufferUsageFlags usage, VkMemoryPropertyFlags mem_flags, bool want_address)
+    VkBufferUsageFlags usage, VkMemoryPropertyFlags mem_flags, bool want_address,
+    bool exportable = false, VkDeviceSize* out_alloc_size = nullptr)
 {
     if (want_address) { usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
 
+    VkExternalMemoryBufferCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+
     RtBuffer buf{};
-    buf.buffer = createBuffer(device, size, usage);
+    buf.buffer = createBuffer(device, size, usage, exportable ? &extmem_info : nullptr);
 
     VkMemoryRequirements req{};
     vkGetBufferMemoryRequirements(device, buf.buffer, &req);
+    if (out_alloc_size != nullptr) { *out_alloc_size = req.size; }
 
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
     VkMemoryAllocateFlagsInfo flags_info{
         .sType      = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-        .pNext      = nullptr,
+        .pNext      = exportable ? static_cast<const void*>(&export_info) : nullptr,
         .flags      = want_address ? VkMemoryAllocateFlags(VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT) : 0u,
         .deviceMask = 0,
     };
-    buf.memory = allocateMemory(device, mem_props, req, mem_flags,
-        want_address ? &flags_info : nullptr);
+    const void* alloc_chain = nullptr;
+    if (want_address) { alloc_chain = &flags_info; }
+    else if (exportable) { alloc_chain = &export_info; }
+    buf.memory = allocateMemory(device, mem_props, req, mem_flags, alloc_chain);
     validation::checkVulkan(vkBindBufferMemory(device, buf.buffer, buf.memory, 0));
 
     if (want_address) { buf.address = getBufferAddress(device, buf.buffer); }
@@ -204,15 +232,40 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     //    INDIRECT_BUFFER. BDA so the finalize shader addresses it as a raw pointer.
     for (uint32_t s = 0; s < NUM_SLOTS; ++s)
     {
-        counter_buffer[s] = makeBuffer(device, mem_props, sizeof(uint32_t),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true);
-        reduced_pos[s] = makeBuffer(device, mem_props, VkDeviceSize(max_cells) * 3 * sizeof(float),
+        const VkDeviceSize counter_size = sizeof(uint32_t);
+        VkDeviceSize counter_alloc_size = 0;
+        counter_buffer[s] = makeBuffer(device, mem_props, counter_size,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true,
+            use_cuda, &counter_alloc_size);
+        const VkDeviceSize reduced_pos_size = VkDeviceSize(max_cells) * 3 * sizeof(float);
+        VkDeviceSize reduced_pos_alloc_size = 0;
+        reduced_pos[s] = makeBuffer(device, mem_props, reduced_pos_size,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-            | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+            | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true, use_cuda, &reduced_pos_alloc_size);
         indirect_buffer[s] = makeBuffer(device, mem_props,
             std::max(sizeof(VkDrawIndirectCommand), sizeof(VkDrawIndexedIndirectCommand)),
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
             | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+
+        // Import CUDA device-pointer aliases for this slot's counter/reduced-position buffers when the
+        // native-CUDA reduction path is active. Dormant until a later stage sets use_cuda=true before
+        // init() runs (nothing in this class sets it yet), so this never executes today and the default
+        // Vulkan path is unaffected. Mirrors engine.cpp's allocLinear import (import -> mapped-buffer):
+        // the external-memory import MUST use the ACTUAL allocated size (VkMemoryRequirements::size,
+        // e.g. ~256 B for the 4 B counter) or CUDA rejects it (cudaErrorInvalidValue); the mapped-buffer
+        // view descriptor keeps the logical requested size at offset 0.
+        if (use_cuda)
+        {
+            counter_extmem[s] = interop::importCudaExternalMemory(counter_buffer[s].memory, counter_alloc_size, device);
+            cudaExternalMemoryBufferDesc counter_desc{ .offset = 0, .size = counter_size, .flags = 0, .reserved = {} };
+            validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+                reinterpret_cast<void**>(&occupied_cuda[s]), counter_extmem[s], &counter_desc));
+
+            reduced_pos_extmem[s] = interop::importCudaExternalMemory(reduced_pos[s].memory, reduced_pos_alloc_size, device);
+            cudaExternalMemoryBufferDesc pos_desc{ .offset = 0, .size = reduced_pos_size, .flags = 0, .reserved = {} };
+            validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+                &reduced_pos_cuda[s], reduced_pos_extmem[s], &pos_desc));
+        }
 
         // Point this slot's emit set global-counter binding (0) at this slot's counter buffer.
         VkDescriptorBufferInfo gc{ .buffer = counter_buffer[s].buffer, .offset = 0, .range = VK_WHOLE_SIZE };
@@ -366,6 +419,16 @@ void LodContext::destroy()
     destroyBuffer(device, cellsum_buffer);
     for (uint32_t s = 0; s < NUM_SLOTS; ++s)
     {
+        // Release the CUDA-side alias BEFORE freeing the aliased Vulkan memory (destroying the
+        // external memory handle is how the mapped device pointer is released -- it is never
+        // cudaFree'd). No-op when the CUDA path was never active (handles stay null-initialized).
+        if (counter_extmem[s] != nullptr) { validation::checkCuda(cudaDestroyExternalMemory(counter_extmem[s])); }
+        if (reduced_pos_extmem[s] != nullptr) { validation::checkCuda(cudaDestroyExternalMemory(reduced_pos_extmem[s])); }
+        counter_extmem[s] = nullptr;
+        reduced_pos_extmem[s] = nullptr;
+        occupied_cuda[s] = nullptr;
+        reduced_pos_cuda[s] = nullptr;
+
         destroyBuffer(device, counter_buffer[s]);
         destroyBuffer(device, reduced_pos[s]);
         destroyBuffer(device, indirect_buffer[s]);

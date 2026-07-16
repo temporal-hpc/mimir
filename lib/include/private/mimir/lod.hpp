@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <cuda_runtime_api.h>
 
 #include <array>
 #include <cstdint>
@@ -101,6 +102,12 @@ public:
     // The GPU-resident VkDrawIndirectCommand written by recordIndirectArgs for `slot` (INDIRECT_BUFFER).
     VkBuffer indirectBuffer(uint32_t slot) const { return indirect_buffer[slot].buffer; }
 
+    // CUDA device pointers aliasing this slot's reduced-position / occupied-count buffers, imported
+    // via external memory when the CUDA reduction path is active (`use_cuda`); nullptr otherwise (the
+    // default Vulkan-only path, where LodReduce is never invoked and these aliases are never created).
+    void*     reducedPositionsDevicePtr(uint32_t slot) const { return reduced_pos_cuda[slot]; }
+    uint32_t* occupiedDevicePtr(uint32_t slot)          const { return occupied_cuda[slot]; }
+
     // World radius of an LOD representative sphere given the view's default --size (lit world value).
     // = cellFill * (default_size / LOD_REFERENCE_SIZE), cellFill = LOD_COVERAGE * (2/N) * 0.5.
     float sphereRadius(float default_size) const;
@@ -122,6 +129,12 @@ private:
     uint32_t max_cells = 0;       // min(N^3, particle_count)
     bool     centroid_active = false; // centroid placement (int64 atomics available) vs cell-center
 
+    // Gates whether init() allocates reduced_pos[]/counter_buffer[] as CUDA-exportable and imports CUDA
+    // device-pointer aliases for them. Defaults false (dormant): nothing in this class sets it yet, so
+    // the Vulkan-only path is completely unchanged. The native-CUDA reduction wiring (a later stage)
+    // sets this before init() runs its buffer allocations.
+    bool use_cuda = false;
+
     // Accumulators (BDA): per-cell occupancy count and the fixed-point position sum (centroid only).
     // SINGLE-buffered (shared across frame slots): this is the N^3 memory hog (~30 GB at 1024^3) and is
     // per-frame scratch (cleared -> scattered -> emitted, never read cross-frame), so it is not ringed;
@@ -135,6 +148,16 @@ private:
     std::array<RtBuffer, NUM_SLOTS> counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
     std::array<RtBuffer, NUM_SLOTS> reduced_pos;      // min(N^3,P) float3 representative positions (DEVICE_LOCAL, BDA + VBO)
     std::array<RtBuffer, NUM_SLOTS> indirect_buffer;  // 1 Vk*IndirectCommand (max(16,20)=20 B) for raster indirect draw (DEVICE_LOCAL, BDA)
+
+    // CUDA external-memory handles + mapped device-pointer aliases for counter_buffer[]/reduced_pos[],
+    // populated only when use_cuda is true (see init()). Torn down in destroy() via
+    // cudaDestroyExternalMemory before the aliased Vulkan memory is freed; the mapped pointers
+    // themselves are never cudaFree'd (release is via destroying the external memory, same as the
+    // engine's interop position buffer -- see engine.cpp's allocLinear).
+    std::array<cudaExternalMemory_t, NUM_SLOTS> reduced_pos_extmem{};
+    std::array<cudaExternalMemory_t, NUM_SLOTS> counter_extmem{};
+    std::array<void*, NUM_SLOTS>     reduced_pos_cuda{}; // CUDA ptr aliasing reduced_pos[slot]
+    std::array<uint32_t*, NUM_SLOTS> occupied_cuda{};    // CUDA ptr aliasing counter_buffer[slot]
 
     // Scatter/emit compute pipelines. Scatter binds no descriptors (all accumulators are BDA); emit
     // keeps one descriptor for the global emit counter (binding 0). Finalize (indirect-args build) is
