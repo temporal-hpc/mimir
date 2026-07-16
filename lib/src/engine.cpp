@@ -225,9 +225,7 @@ void MimirInstance::prepare()
                     raytracing.lod = &lod_context;
                     deletors.context.add([this]{ lod_context.destroy(); });
                 }
-                // TODO(Task 4): bindScene still takes uint32_t; widen when the PT path chunks.
-                raytracing.bindScene(pos_addr,
-                    static_cast<uint32_t>(std::min<uint64_t>(view->element_count, UINT32_MAX)),
+                raytracing.bindScene(pos_addr, view->element_count,
                     view->desc.default_size, glm::vec4(c.x, c.y, c.z, c.w));
                 break;
             }

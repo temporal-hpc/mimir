@@ -129,7 +129,7 @@ struct RayTracingContext
     // case this enables. The TLAS holds ONE instance pointing at the BLAS (identity transform).
     bool scene_bound = false;
     VkDeviceAddress position_address = 0; // interop positions, read by BDA (owned by the view, not us)
-    uint32_t particle_count = 0;
+    uint64_t particle_count = 0;
     float particle_radius = 0.f;
     glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
     // maxPrimitiveCount (~2^29) is a PER-BLAS limit, so particle counts above it are split across
@@ -301,7 +301,7 @@ struct RayTracingContext
     // Allocates the AABB buffer / BLAS / one-instance TLAS / scratch and builds them once. The AABB
     // writer reads positions by buffer-device-address (no storage-range cap). Call once after view
     // creation.
-    void bindScene(VkDeviceAddress positions, uint32_t particle_count, float radius, glm::vec4 color);
+    void bindScene(VkDeviceAddress positions, uint64_t particle_count, float radius, glm::vec4 color);
 
     // Record the per-frame scene update for this frame: dispatch the instance-writer compute
     // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a

@@ -154,17 +154,17 @@ VkDeviceAddress chunkAabbAddr(const RayTracingContext& ctx, VkDeviceAddress aabb
 // Primitive count of chunk `c` (all full-sized except possibly the last).
 uint32_t chunkPrimCount(const RayTracingContext& ctx, uint32_t c)
 {
-    uint32_t base = c * ctx.blas_chunk_prims;
-    uint32_t rem = ctx.particle_count - base;
-    return rem < ctx.blas_chunk_prims ? rem : ctx.blas_chunk_prims;
+    uint64_t base = (uint64_t)c * ctx.blas_chunk_prims;
+    uint64_t rem  = ctx.particle_count - base;
+    return rem < ctx.blas_chunk_prims ? (uint32_t)rem : ctx.blas_chunk_prims;
 }
 
 // Allocates ceil(count / blas_chunk_prims) BLASes over consecutive AABB chunks, plus ONE shared build
 // scratch sized for the largest chunk. maxPrimitiveCount is a per-BLAS limit; chunking lifts the
 // overall particle cap to (num_chunks * maxPrimitiveCount), i.e. VRAM. Does not build yet.
-void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, uint32_t count)
+void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, uint64_t count)
 {
-    uint32_t num_chunks = (count + ctx.blas_chunk_prims - 1) / ctx.blas_chunk_prims;
+    uint32_t num_chunks = (uint32_t)((count + ctx.blas_chunk_prims - 1) / ctx.blas_chunk_prims);
     ctx.scene_blas.assign(num_chunks, AccelStruct{});
     VkDeviceSize max_scratch = 0;
 
@@ -1195,7 +1195,7 @@ void RayTracingContext::updateMaterial(uint32_t index)
     vkUnmapMemory(device, sbt_buffer.memory);
 }
 
-void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, float radius, glm::vec4 color)
+void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, float radius, glm::vec4 color)
 {
     position_address = positions;
     particle_count  = count;
@@ -1217,7 +1217,7 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     //
     // LOD aggregates particles into <= min(N^3, P) occupied-cell spheres, so both the AABB buffer
     // and the BLAS are sized to that bound (smaller than P at large N). Per-particle mode sizes to P.
-    uint32_t geom_prims = count;
+    uint64_t geom_prims = count;
     if (lod_cells > 0)
     {
         // The reduction (accumulators, scatter/emit, reduced positions) lives in the shared LodContext
@@ -1240,7 +1240,7 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     // back into a global one.
     blas_chunk_prims = accel_props.maxPrimitiveCount > 0
         ? static_cast<uint32_t>(std::min<uint64_t>(accel_props.maxPrimitiveCount, geom_prims))
-        : geom_prims;
+        : static_cast<uint32_t>(geom_prims);
     // LOD mode requires exactly one BLAS chunk: recordLodUpdate() passes the per-frame `occupied`
     // count as override_prims to recordBlasBuildChunks(), which applies it to EVERY chunk. If the env
     // override shrank blas_chunk_prims below lod_max_cells here, num_chunks would become > 1 and
@@ -1426,12 +1426,15 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     AabbWriterPush push{
         .aabbs = aabb_buffer.address,
         .positions = position_address,
-        .count = particle_count, .radius = particle_radius,
+        // Task 5: 64-bit count + grid-stride (shader/struct widen there).
+        .count = (uint32_t)std::min<uint64_t>(particle_count, UINT32_MAX), .radius = particle_radius,
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
     vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
         0, sizeof(push), &push);
-    vkCmdDispatch(cmd, (particle_count + 63) / 64, 1, 1);
+    // Dispatch count derives from push.count (already clamped above), not the raw 64-bit
+    // particle_count -- consistent with the AABB writer's actual iteration bound until Task 5.
+    vkCmdDispatch(cmd, (push.count + 63) / 64, 1, 1);
 
     // Barrier: compute writes -> BLAS build reads the AABB buffer.
     VkMemoryBarrier to_build{
@@ -1520,7 +1523,9 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     // reduced positions live in lod->reducedPositionsBuffer().
     // PT serializes itself (blocking one-shot submit + vkQueueWaitIdle), so a fixed slot 0 of the ringed
     // output buffers is safe -- no two PT reductions are ever in flight at once.
-    submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address, particle_count, /*slot=*/0u); });
+    // Task 5: recordReduction's particle_count param widens to uint64_t there; remove this cast then.
+    submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address,
+        (uint32_t)std::min<uint64_t>(particle_count, UINT32_MAX), /*slot=*/0u); });
     uint32_t occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
     lod_prim_count = occupied;
 
