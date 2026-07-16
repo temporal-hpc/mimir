@@ -51,12 +51,14 @@ void scatterMain(uint3 tid : SV_DispatchThreadID)
         int cz = int(clamp((pz + 1.0) * 0.5 * n, 0.0, n - 1.0));
         uint lin = uint(cx) + pc.gridN * (uint(cy) + pc.gridN * uint(cz));
 
-        // Count (always). 32-bit atomic-add through the BDA count pointer.
-        uint old32;
-        InterlockedAdd(*(uint*)(uint64_t(pc.cellCounts) + uint64_t(lin) * 4ull), 1u, old32);
-
+        uint64_t count_addr = uint64_t(pc.cellCounts) + uint64_t(lin) * 4ull;
         if (pc.centroid != 0u)
         {
+            // Centroid placement needs the TRUE per-cell count (it is the denominator of the mass
+            // average in the emit pass), so the count must be an atomic add.
+            uint old32;
+            InterlockedAdd(*(uint*)count_addr, 1u, old32);
+
             // Quantize each component of the clamped position in [-1,1] to [0, 2^30] fixed-point.
             uint64_t qx = uint64_t((clamp(double(px), -1.0, 1.0) + 1.0) * 0.5 * SCALE);
             uint64_t qy = uint64_t((clamp(double(py), -1.0, 1.0) + 1.0) * 0.5 * SCALE);
@@ -68,6 +70,16 @@ void scatterMain(uint3 tid : SV_DispatchThreadID)
             InterlockedAdd(*(uint64_t*)(base + 0ull),  qx, old64);
             InterlockedAdd(*(uint64_t*)(base + 8ull),  qy, old64);
             InterlockedAdd(*(uint64_t*)(base + 16ull), qz, old64);
+        }
+        else
+        {
+            // Cell-center placement needs only OCCUPANCY -- the emit pass merely tests count != 0 and
+            // places the representative at the cell's geometric center (never reads the count value).
+            // So drop the atomic entirely: a plain, non-atomic store of 1 is a BENIGN data race --
+            // every particle landing in this cell writes the identical value, so whichever store wins
+            // the cell still reads 1. This turns the per-particle atomic into a plain memory store,
+            // which is the dominant cost of the reduction at huge N.
+            *(uint*)count_addr = 1u;
         }
     }
 }
