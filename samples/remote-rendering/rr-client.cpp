@@ -1554,6 +1554,15 @@ static void usage(const char *prog)
         "  # Headless test: receive 10 frames, save rr-client.ppm, then exit:\n"
         "  %s 127.0.0.1 9000 \"\" tcp 10\n"
         "\n"
+        "  # Paired benchmark for a research run: server and client each write a CSV that share\n"
+        "  # the SAME <prefix> and line up for the identical 60 s scripted camera. On the GPU host:\n"
+        "  #   rr-server 9000 1280 720 100000000 1 tcp --benchmark run1\n"
+        "  # then on this client (drives the script, writes its CSV, then quits when it ends):\n"
+        "  %s 127.0.0.1 9000 \"\" tcp --benchmark run1\n"
+        "  # -> run1-<date>-rr-server-...csv (host) + run1-<date>-rr-client-...csv (here);\n"
+        "  #    plot both with research/scripts/plot_benchmark.py. Add a large frames value\n"
+        "  #    (e.g. 99999) before --benchmark to run this client headless.\n"
+        "\n"
         "Reaching a server behind SSH (e.g. a Slurm job in a Pyxis/enroot container):\n"
         "  The server binds all interfaces (0.0.0.0) and enroot shares the host network, so it\n"
         "  listens on the compute node directly (no container port mapping needed). SSH forwards\n"
@@ -1571,7 +1580,7 @@ static void usage(const char *prog)
         "  Concrete example (node gpu042, cluster hpc.example.edu, port 9000, token s3cret):\n"
         "    ssh -N -L 9000:gpu042:9000 alice@hpc.example.edu\n"
         "    %s 127.0.0.1 9000 s3cret tcp\n",
-        prog, prog, prog, prog, prog, prog, prog);
+        prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
 int main(int argc, char *argv[])

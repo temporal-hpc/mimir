@@ -204,6 +204,13 @@ static void usage(const char *prog)
         "  # Path-traced over QUIC:\n"
         "  %s 9000 1920 1080 50000 1 quic --light-model path-tracing --spp 2\n"
         "\n"
+        "  # Paired benchmark for a research run: server and client each write a CSV that share\n"
+        "  # the SAME <prefix> and line up for the identical 60 s scripted camera. On this host:\n"
+        "  %s 9000 1280 720 100000000 1 tcp --benchmark run1\n"
+        "  # then on the client:  rr-client 127.0.0.1 9000 \"\" tcp --benchmark run1\n"
+        "  # -> run1-<date>-rr-server-...csv (here) + run1-<date>-rr-client-...csv (client);\n"
+        "  #    plot both with research/scripts/plot_benchmark.py\n"
+        "\n"
         "Serving to a remote client over SSH (e.g. this server in a Slurm + Pyxis job):\n"
         "  The server binds all interfaces (0.0.0.0) and enroot shares the host network, so it is\n"
         "  reachable at <compute-node-name>:<port> with no container port mapping. SSH forwards TCP\n"
@@ -222,7 +229,7 @@ static void usage(const char *prog)
         "\n"
         "Run from the build directory (shaders must be next to the binary):\n"
         "  cd samples/remote-rendering/build && ./rr-server ...\n",
-        prog, prog, prog, prog, prog);
+        prog, prog, prog, prog, prog, prog);
 }
 
 int main(int argc, char *argv[])
