@@ -1,8 +1,43 @@
-# CUB-Based LOD Reduction — Design Spec
+# Native-CUDA LOD Reduction — Design Spec
 
 **Date:** 2026-07-16
 **Branch:** feature/remote-rendering
-**Status:** design (pending review)
+**Status:** design (revised)
+
+## REVISION (supersedes the CUB approach below)
+
+Originally this planned a **CUB** fast path. Dropped: CUB's `DeviceRunLengthEncode`/`ReduceByKey`
+take an `int` item count, capping it at `INT32_MAX` (~2.147 B) particles — disqualifying for
+HPC-scale runs (billions to tens of billions). Reframing from the B300 measurements: the reduction
+was slow because of the **Vulkan compute path** (B300 ran it ~190× slower than CUDA; the sim does
+300 M in 1.8 ms), **not** atomics (workstation Vulkan atomics were 25–57 ms). So the fix is "run the
+reduction in **native CUDA**" — achievable with our **own kernels**, which also scale past 2³²
+trivially via `size_t` grid-stride (exactly like the sim), with no `int` cap.
+
+**Approach (this spec):** port the proven scatter+emit (currently Vulkan slang) to native CUDA
+`.cu` kernels — `size_t`-indexed, no external library:
+- **cell-center:** benign non-atomic occupancy store (zero atomics; already validated in the Vulkan
+  shader).
+- **centroid:** `atomicAdd` u32 count + 3× `atomicAdd` u64 **int64 fixed-point** position sum (kept
+  integer so the sum is order-independent → run-to-run deterministic, matching today's behavior).
+- **emit/compact:** one thread per N³ cell; occupied cells append their representative via a global
+  `atomicAdd` slot counter (the occupied count). SET is deterministic; slot order is not (unchanged).
+
+Everything below about **interop, selection, PT/raster integration, determinism, testing** still
+applies, with "CUB pipeline" replaced by "custom CUDA scatter+emit kernels" and these changes:
+- **No `INT32_MAX` cap; scales past 2³².**
+- **Selection** is not about CUB scratch: the custom path holds the **same N³ accumulator as the
+  Vulkan path** (count u32 + optional 3× u64 sum), so if LOD was allowed at all it fits. The CUDA
+  path becomes the **primary** path when CUDA/interop is available (always, for mimir); the Vulkan
+  reduction is retained as a fallback/reference, selectable via `MIMIR_LOD_NO_CUDA=1`.
+- **Centroid** keeps int64 fixed-point (determinism), not CUB float reduce.
+- Follow-up (not now): if centroid atomic contention is still the bottleneck on the B300 after this
+  port, add a contention-free custom reduction (counting/radix sort by cell) — measured first.
+
+---
+
+_(original CUB design retained below for reference; the CUB pipeline section is replaced by the
+custom-kernel approach above)_
 
 ## Problem
 
