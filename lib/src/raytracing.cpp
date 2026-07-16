@@ -1544,6 +1544,10 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
         // on the CUDA path the Vulkan N^3 accumulator was never allocated (LodReduce owns the only
         // one), so recordReduction would dereference null BDA-0 buffers. CPU wall-clock the whole
         // reduce+sync into last_lod_ms, mirroring the Vulkan branch's timing.
+        // The engine must have plumbed the interop positions device pointer (setLodInterop) before the
+        // first CUDA reduction; a null here means the Markers position source was not an allocLinear
+        // buffer (or setLodInterop was skipped) and would fault opaquely inside the kernel launch.
+        assert(lod_positions_dev != nullptr && "CUDA LOD active but interop positions ptr not set");
         const auto lod_t0 = std::chrono::steady_clock::now();
         lod->reduceCuda(lod_cuda_stream, lod_positions_dev, particle_count, /*slot=*/0u);
         validation::checkCuda(cudaStreamSynchronize(lod_cuda_stream));
