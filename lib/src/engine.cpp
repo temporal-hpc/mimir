@@ -278,9 +278,10 @@ void MimirInstance::prepare()
                 };
                 lod_raster_pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
                 // init/recordReduction take the 64-bit count directly (Task 5) -- pass particle_count.
-                // lod_raster_count stays a uint32_t member (clamped) for the per-frame raster path and
-                // the setup log; the raster point cloud isn't a >2^32 target.
-                lod_raster_count    = static_cast<uint32_t>(std::min<uint64_t>(particle_count, UINT32_MAX));
+                // lod_raster_count is a uint64_t member (unclamped) so the per-frame raster path
+                // (recordLodRaster -> recordReduction) reduces the full count past 2^32, not just
+                // the first ~4.29B particles.
+                lod_raster_count    = particle_count;
                 lod_context.init(device, physical_device.memory.memoryProperties,
                     supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
                     particle_count);

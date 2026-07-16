@@ -162,7 +162,7 @@ struct MimirInstance
     // init, used each frame to record the reduction inline. Set only when the raster point-mode LOD
     // path is active (rt_enabled uses raytracing's own address instead).
     VkDeviceAddress lod_raster_pos_addr = 0;
-    uint32_t        lod_raster_count    = 0;
+    uint64_t        lod_raster_count    = 0;
     // True when the active raster-LOD view is an instanced mesh marker (phong-mesh / SphereMesh):
     // the reduction feeds per-INSTANCE positions (binding 1) and the draw is vkCmdDrawIndexedIndirect
     // (fixed indexCount = sphere_index_count, varying instanceCount). False for point modes (none/phong).
