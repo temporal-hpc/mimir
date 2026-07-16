@@ -286,7 +286,20 @@ int main(int argc, char *argv[])
     }
     if (posv.size() >= 1) port        = (unsigned short)std::stoi(posv[0]);
     if (posv.size() >= 3) { width = std::stoi(posv[1]); height = std::stoi(posv[2]); }
-    if (posv.size() >= 4) point_count = (unsigned int)std::stoul(posv[3]);
+    if (posv.size() >= 4) {
+        // point_count is a 32-bit element count (the mimir view API -- Layout::make/AttributeDescription
+        // -- and Vulkan draw calls both count in uint32). Validate the full parsed value BEFORE the
+        // 32-bit truncation, so a count of 0 or >= 2^32 fails clearly instead of silently wrapping
+        // (e.g. 2^32 -> 0 -> a 0-particle scene that then OOMs deep in allocation).
+        unsigned long pc = std::stoul(posv[3]);
+        if (pc == 0ul || pc > 0xFFFFFFFFul) {
+            fprintf(stderr, "rr-server: point_count must be in [1, 4294967295]; got %s. A single point "
+                            "cloud counts elements in 32-bit (view API + Vulkan draw), so ~4.29 B is the "
+                            "ceiling (2^32-1 works; 2^32 wraps to 0).\n", posv[3].c_str());
+            return EXIT_FAILURE;
+        }
+        point_count = (unsigned int)pc;
+    }
     if (posv.size() >= 5) use_h264    = std::stoi(posv[4]) != 0;
     if (posv.size() >= 6) transport   = (posv[5] == "quic")?
         remote::TransportKind::Quic : remote::TransportKind::Tcp;

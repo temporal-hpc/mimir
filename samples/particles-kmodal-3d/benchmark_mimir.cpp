@@ -907,7 +907,18 @@ int main(int argc, char* argv[])
         else { pos.push_back(a); }
     }
     if (pos.size() >= 2) { input.win_width = std::stoi(pos[0]); input.win_height = std::stoi(pos[1]); }
-    if (pos.size() >= 3)   input.pts.count = (unsigned int)std::stoul(pos[2]);
+    if (pos.size() >= 3) {
+        // Element count is 32-bit (mimir view API + Vulkan draw). Validate the full parsed value BEFORE
+        // truncation so a count of 0 or >= 2^32 fails clearly instead of silently wrapping (2^32 -> 0).
+        unsigned long pc = std::stoul(pos[2]);
+        if (pc == 0ul || pc > 0xFFFFFFFFul) {
+            fprintf(stderr, "benchmark_mimir: point count must be in [1, 4294967295]; got %s. A single "
+                            "point cloud counts elements in 32-bit, so ~4.29 B is the ceiling.\n",
+                            pos[2].c_str());
+            exit(EXIT_FAILURE);
+        }
+        input.pts.count = (unsigned int)pc;
+    }
     if (pos.size() >= 4)   input.pts.seed  = (uint32_t)std::stoul(pos[3]);
     if (pos.size() >= 5)   input.iter_count = std::stoi(pos[4]);
 
