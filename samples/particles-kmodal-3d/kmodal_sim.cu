@@ -134,7 +134,7 @@ ClusterData createClusters(const PointsParams& params)
     clusters.centers = d_centers;
 
     unsigned int* d_ids = nullptr;
-    cudaMalloc(&d_ids, sizeof(unsigned int) * params.count);
+    cudaMalloc(&d_ids, sizeof(unsigned int) * (size_t)params.count);
     clusters.ids = d_ids;
 
     return clusters;

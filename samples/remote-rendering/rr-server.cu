@@ -225,7 +225,7 @@ int main(int argc, char *argv[])
     unsigned short port      = 9000;
     int width                = 1280;
     int height               = 720;
-    unsigned int point_count = 100000;
+    uint64_t point_count     = 100000;
     bool use_h264            = false;
     remote::TransportKind transport = remote::TransportKind::Tcp;
     std::string token        = "";
@@ -287,18 +287,12 @@ int main(int argc, char *argv[])
     if (posv.size() >= 1) port        = (unsigned short)std::stoi(posv[0]);
     if (posv.size() >= 3) { width = std::stoi(posv[1]); height = std::stoi(posv[2]); }
     if (posv.size() >= 4) {
-        // point_count is a 32-bit element count (the mimir view API -- Layout::make/AttributeDescription
-        // -- and Vulkan draw calls both count in uint32). Validate the full parsed value BEFORE the
-        // 32-bit truncation, so a count of 0 or >= 2^32 fails clearly instead of silently wrapping
-        // (e.g. 2^32 -> 0 -> a 0-particle scene that then OOMs deep in allocation).
-        unsigned long pc = std::stoul(posv[3]);
-        if (pc == 0ul || pc > 0xFFFFFFFFul) {
-            fprintf(stderr, "rr-server: point_count must be in [1, 4294967295]; got %s. A single point "
-                            "cloud counts elements in 32-bit (view API + Vulkan draw), so ~4.29 B is the "
-                            "ceiling (2^32-1 works; 2^32 wraps to 0).\n", posv[3].c_str());
+        unsigned long long pc = std::stoull(posv[3]);
+        if (pc == 0ull) {
+            fprintf(stderr, "rr-server: point_count must be >= 1\n");
             return EXIT_FAILURE;
         }
-        point_count = (unsigned int)pc;
+        point_count = (uint64_t)pc;   // no upper cap: the memory pre-flight below bounds it
     }
     if (posv.size() >= 5) use_h264    = std::stoi(posv[4]) != 0;
     if (posv.size() >= 6) transport   = (posv[5] == "quic")?
@@ -357,6 +351,21 @@ int main(int argc, char *argv[])
     size_t vram_free0 = 0, vram_total = 0;
     cudaMemGetInfo(&vram_free0, &vram_total);
 
+    // Memory pre-flight: reject a count that will not fit the GPU memory free right now, BEFORE Vulkan
+    // OOMs. Dominant device allocations: positions (12 B/particle, always) + per-particle AABBs
+    // (24 B/particle) only under path-tracing WITHOUT LOD (LOD builds the BVH over occupied cells).
+    {
+        const bool pt_no_lod = (light_model == LightModel::PathTracing) && (lod_cells == 0);
+        const unsigned long long bytes_per_particle = 12ull + (pt_no_lod ? 24ull : 0ull);
+        const unsigned long long need = (unsigned long long)point_count * bytes_per_particle;
+        if (need > (unsigned long long)vram_free0) {
+            fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s) but only %.1f GB is free on "
+                    "the GPU right now\n", (unsigned long long)point_count, (double)need/1e9,
+                    pt_no_lod ? "positions+AABBs" : "positions", (double)vram_free0/1e9);
+            return EXIT_FAILURE;
+        }
+    }
+
     // Accumulator is N^3 * bytes_per_cell (32 for centroid, 4 for cell-center). Reject an --lod whose
     // accumulator would not fit the device memory that is ACTUALLY free at this moment (vram_free0,
     // queried live above via cudaMemGetInfo -- no fixed budget fraction). Conservatively assume
@@ -380,7 +389,7 @@ int main(int argc, char *argv[])
     }
     if (lod_cells > 0 && (unsigned long long)lod_cells*lod_cells*lod_cells > (unsigned long long)point_count/8ull) {
         fprintf(stderr, "rr-server: note: --lod %u gives little benefit here; occupied cells approach "
-                        "the particle count (%u)\n", lod_cells, point_count);
+                        "the particle count (%llu)\n", lod_cells, (unsigned long long)point_count);
     }
 
     ViewerOptions options;
@@ -498,8 +507,9 @@ int main(int argc, char *argv[])
         light_model == LightModel::None       ? "none" :
         light_model == LightModel::Phong      ? "phong" :
         light_model == LightModel::PhongMesh  ? "phong-mesh" : "path-tracing";
-    printf("rr-server: %s port %u (%dx%d, %u points, %s, %s). Connect with rr-client.\n",
-        quic ? "UDP/QUIC" : "TCP", port, width, height, point_count, use_h264 ? "H.264" : "raw", lm);
+    printf("rr-server: %s port %u (%dx%d, %llu points, %s, %s). Connect with rr-client.\n",
+        quic ? "UDP/QUIC" : "TCP", port, width, height, (unsigned long long)point_count,
+        use_h264 ? "H.264" : "raw", lm);
 
     // Blocks serving clients. The lambda advances the simulation each (non-paused) frame over
     // interop-mapped memory.

@@ -124,7 +124,6 @@ struct BenchmarkResult {
 // ---------------------------------------------------------------------------
 
 static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
-static std::string sd(int v)    { return std::to_string(v); }
 static std::string su(uint32_t v) { return std::to_string(v); }
 static std::string smb(size_t bytes) {
     char b[32]; snprintf(b, sizeof(b), "%.2f MB", bytes / (1024.0 * 1024.0)); return b;
@@ -161,7 +160,7 @@ static void printSystemInfo(PointsInput input, size_t rng_bytes, size_t cluster_
     fprintf(stderr, "CUDA device: %d (%s, CC %d.%d)\n",
         device_id, prop.name, prop.major, prop.minor);
     fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
-    fprintf(stderr, "Points: %u  (seed %u)\n", input.pts.count, input.pts.seed);
+    fprintf(stderr, "Points: %llu  (seed %u)\n", (unsigned long long)input.pts.count, input.pts.seed);
     fprintf(stderr, "Init distribution: %u modes, epsilon %.4f\n", input.pts.k, input.pts.epsilon);
     fprintf(stderr, "Buffers:\n");
     fprintf(stderr, "  positions  (interop):  %s\n", smb(pos_bytes).c_str());
@@ -189,7 +188,7 @@ void formatResults(PointsInput input, BenchmarkResult result)
     printAligned({
         {"mode",          mode},
         {"windowres",     resolution},
-        {"N",             sd((int)input.pts.count)},
+        {"N",             std::to_string(input.pts.count)},
         {"seed",          su(input.pts.seed)},
         {"k",             su(input.pts.k)},
         {"epsilon",       sf(input.pts.epsilon)},
@@ -217,9 +216,9 @@ void formatResults(PointsInput input, BenchmarkResult result)
         {"tlas_time",     sf(lib.times.tlas_build)},
         {"trace_time",    sf(lib.times.trace)},
     });
-    printf("%s,%s,%u,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f\n",
+    printf("%s,%s,%llu,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        input.pts.count, input.pts.seed, input.pts.k, input.pts.epsilon,
+        (unsigned long long)input.pts.count, input.pts.seed, input.pts.k, input.pts.epsilon,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -330,6 +329,24 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.mouse_sensitivity   = input.sensitivity;
     opts.camera_move_speed   = input.cam_speed;
     opts.orbit_speed         = input.orbit_speed;
+
+    // Memory pre-flight: reject a count that will not fit the GPU memory free right now, BEFORE Vulkan
+    // OOMs. Dominant device allocations: positions (12 B/particle, always) + per-particle AABBs
+    // (24 B/particle) only under path-tracing WITHOUT LOD (LOD builds the BVH over occupied cells).
+    // Additive to the LOD-accumulator VRAM cap above -- that sizes the N^3 grid, this sizes the
+    // per-particle buffers.
+    {
+        size_t vram_free = 0, vram_total = 0;
+        checkCuda(cudaMemGetInfo(&vram_free, &vram_total));
+        const bool pt_no_lod = (input.light_model == LightModel::PathTracing) && (input.pt_lod == 0);
+        const unsigned long long bytes_per_particle = 12ull + (pt_no_lod ? 24ull : 0ull);
+        const unsigned long long need = (unsigned long long)n * bytes_per_particle;
+        if (need > (unsigned long long)vram_free) {
+            fprintf(stderr, "benchmark_mimir: %zu particles need %.1f GB but only %.1f GB free\n",
+                    (size_t)n, (double)need/1e9, (double)vram_free/1e9);
+            exit(EXIT_FAILURE);
+        }
+    }
 
     InstanceHandle instance = nullptr;
     createInstance(opts, &instance);
@@ -908,16 +925,9 @@ int main(int argc, char* argv[])
     }
     if (pos.size() >= 2) { input.win_width = std::stoi(pos[0]); input.win_height = std::stoi(pos[1]); }
     if (pos.size() >= 3) {
-        // Element count is 32-bit (mimir view API + Vulkan draw). Validate the full parsed value BEFORE
-        // truncation so a count of 0 or >= 2^32 fails clearly instead of silently wrapping (2^32 -> 0).
-        unsigned long pc = std::stoul(pos[2]);
-        if (pc == 0ul || pc > 0xFFFFFFFFul) {
-            fprintf(stderr, "benchmark_mimir: point count must be in [1, 4294967295]; got %s. A single "
-                            "point cloud counts elements in 32-bit, so ~4.29 B is the ceiling.\n",
-                            pos[2].c_str());
-            exit(EXIT_FAILURE);
-        }
-        input.pts.count = (unsigned int)pc;
+        unsigned long long pc = std::stoull(pos[2]);
+        if (pc == 0ull) { fprintf(stderr, "benchmark_mimir: point count must be >= 1\n"); exit(EXIT_FAILURE); }
+        input.pts.count = (uint64_t)pc;   // no upper cap; memory pre-flight bounds it
     }
     if (pos.size() >= 4)   input.pts.seed  = (uint32_t)std::stoul(pos[3]);
     if (pos.size() >= 5)   input.iter_count = std::stoi(pos[4]);

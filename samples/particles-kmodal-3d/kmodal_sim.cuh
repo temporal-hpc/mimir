@@ -22,7 +22,7 @@
 // this keeps the cheese shape indefinitely while the points still jiggle.
 
 struct PointsParams {
-    unsigned int count   = 1'000'000;
+    uint64_t     count   = 1'000'000;
     uint32_t     seed    = 12345;
     unsigned int k       = 8;      // number of gaussian modes (clusters)
     float        epsilon = 0.05f;  // per-axis stddev of each mode, in domain units
