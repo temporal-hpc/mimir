@@ -14,6 +14,7 @@ target_sources(mimir
         src/gui.cpp
         src/interop.cpp
         src/lod.cpp
+        src/lod_cub.cu
         src/metrics.cpp
         src/pipeline.cpp
         src/raytracing.cpp
@@ -180,3 +181,12 @@ install(
     DIRECTORY "${slang_SOURCE_DIR}/include/"
     DESTINATION include/slang
 )
+
+# Standalone CUB-LOD reduction parity test (Task 1 of the CUB-LOD migration; see
+# .superpowers/sdd/cub-t1-brief.md). EXCLUDE_FROM_ALL so it is NOT built by a plain
+# `cmake --build build` (which builds the `mimir` library); build/run it explicitly with
+# `cmake --build build --target lod_cub_test && ./build/lod_cub_test`.
+add_executable(lod_cub_test EXCLUDE_FROM_ALL tests/lod_cub_test.cu src/lod_cub.cu)
+target_include_directories(lod_cub_test PRIVATE include/private include/public)
+target_link_libraries(lod_cub_test PRIVATE CUDA::cudart)
+set_target_properties(lod_cub_test PROPERTIES CUDA_STANDARD 20 CUDA_ARCHITECTURES native)
