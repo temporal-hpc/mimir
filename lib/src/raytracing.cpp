@@ -4,6 +4,7 @@
 
 #include <algorithm>     // std::max
 #include <cassert>       // assert (LOD single-chunk invariant)
+#include <chrono>        // steady_clock (CPU-time the LOD reduction submit)
 #include <cstring>       // std::memcpy
 #include <cstdlib>       // std::getenv, std::strtoull (MIMIR_PT_BLAS_CHUNK)
 #include <cmath>         // std::sqrt
@@ -1529,8 +1530,13 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     // PT serializes itself (blocking one-shot submit + vkQueueWaitIdle), so a fixed slot 0 of the ringed
     // output buffers is safe -- no two PT reductions are ever in flight at once.
     // recordReduction takes the 64-bit particle_count directly (its scatter pass grid-strides).
+    // CPU wall-clock the blocking reduction (submit + vkQueueWaitIdle drains it): this is the whole
+    // scatter+emit over ALL particles, the LOD "reduction" cost, isolated from the AS build/trace.
+    const auto lod_t0 = std::chrono::steady_clock::now();
     submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address,
         particle_count, /*slot=*/0u); });
+    last_lod_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - lod_t0).count();
     uint32_t occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
     lod_prim_count = occupied;
 

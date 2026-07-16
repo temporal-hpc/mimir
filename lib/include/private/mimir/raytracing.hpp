@@ -268,6 +268,11 @@ struct RayTracingContext
     double last_tlas_ms  = 0.0;   // TLAS rebuild over the per-chunk instances, last frame
     double last_build_ms = 0.0;   // whole AS-build phase = aabb + blas + tlas, last frame
     double last_trace_ms = 0.0;   // vkCmdTraceRays time, last completed frame
+    // LOD reduction (scatter+emit over ALL particles) for the PT path. Unlike the GPU-timestamped
+    // sub-phases above, this is CPU wall-clock of PT's BLOCKING one-shot reduction submit (see
+    // recordLodUpdate) -- so it is the CURRENT frame's value, valid immediately (no FRAMES-frame
+    // readback lag, not gated on have_timings). 0 when LOD is inactive.
+    double last_lod_ms = 0.0;
     BlasBuild last_build_mode = BlasBuild::Skip; // mode of the frame the last_*_ms readings are from
     // False until readTimings first reads real results. For the first FRAMES frames of a session the
     // readback slot has not been written yet, so last_*_ms/last_build_mode are still defaults (0 ms,

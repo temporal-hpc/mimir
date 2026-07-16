@@ -656,7 +656,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         // mode-independent (run identically on refit and rebuild frames), but the BLAS sub-phase is
         // the mode-sensitive part -- a full rebuild is ~2x a refit -- so it is kept per mode. Trace is
         // summed over every traced frame (skips still trace, with ~0 build).
-        double win_aabb_ms = 0.0, win_tlas_ms = 0.0, win_trace_ms = 0.0;
+        double win_aabb_ms = 0.0, win_tlas_ms = 0.0, win_trace_ms = 0.0, win_lod_ms = 0.0;
         double win_refit_blas_ms = 0.0, win_rebuild_blas_ms = 0.0;
         uint64_t win_refit_n = 0, win_rebuild_n = 0, win_skip_n = 0;
 
@@ -928,6 +928,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 win_enc_us += enc_us;
                 win_enc_us_sq += enc_us * enc_us;
                 win_render_ms += render_ms;
+                // LOD reduction (scatter+emit over ALL particles): CPU-timed on PT's blocking submit,
+                // so it is valid every frame (no have_timings gate). This is the piece the render split
+                // otherwise hides -- it is NOT part of the aabb/blas/tlas/trace GPU-timestamp phases.
+                if (rt_enabled) { win_lod_ms += raytracing.last_lod_ms; }
                 // Path tracing exposes a GPU-timestamp split of the render: last_aabb_ms / last_blas_ms /
                 // last_tlas_ms are the three build sub-phases, last_trace_ms the vkCmdTraceRays, and
                 // last_build_mode the mode that produced them. readTimings paired them all from the same
@@ -1055,9 +1059,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                                    + " + tlas " + fmt1(win_tlas_ms / static_cast<double>(build_n));
                     }
                     else { build_part = "no build"; } // window was all skips
-                    char buf[256];
+                    char buf[288];
                     snprintf(buf, sizeof(buf),
-                        " (%s + trace %.1f ms | %llu refit, %llu rebuild, %llu skip)",
+                        " (lod %.1f + %s + trace %.1f ms | %llu refit, %llu rebuild, %llu skip)",
+                        win_lod_ms / static_cast<double>(win_frames),
                         build_part.c_str(),
                         win_trace_ms / static_cast<double>(win_frames),
                         static_cast<unsigned long long>(win_refit_n),
@@ -1097,7 +1102,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
                 win_start = now; win_frames = 0; win_bytes = 0;
                 win_enc_us = 0.0; win_enc_us_sq = 0.0; win_render_ms = 0.0;
-                win_aabb_ms = 0.0; win_tlas_ms = 0.0; win_trace_ms = 0.0;
+                win_aabb_ms = 0.0; win_tlas_ms = 0.0; win_trace_ms = 0.0; win_lod_ms = 0.0;
                 win_refit_blas_ms = 0.0; win_rebuild_blas_ms = 0.0;
                 win_refit_n = 0; win_rebuild_n = 0; win_skip_n = 0;
                 win_start_iter = iters;
