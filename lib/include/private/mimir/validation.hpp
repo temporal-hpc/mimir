@@ -52,6 +52,13 @@ constexpr VkResult checkVulkan(VkResult code, srcloc src = srcloc::current())
         if (code == VK_ERROR_OUT_OF_DEVICE_MEMORY || code == VK_ERROR_OUT_OF_HOST_MEMORY ||
             code == VK_ERROR_DEVICE_LOST)
         {
+            // spdlog is silenced in release builds (level off), so the message above is invisible and
+            // this becomes an opaque SIGABRT. Print the fatal reason straight to stderr so an OOM
+            // (e.g. a grid too large for VRAM, or transient pressure from a not-yet-reclaimed process)
+            // is always diagnosable.
+            fprintf(stderr, "mimir fatal: %s in %s at %s(%u)\n",
+                getVulkanErrorString(code).c_str(), src.function_name(), src.file_name(),
+                static_cast<unsigned>(src.line()));
             std::abort();
         }
     }
