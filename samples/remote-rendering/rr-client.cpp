@@ -235,11 +235,11 @@ std::vector<std::string> hud_lines()
     char l2[192];
     if (!g_hud.have_stats)
     {
-        snprintf(l2, sizeof(l2), "latency  --  ms | --  fps | step --");
+        snprintf(l2, sizeof(l2), "latency  --  ms e2e | --  fps | step --");
     }
     else if (g_hud.step_limit > 0)
     {
-        snprintf(l2, sizeof(l2), "latency %5.1f ms | %4.1f fps | step %llu of %llu (%.1f%%)",
+        snprintf(l2, sizeof(l2), "latency %5.1f ms e2e | %4.1f fps | step %llu of %llu (%.1f%%)",
             g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms, g_hud.fps,
             static_cast<unsigned long long>(g_hud.step),
             static_cast<unsigned long long>(g_hud.step_limit),
@@ -247,7 +247,7 @@ std::vector<std::string> hud_lines()
     }
     else
     {
-        snprintf(l2, sizeof(l2), "latency %5.1f ms | %4.1f fps | step %llu of unlimited",
+        snprintf(l2, sizeof(l2), "latency %5.1f ms e2e | %4.1f fps | step %llu of unlimited",
             g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms, g_hud.fps,
             static_cast<unsigned long long>(g_hud.step));
     }
@@ -265,19 +265,21 @@ std::vector<std::string> hud_lines()
             hud_scale_rate(g_hud.particles_per_sec).c_str());
         lines.push_back(l3);
     }
-    // Pipeline line: where a frame's wall-clock goes. compute + render are the LOCAL GPU cost
-    // (present even in a local run); encode + net + decode are the REMOTE transfer cost that only
-    // exists because the render is remote. net (transmission) is estimated as the end-to-end
-    // latency minus the measured render/encode/decode stages, floored at 0.
+    // Pipeline line: where the time goes. compute (sim ms/step) is a THROUGHPUT number, off the
+    // frame-delivery path (the sim is decoupled; a frame just samples the latest state). render +
+    // encode + network + decode are the components of the end-to-end latency on line 2: render is
+    // the local GPU cost, encode + network + decode are the remote transfer cost. `network` is the
+    // residual latency - render - encode - decode (pure wire transit + frame-boundary wait), floored
+    // at 0 and tilde-marked because it is derived, not measured directly.
     if (g_hud.have_stats)
     {
         const double lat = g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms;
-        const double net_ms = std::max(0.0,
+        const double network_ms = std::max(0.0,
             lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms);
         char l4[192];
         snprintf(l4, sizeof(l4),
-            "compute %.2f ms/step | render %.1f | encode %.1f | net~%.1f | decode %.1f ms",
-            g_hud.compute_ms, g_hud.render_ms, g_hud.encode_ms, net_ms, g_hud.decode_ms);
+            "compute %.2f ms/step | render %.1f | encode %.1f | network~%.1f | decode %.1f ms",
+            g_hud.compute_ms, g_hud.render_ms, g_hud.encode_ms, network_ms, g_hud.decode_ms);
         lines.push_back(l4);
     }
     return lines;
