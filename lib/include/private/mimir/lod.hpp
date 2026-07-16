@@ -58,7 +58,7 @@ public:
     // (callers already guarantee init() runs at most once per instance). active() is true afterwards
     // (grid_n = N > 0).
     void init(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props,
-        bool int64_atomics, uint32_t grid_n, uint32_t particle_count);
+        bool int64_atomics, uint32_t grid_n, uint64_t particle_count);
 
     // Record the reduction for this frame INTO `cmd` (clear -> scatter -> emit), reading the live
     // positions at `positions_addr` (tightly-packed float3, BDA). Writes the reduced positions + the
@@ -74,7 +74,7 @@ public:
     // accumulator is shared across slots, so this records a cross-frame serialize barrier at the START
     // (prior-frame COMPUTE read/write on the accumulator -> this frame's TRANSFER clear) before the
     // clear fill, ordering this reduction after the previous frame's scatter/emit still reading it.
-    void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint32_t particle_count,
+    void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint64_t particle_count,
         uint32_t slot);
 
     // Record the indirect-args build INTO `cmd` for EITHER command layout. The host writes the whole

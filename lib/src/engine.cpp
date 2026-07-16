@@ -220,8 +220,8 @@ void MimirInstance::prepare()
                 {
                     lod_context.init(device, physical_device.memory.memoryProperties,
                         supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
-                        // TODO(Task 5): LodContext::init still takes uint32_t; widen with the LOD context.
-                        static_cast<uint32_t>(std::min<uint64_t>(view->element_count, UINT32_MAX)));
+                        // LodContext::init takes the 64-bit count directly (Task 5).
+                        view->element_count);
                     raytracing.lod = &lod_context;
                     deletors.context.add([this]{ lod_context.destroy(); });
                 }
@@ -277,12 +277,13 @@ void MimirInstance::prepare()
                     .pNext = nullptr, .buffer = pos_buffer, // interop float3 particle positions
                 };
                 lod_raster_pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
-                // TODO(Task 5): lod_raster_count/LodContext::init/recordReduction still take
-                // uint32_t; widen with the LOD context.
+                // init/recordReduction take the 64-bit count directly (Task 5) -- pass particle_count.
+                // lod_raster_count stays a uint32_t member (clamped) for the per-frame raster path and
+                // the setup log; the raster point cloud isn't a >2^32 target.
                 lod_raster_count    = static_cast<uint32_t>(std::min<uint64_t>(particle_count, UINT32_MAX));
                 lod_context.init(device, physical_device.memory.memoryProperties,
                     supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
-                    lod_raster_count);
+                    particle_count);
                 deletors.context.add([this]{ lod_context.destroy(); });
 
                 // One-time reduction + occupied-count log at setup (mirrors the path tracer's
@@ -290,7 +291,7 @@ void MimirInstance::prepare()
                 // (renderFrame only runs once a client connects). A single blocking submit + readback
                 // here; the per-frame raster path (recordLodRaster) never reads back -- no stall.
                 immediateSubmit([&](VkCommandBuffer c) {
-                    lod_context.recordReduction(c, lod_raster_pos_addr, lod_raster_count, /*slot=*/0u);
+                    lod_context.recordReduction(c, lod_raster_pos_addr, particle_count, /*slot=*/0u);
                 });
                 uint32_t occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
                 const char* mode_name = options.light_model == LightModel::None ? "none"

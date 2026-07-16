@@ -75,8 +75,11 @@ void destroyBuffer(VkDevice device, RtBuffer& buf)
 struct LodScatterPush
 {
     VkDeviceAddress positions; VkDeviceAddress cellCounts; VkDeviceAddress cellSums;
-    uint32_t count; uint32_t gridN; uint32_t centroid;
+    uint64_t count; uint32_t gridN; uint32_t centroid; uint32_t stride;
 };
+// Must match PushConstants in pathtrace_lod_scatter.slang: 3*8 (BDA) + 8 (count) + 4+4+4 = 44,
+// padded to 48 by the 8-byte alignment of the uint64_t member. vkCmdPushConstants pushes sizeof.
+static_assert(sizeof(LodScatterPush) == 48, "LodScatterPush layout must match the shader push block");
 // Push constants for pathtrace_lod_emit.slang: reduced-position output, per-cell count, and per-cell
 // sum as BDA pointers, then grid resolution and the centroid flag. Only the small global emit counter
 // stays a descriptor (binding 0). The representative RADIUS is no longer here -- emit writes centroid
@@ -99,7 +102,7 @@ struct LodIndirectPush
 } // namespace
 
 void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
-    bool int64_atomics, uint32_t grid, uint32_t particle_count)
+    bool int64_atomics, uint32_t grid, uint64_t particle_count)
 {
     device    = dev;
     mem_props = mp;
@@ -225,7 +228,7 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
 }
 
 void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr,
-    uint32_t particle_count, uint32_t slot)
+    uint64_t particle_count, uint32_t slot)
 {
     // Record-only: the clear -> scatter -> emit passes go into `cmd`; the caller executes it (raster
     // inline in the frame cmd; PT in its own one-shot submit so it can readCount()). No internal
@@ -260,11 +263,17 @@ void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         0, 1, &clr, 0, nullptr, 0, nullptr);
 
+    // Bounded dispatch + 64-bit grid-stride: cap groups so total threads <= 2^31 (tid.x < 2^32) and
+    // the stride fits a uint32; the scatter shader loops over the full 64-bit particle_count.
+    const uint32_t kMaxGroups = 1u << 25;
+    uint32_t groups = (uint32_t)std::min<uint64_t>((particle_count + 63) / 64, kMaxGroups);
+    if (groups == 0) groups = 1;
     LodScatterPush sp{ .positions = positions_addr, .cellCounts = cellcount_buffer.address,
-        .cellSums = cellsum_addr, .count = particle_count, .gridN = grid_n, .centroid = centroid_flag };
+        .cellSums = cellsum_addr, .count = particle_count, .gridN = grid_n,
+        .centroid = centroid_flag, .stride = groups * 64u };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, scatter_pipeline);
     vkCmdPushConstants(cmd, scatter_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sp), &sp);
-    vkCmdDispatch(cmd, (particle_count + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, groups, 1, 1);
 
     VkMemoryBarrier s2e{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,

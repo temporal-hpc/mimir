@@ -678,9 +678,12 @@ struct AabbWriterPush
 {
     VkDeviceAddress aabbs;     // BDA pointer to the AABB output buffer (offset 0, 8-byte aligned)
     VkDeviceAddress positions; // BDA pointer to the interop positions (offset 8)
-    uint32_t count;
+    uint64_t count;            // 64-bit particle count
     float radius;
+    uint32_t stride;           // total dispatched threads (grid-stride step) = groups * 64
 };
+// Must match PushConstants in pathtrace_aabbs.slang: 2*8 (BDA) + 8 (count) + 4 (radius) + 4 (stride).
+static_assert(sizeof(AabbWriterPush) == 32, "AabbWriterPush layout must match the shader push block");
 
 void createAabbWriter(RayTracingContext& ctx)
 {
@@ -1423,18 +1426,20 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
 
     // 1) AABB writer: fill the shared AABB buffer from the live positions (one sphere per particle).
     // Both buffers are BDA pointers in the push constants, so there is no descriptor set to bind.
+    // Bounded dispatch + 64-bit grid-stride: cap the group count so total threads <= 2^31 (tid.x <
+    // 2^32) and the stride fits a uint32; the shader loops over the full 64-bit particle_count.
+    const uint32_t kMaxGroups = 1u << 25;   // 2^25 groups * 64 = 2^31 threads max (fits uint32 stride)
+    uint32_t groups = (uint32_t)std::min<uint64_t>((particle_count + 63) / 64, kMaxGroups);
+    if (groups == 0) groups = 1;
     AabbWriterPush push{
         .aabbs = aabb_buffer.address,
         .positions = position_address,
-        // Task 5: 64-bit count + grid-stride (shader/struct widen there).
-        .count = (uint32_t)std::min<uint64_t>(particle_count, UINT32_MAX), .radius = particle_radius,
+        .count = (uint64_t)particle_count, .radius = particle_radius, .stride = groups * 64u,
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
     vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
         0, sizeof(push), &push);
-    // Dispatch count derives from push.count (already clamped above), not the raw 64-bit
-    // particle_count -- consistent with the AABB writer's actual iteration bound until Task 5.
-    vkCmdDispatch(cmd, (push.count + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, groups, 1, 1);
 
     // Barrier: compute writes -> BLAS build reads the AABB buffer.
     VkMemoryBarrier to_build{
@@ -1523,9 +1528,9 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     // reduced positions live in lod->reducedPositionsBuffer().
     // PT serializes itself (blocking one-shot submit + vkQueueWaitIdle), so a fixed slot 0 of the ringed
     // output buffers is safe -- no two PT reductions are ever in flight at once.
-    // Task 5: recordReduction's particle_count param widens to uint64_t there; remove this cast then.
+    // recordReduction takes the 64-bit particle_count directly (its scatter pass grid-strides).
     submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address,
-        (uint32_t)std::min<uint64_t>(particle_count, UINT32_MAX), /*slot=*/0u); });
+        particle_count, /*slot=*/0u); });
     uint32_t occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
     lod_prim_count = occupied;
 
@@ -1550,14 +1555,19 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     // representative radius scales with the view's --size (lod->sphereRadius); at the reference --size
     // it equals the old cell-fill radius, so the default look is unchanged. Both buffers are BDA
     // push-constant pointers -- no descriptor set to bind.
+    // Bounded dispatch + grid-stride, same as the non-LOD writer. `occupied` <= N^3 < 2^32 so groups
+    // never hits kMaxGroups here, but the push must still carry `count` (64-bit) and `stride`.
+    const uint32_t kMaxGroups = 1u << 25;
+    uint32_t groups = (uint32_t)std::min<uint64_t>((occupied + 63) / 64, kMaxGroups);
+    if (groups == 0) groups = 1;
     AabbWriterPush push{
         .aabbs = aabb_buffer.address,
         .positions = lod->reducedPositionsAddress(/*slot=*/0u),
-        .count = occupied, .radius = lod->sphereRadius(particle_radius),
+        .count = (uint64_t)occupied, .radius = lod->sphereRadius(particle_radius), .stride = groups * 64u,
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
     vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-    vkCmdDispatch(cmd, (occupied + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, groups, 1, 1);
 
     // Barrier: AABB-writer compute writes -> BLAS build reads the AABB buffer.
     VkMemoryBarrier emit_to_build{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
