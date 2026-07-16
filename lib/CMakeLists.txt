@@ -14,7 +14,7 @@ target_sources(mimir
         src/gui.cpp
         src/interop.cpp
         src/lod.cpp
-        src/lod_cub.cu
+        src/lod_reduce.cu
         src/metrics.cpp
         src/pipeline.cpp
         src/raytracing.cpp
@@ -182,11 +182,10 @@ install(
     DESTINATION include/slang
 )
 
-# Standalone CUB-LOD reduction parity test (Task 1 of the CUB-LOD migration; see
-# .superpowers/sdd/cub-t1-brief.md). EXCLUDE_FROM_ALL so it is NOT built by a plain
-# `cmake --build build` (which builds the `mimir` library); build/run it explicitly with
-# `cmake --build build --target lod_cub_test && ./build/lod_cub_test`.
-add_executable(lod_cub_test EXCLUDE_FROM_ALL tests/lod_cub_test.cu src/lod_cub.cu)
-target_include_directories(lod_cub_test PRIVATE include/private include/public)
-target_link_libraries(lod_cub_test PRIVATE CUDA::cudart)
-set_target_properties(lod_cub_test PROPERTIES CUDA_STANDARD 20 CUDA_ARCHITECTURES native)
+# Standalone custom-CUDA LOD reduction parity test (Task 1 of the LOD custom-CUDA rewrite; see
+# .superpowers/sdd/task-1-brief.md). Build/run explicitly with
+# `cmake --build build --target lod_reduce_test && ./build/lod_reduce_test`.
+add_executable(lod_reduce_test tests/lod_reduce_test.cu src/lod_reduce.cu)
+target_include_directories(lod_reduce_test PRIVATE include/private include/public)
+target_link_libraries(lod_reduce_test PRIVATE CUDA::cudart)
+set_target_properties(lod_reduce_test PROPERTIES CUDA_STANDARD 20 CUDA_ARCHITECTURES native)

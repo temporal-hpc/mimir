@@ -1,12 +1,15 @@
-// Parity test for LodCub (Task 1 of the CUB-LOD migration): generates a deterministic host point
-// cloud, runs LodCub::reduce on the GPU, and compares the occupied-cell count + representative
-// positions against a CPU reference that bins the same points with the identical domain mapping.
-// Run for BOTH centroid=true and centroid=false placements. See .superpowers/sdd/cub-t1-brief.md.
+// Parity test for LodReduce (Task 1 of the custom-CUDA LOD rewrite): generates a deterministic
+// host point cloud, runs LodReduce::reduce on the GPU, and compares the occupied-cell count +
+// representative positions against a CPU reference that bins the same points with the identical
+// domain mapping. Run for BOTH centroid=true and centroid=false placements, and check that
+// reducing the same input twice yields an identical occupied count and reduced set (determinism).
+// See .superpowers/sdd/task-1-brief.md.
 
-#include "mimir/lod_cub.hpp"
+#include "mimir/lod_reduce.hpp"
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -130,7 +133,44 @@ CpuRef cpuReduce(const std::vector<float>& pts, uint32_t N, bool centroid)
     return ref;
 }
 
-// Run LodCub for one placement and compare against the CPU reference. Returns true on success.
+// Runs LodReduce::reduce once and downloads (occupied count, reduced positions) to the host.
+bool runReduceOnce(mimir::LodReduce& lod, cudaStream_t stream, const float* positions_dev,
+                    uint64_t n, float* reduced_pos_dev, uint32_t* occupied_dev,
+                    uint32_t* occupied_out, std::vector<float>* reduced_out)
+{
+    lod.reduce(stream, positions_dev, n, reduced_pos_dev, occupied_dev);
+    checkCuda(cudaStreamSynchronize(stream), "stream sync");
+
+    uint32_t occupied = 0;
+    checkCuda(cudaMemcpy(&occupied, occupied_dev, sizeof(uint32_t), cudaMemcpyDeviceToHost),
+              "memcpy occupied");
+    reduced_out->assign(static_cast<size_t>(occupied) * 3, 0.0f);
+    if (occupied > 0)
+    {
+        checkCuda(cudaMemcpy(reduced_out->data(), reduced_pos_dev, reduced_out->size() * sizeof(float),
+                              cudaMemcpyDeviceToHost), "memcpy reduced");
+    }
+    *occupied_out = occupied;
+    return true;
+}
+
+// Sorts the (occupied*3)-sized flat reduced-position buffer into a list of float3 tuples, sorted
+// lexicographically, so two runs whose slot order differs (atomicAdd-appended, not deterministic
+// in slot index) can still be compared for set-equality.
+std::vector<std::array<float, 3>> sortedReps(const std::vector<float>& flat)
+{
+    std::vector<std::array<float, 3>> reps(flat.size() / 3);
+    for (size_t k = 0; k < reps.size(); ++k)
+    {
+        reps[k] = {flat[k * 3 + 0], flat[k * 3 + 1], flat[k * 3 + 2]};
+    }
+    std::sort(reps.begin(), reps.end());
+    return reps;
+}
+
+// Run LodReduce for one placement and compare against the CPU reference. Also checks that
+// reducing the same input twice through the same LodReduce instance yields an identical occupied
+// count and identical (sorted) reduced set. Returns true on success.
 bool runCase(const std::vector<float>& pts, uint32_t gridN, bool centroid)
 {
     uint64_t n = pts.size() / 3;
@@ -149,32 +189,20 @@ bool runCase(const std::vector<float>& pts, uint32_t gridN, bool centroid)
     cudaStream_t stream = nullptr;
     checkCuda(cudaStreamCreate(&stream), "stream create");
 
-    mimir::LodCub lod(n, gridN, centroid);
-    lod.reduce(stream, positions_dev, n, reduced_pos_dev, occupied_dev);
-    checkCuda(cudaStreamSynchronize(stream), "stream sync");
-
-    uint32_t occupied = 0;
-    checkCuda(cudaMemcpy(&occupied, occupied_dev, sizeof(uint32_t), cudaMemcpyDeviceToHost),
-              "memcpy occupied");
-    std::vector<float> reduced(static_cast<size_t>(occupied) * 3);
-    if (occupied > 0)
-    {
-        checkCuda(cudaMemcpy(reduced.data(), reduced_pos_dev, reduced.size() * sizeof(float),
-                              cudaMemcpyDeviceToHost), "memcpy reduced");
-    }
-
-    checkCuda(cudaStreamDestroy(stream), "stream destroy");
-    cudaFree(positions_dev);
-    cudaFree(reduced_pos_dev);
-    cudaFree(occupied_dev);
+    mimir::LodReduce lod(n, gridN, centroid);
 
     const char* label = centroid ? "centroid=true" : "centroid=false";
+    bool ok = true;
 
-    if (occupied != ref.occupied)
+    uint32_t occupied1 = 0;
+    std::vector<float> reduced1;
+    runReduceOnce(lod, stream, positions_dev, n, reduced_pos_dev, occupied_dev, &occupied1, &reduced1);
+
+    if (occupied1 != ref.occupied)
     {
         std::fprintf(stderr, "[%s] FAIL: occupied count mismatch: gpu=%u cpu=%u\n",
-                     label, occupied, ref.occupied);
-        return false;
+                     label, occupied1, ref.occupied);
+        ok = false;
     }
 
     float cellSize = 2.0f / static_cast<float>(gridN);
@@ -184,21 +212,23 @@ bool runCase(const std::vector<float>& pts, uint32_t gridN, bool centroid)
     // centroid/center within tolerance. Match by the cell the GPU representative itself falls into
     // (recomputing its cell id), since GPU/CPU emit order need not match.
     std::map<uint32_t, bool> seen;
-    for (uint32_t k = 0; k < occupied; ++k)
+    for (uint32_t k = 0; k < occupied1; ++k)
     {
-        const float* rp = &reduced[static_cast<size_t>(k) * 3];
+        const float* rp = &reduced1[static_cast<size_t>(k) * 3];
         uint32_t lin = linearCell(rp, gridN);
         auto it = ref.reps.find(lin);
         if (it == ref.reps.end())
         {
             std::fprintf(stderr, "[%s] FAIL: gpu rep %u at cell %u is not an occupied cell in the "
                          "CPU reference\n", label, k, lin);
-            return false;
+            ok = false;
+            continue;
         }
         if (seen.count(lin))
         {
             std::fprintf(stderr, "[%s] FAIL: cell %u produced by GPU more than once\n", label, lin);
-            return false;
+            ok = false;
+            continue;
         }
         seen[lin] = true;
         const auto& cpuRep = it->second;
@@ -209,7 +239,7 @@ bool runCase(const std::vector<float>& pts, uint32_t gridN, bool centroid)
             {
                 std::fprintf(stderr, "[%s] FAIL: cell %u axis %d mismatch: gpu=%f cpu=%f diff=%g "
                              "tol=%g\n", label, lin, axis, rp[axis], cpuRep[static_cast<size_t>(axis)], diff, tol);
-                return false;
+                ok = false;
             }
         }
     }
@@ -217,11 +247,44 @@ bool runCase(const std::vector<float>& pts, uint32_t gridN, bool centroid)
     {
         std::fprintf(stderr, "[%s] FAIL: gpu emitted %zu distinct cells, cpu reference has %zu\n",
                      label, seen.size(), ref.reps.size());
-        return false;
+        ok = false;
     }
 
-    std::printf("[%s] PASS: occupied=%u matches CPU reference (tol=%g)\n", label, occupied, tol);
-    return true;
+    // Determinism check: reduce the same input again through the same LodReduce instance and
+    // compare (occupied count + sorted reduced set) against the first run.
+    uint32_t occupied2 = 0;
+    std::vector<float> reduced2;
+    runReduceOnce(lod, stream, positions_dev, n, reduced_pos_dev, occupied_dev, &occupied2, &reduced2);
+
+    if (occupied2 != occupied1)
+    {
+        std::fprintf(stderr, "[%s] FAIL: determinism: occupied count differs between runs: "
+                     "run1=%u run2=%u\n", label, occupied1, occupied2);
+        ok = false;
+    }
+    else
+    {
+        auto sorted1 = sortedReps(reduced1);
+        auto sorted2 = sortedReps(reduced2);
+        if (sorted1 != sorted2)
+        {
+            std::fprintf(stderr, "[%s] FAIL: determinism: sorted reduced set differs between runs\n",
+                         label);
+            ok = false;
+        }
+    }
+
+    checkCuda(cudaStreamDestroy(stream), "stream destroy");
+    cudaFree(positions_dev);
+    cudaFree(reduced_pos_dev);
+    cudaFree(occupied_dev);
+
+    if (ok)
+    {
+        std::printf("[%s] PASS: occupied=%u matches CPU reference (tol=%g); determinism OK\n",
+                    label, occupied1, tol);
+    }
+    return ok;
 }
 
 } // namespace
@@ -239,9 +302,9 @@ int main()
 
     if (!ok)
     {
-        std::fprintf(stderr, "lod_cub_test: FAILED\n");
+        std::fprintf(stderr, "lod_reduce_test: FAILED\n");
         return 1;
     }
-    std::printf("lod_cub_test: ALL PASS\n");
+    std::printf("lod_reduce_test: ALL PASS\n");
     return 0;
 }
