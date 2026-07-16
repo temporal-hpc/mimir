@@ -278,7 +278,7 @@ std::vector<std::string> hud_lines()
             lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms);
         char l4[192];
         snprintf(l4, sizeof(l4),
-            "compute %.2f ms/step | render %.1f | encode %.1f | network~%.1f | decode %.1f ms",
+            "compute %.2f ms/step | render %.1f ms | encode %.1f ms | network~%.1f ms | decode %.1f ms",
             g_hud.compute_ms, g_hud.render_ms, g_hud.encode_ms, network_ms, g_hud.decode_ms);
         lines.push_back(l4);
     }
