@@ -362,11 +362,19 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     size_t particle_total = 0;
     for (auto *v : views) { if (v != nullptr) { particle_total += v->element_count; } }
 
+    // LOD reduction mode for this run (static): 0 = native (per-particle), N = an N^3 voxel grid.
+    // Logged once here and sent to the client HUD in the Hello.
+    const uint32_t lod_cells = options.pt_lod_cells;
+    char lod_label[24];
+    if (lod_cells == 0) { std::snprintf(lod_label, sizeof(lod_label), "native"); }
+    else                { std::snprintf(lod_label, sizeof(lod_label), "%u^3", lod_cells); }
+
     // One-shot honest footprint: prepare() has now built everything, including the path-tracing
     // BVH + instance buffers that the pre-serve startup estimate in rr-server is taken before and
     // therefore misses entirely. This is the real whole-device number; the heartbeat/stats lines
     // refresh it as the run proceeds.
-    spdlog::info("remote: GPU memory after setup: {} ({} particles)", formatVram(), particle_total);
+    spdlog::info("remote: GPU memory after setup: {} ({} particles, LOD {})",
+        formatVram(), particle_total, lod_label);
 
     // Frame/simulation coupling. Decoupled (steps_per_frame <= 0): the sim runs on its own
     // thread and frames sample the latest state — the viewer never slows the run. Lockstep
@@ -450,6 +458,20 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     // of not slowing the science. TogglePause (from the viewer) pauses only this thread; the
     // consumer keeps streaming the frozen state (and the path tracer converges while paused).
     // In lockstep mode no thread is spawned: the consumer drives compute() inline instead.
+    // Wall-clock accumulator for the sim's compute() step time (the "kernel compute time"). Every
+    // compute() call site funnels through timed_compute, so the [sim]/[stats] lines and the client
+    // HUD can report the mean per-step time over their window (delta ns / delta steps).
+    std::atomic<uint64_t> compute_ns_total{0};
+    auto timed_compute = [&]()
+    {
+        const auto c0 = std::chrono::steady_clock::now();
+        compute();
+        compute_ns_total.fetch_add(static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - c0).count()),
+            std::memory_order_relaxed);
+    };
+
     std::atomic<bool> sim_stop{false};
     std::atomic<bool> sim_paused{false};
     std::thread sim_thread;
@@ -465,7 +487,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     std::this_thread::sleep_for(std::chrono::milliseconds(2));
                     continue;
                 }
-                compute();
+                timed_compute();
                 total_iter.fetch_add(1, std::memory_order_release);
             }
         });
@@ -481,6 +503,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     constexpr auto kSimLogPeriod = std::chrono::seconds(2);
     auto sim_log_time  = std::chrono::steady_clock::now();
     size_t sim_log_iter = total_iter.load();
+    uint64_t sim_log_compute_ns = compute_ns_total.load(std::memory_order_relaxed);
 
     while (!stop)
     {
@@ -495,7 +518,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         {
             if (!decoupled && !(max_iters != 0 && total_iter.load() >= max_iters))
             {
-                compute();
+                timed_compute();
                 total_iter.fetch_add(1, std::memory_order_release);
             }
             const size_t iters = total_iter.load(std::memory_order_acquire);
@@ -507,20 +530,27 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const std::string prate = formatParticleRate(rate * static_cast<double>(particle_total));
                 const std::string pcount = formatParticleCount(particle_total);
                 const std::string vram = formatVram();
+                // Mean sim compute() time per step over this heartbeat window (the kernel compute
+                // time), from the ns accumulator divided by the steps taken in the window.
+                const uint64_t cn_now = compute_ns_total.load(std::memory_order_relaxed);
+                const size_t   d_iter = iters - sim_log_iter;
+                const double   compute_ms = d_iter
+                    ? static_cast<double>(cn_now - sim_log_compute_ns) / static_cast<double>(d_iter) / 1e6 : 0.0;
                 if (max_iters != 0)
                 {
-                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {} particles | {:.0f} steps/s | {} | {} | no viewer",
+                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {} particles | {:.0f} steps/s ({:.2f} ms/step) | {} | {} | no viewer",
                         iters, max_iters,
                         100.0 * static_cast<double>(iters) / static_cast<double>(max_iters),
-                        pcount, rate, prate, vram);
+                        pcount, rate, compute_ms, prate, vram);
                 }
                 else
                 {
-                    spdlog::info("[sim] step {} | {} particles | {:.0f} steps/s | {} | {} | no viewer",
-                        iters, pcount, rate, prate, vram);
+                    spdlog::info("[sim] step {} | {} particles | {:.0f} steps/s ({:.2f} ms/step) | {} | {} | no viewer",
+                        iters, pcount, rate, compute_ms, prate, vram);
                 }
                 sim_log_time = sim_now;
                 sim_log_iter = iters;
+                sim_log_compute_ns = cn_now;
             }
             // Decoupled mode busy-waits on the accept poll, so yield a moment; lockstep is
             // already paced by the inline compute() above.
@@ -541,7 +571,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             const std::string path = remote::benchmarkCsvPath(
                 stats_csv, "server", transport->peerName(), server_host, server_gpu);
             csv = fopen(path.c_str(), "w");
-            if (csv) { fprintf(csv, "time_s,frame,fps,steps_s,kbps,encode_ms\n"); fflush(csv);
+            if (csv) { fprintf(csv, "time_s,frame,fps,steps_s,kbps,encode_ms,compute_ms,render_ms\n"); fflush(csv);
                        spdlog::info("remote: benchmark CSV -> {}", path); }
             else { spdlog::warn("remote: cannot open stats csv '{}'", path); }
         }
@@ -575,6 +605,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             .host   = {},
             .flags  = fly ? remote::HELLO_CAMERA_FLY : 0u, // tell the client to drive a Fly camera
             .gpu    = {},
+            .lod_cells = lod_cells,   // LOD mode for the client HUD (0 = native, N = N^3 grid)
         };
         fillServerIdentity(hello);
         if (!transport->sendVideo(&hello, sizeof(hello))) { continue; } // client vanished; re-listen
@@ -615,6 +646,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         auto win_start = std::chrono::steady_clock::now();
         size_t win_frames = 0, win_bytes = 0, session_frames = 0;
         size_t win_start_iter = total_iter.load(); // sim step count at the window's start
+        uint64_t win_start_compute_ns = compute_ns_total.load(std::memory_order_relaxed);
         double win_enc_us = 0.0, win_enc_us_sq = 0.0; // sum and sum-of-squares, for mean + std
         double win_render_ms = 0.0;                   // sum of per-frame GPU render time, for the mean
         // Path-tracing GPU-timestamp split, bucketed by the readback frame's actual build mode so the
@@ -752,6 +784,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         .host   = {},
                         .flags  = fly ? remote::HELLO_CAMERA_FLY : 0u,
                         .gpu    = {},
+                        .lod_cells = lod_cells,
                     };
                     fillServerIdentity(rehello);
                     remote::FrameHeader hh{ .size = static_cast<uint32_t>(sizeof(rehello)),
@@ -780,7 +813,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 for (int s = 0; s < steps_per_frame; ++s)
                 {
                     if (max_iters != 0 && total_iter.load() >= max_iters) { stop = true; break; }
-                    compute();
+                    timed_compute();
                     total_iter.fetch_add(1, std::memory_order_relaxed);
                 }
                 pt_scene_dirty = true; // the sim moved, so reset the path-trace accumulator
@@ -938,6 +971,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .encode_std_us = static_cast<uint32_t>(std::sqrt(std::max(0.0, enc_var))),
                     .particle_count = 0,     // filled below, once sps is known
                     .particles_per_sec = 0,
+                    .compute_us = 0,         // filled below (sim step + GPU render times)
+                    .render_us  = 0,
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
                 // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
@@ -950,6 +985,13 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const double sps = static_cast<double>(iters - win_start_iter) / elapsed;
                 st.particle_count = particle_total;
                 st.particles_per_sec = static_cast<uint64_t>(sps * static_cast<double>(particle_total));
+                // Mean sim compute() time per step over this window (the kernel compute time).
+                const uint64_t cn_now = compute_ns_total.load(std::memory_order_relaxed);
+                const size_t   d_iter = iters - win_start_iter;
+                const double   compute_ms = d_iter
+                    ? static_cast<double>(cn_now - win_start_compute_ns) / static_cast<double>(d_iter) / 1e6 : 0.0;
+                st.compute_us = static_cast<uint32_t>(compute_ms * 1000.0);
+                st.render_us  = static_cast<uint32_t>(render_mean * 1000.0); // server GPU render/frame
                 char step_str[64];
                 if (max_iters != 0)
                 {
@@ -1021,10 +1063,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         static_cast<unsigned long long>(win_skip_n));
                     rt_split = buf;
                 }
-                spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}) | frame {:6d} | {:5.1f} fps | "
+                spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}, {:.2f} ms/step) | frame {:6d} | {:5.1f} fps | "
                     "{:6d} kbps | {:5.2f} ms render{} | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {}",
                     step_str,
-                    pcount, sps, prate,
+                    pcount, sps, prate, compute_ms,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
@@ -1037,10 +1079,12 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     vram);
                 if (csv)
                 {
-                    fprintf(csv, "%.3f,%u,%.1f,%.1f,%u,%.3f\n",
+                    fprintf(csv, "%.3f,%u,%.1f,%.1f,%u,%.3f,%.3f,%.3f\n",
                         std::chrono::duration<double>(now - serve_start).count(),
                         st.frames, static_cast<double>(st.fps_milli) / 1000.0, sps, st.kbps,
-                        static_cast<double>(st.encode_us) / 1000.0);
+                        static_cast<double>(st.encode_us) / 1000.0,
+                        static_cast<double>(st.compute_us) / 1000.0,
+                        render_mean);
                     fflush(csv);
                 }
                 remote::FrameHeader sh{ .size = static_cast<uint32_t>(sizeof(st)),
@@ -1055,6 +1099,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 win_refit_blas_ms = 0.0; win_rebuild_blas_ms = 0.0;
                 win_refit_n = 0; win_rebuild_n = 0; win_skip_n = 0;
                 win_start_iter = iters;
+                win_start_compute_ns = cn_now;
             }
         }
 

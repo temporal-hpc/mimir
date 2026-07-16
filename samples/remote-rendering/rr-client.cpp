@@ -11,8 +11,10 @@
 // that keeps a remote viewer simple and the server's render cost fixed.
 //
 // A minimal HUD overlay in the top-left corner (toggle with H) shows where the simulation runs
-// (user@host:port, transport, codec), the end-to-end latency, the stream fps, and the sim
-// progress (step x of y, or unlimited). Other keys: P pauses the simulation, Q/Esc/Ctrl+W quit.
+// (user@host:port, transport, codec), the end-to-end latency, the stream fps, the sim progress
+// (step x of y, or unlimited), the scene size + LOD mode, and a pipeline breakdown of where a
+// frame's time goes: compute + render (local GPU cost) vs. encode + net + decode (remote transfer
+// cost). Other keys: P pauses the simulation, Q/Esc/Ctrl+W quit.
 //
 // Depends only on the wire-protocol header + ffmpeg + GLFW/OpenGL (no mimir, CUDA, or Vulkan):
 // it models a laptop-class thin client. QUIC (ngtcp2 + OpenSSL) is an optional compile-time
@@ -153,6 +155,13 @@ struct Hud
     uint64_t step_limit = 0;        // steps the server stops at (0 = unlimited)
     uint64_t particle_count = 0;    // particles the sim advances (0 = older server, hidden in HUD)
     uint64_t particles_per_sec = 0; // current sim throughput (particle_count * steps/s)
+    uint32_t lod_cells = 0;         // LOD mode from the Hello: 0 = native, N = N^3 voxel grid
+    // Real-time pipeline stage times, so the HUD shows where a frame's wall-clock goes: local
+    // GPU cost (compute + render) vs. the remote transfer cost (encode + network + decode).
+    double compute_ms = 0.0;        // server: mean sim compute() time per step
+    double render_ms = 0.0;         // server: mean GPU render/trace time per frame
+    double encode_ms = 0.0;         // server: mean encode (or readback) time per frame
+    double decode_ms = 0.0;         // client: mean decode time per frame (measured here)
     bool have_stats = false;        // first Stats message arrived
     std::atomic<bool> visible{true};
 };
@@ -192,6 +201,7 @@ void hud_set_server(const Hello& hello, const char *transport)
         hello.width, hello.height, gpu[0] ? "  |  " : "", gpu);
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     g_hud.server = line;
+    g_hud.lod_cells = hello.lod_cells; // 0 = native, N = N^3 grid (shown on the particle line)
 }
 
 // Human-scaled count (K/M/G) and per-second rate for the particle HUD line, mirroring the
@@ -242,15 +252,33 @@ std::vector<std::string> hud_lines()
             static_cast<unsigned long long>(g_hud.step));
     }
     lines.push_back(l2);
-    // Particle line: scene size + sim throughput. Only when the server reported it (0 =
+    // Particle line: scene size + LOD mode + sim throughput. Only when the server reported it (0 =
     // older server without the fields, or a viewer-only session with no particles).
     if (g_hud.have_stats && g_hud.particle_count > 0)
     {
-        char l3[128];
-        snprintf(l3, sizeof(l3), "%s particles | %s",
-            hud_scale_count(g_hud.particle_count).c_str(),
+        char lodbuf[16];
+        if (g_hud.lod_cells == 0) { snprintf(lodbuf, sizeof(lodbuf), "native"); }
+        else { snprintf(lodbuf, sizeof(lodbuf), "%u^3", g_hud.lod_cells); }
+        char l3[160];
+        snprintf(l3, sizeof(l3), "%s particles | LOD %s | %s",
+            hud_scale_count(g_hud.particle_count).c_str(), lodbuf,
             hud_scale_rate(g_hud.particles_per_sec).c_str());
         lines.push_back(l3);
+    }
+    // Pipeline line: where a frame's wall-clock goes. compute + render are the LOCAL GPU cost
+    // (present even in a local run); encode + net + decode are the REMOTE transfer cost that only
+    // exists because the render is remote. net (transmission) is estimated as the end-to-end
+    // latency minus the measured render/encode/decode stages, floored at 0.
+    if (g_hud.have_stats)
+    {
+        const double lat = g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms;
+        const double net_ms = std::max(0.0,
+            lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms);
+        char l4[192];
+        snprintf(l4, sizeof(l4),
+            "compute %.2f ms/step | render %.1f | encode %.1f | net~%.1f | decode %.1f ms",
+            g_hud.compute_ms, g_hud.render_ms, g_hud.encode_ms, net_ms, g_hud.decode_ms);
+        lines.push_back(l4);
     }
     return lines;
 }
@@ -483,7 +511,7 @@ void bench_csv_open(const Hello& hello)
         server[0] ? server : g_dial_host, gpu);
     g_csv = fopen(path.c_str(), "w");
     if (!g_csv) { fprintf(stderr, "cannot open csv log '%s'\n", path.c_str()); return; }
-    fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,decode_ms,decode_ms_std,"
+    fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,compute_ms,render_ms,decode_ms,decode_ms_std,"
         "lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase\n");
     fflush(g_csv);
     printf("rr-client: benchmark CSV -> %s\n", path.c_str());
@@ -688,9 +716,10 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
         {
             const char *phase = g_phase.load();
             if (phase[0] == '\0') { phase = ctrl > 0 ? "move" : "idle"; }
-            fprintf(g_csv, "%.3f,%.1f,%u,%.3f,%.3f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f,%zu,%u,%s\n",
+            fprintf(g_csv, "%.3f,%.1f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f,%zu,%u,%s\n",
                 now_ms() / 1000.0, st.fps_milli / 1000.0, st.kbps,
-                st.encode_us / 1000.0, st.encode_std_us / 1000.0, dec_ms, dec_std,
+                st.encode_us / 1000.0, st.encode_std_us / 1000.0,
+                st.compute_us / 1000.0, st.render_us / 1000.0, dec_ms, dec_std,
                 lat_mean, lat_std, lat_p50, lat_p95, lat_max, dec.lost, ctrl, phase);
             fflush(g_csv);
         }
@@ -704,6 +733,10 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             g_hud.step_limit = st.step_limit;
             g_hud.particle_count     = st.particle_count;
             g_hud.particles_per_sec  = st.particles_per_sec;
+            g_hud.compute_ms = st.compute_us / 1000.0; // server sim step time
+            g_hud.render_ms  = st.render_us / 1000.0;  // server GPU render time
+            g_hud.encode_ms  = st.encode_us / 1000.0;  // server encode/readback time
+            g_hud.decode_ms  = dec_ms;                 // client decode time (measured above)
             g_hud.have_stats = true;
         }
         return;

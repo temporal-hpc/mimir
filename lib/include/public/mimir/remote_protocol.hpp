@@ -96,6 +96,9 @@ struct Hello
     char     host[HOST_MAX];
     uint32_t flags;  // HelloFlags (e.g. HELLO_CAMERA_FLY); 0 = trackball/orbit session
     char     gpu[GPU_MAX]; // GPU model rendering/encoding the stream (HUD); NUL-padded, may be empty
+    // LOD reduction mode for this session (static): 0 = native (per-particle), N = an N^3 voxel
+    // grid, one representative per occupied cell. The client shows it in the HUD.
+    uint32_t lod_cells;
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
@@ -142,6 +145,14 @@ struct Stats
     // in particles/sec, so the client HUD can show scene size and sim throughput.
     uint64_t particle_count;
     uint64_t particles_per_sec;
+    // Appended (same forward-compat rule -- zero when absent). Mean wall-clock time of one sim
+    // compute() step over the reporting window, microseconds: the "kernel compute time" shown live
+    // in the client HUD and the server logs. 0 = older server, or no step measured yet this window.
+    uint32_t compute_us;
+    // Mean server-side GPU render time per frame this window, microseconds (raster or the full
+    // path-trace build+trace). The client HUD shows it as the "render" stage of the pipeline so the
+    // local GPU cost is separable from the remote transfer cost (encode + network + decode).
+    uint32_t render_us;
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.
