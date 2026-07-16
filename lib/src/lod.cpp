@@ -157,6 +157,9 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     if (use_cuda)
     {
         lod_reduce = std::make_unique<LodReduce>(particle_count, grid_n, centroid_active);
+        // Dedicated stream for the decoupled reduction path (see reduceCuda). Non-blocking so it never
+        // implicitly serializes against the legacy default stream the sim runs on.
+        validation::checkCuda(cudaStreamCreateWithFlags(&reduce_stream, cudaStreamNonBlocking));
         spdlog::info("LOD reduction: custom CUDA kernels");
     }
     else
@@ -421,13 +424,24 @@ uint32_t LodContext::readCount(uint32_t slot)
     return occupied;
 }
 
-void LodContext::reduceCuda(cudaStream_t stream, const void* positions_dev, uint64_t count, uint32_t slot)
+void LodContext::reduceCuda(cudaStream_t sim_stream, const void* positions_dev, uint64_t count, uint32_t slot)
 {
     // Must-not-be-called on the Vulkan-fallback path (no LodReduce instance exists there); guard
     // anyway so a stray call is a silent no-op rather than a null-deref.
     if (!use_cuda) { return; }
-    lod_reduce->reduce(stream, positions_dev, count,
+    // Decoupled: run on the dedicated stream so syncReduce() waits only for the reduction, not for the
+    // sovereign sim's work on `sim_stream` -- the render never blocks on the sim (torn-latest reads,
+    // the decoupled contract). Coupled (lockstep/default): run on `sim_stream` itself, so the reduction
+    // is naturally ordered AFTER the sim's writes on that stream (tear-free).
+    active_reduce_stream = lod_decoupled ? reduce_stream : sim_stream;
+    lod_reduce->reduce(active_reduce_stream, positions_dev, count,
         reducedPositionsDevicePtr(slot), occupiedDevicePtr(slot));
+}
+
+void LodContext::syncReduce()
+{
+    if (!use_cuda || active_reduce_stream == nullptr) { return; }
+    validation::checkCuda(cudaStreamSynchronize(active_reduce_stream));
 }
 
 uint32_t LodContext::occupiedFromCuda(uint32_t slot)
@@ -485,6 +499,14 @@ void LodContext::destroy()
 
     // Free LodReduce's N^3 accumulator (a no-op unique_ptr::reset when the CUDA path was never active).
     lod_reduce.reset();
+
+    // Destroy the dedicated decoupled-reduction stream (null when the CUDA path was never active).
+    if (reduce_stream != nullptr)
+    {
+        validation::checkCuda(cudaStreamDestroy(reduce_stream));
+        reduce_stream = nullptr;
+    }
+    active_reduce_stream = nullptr;
 
     grid_n = 0;
 }

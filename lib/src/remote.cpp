@@ -382,6 +382,11 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
     // sequentially, so frames are tear-free and deterministic (recording/reproducing) but the
     // fps cap and a slow client throttle the sim too. See the two branches below.
     const bool decoupled = (steps_per_frame <= 0);
+    // Tell the LOD reduction whether the sim is sovereign (decoupled): if so, its CUDA reduction runs
+    // on a dedicated stream so this consumer's per-frame syncReduce() never blocks on the sim's work,
+    // keeping the render fully independent (torn-latest reads, the decoupled contract). In lockstep the
+    // reduction stays ordered after the sim (tear-free). No-op on the Vulkan-fallback / LOD-off paths.
+    lod_context.setDecoupledReduction(decoupled);
 
     // The simulation runs on its own sovereign thread (spawned below); this loop is the
     // render+encode+send CONSUMER. So target_fps paces the *frame* cadence here, not the sim:

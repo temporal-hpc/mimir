@@ -325,7 +325,7 @@ void MimirInstance::prepare()
                     // recordReduction/readCount -- those touch the unallocated Vulkan accumulator.
                     lod_context.reduceCuda(interop.cuda_stream, lod_raster_pos_cuda, particle_count,
                         /*slot=*/0u);
-                    validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
+                    lod_context.syncReduce();
                     occupied = lod_context.occupiedFromCuda(/*slot=*/0u);
                 }
                 else
@@ -2384,20 +2384,19 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
     // draw inputs.
     if (lod_context.usesCuda())
     {
-        // CUDA reduction path. The blocking reduceCuda + cudaStreamSynchronize is correct for the
-        // SERIALIZED single-thread frame drivers (remote-rendering server, headless renderHeadless(),
-        // lockstep display()), which run one renderFrame() at a time on the CUDA default stream -- the
-        // sync guarantees the reduced positions + emit counter are ready before the graphics submit's
-        // indirect draw reads them. The multi-threaded displayAsync() live-viewer path would instead
-        // need a GPU-timeline-gated wait (CUDA signals the interop timeline, the graphics submit waits
-        // on it) to avoid a host stall on the render thread -- a documented follow-up, NOT implemented
-        // here (out of scope; the raster+CUDA+LOD combo is only driven serialized today).
+        // CUDA reduction path. reduceCuda + syncReduce block the render thread until the reduced
+        // positions + emit counter are ready for the graphics submit's indirect draw. In COUPLED
+        // (lockstep / windowed display) mode the reduction runs on the sim's default stream, so it is
+        // ordered after the sim's writes (tear-free). In DECOUPLED mode (the remote server's sovereign
+        // sim) reduceCuda runs on LodContext's dedicated stream instead, so syncReduce waits only for
+        // the reduction -- the render never blocks on the sim, honoring "the viewer never slows the
+        // run" and the torn-latest read contract (setDecoupledReduction, called by the server).
         // recordReduction MUST NOT be called: the Vulkan N^3 accumulator is unallocated on this path.
         // CPU wall-clock the reduce+sync into last_lod_raster_ms, mirroring RayTracingContext::last_lod_ms
         // (raytracing.cpp ~1551) so the raster [stats] line can surface the same "lod X ms" split PT does.
         const auto lod_t0 = std::chrono::steady_clock::now();
         lod_context.reduceCuda(interop.cuda_stream, lod_raster_pos_cuda, lod_raster_count, slot);
-        validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
+        lod_context.syncReduce();
         last_lod_raster_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - lod_t0).count();
     }

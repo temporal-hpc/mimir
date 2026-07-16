@@ -114,14 +114,29 @@ public:
     // MIMIR_LOD_NO_CUDA, which forces the Vulkan scatter/emit fallback).
     bool usesCuda() const { return use_cuda; }
 
-    // Run the CUDA reduction for `slot` on `stream`: reads `count` positions from `positions_dev`
-    // (device ptr, packed float3), writes this slot's reduced-position + occupied-count CUDA
-    // aliases. No-op when !usesCuda() -- must not be called on the Vulkan-fallback path.
-    void reduceCuda(cudaStream_t stream, const void* positions_dev, uint64_t count, uint32_t slot);
+    // Frame/sim coupling for the CUDA reduction. When decoupled (the remote server's sovereign-sim
+    // mode), the reduction runs on a DEDICATED stream so its blocking syncReduce() waits only for the
+    // reduction, never for the sim's stream -- preserving "the viewer never slows the run" and the
+    // torn-latest read contract. When coupled (lockstep / windowed display, the default), the
+    // reduction runs on the caller-provided sim stream so it is naturally ordered AFTER the sim's
+    // writes (tear-free). Default false (coupled) is the safe choice for every non-decoupled path.
+    void setDecoupledReduction(bool decoupled) { lod_decoupled = decoupled; }
+
+    // Run the CUDA reduction for `slot`: reads `count` positions from `positions_dev` (device ptr,
+    // packed float3), writes this slot's reduced-position + occupied-count CUDA aliases. Runs on the
+    // dedicated reduce stream when decoupled (see setDecoupledReduction), else on `sim_stream` (so it
+    // is ordered after the sim). Pair every call with syncReduce() before reading the outputs. No-op
+    // when !usesCuda() -- must not be called on the Vulkan-fallback path.
+    void reduceCuda(cudaStream_t sim_stream, const void* positions_dev, uint64_t count, uint32_t slot);
+
+    // Block the host until the most recent reduceCuda() (on whichever stream it chose) has completed,
+    // so its reduced-position/occupied-count writes are final before the Vulkan renderer reads them
+    // and before occupiedFromCuda(). No-op when !usesCuda().
+    void syncReduce();
 
     // Device->host copy of slot `slot`'s CUDA-reduced occupied-cell count, clamped to maxCells().
-    // The caller must have already synchronized `stream` (or otherwise ordered against it) before
-    // calling this -- the copy itself is a plain blocking cudaMemcpy.
+    // The caller must have already called syncReduce() (or otherwise ordered against the reduction)
+    // before calling this -- the copy itself is a plain blocking cudaMemcpy.
     uint32_t occupiedFromCuda(uint32_t slot);
 
     // World radius of an LOD representative sphere given the view's default --size (lit world value).
@@ -156,6 +171,17 @@ private:
     // Native-CUDA reduction (Task 1). Owns its own N^3 accumulator; constructed in init() only when
     // use_cuda is true. Non-copyable, so held by pointer; reset() in destroy() to free its accumulator.
     std::unique_ptr<LodReduce> lod_reduce;
+
+    // Dedicated CUDA stream the reduction runs on in DECOUPLED mode, so the render thread's blocking
+    // syncReduce() waits only for the reduction and not for the sovereign sim's (default-stream) work.
+    // Created in init() when use_cuda, destroyed in destroy(). In coupled (lockstep/default) mode the
+    // reduction instead runs on the caller's sim stream, so this stream stays idle.
+    cudaStream_t reduce_stream = nullptr;
+    // Whether the reduction is decoupled from the sim (torn-latest reads, independent). Default false
+    // (coupled: ordered after the sim on its stream => tear-free). Set by setDecoupledReduction().
+    bool lod_decoupled = false;
+    // The stream the most recent reduceCuda() actually ran on; syncReduce() blocks on this one.
+    cudaStream_t active_reduce_stream = nullptr;
 
     // Accumulators (BDA): per-cell occupancy count and the fixed-point position sum (centroid only).
     // SINGLE-buffered (shared across frame slots): this is the N^3 memory hog (~30 GB at 1024^3) and is

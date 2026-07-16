@@ -1550,7 +1550,7 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
         assert(lod_positions_dev != nullptr && "CUDA LOD active but interop positions ptr not set");
         const auto lod_t0 = std::chrono::steady_clock::now();
         lod->reduceCuda(lod_cuda_stream, lod_positions_dev, particle_count, /*slot=*/0u);
-        validation::checkCuda(cudaStreamSynchronize(lod_cuda_stream));
+        lod->syncReduce();
         last_lod_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - lod_t0).count();
         occupied = std::min(lod->occupiedFromCuda(/*slot=*/0u), lod_max_cells);
