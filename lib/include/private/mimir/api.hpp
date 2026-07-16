@@ -79,6 +79,10 @@ struct View
     VkBuffer vbo[max_attr_count];
     // Start region for each buffer object in the view.
     VkDeviceSize offsets[max_attr_count];
+    // Per-binding element stride (bytes) and input rate, so the chunked draw can advance each binding
+    // by chunk_start * stride for the bindings whose rate matches the chunked dimension.
+    VkDeviceSize      vbo_stride[max_attr_count] = {0};
+    VkVertexInputRate vbo_rate[max_attr_count]   = {VK_VERTEX_INPUT_RATE_VERTEX};
     // Set to true at view creation when using an index buffer for drawing; false otherwise.
     bool use_ibo;
     // Index buffer used when is_indexed is true. Uninitialized if view uses direct source mapping.

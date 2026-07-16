@@ -1244,6 +1244,8 @@ View *MimirInstance::createView(ViewDescription *desc)
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
+            view.vbo_stride[view.vb_count] = static_cast<VkDeviceSize>(sizeof(Vertex));
+            view.vbo_rate[view.vb_count]   = VK_VERTEX_INPUT_RATE_VERTEX;
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
             view.vb_count++;
         }
@@ -1271,6 +1273,8 @@ View *MimirInstance::createView(ViewDescription *desc)
             }
             VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
+            view.vbo_stride[view.vb_count] = static_cast<VkDeviceSize>(attr.format.getSize());
+            view.vbo_rate[view.vb_count]   = VK_VERTEX_INPUT_RATE_VERTEX;
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
             view.vb_count++;
         }
@@ -1304,6 +1308,8 @@ View *MimirInstance::createView(ViewDescription *desc)
         else
         {
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            view.vbo_stride[view.vb_count] = static_cast<VkDeviceSize>(attr.indexing.index_size);
+            view.vbo_rate[view.vb_count]   = VK_VERTEX_INPUT_RATE_VERTEX;
             view.vbo[view.vb_count++] = createAttributeBuffer(memsize, vb_usage, memory);
         }
     }
@@ -1327,6 +1333,9 @@ View *MimirInstance::createView(ViewDescription *desc)
         view.vbo[1]        = instance_positions;   // binding 1: particle centers
         view.offsets[1]    = 0;
         view.vb_count      = 2;
+        // binding 0 = template (per-vertex, vec3); binding 1 = per-instance centers (vec3)
+        view.vbo_stride[0] = sizeof(glm::vec3); view.vbo_rate[0] = VK_VERTEX_INPUT_RATE_VERTEX;
+        view.vbo_stride[1] = sizeof(glm::vec3); view.vbo_rate[1] = VK_VERTEX_INPUT_RATE_INSTANCE;
         view.ibo           = sphere_ibo;
         view.index_type    = VK_INDEX_TYPE_UINT32;
         view.use_ibo       = true;
@@ -2356,6 +2365,26 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
     }
 }
 
+static constexpr uint64_t kDrawChunkCap = UINT32_MAX; // Vulkan vertexCount/instanceCount hard max
+
+// Rebind every vertex binding at chunk_start (advancing only bindings whose rate == chunk_rate) and
+// issue one draw of `n` elements. chunk_rate = VK_VERTEX_INPUT_RATE_VERTEX for point clouds (chunk
+// vertices) or VK_VERTEX_INPUT_RATE_INSTANCE for meshes (chunk instances).
+static void drawChunk(VkCommandBuffer cmd, const View* view, uint64_t chunk_start, uint32_t n,
+                      VkVertexInputRate chunk_rate, bool indexed, uint32_t index_count)
+{
+    VkBuffer     vbos[max_attr_count];
+    VkDeviceSize offs[max_attr_count];
+    for (uint32_t b = 0; b < view->vb_count; ++b) {
+        vbos[b] = view->vbo[b];
+        offs[b] = view->offsets[b] +
+            (view->vbo_rate[b] == chunk_rate ? chunk_start * view->vbo_stride[b] : (VkDeviceSize)0);
+    }
+    vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
+    if (indexed) vkCmdDrawIndexed(cmd, index_count, n, 0, 0, 0);
+    else         vkCmdDraw(cmd, n, 1u, 0, 0);
+}
+
 void MimirInstance::drawElements(uint32_t image_idx)
 {
     auto min_alignment = physical_device.getUboOffsetAlignment();
@@ -2426,21 +2455,31 @@ void MimirInstance::drawElements(uint32_t image_idx)
             offs[1] = 0;
             vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
         }
-        else
-        {
-            vkCmdBindVertexBuffers(cmd, 0, view->vb_count, view->vbo, view->offsets);
-        }
+        // Non-LOD paths bind per-chunk inside drawChunk (below), so no standalone bind here.
 
-        if (view->use_ibo) // Index buffer exists, bind it and perform indexed draw
+        if (view->use_ibo) // Index buffer exists, bind it and perform an indexed draw
         {
-            // instance_count > 1 for SphereMesh markers (one icosphere instance per particle).
             vkCmdBindIndexBuffer(cmd, view->ibo, 0, view->index_type);
-            if (lod_mesh_draw) // Reduced icospheres: instanceCount comes from the GPU indirect-args buffer.
+            if (lod_mesh_draw) // Reduced icospheres: instanceCount from the GPU indirect-args buffer.
             {
                 vkCmdDrawIndexedIndirect(cmd, lod_context.indirectBuffer(image_idx), 0, 1, 0);
             }
-            else
+            else if (marker_mesh_mode) // instanced mesh (phong-mesh), no LOD: chunk the INSTANCE dim.
             {
+                // element_count is the true per-instance particle total; draw_count is the icosphere
+                // index count. Only the per-instance binding (rate == INSTANCE) advances per chunk.
+                for (uint64_t start = 0; start < view->element_count; start += kDrawChunkCap) {
+                    uint32_t n = (uint32_t)std::min<uint64_t>(kDrawChunkCap, view->element_count - start);
+                    drawChunk(cmd, view, start, n, VK_VERTEX_INPUT_RATE_INSTANCE, true, view->draw_count);
+                }
+            }
+            else // plain indexed view (e.g. Edges/mesh): NOT instanced -- unchanged single draw.
+            {
+                // Deliberately NOT chunked over element_count: here element_count is the index count
+                // and instance_count is 1, so chunking it as instances would draw N*N. The non-LOD
+                // bind that used to live in the first chain is reissued here (drawChunk handles the
+                // mesh/point paths' binds, not this one).
+                vkCmdBindVertexBuffers(cmd, 0, view->vb_count, view->vbo, view->offsets);
                 vkCmdDrawIndexed(cmd, view->draw_count, view->instance_count, 0, 0, 0);
             }
         }
@@ -2448,10 +2487,12 @@ void MimirInstance::drawElements(uint32_t image_idx)
         {
             vkCmdDrawIndirect(cmd, lod_context.indirectBuffer(image_idx), 0, 1, 0);
         }
-        else // Perform regular draw with bound vertex buffers (full particle count)
+        else // point cloud, no LOD: chunk the VERTEX dimension (full particle count)
         {
-            uint32_t first_vertex = 0;
-            vkCmdDraw(cmd, view->draw_count, view->instance_count, first_vertex, 0);
+            for (uint64_t start = 0; start < view->element_count; start += kDrawChunkCap) {
+                uint32_t n = (uint32_t)std::min<uint64_t>(kDrawChunkCap, view->element_count - start);
+                drawChunk(cmd, view, start, n, VK_VERTEX_INPUT_RATE_VERTEX, false, 0);
+            }
         }
     }
 }
