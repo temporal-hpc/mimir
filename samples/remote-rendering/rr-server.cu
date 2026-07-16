@@ -136,6 +136,12 @@ static void usage(const char *prog)
         "                     phong-mesh = lit instanced icosphere meshes (--subdiv),\n"
         "                     path-tracing = Vulkan RT              (default: phong)\n"
         "  --size S           Marker size: pixels (none) or /100 world radius (lit) (default: 5)\n"
+        "  --lod N            Level of detail: N^3 voxel grid, one representative per occupied\n"
+        "                     cell, for any --light-model (0 = per-particle, default). N is\n"
+        "                     capped so the N^3 accumulator fits ~half of free device VRAM;\n"
+        "                     larger N needs more memory. Trades detail for speed. Under lit\n"
+        "                     modes, --size scales the representative sphere's cell-fill radius;\n"
+        "                     under none, --size is unaffected (still the point's pixel size).\n"
         "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1]    (default: light grey)\n"
         "  --background C     Window/sky color: grey 'G' or 'R,G,B' in [0,1]  (default: 0.1,0.1,0.12)\n"
         "  --seed N           RNG seed for positions/walk                     (default: 12345)\n"
@@ -178,10 +184,6 @@ static void usage(const char *prog)
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
-        "  --lod N            Path-trace LOD: N^3 voxel grid, one sphere per occupied cell\n"
-        "                     (0 = per-particle, default). 0..VRAM-limited: N is capped so the\n"
-        "                     N^3 accumulator fits half of free device VRAM; larger N needs more\n"
-        "                     memory. Trades detail for speed.\n"
         "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris     (default: 1)\n"
         "  --denoise          Denoise each frame before display/encode; also makes the\n"
         "                     stream H.264-friendly at low bitrates (temporally stable)\n"
@@ -342,24 +344,25 @@ int main(int argc, char *argv[])
     size_t vram_free0 = 0, vram_total = 0;
     cudaMemGetInfo(&vram_free0, &vram_total);
 
-    // Accumulator is N^3 * bytes_per_cell (32 for centroid, 4 for cell-center). Bound N so it fits a
-    // safe fraction of device-local VRAM; keep a hard sanity ceiling. Conservatively assume centroid
-    // placement (32 B/cell) since that's the default on capable GPUs.
+    // Accumulator is N^3 * bytes_per_cell (32 for centroid, 4 for cell-center). Reject an --lod whose
+    // accumulator would not fit the device memory that is ACTUALLY free at this moment (vram_free0,
+    // queried live above via cudaMemGetInfo -- no fixed budget fraction). Conservatively assume
+    // centroid placement (32 B/cell) since that's the default on capable GPUs.
     const unsigned long long bytes_per_cell = 32ull; // conservative (centroid)
-    const unsigned long long budget = (unsigned long long)vram_free0 / 2ull;
-    unsigned long long max_cells = budget / bytes_per_cell;
-    unsigned int max_n = 4096; // hard sanity ceiling
-    while ((unsigned long long)max_n*max_n*max_n > max_cells) { --max_n; }
-    // The LOD shaders (pathtrace_lod_scatter.slang, pathtrace_lod_emit.slang) compute the linear
-    // cell index and total cell count in 32-bit uint (total = gridN*gridN*gridN,
-    // lin = cx + gridN*(cy + gridN*cz)), which is only safe while N^3 < 2^32. Clamp max_n to that
-    // uint32 cell-index ceiling independent of the VRAM budget above (1625^3 < 2^32 <= 1626^3), so we
-    // never accept an N that silently overflows the shader's occupancy math.
-    if (max_n > 1625u) { max_n = 1625u; }
+    const unsigned long long max_cells = (unsigned long long)vram_free0 / bytes_per_cell;
+    // Largest N whose accumulator fits the currently-free VRAM, bounded by the uint32 cell-index limit.
+    // The LOD shaders (pathtrace_lod_scatter.slang, pathtrace_lod_emit.slang) compute the linear cell
+    // index and total cell count in 32-bit uint (total = gridN^3, lin = cx + gridN*(cy + gridN*cz)),
+    // only safe while N^3 < 2^32 -- so this 1625 clamp is a CORRECTNESS bound (1625^3 < 2^32 <= 1626^3),
+    // not a memory heuristic, and never allows an N that silently overflows the shader's occupancy math.
+    unsigned int max_n = 0;
+    while (max_n < 1625u &&
+           (unsigned long long)(max_n + 1) * (max_n + 1) * (max_n + 1) <= max_cells) { ++max_n; }
     if (lod_cells > max_n) {
-        fprintf(stderr, "rr-server: --lod %u exceeds VRAM budget; max feasible N is %u "
-                        "(accumulator %.1f GB)\n", lod_cells, max_n,
-                        ((double)lod_cells*lod_cells*lod_cells*bytes_per_cell)/1e9);
+        fprintf(stderr, "rr-server: --lod %u needs %.1f GB for its N^3 accumulator but only %.1f GB is "
+                        "free on the GPU right now; max feasible N is %u\n", lod_cells,
+                        ((double)lod_cells*lod_cells*lod_cells*bytes_per_cell)/1e9,
+                        (double)vram_free0/1e9, max_n);
         return EXIT_FAILURE;
     }
     if (lod_cells > 0 && (unsigned long long)lod_cells*lod_cells*lod_cells > (unsigned long long)point_count/8ull) {

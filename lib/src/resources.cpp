@@ -93,13 +93,6 @@ VkFormat findSupportedImageFormat(VkPhysicalDevice ph_dev, std::span<VkFormat> c
 
 VkImage createImage(VkDevice device, VkPhysicalDevice ph_dev, ImageParams params, const void *extensions)
 {
-    // TODO: Also check if texture is within bounds
-    // auto max_dim = getMaxImageDimension(params.layout);
-    // if (extent.width >= max_dim || extent.height >= max_dim || extent.height >= max_dim)
-    // {
-    //     spdlog::error("Requested image dimensions are larger than maximum");
-    // }
-
     // Check that a Vulkan image handle can be created with the supplied parameters
     VkPhysicalDeviceImageFormatInfo2 format_info{
         .sType  = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
@@ -118,6 +111,25 @@ VkImage createImage(VkDevice device, VkPhysicalDevice ph_dev, ImageParams params
     validation::checkVulkan(vkGetPhysicalDeviceImageFormatProperties2(
         ph_dev, &format_info, &format_props
     ));
+
+    // Reject extents the device cannot represent BEFORE vkCreateImage. The query above reports
+    // this format's capability limits (maxExtent, per Vulkan's maxImageDimension* for the type);
+    // a requested extent past them is not caught by its VkResult, so without this guard the
+    // oversized image falls through to vkCreateImage and fails opaquely (typically an aborting
+    // VK_ERROR_OUT_OF_DEVICE_MEMORY). This turns that into an actionable message. It does not make
+    // over-limit images work -- that needs tiling/downsampling in the caller.
+    const auto& limits = format_props.imageFormatProperties;
+    if (params.extent.width  > limits.maxExtent.width  ||
+        params.extent.height > limits.maxExtent.height ||
+        params.extent.depth  > limits.maxExtent.depth)
+    {
+        spdlog::error("Requested image extent {}x{}x{} exceeds the device limit {}x{}x{} for this "
+            "format/type; the image cannot be created (consider tiling or downsampling).",
+            params.extent.width, params.extent.height, params.extent.depth,
+            limits.maxExtent.width, limits.maxExtent.height, limits.maxExtent.depth
+        );
+        return VK_NULL_HANDLE;
+    }
 
     VkImageCreateInfo info{
         .sType                 = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,

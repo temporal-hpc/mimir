@@ -1,0 +1,153 @@
+#pragma once
+
+#include <vulkan/vulkan.h>
+
+#include <array>
+#include <cstdint>
+
+#include "mimir/raytracing.hpp" // RtBuffer (shared device-buffer helper type)
+
+namespace mimir
+{
+
+// Shared LOD (level-of-detail) data-reduction stage. Bins the live particle positions into an
+// N^3 grid over the fixed [-1,1]^3 domain (scatter), then compacts one representative POSITION per
+// occupied cell into a reduced-position buffer (emit). The representative is the per-cell mass
+// centroid when int64 BDA atomics are available, else the cell's geometric centre.
+//
+// This is a pre-render stage independent of the render mode: it produces a reduced particle set
+// (positions + count) that any consumer draws. Path-tracing feeds the reduced positions to its AABB
+// writer; raster point modes (none/phong) bind the reduced buffer as a vertex buffer and draw it via
+// vkCmdDrawIndirect, sourcing the count from the GPU indirect-args buffer (recordIndirectArgs).
+//
+// Extracted from raytracing.cpp's former in-pipeline scatter/emit (the count/centroids are
+// unchanged by the move -- same integer atomics, same reduction). See
+// docs/superpowers/specs/2026-07-15-lod-transversal-render-modes-design.md.
+class LodContext
+{
+public:
+    // Number of frame-in-flight slots the per-frame OUTPUT buffers are ringed over. Must equal
+    // MimirInstance::MAX_FRAMES_IN_FLIGHT (engine.hpp): the engine passes render_timeline %
+    // MAX_FRAMES_IN_FLIGHT as the slot so frame T's draw reads the SAME slot frame T's reduction wrote.
+    // Only the small particle-bounded outputs (reduced_pos, indirect, counter) are ringed; the N^3
+    // accumulator (cellcount/cellsum -- the memory hog) stays single and is cross-frame serialized.
+    static constexpr uint32_t NUM_SLOTS = 3;
+
+    // Reference world radius (--size) at which the LOD sphere exactly fills the cell (cellFill),
+    // matching the pre-transversal opaque look. It is the LIT-mode DEFAULT --size world value from
+    // samples/remote-rendering/rr-server.cu: the default --size is size_px=5, and a lit view maps
+    // size = size_px/100 = 0.05 world units (rr-server.cu: `size = size_px / 100.f`). So at the
+    // default --size, sphereRadius() == cellFill (== the old cell-derived radius) and the image is
+    // unchanged; larger/smaller --size scales the blobs proportionally (--size becomes live).
+    static constexpr float LOD_REFERENCE_SIZE = 0.05f;
+
+    // Sphere radius as a fraction of the cell that a representative fills. The old (dead --size) LOD
+    // radius was exactly LOD_COVERAGE * cellSize / 2 = LOD_COVERAGE * (2/N) * 0.5; sphereRadius()
+    // reproduces that at the reference --size.
+    static constexpr float LOD_COVERAGE = 1.2f;
+
+    // Fixed-point scale for the centroid position sum: maps [-1,1] -> [0, 2^30]. Integer atomics are
+    // order-independent (deterministic); 2^30 keeps a sum of ~5*10^8 particles inside int64. Must
+    // match SCALE in pathtrace_lod_scatter.slang / pathtrace_lod_emit.slang.
+    static constexpr double LOD_FIXEDPOINT_SCALE = 1073741824.0; // 2^30
+
+    // Build the LOD stage: create the scatter/emit compute pipelines and allocate the accumulator,
+    // counter, and reduced-position buffers for an N^3 grid over `particle_count` particles.
+    // `int64_atomics` gates centroid placement (else cell-center fallback). Call-once: there is no
+    // idempotency guard, so a second call would leak the pipelines/buffers allocated by the first
+    // (callers already guarantee init() runs at most once per instance). active() is true afterwards
+    // (grid_n = N > 0).
+    void init(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props,
+        bool int64_atomics, uint32_t grid_n, uint32_t particle_count);
+
+    // Record the reduction for this frame INTO `cmd` (clear -> scatter -> emit), reading the live
+    // positions at `positions_addr` (tightly-packed float3, BDA). Writes the reduced positions + the
+    // occupied-cell counter. This is now RECORD-ONLY (no internal submit): the caller decides how to
+    // execute it. Raster records it inline in the frame command buffer (no host stall); path tracing
+    // wraps it in its own one-shot submit so it can readCount() before building the AS. The caller is
+    // responsible for the barrier that makes the emit's reduced-position writes visible to its
+    // consumer (vertex-input read for raster, AABB-writer read for PT).
+    //
+    // `slot` (0..NUM_SLOTS-1) selects which ringed OUTPUT buffers (reduced_pos, counter) receive this
+    // frame's reduction; the engine passes render_timeline % MAX_FRAMES_IN_FLIGHT so overlapping frames
+    // never clobber each other's outputs. PT serializes itself and uses a fixed slot 0. The N^3
+    // accumulator is shared across slots, so this records a cross-frame serialize barrier at the START
+    // (prior-frame COMPUTE read/write on the accumulator -> this frame's TRANSFER clear) before the
+    // clear fill, ordering this reduction after the previous frame's scatter/emit still reading it.
+    void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint32_t particle_count,
+        uint32_t slot);
+
+    // Record the indirect-args build INTO `cmd` for EITHER command layout. The host writes the whole
+    // command template (vkCmdUpdateBuffer): all bytes zero except `fixed_value` placed at
+    // `fixed_byte_offset` (its FIXED field). Then a 1-thread compute dispatch writes the occupied
+    // count into the command's VARYING field at `varying_byte_offset`. This generalizes both modes:
+    //   - point (VkDrawIndirectCommand):        fixed = instanceCount@4 = 1, varying = vertexCount@0.
+    //   - mesh  (VkDrawIndexedIndirectCommand):  fixed = indexCount@0    = N, varying = instanceCount@4.
+    // Ends with a barrier (SHADER_WRITE -> INDIRECT_COMMAND_READ, dstStage DRAW_INDIRECT) so a
+    // following vkCmdDraw*Indirect from indirectBuffer() reads the finished command. No host readback.
+    void recordIndirectArgs(VkCommandBuffer cmd, uint32_t fixed_byte_offset, uint32_t fixed_value,
+        uint32_t varying_byte_offset, uint32_t slot);
+
+    // Read back slot `slot`'s emitted occupied-cell count (HOST_VISIBLE, coherent). Call after
+    // recordReduction on that slot has EXECUTED (path tracing's one-shot submit). NOT clamped to
+    // maxCells(); the consumer clamps.
+    uint32_t readCount(uint32_t slot);
+
+    // The compacted occupied-cell representative positions for `slot` (float3[], BDA + vertex buffer).
+    VkBuffer        reducedPositionsBuffer(uint32_t slot)  const { return reduced_pos[slot].buffer; }
+    VkDeviceAddress reducedPositionsAddress(uint32_t slot) const { return reduced_pos[slot].address; }
+
+    // The GPU-resident VkDrawIndirectCommand written by recordIndirectArgs for `slot` (INDIRECT_BUFFER).
+    VkBuffer indirectBuffer(uint32_t slot) const { return indirect_buffer[slot].buffer; }
+
+    // World radius of an LOD representative sphere given the view's default --size (lit world value).
+    // = cellFill * (default_size / LOD_REFERENCE_SIZE), cellFill = LOD_COVERAGE * (2/N) * 0.5.
+    float sphereRadius(float default_size) const;
+
+    bool     active()   const { return grid_n > 0; }
+    uint32_t cells()    const { return grid_n; }
+    // min(N^3, particle_count): the sizing bound for the reduced set (and the consumer's AABB/BLAS).
+    uint32_t maxCells() const { return max_cells; }
+    bool     centroid() const { return centroid_active; }
+
+    // Teardown (safe to call when uninitialized: no-ops on null handles).
+    void destroy();
+
+private:
+    VkDevice device = VK_NULL_HANDLE;
+    VkPhysicalDeviceMemoryProperties mem_props{};
+
+    uint32_t grid_n = 0;          // cells per axis (N); 0 = inactive
+    uint32_t max_cells = 0;       // min(N^3, particle_count)
+    bool     centroid_active = false; // centroid placement (int64 atomics available) vs cell-center
+
+    // Accumulators (BDA): per-cell occupancy count and the fixed-point position sum (centroid only).
+    // SINGLE-buffered (shared across frame slots): this is the N^3 memory hog (~30 GB at 1024^3) and is
+    // per-frame scratch (cleared -> scattered -> emitted, never read cross-frame), so it is not ringed;
+    // recordReduction serializes the reduction across frames instead (a cross-frame barrier on it).
+    RtBuffer cellcount_buffer; // N^3 uint occupancy counts (DEVICE_LOCAL, BDA)
+    RtBuffer cellsum_buffer;   // 3 * N^3 uint64 fixed-point sums (DEVICE_LOCAL, BDA; centroid only)
+
+    // Per-frame OUTPUT buffers -- RINGED over NUM_SLOTS so frame T's draw reads the same slot frame T's
+    // reduction wrote while frame T+1's reduction targets a different slot (no cross-frame WAR). These
+    // are particle-bounded (small), so tripling them is cheap.
+    std::array<RtBuffer, NUM_SLOTS> counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
+    std::array<RtBuffer, NUM_SLOTS> reduced_pos;      // min(N^3,P) float3 representative positions (DEVICE_LOCAL, BDA + VBO)
+    std::array<RtBuffer, NUM_SLOTS> indirect_buffer;  // 1 Vk*IndirectCommand (max(16,20)=20 B) for raster indirect draw (DEVICE_LOCAL, BDA)
+
+    // Scatter/emit compute pipelines. Scatter binds no descriptors (all accumulators are BDA); emit
+    // keeps one descriptor for the global emit counter (binding 0). Finalize (indirect-args build) is
+    // descriptor-free (indirect + count are BDA push-constant pointers).
+    VkDescriptorSetLayout emit_set_layout = VK_NULL_HANDLE;
+    VkPipelineLayout      scatter_layout  = VK_NULL_HANDLE;
+    VkPipelineLayout      emit_layout     = VK_NULL_HANDLE;
+    VkPipelineLayout      finalize_layout = VK_NULL_HANDLE;
+    VkPipeline            scatter_pipeline  = VK_NULL_HANDLE;
+    VkPipeline            emit_pipeline     = VK_NULL_HANDLE;
+    VkPipeline            finalize_pipeline = VK_NULL_HANDLE;
+    VkDescriptorPool      desc_pool       = VK_NULL_HANDLE;
+    // One emit descriptor set per slot: each binds its slot's (ringed) HOST_VISIBLE emit counter.
+    std::array<VkDescriptorSet, NUM_SLOTS> emit_set{};
+};
+
+} // namespace mimir

@@ -1,8 +1,12 @@
 // LOD grid-aggregation, emit/compact pass. One thread per cell (N^3 total). Occupied cells append
-// one sphere AABB into a compacted list via a global atomic counter. The sphere is placed at the
-// per-cell mass centroid (sum(positions)/count) when centroid placement is active, else at the
-// cell's geometric centre. The slot order is nondeterministic but the count and the resulting
-// BVH/image are not (order-independent), so benchmark metrics stay reproducible.
+// one representative POSITION into a compacted reduced-position list via a global atomic counter. The
+// representative is the per-cell mass centroid (sum(positions)/count) when centroid placement is
+// active, else the cell's geometric centre. The slot order is nondeterministic but the count and the
+// resulting reduced set are not (order-independent), so benchmark metrics stay reproducible.
+//
+// This pass writes centroid POSITIONS (float3), not BVH AABBs: the representative radius is a
+// consumer concern now (the path-tracer's AABB writer, or a raster marker size), so the reduced set
+// is render-mode-agnostic. See the transversal-LOD design.
 //
 // The per-cell count and fixed-point position sum are read through raw buffer-device-address (BDA)
 // pointers (they exceed the descriptor cap at large N). Explicit 64-bit address arithmetic + cast
@@ -11,17 +15,13 @@
 // Fixed-point scale: maps [-1,1] -> [0, 2^30]. Matches the scatter pass and LOD_FIXEDPOINT_SCALE.
 static const double SCALE = 1073741824.0; // 2^30
 
-// Matches VkAabbPositionsKHR: 6 tightly packed floats (24 bytes), min xyz then max xyz.
-struct Aabb { float minx, miny, minz, maxx, maxy, maxz; };
-
 struct PushConstants
 {
-    Aabb*     aabbs;      // out: compacted AABB list. BDA, offset 0.
+    float*    reducedPos; // out: compacted representative-position list, tightly packed x,y,z. BDA, offset 0.
     uint*     cellCounts; // in : per-cell uint occupancy (N^3). BDA.
     uint64_t* cellSums;   // in : per-cell fixed-point position sum, layout [3*lin + 0..2]. BDA.
                           //      Only dereferenced when centroid != 0 (may be 0/unallocated otherwise).
     uint  gridN;          // cells per axis
-    float radius;         // sphere world radius (= coverage * cellSize / 2)
     uint  centroid;       // 0 = cell-center placement; != 0 = mass-centroid placement
 };
 [[vk::push_constant]] PushConstants pc;
@@ -64,9 +64,7 @@ void emitMain(uint3 tid : SV_DispatchThreadID)
     uint slot;
     InterlockedAdd(globalCount[0], 1u, slot);
 
-    Aabb a;
-    a.minx = center.x - pc.radius; a.miny = center.y - pc.radius; a.minz = center.z - pc.radius;
-    a.maxx = center.x + pc.radius; a.maxy = center.y + pc.radius; a.maxz = center.z + pc.radius;
-    // Explicit 64-bit BDA address + cast (see pathtrace_aabbs.slang).
-    *(Aabb*)(uint64_t(pc.aabbs) + uint64_t(slot) * 24ull) = a;
+    // Append the representative position (float3, stride 12 B). Explicit 64-bit BDA address + cast
+    // (see pathtrace_aabbs.slang): NEVER pointer-index, the NVIDIA compiler truncates the offset.
+    *(float3*)(uint64_t(pc.reducedPos) + uint64_t(slot) * 12ull) = center;
 }

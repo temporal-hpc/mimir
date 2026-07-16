@@ -131,6 +131,49 @@ DeviceBufferLimits deviceBufferLimits(InstanceHandle handle)
     return out;
 }
 
+uint32_t maxImageDimension2D(InstanceHandle handle)
+{
+    if (handle == nullptr || handle->physical_device.handle == VK_NULL_HANDLE) { return 0; }
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(handle->physical_device.handle, &props);
+    return props.limits.maxImageDimension2D;
+}
+
+uint32_t linearImageRowAlignment(InstanceHandle handle, FormatDescription format)
+{
+    if (handle == nullptr || handle->device == VK_NULL_HANDLE) { return 1; }
+    const unsigned int texel = format.getSize();
+    if (texel == 0) { return 1; }
+    // A LINEAR-tiled image's row pitch is aligned by the driver; a buffer aliased to such an image
+    // (as an interop Image view does) shears unless its row stride matches that pitch. Probe a
+    // 1-texel-wide LINEAR image of this format: its rowPitch is the pitch granularity in bytes.
+    VkImageCreateInfo ic{
+        .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext         = nullptr,
+        .flags         = 0,
+        .imageType     = VK_IMAGE_TYPE_2D,
+        .format        = getVulkanFormat(format),
+        .extent        = { 1, 1, 1 },
+        .mipLevels     = 1,
+        .arrayLayers   = 1,
+        .samples       = VK_SAMPLE_COUNT_1_BIT,
+        .tiling        = VK_IMAGE_TILING_LINEAR,
+        .usage                 = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .sharingMode           = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices   = nullptr,
+        .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    VkImage img = VK_NULL_HANDLE;
+    if (vkCreateImage(handle->device, &ic, nullptr, &img) != VK_SUCCESS) { return 1; }
+    VkImageSubresource sub{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+    VkSubresourceLayout lay{};
+    vkGetImageSubresourceLayout(handle->device, img, &sub, &lay);
+    vkDestroyImage(handle->device, img, nullptr);
+    uint32_t align = (uint32_t)(lay.rowPitch / texel);
+    return align < 1 ? 1 : align;
+}
+
 void setCameraPosition(InstanceHandle handle, float3 pos)
 {
     handle->camera.setPosition(glm::vec3(pos.x, pos.y, pos.z));

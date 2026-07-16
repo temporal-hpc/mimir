@@ -617,6 +617,12 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     }
 
     // Main simulation loop
+    // Accumulate the benchmark's own per-frame kernel time (ms). The engine's compute_monitor
+    // only ticks inside prepareViews/updateViews when enable_interop_sync is on, so in async
+    // mode (--interop-sync 0) getMetrics().times.compute would be 0. We feed this measured total
+    // into the returned metrics below, matching samples/nbody-datoviz (compute = sum over frames,
+    // in seconds) for both sync and async runs.
+    double total_compute_ms = 0.0;
     if (input.use_cpu)
     {
         host.force = new float[input.body_count * 3];
@@ -630,6 +636,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 params.damping, params.softening, input.body_count
             );
             auto t1 = Clock::now();
+            total_compute_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
             if (input.display) { prepareViews(instance); }
             checkCuda(cudaMemcpy(device.dPos[current_read], host.pos,
                 nbody_memsize, cudaMemcpyHostToDevice)
@@ -684,6 +691,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 checkCuda(cudaEventSynchronize(cstop));
                 float kernel_ms = 0.f;
                 checkCuda(cudaEventElapsedTime(&kernel_ms, cstart, cstop));
+                total_compute_ms += kernel_ms;
 
                 // GPU render time: cstop_prev fires at end of kernel_{i-1} (Vulkan starts),
                 // cstart fires after the GPU semaphore wait in prepareViews (Vulkan done).
@@ -723,6 +731,10 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
     // Retrieve metrics
     auto metrics = getMetrics(instance);
+    // Override compute with the benchmark's own measured total (seconds). The engine only
+    // populates times.compute in interop-sync mode; this makes async runs report correctly too
+    // and keeps the semantics identical to samples/nbody-datoviz.
+    metrics.times.compute = (float)(total_compute_ms / 1000.0);
 
     // Nvml memory report
     nvmlMemory_v2_t meminfo;

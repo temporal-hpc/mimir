@@ -62,6 +62,18 @@ struct DeviceBufferLimits
 };
 DeviceBufferLimits deviceBufferLimits(InstanceHandle engine);
 
+// Maximum width/height (texels) of a single 2D VkImage on the selected device
+// (VkPhysicalDeviceLimits::maxImageDimension2D) -- the analog of OpenGL's GL_MAX_TEXTURE_SIZE. A
+// ViewType::Image cannot present a grid larger than this in any dimension regardless of free VRAM;
+// callers must downsample or tile past it. 0 if no device is selected.
+uint32_t maxImageDimension2D(InstanceHandle engine);
+
+// Row-pitch alignment (in texels) the device requires for a LINEAR-tiled image of the given format
+// -- e.g. 128 for R8_UNORM on NVIDIA. An interop Image view aliases a buffer to such an image, so a
+// buffer whose width is NOT a multiple of this alignment renders sheared. Present through a buffer
+// whose width is a multiple of the returned value. Returns 1 if unknown (no shear constraint).
+uint32_t linearImageRowAlignment(InstanceHandle engine, FormatDescription format);
+
 // Starts display and blocks program execution until the display window closes
 // The function passed as argument can perform updates over interop-mapped memory,
 // as it is

@@ -19,6 +19,7 @@
 #include "device.hpp"
 #include "framebuffer.hpp"
 #include "interop.hpp"
+#include "lod.hpp"
 #include "metrics.hpp"
 #include "pipeline.hpp"
 #include "raytracing.hpp"
@@ -153,6 +154,22 @@ struct MimirInstance
     // extent-dependent frame resources are (re)built in initGraphics.
     bool rt_enabled = false;
     RayTracingContext raytracing{};
+    // Shared LOD data-reduction stage (lib/src/lod.cpp). Engine-owned; initialized when
+    // options.pt_lod_cells > 0. Path tracing consumes it via raytracing.lod; the raster point modes
+    // (none/phong) reduce inline in the frame cmd and draw the reduced set via vkCmdDrawIndirect.
+    LodContext lod_context{};
+    // Raster LOD (none/phong): the interop position buffer address + full particle count captured at
+    // init, used each frame to record the reduction inline. Set only when the raster point-mode LOD
+    // path is active (rt_enabled uses raytracing's own address instead).
+    VkDeviceAddress lod_raster_pos_addr = 0;
+    uint32_t        lod_raster_count    = 0;
+    // True when the active raster-LOD view is an instanced mesh marker (phong-mesh / SphereMesh):
+    // the reduction feeds per-INSTANCE positions (binding 1) and the draw is vkCmdDrawIndexedIndirect
+    // (fixed indexCount = sphere_index_count, varying instanceCount). False for point modes (none/phong).
+    bool            lod_raster_mesh     = false;
+    // Records the per-frame reduction + indirect-args build for raster point modes, BEFORE the render
+    // pass (compute cannot run inside one). No-op when the raster LOD path is inactive.
+    void recordLodRaster(VkCommandBuffer cmd, uint32_t slot);
 
     // Shared template icosphere for the instanced mesh marker mode (LightModel::PhongMesh /
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is

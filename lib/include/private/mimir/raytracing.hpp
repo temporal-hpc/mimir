@@ -11,6 +11,11 @@
 namespace mimir
 {
 
+// Shared LOD data-reduction stage (lib/src/lod.cpp). Owned by the engine; the path-tracer reads its
+// reduced positions + count. Forward-declared to avoid a circular include (lod.hpp includes this
+// header for RtBuffer).
+class LodContext;
+
 // KHR ray tracing / acceleration-structure device entry points. These are extension
 // functions and must be resolved with vkGetDeviceProcAddr after device creation.
 struct RayTracingApi
@@ -237,33 +242,15 @@ struct RayTracingContext
     VkDescriptorPool atrous_pool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> atrous_sets;
 
-    // ---- LOD grid-aggregation compute pipelines (pt_lod_cells > 0) ----
-    VkDescriptorSetLayout lod_scatter_set_layout = VK_NULL_HANDLE;
-    VkDescriptorSetLayout lod_emit_set_layout    = VK_NULL_HANDLE;
-    VkPipelineLayout      lod_scatter_layout     = VK_NULL_HANDLE;
-    VkPipelineLayout      lod_emit_layout        = VK_NULL_HANDLE;
-    VkPipeline            lod_scatter_pipeline   = VK_NULL_HANDLE;
-    VkPipeline            lod_emit_pipeline       = VK_NULL_HANDLE;
-    VkDescriptorPool      lod_desc_pool          = VK_NULL_HANDLE;
-    VkDescriptorSet       lod_scatter_set        = VK_NULL_HANDLE; // written in bindScene
-    VkDescriptorSet       lod_emit_set           = VK_NULL_HANDLE; // written in bindScene
-
-    RtBuffer lod_cellcount_buffer; // N^3 uint occupancy counts (DEVICE_LOCAL, BDA)
-    RtBuffer lod_cellsum_buffer;   // 3 * N^3 uint64 fixed-point position sums (DEVICE_LOCAL, BDA;
-                                   // allocated only when lod_centroid). Layout [3*lin + 0..2].
-    RtBuffer lod_counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
+    // ---- LOD data reduction (pt_lod_cells > 0) ----
+    // The scatter/emit pipelines, accumulator/reduced/counter buffers, and the reduction itself now
+    // live in the shared LodContext (lib/src/lod.cpp), owned by the engine. The path-tracer only
+    // reads it: recordLodUpdate() runs the reduction, then feeds the reduced positions + count to the
+    // existing AABB writer. `lod` is set by the engine before bindScene when LOD is active (else null).
+    LodContext* lod = nullptr;
     uint32_t lod_max_cells  = 0;   // min(N^3, particle_count): BLAS/AABB sizing bound
     uint32_t lod_prim_count = 0;   // occupied cells emitted this frame (per-frame build count)
-    bool     lod_centroid   = false; // centroid placement active (= int64_atomics at bindScene);
-                                     // false -> cell-center fallback (int64 atomics unavailable).
-    static constexpr float LOD_COVERAGE = 1.2f; // sphere radius = LOD_COVERAGE * cellSize / 2
-    // Fixed-point scale for the centroid position sum: maps [-1,1] -> [0, 2^30]. Integer atomics are
-    // order-independent (deterministic); 2^30 keeps a sum of ~5*10^8 particles inside int64. Must
-    // match SCALE in pathtrace_lod_scatter.slang / pathtrace_lod_emit.slang.
-    static constexpr double LOD_FIXEDPOINT_SCALE = 1073741824.0; // 2^30
     void recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
-
-    void createLodPipelines();
 
     // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*TS_PER_FRAME timestamps. The
     // build phase is split into its three sub-phases so callers can see where the frame goes (at
