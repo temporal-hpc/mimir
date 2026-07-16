@@ -300,14 +300,40 @@ void MimirInstance::prepare()
                     options.pt_lod_cells, particle_count);
                 deletors.context.add([this]{ lod_context.destroy(); });
 
+                // On the CUDA reduction path grab the interop CUDA pointer aliasing the SAME positions
+                // as lod_raster_pos_addr (the Position attribute source backs pos_buffer in both point
+                // and mesh modes; the reduction bins particle centers). The Vulkan N^3 accumulator is
+                // NOT allocated on this path, so recordReduction MUST NOT be called -- reduceCuda is used
+                // instead (here and per-frame in recordLodRaster).
+                if (lod_context.usesCuda())
+                {
+                    lod_raster_pos_cuda = getDevicePtrCuda(
+                        view->desc.attributes[AttributeType::Position].source);
+                    assert(lod_raster_pos_cuda != nullptr
+                        && "raster LOD CUDA path: null Position CUDA pointer");
+                }
+
                 // One-time reduction + occupied-count log at setup (mirrors the path tracer's
                 // first-build log), so headless runs verify the reduction matches PT WITHOUT a viewer
-                // (renderFrame only runs once a client connects). A single blocking submit + readback
+                // (renderFrame only runs once a client connects). A single blocking reduction + readback
                 // here; the per-frame raster path (recordLodRaster) never reads back -- no stall.
-                immediateSubmit([&](VkCommandBuffer c) {
-                    lod_context.recordReduction(c, lod_raster_pos_addr, particle_count, /*slot=*/0u);
-                });
-                uint32_t occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
+                uint32_t occupied = 0;
+                if (lod_context.usesCuda())
+                {
+                    // CUDA: reduce on the interop stream and block for the count (setup-time only). Skip
+                    // recordReduction/readCount -- those touch the unallocated Vulkan accumulator.
+                    lod_context.reduceCuda(interop.cuda_stream, lod_raster_pos_cuda, particle_count,
+                        /*slot=*/0u);
+                    validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
+                    occupied = lod_context.occupiedFromCuda(/*slot=*/0u);
+                }
+                else
+                {
+                    immediateSubmit([&](VkCommandBuffer c) {
+                        lod_context.recordReduction(c, lod_raster_pos_addr, particle_count, /*slot=*/0u);
+                    });
+                    occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
+                }
                 const char* mode_name = options.light_model == LightModel::None ? "none"
                     : (options.light_model == LightModel::Phong ? "phong" : "phong-mesh");
                 // none = flat 2D points (plain --size); phong/phong-mesh = world spheres (cell-fill radius).
@@ -2352,14 +2378,33 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
     if (rt_enabled || !lod_context.active()) { return; }
 
     // Reduce the live interop positions into the shared reduced-position buffer (clear -> scatter ->
-    // emit), recorded inline in the frame cmd (no host stall, unlike PT's one-shot submit). Outputs go
-    // to this frame-in-flight `slot`; drawElements(slot) reads the SAME slot this frame wrote, so an
-    // overlapping frame T+1's reduction (a different slot) can't clobber frame T's draw inputs.
-    lod_context.recordReduction(cmd, lod_raster_pos_addr, lod_raster_count, slot);
+    // emit). Outputs go to this frame-in-flight `slot`; drawElements(slot) reads the SAME slot this
+    // frame wrote, so an overlapping frame T+1's reduction (a different slot) can't clobber frame T's
+    // draw inputs.
+    if (lod_context.usesCuda())
+    {
+        // CUDA reduction path. The blocking reduceCuda + cudaStreamSynchronize is correct for the
+        // SERIALIZED single-thread frame drivers (remote-rendering server, headless renderHeadless(),
+        // lockstep display()), which run one renderFrame() at a time on the CUDA default stream -- the
+        // sync guarantees the reduced positions + emit counter are ready before the graphics submit's
+        // indirect draw reads them. The multi-threaded displayAsync() live-viewer path would instead
+        // need a GPU-timeline-gated wait (CUDA signals the interop timeline, the graphics submit waits
+        // on it) to avoid a host stall on the render thread -- a documented follow-up, NOT implemented
+        // here (out of scope; the raster+CUDA+LOD combo is only driven serialized today).
+        // recordReduction MUST NOT be called: the Vulkan N^3 accumulator is unallocated on this path.
+        lod_context.reduceCuda(interop.cuda_stream, lod_raster_pos_cuda, lod_raster_count, slot);
+        validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
+    }
+    else
+    {
+        lod_context.recordReduction(cmd, lod_raster_pos_addr, lod_raster_count, slot);
+    }
 
     // Make the emit pass's writes visible to BOTH consumers: the finalize compute reads the emit
     // counter (SHADER_READ), and the indirect draw reads the reduced positions as vertex attributes
-    // (VERTEX_ATTRIBUTE_READ at the VERTEX_INPUT stage).
+    // (VERTEX_ATTRIBUTE_READ at the VERTEX_INPUT stage). Kept on the CUDA path too as a belt-and-
+    // suspenders barrier for the Vulkan-side reads of the CUDA-written buffers (mirrors Task 4's
+    // retained reduce_to_writer barrier).
     VkMemoryBarrier emit_vis{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT };
@@ -2367,7 +2412,9 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
         0, 1, &emit_vis, 0, nullptr, 0, nullptr);
 
-    // Build the indirect command from the occupied count. Layout depends on the active LOD view:
+    // Build the indirect command from the occupied count. On the CUDA path recordIndirectArgs reads the
+    // emit COUNTER buffer, which the CUDA emit kernel wrote (same buffer as the Vulkan path), so it
+    // sees the CUDA-produced count. Layout depends on the active LOD view:
     //   - mesh (phong-mesh, VkDrawIndexedIndirectCommand): FIXED indexCount@0 = sphere_index_count;
     //     VARYING instanceCount@4 = occupied cells (one icosphere instance per cell).
     //   - point (none/phong, VkDrawIndirectCommand):        FIXED instanceCount@4 = 1;

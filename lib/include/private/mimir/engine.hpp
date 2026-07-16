@@ -163,6 +163,11 @@ struct MimirInstance
     // path is active (rt_enabled uses raytracing's own address instead).
     VkDeviceAddress lod_raster_pos_addr = 0;
     uint64_t        lod_raster_count    = 0;
+    // CUDA-mapped device pointer aliasing the SAME positions as lod_raster_pos_addr, set at bind time
+    // only when lod_context.usesCuda(). Fed to LodContext::reduceCuda on the CUDA reduction path (the
+    // Vulkan N^3 accumulator is not allocated there, so recordReduction must NOT be used). nullptr on
+    // the Vulkan-fallback path.
+    const void*     lod_raster_pos_cuda = nullptr;
     // True when the active raster-LOD view is an instanced mesh marker (phong-mesh / SphereMesh):
     // the reduction feeds per-INSTANCE positions (binding 1) and the draw is vkCmdDrawIndexedIndirect
     // (fixed indexCount = sphere_index_count, varying instanceCount). False for point modes (none/phong).
