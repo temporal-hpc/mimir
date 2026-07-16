@@ -99,6 +99,11 @@ struct Hello
     // LOD reduction mode for this session (static): 0 = native (per-particle), N = an N^3 voxel
     // grid, one representative per occupied cell. The client shows it in the HUD.
     uint32_t lod_cells;
+    // Sim/frame coupling (static): 0 = decoupled (the sim runs on its own thread, OFF the frame
+    // latency path), N>=1 = lockstep (N sim steps then one frame, sequentially -- so N*compute per
+    // step IS part of the frame's latency). The client subtracts that on-path compute from its
+    // network~ estimate in lockstep so the residual stays wire+wait, not sim time.
+    uint32_t steps_per_frame;
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats

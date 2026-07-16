@@ -156,6 +156,7 @@ struct Hud
     uint64_t particle_count = 0;    // particles the sim advances (0 = older server, hidden in HUD)
     uint64_t particles_per_sec = 0; // current sim throughput (particle_count * steps/s)
     uint32_t lod_cells = 0;         // LOD mode from the Hello: 0 = native, N = N^3 voxel grid
+    uint32_t steps_per_frame = 0;   // Hello: 0 = decoupled, N>=1 = lockstep (N steps/frame on path)
     // Real-time pipeline stage times, so the HUD shows where a frame's wall-clock goes: local
     // GPU cost (compute + render) vs. the remote transfer cost (encode + network + decode).
     double compute_ms = 0.0;        // server: mean sim compute() time per step
@@ -202,6 +203,7 @@ void hud_set_server(const Hello& hello, const char *transport)
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     g_hud.server = line;
     g_hud.lod_cells = hello.lod_cells; // 0 = native, N = N^3 grid (shown on the particle line)
+    g_hud.steps_per_frame = hello.steps_per_frame; // 0 = decoupled, N = lockstep (compute on path)
 }
 
 // Human-scaled count (K/M/G) and per-second rate for the particle HUD line, mirroring the
@@ -265,17 +267,21 @@ std::vector<std::string> hud_lines()
             hud_scale_rate(g_hud.particles_per_sec).c_str());
         lines.push_back(l3);
     }
-    // Pipeline line: where the time goes. compute (sim ms/step) is a THROUGHPUT number, off the
-    // frame-delivery path (the sim is decoupled; a frame just samples the latest state). render +
-    // encode + network + decode are the components of the end-to-end latency on line 2: render is
-    // the local GPU cost, encode + network + decode are the remote transfer cost. `network` is the
-    // residual latency - render - encode - decode (pure wire transit + frame-boundary wait), floored
-    // at 0 and tilde-marked because it is derived, not measured directly.
+    // Pipeline line: where the time goes. render + encode + network + decode are the components of
+    // the end-to-end latency on line 2 (render = local GPU cost; encode + network + decode = remote
+    // transfer cost). `network` is the residual latency minus the measured stages (pure wire transit
+    // + frame-boundary wait), floored at 0 and tilde-marked because it is derived, not measured.
+    // compute (sim ms/step): in DECOUPLED mode it is a throughput number OFF the latency path (the
+    // sim runs on its own thread; a frame samples the latest state), so nothing is subtracted. In
+    // LOCKSTEP mode (steps_per_frame >= 1) the server runs steps_per_frame steps THEN renders, so
+    // that compute IS on the frame path and part of latency -- subtract it (steps_per_frame *
+    // compute_ms) so network~ stays wire+wait rather than absorbing the sim time.
     if (g_hud.have_stats)
     {
         const double lat = g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms;
+        const double compute_on_path = g_hud.compute_ms * static_cast<double>(g_hud.steps_per_frame);
         const double network_ms = std::max(0.0,
-            lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms);
+            lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms - compute_on_path);
         char l4[192];
         snprintf(l4, sizeof(l4),
             "compute %.2f ms/step | render %.1f ms | encode %.1f ms | network~%.1f ms | decode %.1f ms",

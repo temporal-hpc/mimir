@@ -606,6 +606,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             .flags  = fly ? remote::HELLO_CAMERA_FLY : 0u, // tell the client to drive a Fly camera
             .gpu    = {},
             .lod_cells = lod_cells,   // LOD mode for the client HUD (0 = native, N = N^3 grid)
+            .steps_per_frame = static_cast<uint32_t>(steps_per_frame > 0 ? steps_per_frame : 0),
         };
         fillServerIdentity(hello);
         if (!transport->sendVideo(&hello, sizeof(hello))) { continue; } // client vanished; re-listen
@@ -785,6 +786,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         .flags  = fly ? remote::HELLO_CAMERA_FLY : 0u,
                         .gpu    = {},
                         .lod_cells = lod_cells,
+                        .steps_per_frame = static_cast<uint32_t>(steps_per_frame > 0 ? steps_per_frame : 0),
                     };
                     fillServerIdentity(rehello);
                     remote::FrameHeader hh{ .size = static_cast<uint32_t>(sizeof(rehello)),
