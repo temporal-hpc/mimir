@@ -168,6 +168,11 @@ struct MimirInstance
     // Vulkan N^3 accumulator is not allocated there, so recordReduction must NOT be used). nullptr on
     // the Vulkan-fallback path.
     const void*     lod_raster_pos_cuda = nullptr;
+    // CPU wall-clock of the raster reduction (recordLodRaster's reduceCuda + cudaStreamSynchronize),
+    // mirroring RayTracingContext::last_lod_ms. Only meaningful on the CUDA path: the Vulkan-fallback
+    // reduction runs async, in-cmd, with no host stall, so a CPU timer there would be measuring
+    // nothing but cmd-buffer recording overhead -- left at 0.0 (see recordLodRaster).
+    double          last_lod_raster_ms  = 0.0;
     // True when the active raster-LOD view is an instanced mesh marker (phong-mesh / SphereMesh):
     // the reduction feeds per-INSTANCE positions (binding 1) and the draw is vkCmdDrawIndexedIndirect
     // (fixed indexCount = sphere_index_count, varying instanceCount). False for point modes (none/phong).

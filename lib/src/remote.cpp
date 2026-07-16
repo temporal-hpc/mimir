@@ -931,7 +931,11 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 // LOD reduction (scatter+emit over ALL particles): CPU-timed on PT's blocking submit,
                 // so it is valid every frame (no have_timings gate). This is the piece the render split
                 // otherwise hides -- it is NOT part of the aabb/blas/tlas/trace GPU-timestamp phases.
+                // Raster's CUDA-path reduction is blocking too (recordLodRaster's cudaStreamSynchronize),
+                // so last_lod_raster_ms is just as valid every frame; it is 0.0 on the Vulkan-fallback
+                // raster path (async in-cmd, no host stall to time -- see recordLodRaster).
                 if (rt_enabled) { win_lod_ms += raytracing.last_lod_ms; }
+                else { win_lod_ms += last_lod_raster_ms; }
                 // Path tracing exposes a GPU-timestamp split of the render: last_aabb_ms / last_blas_ms /
                 // last_tlas_ms are the three build sub-phases, last_trace_ms the vkCmdTraceRays, and
                 // last_build_mode the mode that produced them. readTimings paired them all from the same
@@ -1068,6 +1072,17 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         static_cast<unsigned long long>(win_refit_n),
                         static_cast<unsigned long long>(win_rebuild_n),
                         static_cast<unsigned long long>(win_skip_n));
+                    rt_split = buf;
+                }
+                else if (lod_context.active())
+                {
+                    // Raster point-mode LOD (none/phong): no AS-build/trace phases to report, just the
+                    // reduction cost. CUDA path: a real blocking-reduce measurement (see recordLodRaster).
+                    // Vulkan fallback: last_lod_raster_ms is always 0.0 (unmeasured, documented above),
+                    // so this prints "lod 0.0 ms" there rather than silently omitting the field.
+                    char buf[48];
+                    snprintf(buf, sizeof(buf), " (lod %.1f ms)",
+                        win_lod_ms / static_cast<double>(win_frames));
                     rt_split = buf;
                 }
                 spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}, {:.2f} ms/step) | frame {:6d} | {:5.1f} fps | "

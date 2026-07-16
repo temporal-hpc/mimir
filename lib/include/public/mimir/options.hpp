@@ -176,6 +176,12 @@ struct ViewerOptions
     // light models (none/phong/phong-mesh/path-tracing), reducing how many primitives each renderer
     // draws. The caller must bound N to available VRAM (the N^3 accumulator is up to 32 B/cell) and to
     // N <= 1625 (cells are indexed in uint32, so N^3 must stay < 2^32).
+    // Execution: the reduction (clear/scatter/emit) runs on custom native-CUDA kernels by default --
+    // single-digit ms at hundreds of millions of particles, and (unlike a CUB-based reduction) not
+    // capped at a 32-bit item count, so it scales past 2^32 particles. Set MIMIR_LOD_NO_CUDA=1 to force
+    // the Vulkan-compute scatter/emit fallback instead (also used automatically when CUDA/Vulkan
+    // interop is unavailable); it produces identical occupied-cell counts/positions, just slower,
+    // especially under the centroid placement's atomic contention (see lod_centroid below).
     unsigned int pt_lod_cells = 0;
 
     // LOD representative placement (only meaningful when pt_lod_cells > 0):
@@ -186,6 +192,11 @@ struct ViewerOptions
     //                     the reduction is markedly faster at huge particle counts (the atomics are
     //                     the bottleneck there), at the cost of slightly coarser representative
     //                     positions -- negligible at fine grids where cells are small.
+    // This choice applies to both reduction backends (see pt_lod_cells): measured on an RTX PRO 6000
+    // Blackwell at 300M particles/lod 256^3, centroid's extra atomics cost ~3x the reduction time of
+    // cell-center on the default CUDA path (~20 ms vs ~6 ms) and are similarly costlier on the
+    // MIMIR_LOD_NO_CUDA Vulkan fallback (~125 ms vs ~32 ms) -- prefer cell at huge N if the coarser
+    // placement is acceptable.
     bool lod_centroid = true;
 
     // Vertical field of view of the perspective camera, in degrees. Datoviz-comparable

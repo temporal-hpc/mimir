@@ -1,5 +1,12 @@
 # Custom-CUDA LOD Reduction Implementation Plan
 
+**Status: complete.** All six tasks landed and were verified on an RTX PRO 6000 Blackwell Server
+Edition: parity holds (CUDA vs `MIMIR_LOD_NO_CUDA=1` Vulkan fallback agree on occupied-cell counts,
+including the `--lod 32` / 2^20-particle = 1472 invariant), both render paths (PT and raster) surface
+a `lod X ms` telemetry split, and the CUDA reduction measures single-digit-to-tens-of-ms at 300M
+particles / `--lod 256` -- roughly 4-6x faster than the Vulkan fallback (see Task 6's report for the
+full before/after numbers). See `.superpowers/sdd/task-6-report.md` for the final verification run.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to
 > implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -356,22 +363,22 @@ git commit -m "feat(lod): raster path uses the custom CUDA reduction + interop w
 - Modify: `lib/src/engine.cpp` (raster `lod` timing breakout), `lib/src/remote.cpp` (surface it),
   `samples/remote-rendering/rr-server.cu` (usage note), the spec/plan status.
 
-- [ ] **Step 1: Raster `lod` timing.** Add a CPU (CUDA path) / GPU-timestamp (Vulkan path) measure of
+- [x] **Step 1: Raster `lod` timing.** Add a CPU (CUDA path) / GPU-timestamp (Vulkan path) measure of
   the raster reduction and surface `lod X ms` on the raster `[stats]` line, mirroring the PT
   breakout, so none/phong show their reduction cost too.
-- [ ] **Step 2: Parity gate.** Headless: for PT and raster, at `--lod 64` over 2M points, assert the
+- [x] **Step 2: Parity gate.** Headless: for PT and raster, at `--lod 64` over 2M points, assert the
   CUDA occupied count equals a `MIMIR_LOD_NO_CUDA=1` (Vulkan-path) run's occupied count (same
   seed/k/epsilon). Record both in the task report.
-- [ ] **Step 3: Fallback.** Run with `MIMIR_LOD_NO_CUDA=1` and confirm a correct render + the log says
+- [x] **Step 3: Fallback.** Run with `MIMIR_LOD_NO_CUDA=1` and confirm a correct render + the log says
   `Vulkan scatter (MIMIR_LOD_NO_CUDA set)`. This is the documented escape hatch (already wired in
   Task 3); just verify it end-to-end here.
-- [ ] **Step 4: Perf.** Record `lod ms` CUDA vs Vulkan (`MIMIR_LOD_NO_CUDA=1`) at 300M (and 1B if
+- [x] **Step 4: Perf.** Record `lod ms` CUDA vs Vulkan (`MIMIR_LOD_NO_CUDA=1`) at 300M (and 1B if
   VRAM allows) for PT and raster; expect single-digit ms on CUDA. Put the numbers in the task report.
   **If centroid `lod ms` on the B300 is still large (atomic contention), record it — that is the
   trigger for the follow-up contention-free sort noted in the spec.**
-- [ ] **Step 5: Docs.** Note the custom CUDA reduction + `MIMIR_LOD_NO_CUDA` in `rr-server
+- [x] **Step 5: Docs.** Note the custom CUDA reduction + `MIMIR_LOD_NO_CUDA` in `rr-server
   --help`/README and the `pt_lod_cells`/`lod_centroid` option docs; mark the plan complete.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 ```bash
 git add -A
 git commit -m "feat(lod): raster lod timing + CUDA parity/fallback/perf verification + docs"

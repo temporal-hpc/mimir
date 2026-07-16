@@ -2392,12 +2392,23 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
         // on it) to avoid a host stall on the render thread -- a documented follow-up, NOT implemented
         // here (out of scope; the raster+CUDA+LOD combo is only driven serialized today).
         // recordReduction MUST NOT be called: the Vulkan N^3 accumulator is unallocated on this path.
+        // CPU wall-clock the reduce+sync into last_lod_raster_ms, mirroring RayTracingContext::last_lod_ms
+        // (raytracing.cpp ~1551) so the raster [stats] line can surface the same "lod X ms" split PT does.
+        const auto lod_t0 = std::chrono::steady_clock::now();
         lod_context.reduceCuda(interop.cuda_stream, lod_raster_pos_cuda, lod_raster_count, slot);
         validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
+        last_lod_raster_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - lod_t0).count();
     }
     else
     {
+        // Vulkan fallback: the reduction is recorded into `cmd` and runs async on the graphics/compute
+        // queue alongside the rest of the frame -- there is no host stall to CPU-time here (unlike the
+        // CUDA branch's blocking cudaStreamSynchronize), so a wall-clock wrapper would only measure
+        // command-buffer recording overhead, not GPU reduction cost. Left unmeasured (0.0); a real
+        // number would need GPU timestamp queries, which is out of scope for this fallback path.
         lod_context.recordReduction(cmd, lod_raster_pos_addr, lod_raster_count, slot);
+        last_lod_raster_ms = 0.0;
     }
 
     // Make the emit pass's writes visible to BOTH consumers: the finalize compute reads the emit
