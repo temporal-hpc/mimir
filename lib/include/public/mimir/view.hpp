@@ -65,6 +65,9 @@ struct IndexDescription
     AllocHandle source = {};
     // Number of elements contained in the source allocation
     // Must be non-zero to describe a valid indexing.
+    // Intentionally unsigned int (not size_t): indexed-position views (Edges / plain indexed mesh)
+    // are not part of the 64-bit particle-count feature and their draw path stays bound to
+    // UINT32_MAX elements. Only direct point clouds and instanced meshes support >2^32 elements.
     unsigned int size = 0;
     // Size in bits of the index type stored in the indices allocation.
     // Must be non-zero to describe a valid indexing.

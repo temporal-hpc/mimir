@@ -270,12 +270,15 @@ void sphereIntersect()
     // PrimitiveIndex() is LOCAL to this instance's BLAS. Recover the global particle index into the
     // shared AABB buffer: instance c (InstanceID) covers globals [c*chunk, c*chunk+chunk). chunk is
     // packed into cam_pos.w; for a single BLAS InstanceID()==0 so this reduces to PrimitiveIndex().
+    // The multiply itself must happen in 64-bit: chunk (blas_chunk_prims) can be up to ~5.3e8, and
+    // for InstanceID() >= ~8 the 32-bit product InstanceID()*chunk overflows and wraps, recovering
+    // the wrong global index (garbage sphere) for every particle past the 2^32 boundary.
     uint chunk = asuint(pc.cam_pos.w);
-    uint gid = InstanceID() * chunk + PrimitiveIndex();
+    uint64_t gid = uint64_t(InstanceID()) * uint64_t(chunk) + uint64_t(PrimitiveIndex());
     // Explicit 64-bit address + cast, NOT pointer indexing: OpPtrAccessChain offsets are truncated
     // to 32 bits by the NVIDIA compiler even with a 64-bit index, wrapping reads past 4 GiB into
     // the AABB buffer (~179M particles) onto garbage boxes (see pathtrace_aabbs.slang).
-    Aabb box = *(Aabb*)(uint64_t(pc.aabbs) + uint64_t(gid) * 24ull);
+    Aabb box = *(Aabb*)(uint64_t(pc.aabbs) + gid * 24ull);
     float3 mn = float3(box.minx, box.miny, box.minz);
     float3 mx = float3(box.maxx, box.maxy, box.maxz);
     float3 center = 0.5 * (mn + mx);

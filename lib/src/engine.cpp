@@ -1060,6 +1060,10 @@ bool validateViewDescription(ViewDescription *desc)
 uint64_t getDrawCount(ViewDescription *desc)
 {
     auto& pos_attr = desc->attributes[AttributeType::Position];
+    // NOTE: indexed-position views (Edges / plain indexed mesh) return IndexDescription::size, which
+    // is an unsigned int by design and stays bound to UINT32_MAX elements. The 64-bit particle-count
+    // feature covers direct point clouds and instanced meshes (pos_attr.size, size_t); the indexed
+    // draw path is not chunked and is intentionally out of scope for >2^32 element counts.
     return hasIndexing(pos_attr)? pos_attr.indexing.size : pos_attr.size;
 }
 
