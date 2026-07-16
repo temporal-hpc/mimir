@@ -225,6 +225,18 @@ void MimirInstance::prepare()
                         view->element_count);
                     raytracing.lod = &lod_context;
                     deletors.context.add([this]{ lod_context.destroy(); });
+                    // On the CUDA reduction path, hand the path tracer the interop stream + the CUDA
+                    // device pointer aliasing the SAME positions its Vulkan AABB writer reads by BDA,
+                    // so recordLodUpdate can run the native reduction. The interop Barrier (and thus
+                    // cuda_stream) is created in createSyncObjects() during initVulkan(), which runs at
+                    // make()-time BEFORE prepare() reaches this bind block, so interop.cuda_stream is
+                    // valid here; both the stream and the mapped pointer are stable once set.
+                    if (lod_context.usesCuda())
+                    {
+                        void* pos_cuda = getDevicePtrCuda(
+                            view->desc.attributes[AttributeType::Position].source);
+                        raytracing.setLodInterop(interop.cuda_stream, pos_cuda);
+                    }
                 }
                 raytracing.bindScene(pos_addr, view->element_count,
                     view->desc.default_size, glm::vec4(c.x, c.y, c.z, c.w));
@@ -937,6 +949,9 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
     validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
         dev_ptr, alloc.cuda_extmem, &buffer_desc)
     );
+    // Persist the just-mapped CUDA pointer so consumers (the LOD CUDA reduction) can read these
+    // interop positions as a native device pointer -- reuses this mapping, no extra map call.
+    alloc.cuda_ptr = *dev_ptr;
     auto alloc_ptr = new LinearAlloc(alloc);
     deletors.context.add([=,this]{ delete alloc_ptr; });
     return alloc_ptr;

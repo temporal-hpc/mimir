@@ -21,6 +21,10 @@ struct LinearAlloc
     VkDeviceMemory vk_mem;
     // Cuda external memory handle, provided by the Cuda interop API.
     cudaExternalMemory_t cuda_extmem;
+    // Cuda-mapped device pointer aliasing this buffer's memory (the same pointer handed back to the
+    // caller of allocLinear). Persisted so consumers -- e.g. the LOD CUDA reduction -- can read the
+    // interop positions as a native CUDA device pointer without re-mapping. nullptr until set.
+    void *cuda_ptr = nullptr;
 };
 
 struct OpaqueAlloc
@@ -217,6 +221,9 @@ VkImageType getImageType(Layout extent);
 VkDeviceSize getSourceSize(AllocHandle alloc);
 VkDeviceMemory getMemoryVulkan(AllocHandle alloc);
 cudaExternalMemory_t getMemoryCuda(AllocHandle alloc);
+// Return the CUDA-mapped device pointer for a LinearAlloc (the interop buffer's CUDA alias), or
+// nullptr for the monostate/OpaqueAlloc cases (which carry no persisted mapped pointer).
+void *getDevicePtrCuda(AllocHandle alloc);
 
 // Return Vulkan image tiling (linear/opaque) from the allocation type.
 VkImageTiling getImageTiling(AllocHandle alloc);

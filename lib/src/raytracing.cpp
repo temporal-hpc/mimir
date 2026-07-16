@@ -5,6 +5,7 @@
 #include <algorithm>     // std::max
 #include <cassert>       // assert (LOD single-chunk invariant)
 #include <chrono>        // steady_clock (CPU-time the LOD reduction submit)
+#include <cuda_runtime_api.h> // cudaStreamSynchronize (CUDA LOD reduction sync)
 #include <cstring>       // std::memcpy
 #include <cstdlib>       // std::getenv, std::strtoull (MIMIR_PT_BLAS_CHUNK)
 #include <cmath>         // std::sqrt
@@ -1521,23 +1522,44 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     assert(lod != nullptr && "LOD active but no LodContext bound (engine must set rt.lod)");
     bool first_build = !accel_ever_built;
 
-    // 1) Reduce, then read the occupied-cell count and clamp to the sizing bound. recordReduction is
-    // now record-only (Task 2 refactor), so PT wraps it in its own blocking one-shot submit: PT needs
-    // the count on the host BEFORE it can build the AS over `occupied` primitives in `cmd`. The
-    // one-shot's vkQueueWaitIdle also serializes against the previous frame's trace. (Raster instead
-    // records the reduction inline in the frame cmd with no stall -- it never calls readCount.) The
-    // reduced positions live in lod->reducedPositionsBuffer().
-    // PT serializes itself (blocking one-shot submit + vkQueueWaitIdle), so a fixed slot 0 of the ringed
-    // output buffers is safe -- no two PT reductions are ever in flight at once.
-    // recordReduction takes the 64-bit particle_count directly (its scatter pass grid-strides).
-    // CPU wall-clock the blocking reduction (submit + vkQueueWaitIdle drains it): this is the whole
+    // 1) Reduce, then read the occupied-cell count and clamp to the sizing bound. PT needs the count
+    // on the host BEFORE it can build the AS over `occupied` primitives in `cmd`, so it blocks on the
+    // reduction (CUDA: cudaStreamSynchronize; Vulkan fallback: a one-shot submit + vkQueueWaitIdle).
+    // Either way the reduced positions land in lod->reducedPositionsBuffer(0) and the block also
+    // serializes against the previous frame's trace, so a fixed slot 0 of the ringed output buffers
+    // is safe -- no two PT reductions are ever in flight at once. (Raster instead records the Vulkan
+    // reduction inline in the frame cmd with no stall -- it never reads the count back.) Both backends
+    // take the 64-bit particle_count directly. CPU wall-clock the blocking reduction: the whole
     // scatter+emit over ALL particles, the LOD "reduction" cost, isolated from the AS build/trace.
-    const auto lod_t0 = std::chrono::steady_clock::now();
-    submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address,
-        particle_count, /*slot=*/0u); });
-    last_lod_ms = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - lod_t0).count();
-    uint32_t occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
+    // Two reduction backends produce the same result -- the occupied-cell count + the reduced
+    // positions in lod->reducedPositionsBuffer(0) -- so everything downstream (the AABB writer, the
+    // AS build) is identical. usesCuda() picks the native-CUDA reduction (the default); the else
+    // branch is the MIMIR_LOD_NO_CUDA Vulkan scatter/emit fallback, unchanged from before.
+    uint32_t occupied = 0;
+    if (lod->usesCuda())
+    {
+        // CUDA path: run the reduction on the interop stream reading the SAME positions the AABB
+        // writer reads (as a CUDA device pointer), then block until it finishes so the occupied count
+        // is on the host before we build the AS over it. No Vulkan submit / recordReduction here --
+        // on the CUDA path the Vulkan N^3 accumulator was never allocated (LodReduce owns the only
+        // one), so recordReduction would dereference null BDA-0 buffers. CPU wall-clock the whole
+        // reduce+sync into last_lod_ms, mirroring the Vulkan branch's timing.
+        const auto lod_t0 = std::chrono::steady_clock::now();
+        lod->reduceCuda(lod_cuda_stream, lod_positions_dev, particle_count, /*slot=*/0u);
+        validation::checkCuda(cudaStreamSynchronize(lod_cuda_stream));
+        last_lod_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - lod_t0).count();
+        occupied = std::min(lod->occupiedFromCuda(/*slot=*/0u), lod_max_cells);
+    }
+    else
+    {
+        const auto lod_t0 = std::chrono::steady_clock::now();
+        submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address,
+            particle_count, /*slot=*/0u); });
+        last_lod_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - lod_t0).count();
+        occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
+    }
     lod_prim_count = occupied;
 
     // 2) Build the AS in the frame command buffer over `occupied` primitives (always a full rebuild).
@@ -1547,11 +1569,12 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 0);
     }
 
-    // Barrier: the emit compute shader's writes to the reduced-position buffer happened inside the
-    // one-shot submit above. vkQueueWaitIdle (inside submit()) gives host-domain execution ordering
-    // only -- not device-domain memory availability/visibility for `cmd`, a separate submission on the
-    // same queue. Without this, the AABB writer below reading the reduced positions is a Read-After-
-    // Write hazard per the Vulkan memory model (compute SHADER_WRITE -> compute SHADER_READ).
+    // Barrier: the reduction's writes to the reduced-position buffer happened in a separate execution
+    // domain from `cmd` -- the Vulkan-fallback's one-shot submit (host-ordered by vkQueueWaitIdle), or
+    // on the CUDA path a CUDA kernel host-ordered by cudaStreamSynchronize before this Vulkan queue
+    // submit. Both give host-domain execution ordering only, not device-domain memory availability/
+    // visibility for `cmd`. This memory barrier covers that within `cmd` so the AABB writer below
+    // reading the reduced positions is not a Read-After-Write hazard (compute WRITE -> compute READ).
     VkMemoryBarrier reduce_to_writer{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,

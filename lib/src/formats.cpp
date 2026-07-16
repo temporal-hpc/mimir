@@ -39,6 +39,14 @@ cudaExternalMemory_t getMemoryCuda(AllocHandle alloc)
     }, alloc);
 }
 
+void *getDevicePtrCuda(AllocHandle alloc)
+{
+    return std::visit(overloaded{
+        [](auto) { return static_cast<void*>(nullptr); },
+        [](LinearAlloc *arg) { return arg->cuda_ptr; }
+    }, alloc);
+}
+
 VkImageTiling getImageTiling(AllocHandle alloc)
 {
     return std::visit(overloaded{

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <cuda_runtime_api.h> // cudaStream_t (LOD CUDA-reduction interop)
 #include <glm/glm.hpp>
 
 #include <array> // std::array
@@ -250,6 +251,18 @@ struct RayTracingContext
     LodContext* lod = nullptr;
     uint32_t lod_max_cells  = 0;   // min(N^3, particle_count): BLAS/AABB sizing bound
     uint32_t lod_prim_count = 0;   // occupied cells emitted this frame (per-frame build count)
+    // Interop handles for the CUDA LOD reduction (used only when lod->usesCuda()): the interop
+    // stream the engine's CUDA<->Vulkan work runs on, and the CUDA device pointer aliasing the SAME
+    // interop positions the Vulkan AABB writer reads by BDA (position_address). Set by the engine via
+    // setLodInterop before the first recordLodUpdate; both are stable once set. Left null on the
+    // Vulkan-fallback path (MIMIR_LOD_NO_CUDA), where recordLodUpdate never touches them.
+    cudaStream_t lod_cuda_stream = nullptr;
+    const void*  lod_positions_dev = nullptr;
+    void setLodInterop(cudaStream_t stream, const void* positions_dev)
+    {
+        lod_cuda_stream = stream;
+        lod_positions_dev = positions_dev;
+    }
     void recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
 
     // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*TS_PER_FRAME timestamps. The
