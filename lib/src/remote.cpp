@@ -354,11 +354,13 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
 {
     prepare();
 
-    // Total particles the sim advances each step = the sum of the views' element counts (draw_count
-    // is the position-attribute size for markers; bindScene uses the same value as the PT instance
-    // count). Captured once for the particles/s throughput metric on the heartbeat/stats lines.
+    // Total particles the sim advances each step = the sum of the views' element counts.
+    // Use element_count (the true 64-bit particle total in BOTH point and instanced-mesh modes),
+    // NOT draw_count: draw_count is clamped to UINT32_MAX (and is the icosphere index count in mesh
+    // mode), so it would report 4.29 G for any scene past 2^32. Captured once for the particles/s
+    // throughput metric on the heartbeat/stats lines and the client HUD's scene-size readout.
     size_t particle_total = 0;
-    for (auto *v : views) { if (v != nullptr) { particle_total += v->draw_count; } }
+    for (auto *v : views) { if (v != nullptr) { particle_total += v->element_count; } }
 
     // One-shot honest footprint: prepare() has now built everything, including the path-tracing
     // BVH + instance buffers that the pre-serve startup estimate in rr-server is taken before and
