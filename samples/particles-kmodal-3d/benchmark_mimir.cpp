@@ -80,7 +80,7 @@ static LightModel parseLightModel(const std::string& v)
 }
 
 struct HudData {
-    unsigned int points;
+    uint64_t     points;
     int          frame;
     float        fps;
     float        compute_ms;
@@ -493,7 +493,7 @@ BenchmarkResult runExperiment(PointsInput input)
 
     // HUD data shared between the simulation loop and the ImGui callback.
     HudData hud{};
-    hud.points  = (unsigned int)n;
+    hud.points  = n;
     hud.seed    = input.pts.seed;
     hud.k       = input.pts.k;
     hud.epsilon = input.pts.epsilon;
@@ -588,7 +588,7 @@ BenchmarkResult runExperiment(PointsInput input)
                     - hud.buf_mb - hud.render_mb - hud.vulkan_mb);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Points");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.points);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%llu", (unsigned long long)hud.points);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Seed");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.seed);
@@ -823,6 +823,12 @@ static void usage(const char* prog)
         "Positional (in order; win_w/win_h must be supplied together):\n"
         "  win_w  win_h   Window resolution in pixels             (default: 1920 1080)\n"
         "  points         Number of simulated points              (default: 1000000)\n"
+        "                 No fixed maximum -- bounded by GPU memory. Positions cost 12 B/particle;\n"
+        "                 path-tracing WITHOUT --lod adds 24 B/particle for AABBs (36 B total);\n"
+        "                 --lod and the raster light models stay ~12 B/particle. An over-memory\n"
+        "                 count is rejected up front (before any Vulkan allocation). Rough per-card\n"
+        "                 ceiling: ~7.5 B particles on a 96 GB GPU (none/phong/PT+LOD); ~2.6 B for\n"
+        "                 path-tracing without LOD; more on larger-VRAM cards.\n"
         "  seed           RNG seed for positions/walk             (default: 12345)\n"
         "  iters          Simulation steps to run                 (default: 1000000)\n"
         "\n"
