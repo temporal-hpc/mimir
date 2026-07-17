@@ -137,7 +137,12 @@ __global__ void scatterKernel(const float* pos, uint64_t count, uint32_t N, bool
         }
         else
         {
-            counts[c] = 1u;
+            // Cell-center only needs an occupancy flag, and each occupied cell is hit by MANY particles
+            // (e.g. ~1392:1), all writing the identical 1. Skip the store when the cell is already
+            // marked: this turns ~all of the 1e9 scattered writes into cheap (L2-resident) reads plus
+            // only ~one write per occupied cell, cutting the write traffic that dominates scatter. The
+            // read/write race stays benign -- every writer stores the same value 1.
+            if (counts[c] == 0u) { counts[c] = 1u; }
         }
     }
 }
