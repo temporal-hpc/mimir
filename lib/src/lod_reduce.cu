@@ -147,48 +147,73 @@ __global__ void scatterKernel(const float* pos, uint64_t count, uint32_t N, bool
 // position into that slot of reduced_pos.
 //   cell-cent: center = -1 + (cell + 0.5) * (2/N) per axis.
 //   centroid : de-fixedpoint sums[3c+k]/counts[c] back to [-1,1].
+// Block-aggregated compaction: instead of one global atomicAdd(occupied,1) per occupied cell -- which
+// funnels every occupied cell through a SINGLE global address and serializes catastrophically on GPUs
+// with a distributed/multi-die L2 (a B300 emit measured ~23x a weaker RTX PRO 6000 purely from this) --
+// each block tallies its emitters in a shared-memory counter (cheap per-SM atomics) and issues exactly
+// ONE global atomicAdd per block to reserve a contiguous slot range. Global atomic traffic drops from
+// O(occupied cells) to O(blocks), independent of occupancy density.
 __global__ void emitKernel(const uint32_t* counts, const unsigned long long* sums, uint64_t nCells,
                             uint32_t N, bool centroid, float* reduced_pos, uint32_t* occupied)
 {
-    uint64_t stride = static_cast<uint64_t>(blockDim.x) * gridDim.x;
-    for (uint64_t c = static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x; c < nCells;
+    __shared__ uint32_t s_count;  // emitters in this block, this iteration
+    __shared__ uint32_t s_base;   // global base slot the block reserved for them
+
+    const uint64_t stride = static_cast<uint64_t>(blockDim.x) * gridDim.x;
+    // Round the loop bound up to a whole number of strides so every thread in a block runs the same
+    // iteration count -- the __syncthreads() below would deadlock on a divergent grid-stride loop.
+    const uint64_t iters_end = ((nCells + stride - 1) / stride) * stride;
+    for (uint64_t c = static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x; c < iters_end;
          c += stride)
     {
-        uint32_t cnt = counts[c];
-        if (cnt == 0u) continue;
+        const bool emit = (c < nCells) && (counts[c] != 0u);
 
         float3 rep;
-        if (centroid)
+        if (emit)
         {
-            double invCount = 1.0 / static_cast<double>(cnt);
-            double fx = static_cast<double>(sums[3 * c + 0]) * invCount;
-            double fy = static_cast<double>(sums[3 * c + 1]) * invCount;
-            double fz = static_cast<double>(sums[3 * c + 2]) * invCount;
-            double scale = static_cast<double>(kFixedScale);
-            rep = make_float3(static_cast<float>((fx / scale) * 2.0 - 1.0),
-                               static_cast<float>((fy / scale) * 2.0 - 1.0),
-                               static_cast<float>((fz / scale) * 2.0 - 1.0));
-        }
-        else
-        {
-            uint32_t lin = static_cast<uint32_t>(c);
-            uint32_t cx = lin % N;
-            uint32_t cy = (lin / N) % N;
-            uint32_t cz = lin / (N * N);
-            float cs = 2.0f / static_cast<float>(N);
-            rep = make_float3(-1.0f + (static_cast<float>(cx) + 0.5f) * cs,
-                               -1.0f + (static_cast<float>(cy) + 0.5f) * cs,
-                               -1.0f + (static_cast<float>(cz) + 0.5f) * cs);
+            if (centroid)
+            {
+                double invCount = 1.0 / static_cast<double>(counts[c]);
+                double fx = static_cast<double>(sums[3 * c + 0]) * invCount;
+                double fy = static_cast<double>(sums[3 * c + 1]) * invCount;
+                double fz = static_cast<double>(sums[3 * c + 2]) * invCount;
+                double scale = static_cast<double>(kFixedScale);
+                rep = make_float3(static_cast<float>((fx / scale) * 2.0 - 1.0),
+                                   static_cast<float>((fy / scale) * 2.0 - 1.0),
+                                   static_cast<float>((fz / scale) * 2.0 - 1.0));
+            }
+            else
+            {
+                uint32_t lin = static_cast<uint32_t>(c);
+                uint32_t cx = lin % N;
+                uint32_t cy = (lin / N) % N;
+                uint32_t cz = lin / (N * N);
+                float cs = 2.0f / static_cast<float>(N);
+                rep = make_float3(-1.0f + (static_cast<float>(cx) + 0.5f) * cs,
+                                   -1.0f + (static_cast<float>(cy) + 0.5f) * cs,
+                                   -1.0f + (static_cast<float>(cz) + 0.5f) * cs);
+            }
         }
 
-        uint32_t slot = atomicAdd(occupied, 1u);
-        // 64-bit base: slot can approach N^3 (< 2^32), so slot*3 must be computed in 64 bits or it
-        // wraps past ~1.43 B occupied cells and scatters representatives to garbage low offsets. The
-        // slang emit widens the same way (uint64_t(slot) * 12ull). Mirrors the AABB-path 64-bit fix.
-        size_t base = static_cast<size_t>(slot) * 3;
-        reduced_pos[base + 0] = rep.x;
-        reduced_pos[base + 1] = rep.y;
-        reduced_pos[base + 2] = rep.z;
+        // Intra-block prefix via a shared counter, then a single global reservation per block.
+        if (threadIdx.x == 0) { s_count = 0u; }
+        __syncthreads();
+        uint32_t local = emit ? atomicAdd(&s_count, 1u) : 0u; // this thread's offset within the block
+        __syncthreads();
+        if (threadIdx.x == 0) { s_base = (s_count > 0u) ? atomicAdd(occupied, s_count) : 0u; }
+        __syncthreads();
+
+        if (emit)
+        {
+            uint32_t slot = s_base + local;
+            // 64-bit base: slot can approach N^3 (< 2^32), so slot*3 must be computed in 64 bits or it
+            // wraps past ~1.43 B occupied cells and scatters representatives to garbage low offsets. The
+            // slang emit widens the same way (uint64_t(slot) * 12ull). Mirrors the AABB-path 64-bit fix.
+            size_t base = static_cast<size_t>(slot) * 3;
+            reduced_pos[base + 0] = rep.x;
+            reduced_pos[base + 1] = rep.y;
+            reduced_pos[base + 2] = rep.z;
+        }
     }
 }
 
