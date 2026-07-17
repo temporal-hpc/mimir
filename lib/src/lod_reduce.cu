@@ -111,8 +111,10 @@ __global__ void clearKernel(uint32_t* counts, unsigned long long* sums, uint64_t
 }
 
 // Scatters every particle into the N^3 accumulator. size_t/uint64_t grid-stride loop over `count`
-// particles -- NEVER `int` -- so this scales past 2^32 particles (the whole point of this
-// module vs. CUB/Thrust, whose item counts are int-sized).
+// particles -- NEVER `int` -- so this scales past 2^32 (the whole point vs. CUB/Thrust, whose item
+// counts are int-sized). The per-thread AoS float3 read (3 stride-3 loads) is already cache-line
+// efficient on Blackwell -- staging the tile through shared memory was measured SLOWER (the syncthreads
+// + shared round-trip outweighed any coalescing gain), so we keep the direct read.
 //   centroid  : atomicAdd(&counts[c], 1) + 3x atomicAdd(&sums[3c+k], fixedPoint(pos_k)) (u64).
 //   cell-cent : counts[c] = 1u, a benign non-atomic store -- every writer to a given cell writes
 //               the identical value, so concurrent writes race harmlessly.
