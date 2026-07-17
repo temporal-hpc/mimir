@@ -378,18 +378,27 @@ int main(int argc, char *argv[])
     cudaMemGetInfo(&vram_free0, &vram_total);
 
     // Memory pre-flight: reject a count that will not fit the GPU memory free right now, BEFORE Vulkan
-    // OOMs. Dominant device allocations: positions (12 B/particle, always) + per-particle AABBs
-    // (24 B/particle) only under path-tracing WITHOUT LOD (LOD builds the BVH over occupied cells).
+    // OOMs. Per-particle device allocations: interop positions (12 B, always) + the kmodal sim's
+    // per-particle cluster id (4 B, always -- see kmodal_sim.cu createClusters) + per-particle AABBs
+    // (24 B) only under path-tracing WITHOUT LOD (LOD builds the BVH over occupied cells, not particles).
+    // The N^3 LOD accumulator and the render targets are fixed-ish and checked separately below.
     {
         const bool pt_no_lod = (light_model == LightModel::PathTracing) && (lod_cells == 0);
-        const unsigned long long bytes_per_particle = 12ull + (pt_no_lod ? 24ull : 0ull);
+        const unsigned long long bytes_per_particle = 12ull + 4ull + (pt_no_lod ? 24ull : 0ull);
         const unsigned long long need = (unsigned long long)point_count * bytes_per_particle;
+        const unsigned long long max_fit = (unsigned long long)vram_free0 / bytes_per_particle;
         if (need > (unsigned long long)vram_free0) {
-            fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s) but only %.1f GB is free on "
-                    "the GPU right now\n", (unsigned long long)point_count, (double)need/1e9,
-                    pt_no_lod ? "positions+AABBs" : "positions", (double)vram_free0/1e9);
+            fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s, %llu B/particle) but only %.1f GB "
+                    "is free on the GPU right now -- max feasible here is ~%llu particles\n",
+                    (unsigned long long)point_count, (double)need/1e9,
+                    pt_no_lod ? "positions+ids+AABBs" : "positions+ids", bytes_per_particle,
+                    (double)vram_free0/1e9, max_fit);
             return EXIT_FAILURE;
         }
+        printf("rr-server: memory pre-flight OK -- %llu particles need %.1f GB of %.1f GB free "
+               "(%llu B/particle); this GPU fits ~%llu particles in %s mode\n",
+               (unsigned long long)point_count, (double)need/1e9, (double)vram_free0/1e9,
+               bytes_per_particle, max_fit, pt_no_lod ? "path-tracing (no LOD)" : "raster/LOD");
     }
 
     // Accumulator is N^3 * bytes_per_cell. Reject an --lod whose accumulator would not fit the device
