@@ -281,24 +281,29 @@ std::vector<std::string> hud_lines()
     {
         const double lat = g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms;
         const double compute_on_path = g_hud.compute_ms * static_cast<double>(g_hud.steps_per_frame);
+        // render_ms (from the server) includes the LOD reduction, so break the reduction out as its
+        // own pipeline stage and show render as the PURE draw cost (render_ms - lod_ms) -- otherwise
+        // render reads high and misleads. The full render_ms (lod + pure) stays on the latency path,
+        // so network~ is unchanged. LOD is a distinct stage before render only when it is active.
+        const double render_pure = std::max(0.0, g_hud.render_ms - g_hud.lod_ms);
         const double network_ms = std::max(0.0,
             lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms - compute_on_path);
-        // render carries the LOD reduction as a sub-component; surface it (like the server log's
-        // "render X (lod Y)") only when LOD is active so a native-particle session stays uncluttered.
-        char render_field[48];
+        char l4[256];
         if (g_hud.lod_ms > 0.005)
         {
-            snprintf(render_field, sizeof(render_field), "render %.1f ms (lod %.1f)",
-                g_hud.render_ms, g_hud.lod_ms);
+            snprintf(l4, sizeof(l4),
+                "compute %.2f ms/step | lod %.1f ms | render %.1f ms | encode %.1f ms | "
+                "network~%.1f ms | decode %.1f ms",
+                g_hud.compute_ms, g_hud.lod_ms, render_pure, g_hud.encode_ms, network_ms,
+                g_hud.decode_ms);
         }
         else
         {
-            snprintf(render_field, sizeof(render_field), "render %.1f ms", g_hud.render_ms);
+            snprintf(l4, sizeof(l4),
+                "compute %.2f ms/step | render %.1f ms | encode %.1f ms | network~%.1f ms | "
+                "decode %.1f ms",
+                g_hud.compute_ms, g_hud.render_ms, g_hud.encode_ms, network_ms, g_hud.decode_ms);
         }
-        char l4[224];
-        snprintf(l4, sizeof(l4),
-            "compute %.2f ms/step | %s | encode %.1f ms | network~%.1f ms | decode %.1f ms",
-            g_hud.compute_ms, render_field, g_hud.encode_ms, network_ms, g_hud.decode_ms);
         lines.push_back(l4);
     }
     return lines;
@@ -726,12 +731,13 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             lat_max = dec.lat_ms.back();
         }
         const uint32_t ctrl = g.ctrl_sent.exchange(0);
-        // render (with the LOD reduction broken out when active) mirrors the on-screen HUD.
-        char cons_render[48];
+        // LOD is a distinct stage (server render_us includes it), so break it out and show render as
+        // the pure draw cost (render_us - lod_us); mirrors the on-screen HUD. Only when LOD is active.
+        char cons_render[64];
         if (st.lod_us > 5)
         {
-            snprintf(cons_render, sizeof(cons_render), "render %.1f (lod %.1f)",
-                st.render_us / 1000.0, st.lod_us / 1000.0);
+            snprintf(cons_render, sizeof(cons_render), "lod %.1f ms | render %.1f",
+                st.lod_us / 1000.0, std::max(0.0, st.render_us / 1000.0 - st.lod_us / 1000.0));
         }
         else { snprintf(cons_render, sizeof(cons_render), "render %.1f", st.render_us / 1000.0); }
         printf("[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | %s ms | decode %.2f+-%.2f ms | "
