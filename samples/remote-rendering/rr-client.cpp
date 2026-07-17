@@ -161,6 +161,7 @@ struct Hud
     // GPU cost (compute + render) vs. the remote transfer cost (encode + network + decode).
     double compute_ms = 0.0;        // server: mean sim compute() time per step
     double render_ms = 0.0;         // server: mean GPU render/trace time per frame
+    double lod_ms = 0.0;            // server: mean LOD-reduction time per frame (part of render_ms)
     double encode_ms = 0.0;         // server: mean encode (or readback) time per frame
     double decode_ms = 0.0;         // client: mean decode time per frame (measured here)
     bool have_stats = false;        // first Stats message arrived
@@ -282,10 +283,22 @@ std::vector<std::string> hud_lines()
         const double compute_on_path = g_hud.compute_ms * static_cast<double>(g_hud.steps_per_frame);
         const double network_ms = std::max(0.0,
             lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms - compute_on_path);
-        char l4[192];
+        // render carries the LOD reduction as a sub-component; surface it (like the server log's
+        // "render X (lod Y)") only when LOD is active so a native-particle session stays uncluttered.
+        char render_field[48];
+        if (g_hud.lod_ms > 0.005)
+        {
+            snprintf(render_field, sizeof(render_field), "render %.1f ms (lod %.1f)",
+                g_hud.render_ms, g_hud.lod_ms);
+        }
+        else
+        {
+            snprintf(render_field, sizeof(render_field), "render %.1f ms", g_hud.render_ms);
+        }
+        char l4[224];
         snprintf(l4, sizeof(l4),
-            "compute %.2f ms/step | render %.1f ms | encode %.1f ms | network~%.1f ms | decode %.1f ms",
-            g_hud.compute_ms, g_hud.render_ms, g_hud.encode_ms, network_ms, g_hud.decode_ms);
+            "compute %.2f ms/step | %s | encode %.1f ms | network~%.1f ms | decode %.1f ms",
+            g_hud.compute_ms, render_field, g_hud.encode_ms, network_ms, g_hud.decode_ms);
         lines.push_back(l4);
     }
     return lines;
@@ -713,11 +726,19 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             lat_max = dec.lat_ms.back();
         }
         const uint32_t ctrl = g.ctrl_sent.exchange(0);
-        printf("[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | decode %.2f+-%.2f ms | "
+        // render (with the LOD reduction broken out when active) mirrors the on-screen HUD.
+        char cons_render[48];
+        if (st.lod_us > 5)
+        {
+            snprintf(cons_render, sizeof(cons_render), "render %.1f (lod %.1f)",
+                st.render_us / 1000.0, st.lod_us / 1000.0);
+        }
+        else { snprintf(cons_render, sizeof(cons_render), "render %.1f", st.render_us / 1000.0); }
+        printf("[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | %s ms | decode %.2f+-%.2f ms | "
             "latency %.1f+-%.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)\n",
             st.fps_milli / 1000.0, st.kbps,
             dec.stream_codec == Codec::H264 ? "encode" : "readback",
-            st.encode_us / 1000.0, st.encode_std_us / 1000.0, dec_ms, dec_std,
+            st.encode_us / 1000.0, st.encode_std_us / 1000.0, cons_render, dec_ms, dec_std,
             lat_mean, lat_std, lat_p95, dec.lost,
             recv_kb, out_kb, recv_kb > 0.0 ? out_kb / recv_kb : 0.0);
         if (g_csv)
@@ -743,6 +764,7 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             g_hud.particles_per_sec  = st.particles_per_sec;
             g_hud.compute_ms = st.compute_us / 1000.0; // server sim step time
             g_hud.render_ms  = st.render_us / 1000.0;  // server GPU render time
+            g_hud.lod_ms     = st.lod_us / 1000.0;     // server LOD reduction time (part of render)
             g_hud.encode_ms  = st.encode_us / 1000.0;  // server encode/readback time
             g_hud.decode_ms  = dec_ms;                 // client decode time (measured above)
             g_hud.have_stats = true;

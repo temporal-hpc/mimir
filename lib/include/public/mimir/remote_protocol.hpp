@@ -158,6 +158,11 @@ struct Stats
     // path-trace build+trace). The client HUD shows it as the "render" stage of the pipeline so the
     // local GPU cost is separable from the remote transfer cost (encode + network + decode).
     uint32_t render_us;
+    // Appended (same forward-compat rule -- zero when absent). Mean LOD-reduction time per frame this
+    // window, microseconds -- the portion of render_us spent reducing the particles into the N^3 grid
+    // (0 when no LOD is active, or an older server). The client HUD shows it as a sub-component of
+    // render so the reduction cost is visible separately from the rest of the frame's GPU work.
+    uint32_t lod_us;
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.

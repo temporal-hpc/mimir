@@ -988,6 +988,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .particles_per_sec = 0,
                     .compute_us = 0,         // filled below (sim step + GPU render times)
                     .render_us  = 0,
+                    .lod_us     = 0,         // filled below (LOD reduction time, part of render)
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
                 // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
@@ -1007,6 +1008,9 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     ? static_cast<double>(cn_now - win_start_compute_ns) / static_cast<double>(d_iter) / 1e6 : 0.0;
                 st.compute_us = static_cast<uint32_t>(compute_ms * 1000.0);
                 st.render_us  = static_cast<uint32_t>(render_mean * 1000.0); // server GPU render/frame
+                // Mean LOD-reduction time/frame this window (sub-component of render_us; 0 = no LOD).
+                st.lod_us     = static_cast<uint32_t>(
+                    (win_lod_ms / static_cast<double>(win_frames)) * 1000.0);
                 char step_str[64];
                 if (max_iters != 0)
                 {
