@@ -961,13 +961,11 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
     // via the VMM API with the driver's recommended (2 MB) large-page granularity and Vulkan IMPORTS it.
     // The CUDA-side pointer is then a first-class large-page device pointer, and the rest of the engine
     // is unchanged (vk_mem still binds render buffers; cuda_ptr still feeds the LOD reduction).
-    // Only large buffers suffer the imported-memory TLB thrash, and VMM rounds up to the 2 MB page
-    // granularity -- wasteful for the many small interop buffers other samples allocate. So gate the
-    // VMM path on a size threshold: big data (e.g. billions of positions) gets large pages; everything
-    // small keeps the standard path untouched. This keeps mesh/2D/structured samples unaffected.
-    constexpr VkDeviceSize kVmmMinBytes = 256ull << 20; // 256 MB
-    static const bool vmm_env = (std::getenv("MIMIR_VMM_INTEROP") != nullptr);
-    const bool use_vmm = vmm_env && (memreq.size >= kVmmMinBytes);
+    // When MIMIR_VMM_INTEROP is set, ALL interop linear buffers take the VMM (large-page) path,
+    // regardless of size. Only large buffers actually suffer the imported-memory TLB thrash this fixes,
+    // and VMM rounds each allocation up to the 2 MB page granularity (so a tiny buffer still consumes
+    // 2 MB) -- but the flag is opt-in and this is the requested behavior, so no size gate.
+    static const bool use_vmm = (std::getenv("MIMIR_VMM_INTEROP") != nullptr);
     if (use_vmm)
     {
         cuInit(0);
