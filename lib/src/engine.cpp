@@ -132,7 +132,10 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
     // SPDLOG_LEVEL=<level> overrides the build-type default (e.g. to get slang
     // compile diagnostics out of a release build).
     spdlog::cfg::load_env_levels();
-    spdlog::set_pattern("[%H:%M:%S] [%l] %v");
+    // %^...%$ wraps the level in spdlog's per-level console color (info=green, warn=yellow, error=red,
+    // debug/trace dim) so log severity is identifiable at a glance. The default console sink is a color
+    // sink and no-ops the codes when stdout is not a TTY (piped/redirected), so files stay clean.
+    spdlog::set_pattern("[%H:%M:%S] [%^%l%$] %v");
 
     engine.options.present.target_frame_time = getTargetFrameTime(
         engine.options.present.enable_fps_limit, engine.options.present.target_fps

@@ -104,6 +104,11 @@ struct Hello
     // step IS part of the frame's latency). The client subtracts that on-path compute from its
     // network~ estimate in lockstep so the residual stays wire+wait, not sim time.
     uint32_t steps_per_frame;
+    // Appended (forward-compat: older peers read min(payload, sizeof) and leave these zero). Static
+    // scene identity the client uses to name benchmark CSVs and label its HUD: total particle count,
+    // and the light model (LightModel ordinal: 0 None/raster, 1 Phong, 2 PhongMesh, 3 PathTracing).
+    uint64_t particle_count;
+    uint32_t light_model;
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
@@ -215,7 +220,10 @@ inline std::string hostTag(const std::string& host)
 inline std::string gpuTag(std::string name)
 {
     for (auto& c : name) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); }
-    for (const char *w : {"NVIDIA", "GEFORCE", "LAPTOP", "GPU"})
+    // Drop vendor + marketing/arch words that bloat the tag without disambiguating the model
+    // ("RTX PRO 6000 Blackwell Server Edition" -> "RTXPRO6000", "B300 SXM6 AC" -> "B300SXM6AC").
+    for (const char *w : {"NVIDIA", "GEFORCE", "LAPTOP", "GPU", "BLACKWELL", "HOPPER", "AMPERE",
+                          "ADA", "TURING", "SERVER", "EDITION", "GENERATION"})
     {
         for (size_t p; (p = name.find(w)) != std::string::npos; )
         {
@@ -230,6 +238,7 @@ inline std::string gpuTag(std::string name)
     }
     while (!out.empty() && out.back()  == '-') { out.pop_back(); }
     while (!out.empty() && out.front() == '-') { out.erase(out.begin()); }
+    if (out.size() > 20) { out.resize(20); }   // hard cap so no single tag can blow up the filename
     return out.empty() ? "GPU" : out;
 }
 
@@ -248,14 +257,47 @@ inline std::string dateStamp()
     return buf;
 }
 
-// Assembles the full CSV path from a caller-supplied path+prefix and the run's identities.
+// Compact particle-count tag so the count stays short in filenames: 6000000000 -> "6G",
+// 100000000 -> "100M", 1500000 -> "1.5M", 250000 -> "250K", 0 -> "0".
+inline std::string countTag(uint64_t n)
+{
+    const char* suf[] = { "", "K", "M", "G", "T" };
+    double v = static_cast<double>(n); int s = 0;
+    while (v >= 1000.0 && s < 4) { v /= 1000.0; ++s; }
+    char b[32];
+    if (v == static_cast<double>(static_cast<long long>(v)))
+        std::snprintf(b, sizeof(b), "%lld%s", static_cast<long long>(v), suf[s]);
+    else
+        std::snprintf(b, sizeof(b), "%.1f%s", v, suf[s]);
+    return b;
+}
+
+// Short light-model tag (LightModel ordinal): 0 None -> raster, 1 Phong, 2 PhongMesh, 3 PathTracing.
+inline const char* lightTag(uint32_t light_model)
+{
+    switch (light_model) {
+        case 1:  return "phong";
+        case 2:  return "mesh";
+        case 3:  return "pt";
+        case 0:  return "raster";
+        default: return "lm";
+    }
+}
+
+// Assembles the full CSV path from a caller-supplied path+prefix and the run's identities + scene. The
+// scene tag (-n<count>-lod<N>-<light>) stays compact so the name is informative without ballooning:
+//   <prefix>-<date>-rr-<role>-n6G-lod256-pt-c<client>-s<server>-<gpu>.csv
 inline std::string benchmarkCsvPath(const std::string& prefix, const char *role,
-    const std::string& client, const std::string& server, const std::string& gpu)
+    const std::string& client, const std::string& server, const std::string& gpu,
+    uint64_t particles, uint32_t lod_cells, uint32_t light_model)
 {
     std::string p = prefix;
     if (!p.empty() && p.back() != '/' && p.back() != '-') { p += '-'; }
     p += dateStamp();
     p += "-rr-"; p += role;
+    p += "-n"   + countTag(particles);
+    p += "-lod" + (lod_cells ? std::to_string(lod_cells) : std::string("off"));
+    p += "-"    + std::string(lightTag(light_model));
     p += "-c" + hostTag(client);
     p += "-s" + hostTag(server);
     p += "-"  + gpuTag(gpu);

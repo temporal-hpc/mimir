@@ -140,6 +140,18 @@ struct Shared
 Shared g;
 
 // ---------------------------------------------------------------------------------------------
+// Terminal colors for the client's console logs, so info/success/error stand out at a glance. Gated
+// on stdout being a TTY, so redirected/piped output stays plain (no escape-code garbage in files).
+namespace ansi
+{
+    inline bool on()          { static const bool e = ::isatty(fileno(stdout)); return e; }
+    inline const char* grn()  { return on() ? "\033[1;32m" : ""; } // success (connected, ready)
+    inline const char* red()  { return on() ? "\033[1;31m" : ""; } // errors
+    inline const char* cyn()  { return on() ? "\033[36m"   : ""; } // info / notices
+    inline const char* dim()  { return on() ? "\033[2m"    : ""; } // per-second stats (low priority)
+    inline const char* rst()  { return on() ? "\033[0m"    : ""; }
+}
+
 // HUD: a minimal always-on overlay (toggle with H) answering "what am I looking at?": which
 // server runs the simulation (user@host:port, transport, codec), the end-to-end latency, and
 // the simulation progress (step x of y, or unlimited). Written by the session thread as
@@ -165,6 +177,7 @@ struct Hud
     double encode_ms = 0.0;         // server: mean encode (or readback) time per frame
     double decode_ms = 0.0;         // client: mean decode time per frame (measured here)
     bool have_stats = false;        // first Stats message arrived
+    bool benchmark = false;         // --benchmark active: HUD shows a "BENCHMARK MODE" banner
     std::atomic<bool> visible{true};
 };
 Hud g_hud;
@@ -234,6 +247,7 @@ std::vector<std::string> hud_lines()
 {
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     std::vector<std::string> lines;
+    if (g_hud.benchmark) { lines.push_back("== BENCHMARK MODE =="); }
     lines.push_back(g_hud.server.empty() ? "connecting..." : g_hud.server);
     char l2[192];
     if (!g_hud.have_stats)
@@ -534,13 +548,14 @@ void bench_csv_open(const Hello& hello)
     char server[HOST_MAX + 1] = {}; std::memcpy(server, hello.host, HOST_MAX);
     char gpu[GPU_MAX + 1] = {}; std::memcpy(gpu, hello.gpu, GPU_MAX);
     const std::string path = benchmarkCsvPath(g_bench_prefix, "client", client,
-        server[0] ? server : g_dial_host, gpu);
+        server[0] ? server : g_dial_host, gpu,
+        hello.particle_count, hello.lod_cells, hello.light_model);
     g_csv = fopen(path.c_str(), "w");
     if (!g_csv) { fprintf(stderr, "cannot open csv log '%s'\n", path.c_str()); return; }
     fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,compute_ms,render_ms,decode_ms,decode_ms_std,"
         "lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase\n");
     fflush(g_csv);
-    printf("rr-client: benchmark CSV -> %s\n", path.c_str());
+    printf("%srr-client: benchmark CSV -> %s%s\n", ansi::cyn(), path.c_str(), ansi::rst());
 }
 
 // Current interaction phase, logged as a CSV column so plots can shade idle vs. moving spans.
@@ -740,13 +755,13 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
                 st.lod_us / 1000.0, std::max(0.0, st.render_us / 1000.0 - st.lod_us / 1000.0));
         }
         else { snprintf(cons_render, sizeof(cons_render), "render %.1f", st.render_us / 1000.0); }
-        printf("[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | %s ms | decode %.2f+-%.2f ms | "
-            "latency %.1f+-%.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)\n",
-            st.fps_milli / 1000.0, st.kbps,
+        printf("%s[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | %s ms | decode %.2f+-%.2f ms | "
+            "latency %.1f+-%.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)%s\n",
+            ansi::dim(), st.fps_milli / 1000.0, st.kbps,
             dec.stream_codec == Codec::H264 ? "encode" : "readback",
             st.encode_us / 1000.0, st.encode_std_us / 1000.0, cons_render, dec_ms, dec_std,
             lat_mean, lat_std, lat_p95, dec.lost,
-            recv_kb, out_kb, recv_kb > 0.0 ? out_kb / recv_kb : 0.0);
+            recv_kb, out_kb, recv_kb > 0.0 ? out_kb / recv_kb : 0.0, ansi::rst());
         if (g_csv)
         {
             const char *phase = g_phase.load();
@@ -861,16 +876,16 @@ bool run_tcp(const char *host, const char *port, const std::string& token, Decod
     Hello hello{};
     if (!tcpRecvAll(fd, &hello, sizeof(hello)) || hello.magic != PROTOCOL_MAGIC)
     {
-        fprintf(stderr, "TCP: invalid server hello (rejected? wrong token?)\n");
+        fprintf(stderr, "%sTCP: invalid server hello (rejected? wrong token?)%s\n", ansi::red(), ansi::rst());
         close(fd); return false;
     }
     dec.set_geometry(hello);
     g_transport = "TCP";
     hud_set_server(hello, g_transport);
     bench_csv_open(hello);
-    printf("connected over TCP: %ux%u (%s)%s%.*s\n", hello.width, hello.height,
+    printf("%sconnected over TCP: %ux%u (%s)%s%.*s%s\n", ansi::grn(), hello.width, hello.height,
         static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
-        hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu);
+        hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu, ansi::rst());
 
     std::vector<uint8_t> payload;
     uint64_t last_hb = 0;
@@ -1055,9 +1070,9 @@ void quic_process_video(Quic *q)
         g_transport = "QUIC";
         hud_set_server(hello, g_transport);
         bench_csv_open(hello);
-        printf("connected over QUIC: %ux%u (%s)%s%.*s\n", hello.width, hello.height,
+        printf("%sconnected over QUIC: %ux%u (%s)%s%.*s%s\n", ansi::grn(), hello.width, hello.height,
             static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
-            hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu);
+            hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu, ansi::rst());
     }
     for (;;)
     {
@@ -1385,7 +1400,7 @@ bool wait_for_geometry(int& w, int& h)
 int run_window()
 {
     int w = 0, h = 0;
-    if (!wait_for_geometry(w, h)) { fprintf(stderr, "no stream received\n"); return EXIT_FAILURE; }
+    if (!wait_for_geometry(w, h)) { fprintf(stderr, "%sno stream received%s\n", ansi::red(), ansi::rst()); return EXIT_FAILURE; }
 
     if (!glfwInit()) { fprintf(stderr, "glfwInit failed\n"); return EXIT_FAILURE; }
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // window is freely resizable; the frame is stretched
@@ -1699,7 +1714,7 @@ int main(int argc, char *argv[])
 
     // --benchmark carries a path+prefix; the CSV is opened with its auto-generated name once the
     // server's Hello identifies the server host and GPU (see bench_csv_open).
-    if (bench_csv) { g_bench_prefix = bench_csv; }
+    if (bench_csv) { g_bench_prefix = bench_csv; g_hud.benchmark = true; }
 
     std::thread session(session_thread, host, port, token, mode);
     std::thread bench;
