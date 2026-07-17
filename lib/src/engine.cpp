@@ -11,6 +11,8 @@
 #include "mimir/shader_types.hpp"
 
 #include <cuda.h> // driver API (cuMemCreate/cuMemMap) for the VMM large-page interop path
+#include <cstring>  // strcmp for MIMIR_VMM_INTEROP mode parsing
+#include <unistd.h> // close() for the fallback path's fd cleanup
 
 #include <glm/gtc/matrix_transform.hpp> // glm::lookAt (fly camera world-to-view)
 
@@ -955,25 +957,29 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
     VkDeviceMemory vk_memory = VK_NULL_HANDLE;
     cudaExternalMemory_t cuda_extmem = nullptr;
 
-    // MIMIR_VMM_INTEROP reverses the interop direction: instead of Vulkan allocating the memory and CUDA
-    // importing it (which leaves the CUDA-side mapping WITHOUT large pages -> catastrophic TLB thrash on
-    // this buffer at huge N, measured 30->10 Gpart/s vs a flat 48 for native cudaMalloc), CUDA allocates
-    // via the VMM API with the driver's recommended (2 MB) large-page granularity and Vulkan IMPORTS it.
-    // The CUDA-side pointer is then a first-class large-page device pointer, and the rest of the engine
-    // is unchanged (vk_mem still binds render buffers; cuda_ptr still feeds the LOD reduction).
-    // When MIMIR_VMM_INTEROP is set, ALL interop linear buffers take the VMM (large-page) path,
-    // regardless of size. Only large buffers actually suffer the imported-memory TLB thrash this fixes,
-    // and VMM rounds each allocation up to the 2 MB page granularity (so a tiny buffer still consumes
-    // 2 MB) -- but the flag is opt-in and this is the requested behavior, so no size gate.
-    static const bool use_vmm = (std::getenv("MIMIR_VMM_INTEROP") != nullptr);
-    if (use_vmm)
+    // Interop allocation direction. The DEFAULT-of-old (Vulkan allocates -> CUDA imports via
+    // cudaExternalMemoryGetMappedBuffer) leaves the CUDA-side mapping WITHOUT large pages, thrashing the
+    // TLB and collapsing throughput on this buffer at huge N (measured 30->10 Gpart/s at 5e9 on an RTX
+    // PRO 6000 vs a flat 48 for native cudaMalloc; 10->165 on a B300 at 6e9). The VMM path reverses it:
+    // CUDA allocates via the driver VMM API at the recommended 2 MB large-page granularity (exportable)
+    // and Vulkan IMPORTS it, so the CUDA pointer is a first-class large-page allocation while the rest of
+    // the engine is unchanged (vk_mem binds render buffers; cuda_ptr feeds the LOD reduction).
+    //
+    // MIMIR_VMM_INTEROP: unset (default) = VMM for buffers >= kVmmMinBytes only (VMM rounds up to the
+    // 2 MB granularity, so applying it to the many small interop buffers would waste memory); "1" (or any
+    // non-"0" value) = VMM for ALL sizes; "0" = disable VMM entirely. If the VMM path fails for any reason
+    // (a driver that won't import the CUDA-VMM fd, OOM, ...), it falls back to the standard path -- so
+    // enabling it can never turn a working allocation into a failing one.
+    constexpr VkDeviceSize kVmmMinBytes = 256ull << 20; // 256 MB
+    static const char* vmm_env = std::getenv("MIMIR_VMM_INTEROP");
+    static const bool vmm_off  = (vmm_env != nullptr && std::strcmp(vmm_env, "0") == 0);
+    static const bool vmm_all  = (vmm_env != nullptr && std::strcmp(vmm_env, "0") != 0);
+    const bool want_vmm = !vmm_off && (vmm_all || memreq.size >= kVmmMinBytes);
+
+    bool vmm_ok = false;
+    if (want_vmm)
     {
         cuInit(0);
-        auto CK = [](CUresult r, const char* what) {
-            if (r != CUDA_SUCCESS) { const char* s = nullptr; cuGetErrorString(r, &s);
-                spdlog::error("VMM interop: {} failed: {}", what, s ? s : "?"); }
-            return r;
-        };
         int cuda_dev = 0; cudaGetDevice(&cuda_dev);
         CUmemAllocationProp prop{};
         prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
@@ -981,54 +987,75 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
         prop.location.id = cuda_dev;
         prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
         size_t gran = 0;
-        CK(cuMemGetAllocationGranularity(&gran, &prop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED), "granularity");
-        if (gran == 0) { spdlog::error("VMM interop: zero granularity"); return nullptr; }
-        const size_t aligned = ((memreq.size + gran - 1) / gran) * gran;
+        cuMemGetAllocationGranularity(&gran, &prop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED);
+        const size_t aligned = gran ? ((memreq.size + gran - 1) / gran) * gran : 0;
         CUmemGenericAllocationHandle h{};
-        if (CK(cuMemCreate(&h, aligned, &prop, 0), "cuMemCreate") != CUDA_SUCCESS) { return nullptr; }
         CUdeviceptr dptr = 0;
-        if (CK(cuMemAddressReserve(&dptr, aligned, 0, 0, 0), "cuMemAddressReserve") != CUDA_SUCCESS) { return nullptr; }
-        if (CK(cuMemMap(dptr, aligned, 0, h, 0), "cuMemMap") != CUDA_SUCCESS) { return nullptr; }
-        CUmemAccessDesc acc{};
-        acc.location.type = CU_MEM_LOCATION_TYPE_DEVICE; acc.location.id = cuda_dev;
-        acc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-        CK(cuMemSetAccess(dptr, aligned, &acc, 1), "cuMemSetAccess");
         int fd = -1;
-        if (CK(cuMemExportToShareableHandle(&fd, h, CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR, 0),
-               "cuMemExportToShareableHandle") != CUDA_SUCCESS || fd < 0) { return nullptr; }
-
-        // Vulkan imports the CUDA fd. Note: this NVIDIA driver's vkGetMemoryFdPropertiesKHR rejects a
-        // CUDA-VMM export (INVALID_EXTERNAL_HANDLE, 0 bits), but vkAllocateMemory imports it fine given a
-        // device-local type from the buffer's own requirements -- so select from memreq.memoryTypeBits
-        // directly. Chain the device-address flag when the path tracer / LOD read positions by BDA.
-        // vkAllocateMemory takes ownership of the fd on success.
-        const uint32_t mem_type = findMemoryType(available, memreq.memoryTypeBits, memflags);
-        if (mem_type == ~0u) { spdlog::error("VMM interop: no device-local memory type"); return nullptr; }
-        VkMemoryAllocateFlagsInfo import_addr_flags{
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, .pNext = nullptr,
-            .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, .deviceMask = 0 };
-        VkImportMemoryFdInfoKHR import_fd{
-            .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
-            .pNext = want_addr ? static_cast<const void*>(&import_addr_flags) : nullptr,
-            .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, .fd = fd };
-        VkMemoryAllocateInfo import_ai{
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .pNext = &import_fd,
-            .allocationSize = aligned, .memoryTypeIndex = mem_type };
-        VkResult ar = vkAllocateMemory(device, &import_ai, nullptr, &vk_memory);
-        if (ar != VK_SUCCESS)
+        bool created = false, reserved = false, mapped = false, built = false;
+        if (gran != 0 && cuMemCreate(&h, aligned, &prop, 0) == CUDA_SUCCESS)
         {
-            spdlog::error("VMM interop: vkAllocateMemory(import) failed: {}", static_cast<int>(ar));
-            return nullptr;
+            created = true;
+            if (cuMemAddressReserve(&dptr, aligned, 0, 0, 0) == CUDA_SUCCESS)
+            {
+                reserved = true;
+                if (cuMemMap(dptr, aligned, 0, h, 0) == CUDA_SUCCESS)
+                {
+                    mapped = true;
+                    CUmemAccessDesc acc{};
+                    acc.location.type = CU_MEM_LOCATION_TYPE_DEVICE; acc.location.id = cuda_dev;
+                    acc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+                    if (cuMemSetAccess(dptr, aligned, &acc, 1) == CUDA_SUCCESS &&
+                        cuMemExportToShareableHandle(&fd, h,
+                            CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR, 0) == CUDA_SUCCESS && fd >= 0)
+                    {
+                        // Vulkan imports the CUDA fd. This NVIDIA driver's vkGetMemoryFdPropertiesKHR
+                        // rejects a CUDA-VMM export (INVALID_EXTERNAL_HANDLE), but vkAllocateMemory imports
+                        // it fine given a device-local type from the buffer's own requirements. Chain the
+                        // device-address flag for BDA reads. vkAllocateMemory takes the fd on success.
+                        const uint32_t mem_type = findMemoryType(available, memreq.memoryTypeBits, memflags);
+                        VkMemoryAllocateFlagsInfo iflags{
+                            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, .pNext = nullptr,
+                            .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, .deviceMask = 0 };
+                        VkImportMemoryFdInfoKHR ifd{
+                            .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+                            .pNext = want_addr ? static_cast<const void*>(&iflags) : nullptr,
+                            .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, .fd = fd };
+                        VkMemoryAllocateInfo iai{
+                            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .pNext = &ifd,
+                            .allocationSize = aligned, .memoryTypeIndex = mem_type };
+                        if (mem_type != ~0u &&
+                            vkAllocateMemory(device, &iai, nullptr, &vk_memory) == VK_SUCCESS)
+                        {
+                            built = true; // fd is now owned by Vulkan
+                        }
+                        else if (fd >= 0) { ::close(fd); } // Vulkan didn't take ownership
+                    }
+                }
+            }
         }
-        *dev_ptr = reinterpret_cast<void*>(dptr);
-        spdlog::info("VMM interop: {} MB via CUDA large pages ({} KB granularity), imported by Vulkan",
-            aligned / (1024 * 1024), gran / 1024);
-        deletors.views.add([=,this]{
-            cuMemUnmap(dptr, aligned); cuMemRelease(h); cuMemAddressFree(dptr, aligned);
-            vkFreeMemory(device, vk_memory, nullptr);
-        });
+        if (built)
+        {
+            *dev_ptr = reinterpret_cast<void*>(dptr);
+            spdlog::info("VMM interop: {} MB via CUDA large pages ({} KB granularity), imported by Vulkan",
+                aligned / (1024 * 1024), gran / 1024);
+            deletors.views.add([=,this]{
+                cuMemUnmap(dptr, aligned); cuMemRelease(h); cuMemAddressFree(dptr, aligned);
+                vkFreeMemory(device, vk_memory, nullptr);
+            });
+            vmm_ok = true;
+        }
+        else
+        {
+            if (mapped)   { cuMemUnmap(dptr, aligned); }
+            if (reserved) { cuMemAddressFree(dptr, aligned); }
+            if (created)  { cuMemRelease(h); }
+            spdlog::warn("VMM interop unavailable for this {} MB buffer; using the standard interop path",
+                memreq.size / (1024 * 1024));
+        }
     }
-    else
+
+    if (!vmm_ok)
     {
         const void *alloc_chain = want_addr ? static_cast<const void*>(&addr_flags)
                                             : static_cast<const void*>(&export_info);
@@ -1048,7 +1075,7 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
         .vk_mem      = vk_memory,
         .cuda_extmem = cuda_extmem
     };
-    if (!use_vmm)
+    if (!vmm_ok)
     {
         cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0, .reserved = {} };
         validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
