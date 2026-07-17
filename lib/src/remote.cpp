@@ -1072,10 +1072,10 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                                    + " + tlas " + fmt1(win_tlas_ms / static_cast<double>(build_n));
                     }
                     else { build_part = "no build"; } // window was all skips
+                    // LOD is reported as its own leading field (below), not inside this build split.
                     char buf[288];
                     snprintf(buf, sizeof(buf),
-                        " (lod %.1f + %s + trace %.1f ms | %llu refit, %llu rebuild, %llu skip)",
-                        win_lod_ms / static_cast<double>(win_frames),
+                        " (%s + trace %.1f ms | %llu refit, %llu rebuild, %llu skip)",
                         build_part.c_str(),
                         win_trace_ms / static_cast<double>(win_frames),
                         static_cast<unsigned long long>(win_refit_n),
@@ -1083,25 +1083,30 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         static_cast<unsigned long long>(win_skip_n));
                     rt_split = buf;
                 }
-                else if (lod_context.active())
+                // LOD reduction is a distinct pipeline stage, but render_mean (the whole renderFrame)
+                // includes it. Surface it as its own leading "lod X ms" field and show render as the
+                // PURE cost (render_mean - lod) so the render number is not misleadingly inflated by
+                // the reduction -- mirrors the client HUD. Shown whenever LOD is active (raster or the
+                // path-tracer's per-frame reduction); the Vulkan fallback reports 0.0 (unmeasured).
+                const double lod_mean = win_lod_ms / static_cast<double>(win_frames);
+                std::string lod_field;
+                double render_pure = render_mean;
+                if (lod_context.active())
                 {
-                    // Raster point-mode LOD (none/phong): no AS-build/trace phases to report, just the
-                    // reduction cost. CUDA path: a real blocking-reduce measurement (see recordLodRaster).
-                    // Vulkan fallback: last_lod_raster_ms is always 0.0 (unmeasured, documented above),
-                    // so this prints "lod 0.0 ms" there rather than silently omitting the field.
-                    char buf[48];
-                    snprintf(buf, sizeof(buf), " (lod %.1f ms)",
-                        win_lod_ms / static_cast<double>(win_frames));
-                    rt_split = buf;
+                    char lb[32];
+                    snprintf(lb, sizeof(lb), "lod %.1f ms | ", lod_mean);
+                    lod_field = lb;
+                    render_pure = std::max(0.0, render_mean - lod_mean);
                 }
                 spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}, {:.2f} ms/step) | frame {:6d} | {:5.1f} fps | "
-                    "{:6d} kbps | {:5.2f} ms render{} | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {}",
+                    "{:6d} kbps | {}{:5.2f} ms render{} | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {}",
                     step_str,
                     pcount, sps, prate, compute_ms,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
-                    render_mean,
+                    lod_field,
+                    render_pure,
                     rt_split,
                     static_cast<double>(st.encode_us) / 1000.0,
                     prod_label,
