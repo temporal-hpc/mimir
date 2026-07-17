@@ -142,78 +142,125 @@ __global__ void scatterKernel(const float* pos, uint64_t count, uint32_t N, bool
     }
 }
 
-// One thread per N^3 cell (grid-stride, size_t indexing): occupied cells (counts[c] != 0) claim a
-// compaction slot via a single global atomicAdd(occupied, 1) and write their representative
-// position into that slot of reduced_pos.
-//   cell-cent: center = -1 + (cell + 0.5) * (2/N) per axis.
-//   centroid : de-fixedpoint sums[3c+k]/counts[c] back to [-1,1].
-// Block-aggregated compaction: instead of one global atomicAdd(occupied,1) per occupied cell -- which
-// funnels every occupied cell through a SINGLE global address and serializes catastrophically on GPUs
-// with a distributed/multi-die L2 (a B300 emit measured ~23x a weaker RTX PRO 6000 purely from this) --
-// each block tallies its emitters in a shared-memory counter (cheap per-SM atomics) and issues exactly
-// ONE global atomicAdd per block to reserve a contiguous slot range. Global atomic traffic drops from
-// O(occupied cells) to O(blocks), independent of occupancy density.
+constexpr int kWarp = 32;
+
+// Block-wide exclusive prefix scan of a per-thread predicate, via warp shuffle -- no serialized
+// atomics. Returns this thread's exclusive rank among the block's set threads and, via blockTotal, the
+// block's set count. Intra-warp rank is __ballot_sync + __popc; the per-warp totals are exclusive-
+// scanned by warp 0 with __shfl_up_sync. s_scan needs (blockDim.x/32 + 1) uint32_t. blockDim.x must be
+// a multiple of 32. All threads of the block must call this (uniform control flow for __syncthreads).
+__device__ __forceinline__ uint32_t blockExclusiveScan(bool pred, uint32_t* s_scan, uint32_t& blockTotal)
+{
+    const int lane = threadIdx.x & (kWarp - 1);
+    const int warp = static_cast<int>(threadIdx.x) >> 5;
+    const int warpsPerBlock = static_cast<int>(blockDim.x) >> 5;
+
+    const unsigned active = __ballot_sync(0xffffffffu, pred);
+    const uint32_t laneRank = __popc(active & ((1u << lane) - 1u)); // exclusive prefix within the warp
+    if (lane == 0) { s_scan[warp] = __popc(active); }              // per-warp set count
+    __syncthreads();
+
+    if (warp == 0)                                                 // exclusive-scan the warp counts
+    {
+        uint32_t v = (lane < warpsPerBlock) ? s_scan[lane] : 0u;
+        const uint32_t self = v;
+        for (int o = 1; o < kWarp; o <<= 1)
+        {
+            const uint32_t n = __shfl_up_sync(0xffffffffu, v, o);
+            if (lane >= o) { v += n; }
+        }
+        if (lane < warpsPerBlock)      { s_scan[lane] = v - self; }   // exclusive per-warp offset
+        if (lane == warpsPerBlock - 1) { s_scan[warpsPerBlock] = v; } // block total (inclusive end)
+    }
+    __syncthreads();
+
+    blockTotal = s_scan[warpsPerBlock];
+    return s_scan[warp] + laneRank;
+}
+
+// Representative position of an occupied cell c: mass centroid (de-fixedpoint sums/count) or the cell's
+// geometric center. Caller guarantees c < nCells and counts[c] != 0.
+__device__ __forceinline__ float3 cellRepresentative(uint64_t c, uint32_t N, bool centroid,
+    const uint32_t* counts, const unsigned long long* sums)
+{
+    if (centroid)
+    {
+        double invCount = 1.0 / static_cast<double>(counts[c]);
+        double fx = static_cast<double>(sums[3 * c + 0]) * invCount;
+        double fy = static_cast<double>(sums[3 * c + 1]) * invCount;
+        double fz = static_cast<double>(sums[3 * c + 2]) * invCount;
+        double scale = static_cast<double>(kFixedScale);
+        return make_float3(static_cast<float>((fx / scale) * 2.0 - 1.0),
+                           static_cast<float>((fy / scale) * 2.0 - 1.0),
+                           static_cast<float>((fz / scale) * 2.0 - 1.0));
+    }
+    uint32_t lin = static_cast<uint32_t>(c);
+    uint32_t cx = lin % N;
+    uint32_t cy = (lin / N) % N;
+    uint32_t cz = lin / (N * N);
+    float cs = 2.0f / static_cast<float>(N);
+    return make_float3(-1.0f + (static_cast<float>(cx) + 0.5f) * cs,
+                       -1.0f + (static_cast<float>(cy) + 0.5f) * cs,
+                       -1.0f + (static_cast<float>(cz) + 0.5f) * cs);
+}
+
+// Compacting emit via a block-wide parallel prefix scan (warp shuffle), on a PERSISTENT grid. Each
+// occupied cell (counts[c] != 0) gets a unique reduced_pos slot without a per-cell atomic: the earlier
+// designs funneled either every cell (per-cell atomicAdd) or every block-iteration through a single
+// global address, which serializes catastrophically on a distributed/multi-die L2 (the B300 emit ran
+// ~23x a weaker RTX PRO 6000 from this alone). Here each block grid-strides over MANY cells, counts all
+// its emitters (phase 1), reserves ONE contiguous global range with a single atomicAdd, then re-scans
+// and writes (phase 2). Global atomic traffic is O(gridDim) -- a few per SM, total -- not O(cells).
+//   cell-center: center = -1 + (cell + 0.5) * (2/N) per axis.  centroid: mass centroid in [-1,1].
 __global__ void emitKernel(const uint32_t* counts, const unsigned long long* sums, uint64_t nCells,
                             uint32_t N, bool centroid, float* reduced_pos, uint32_t* occupied)
 {
-    __shared__ uint32_t s_count;  // emitters in this block, this iteration
-    __shared__ uint32_t s_base;   // global base slot the block reserved for them
+    __shared__ uint32_t s_scan[kWarp + 1];  // per-warp scan scratch (max 32 warps/block) + block total
+    __shared__ uint32_t s_blockBase;        // global base slot reserved for this block (all iterations)
+    __shared__ uint32_t s_written;          // emitters this block has already placed (across iterations)
 
     const uint64_t stride = static_cast<uint64_t>(blockDim.x) * gridDim.x;
-    // Round the loop bound up to a whole number of strides so every thread in a block runs the same
-    // iteration count -- the __syncthreads() below would deadlock on a divergent grid-stride loop.
+    const uint64_t start  = static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    // Round up so every thread runs the same iteration count -- the __syncthreads must not diverge.
     const uint64_t iters_end = ((nCells + stride - 1) / stride) * stride;
-    for (uint64_t c = static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x; c < iters_end;
-         c += stride)
+
+    // Phase 1: count this block's emitters across all its strided cells, then reserve ONE global range.
+    uint32_t blockOwn = 0;
+    for (uint64_t c = start; c < iters_end; c += stride)
     {
         const bool emit = (c < nCells) && (counts[c] != 0u);
+        uint32_t total = 0;
+        blockExclusiveScan(emit, s_scan, total);
+        if (threadIdx.x == 0) { blockOwn += total; }
+        __syncthreads();  // s_scan is reused next iteration
+    }
+    if (threadIdx.x == 0)
+    {
+        s_blockBase = (blockOwn > 0u) ? atomicAdd(occupied, blockOwn) : 0u;
+        s_written = 0u;
+    }
+    __syncthreads();
 
-        float3 rep;
+    // Phase 2: re-scan and write each emitter at base + (already written by this block) + (block rank).
+    for (uint64_t c = start; c < iters_end; c += stride)
+    {
+        const bool emit = (c < nCells) && (counts[c] != 0u);
+        uint32_t total = 0;
+        const uint32_t rank = blockExclusiveScan(emit, s_scan, total);
         if (emit)
         {
-            if (centroid)
-            {
-                double invCount = 1.0 / static_cast<double>(counts[c]);
-                double fx = static_cast<double>(sums[3 * c + 0]) * invCount;
-                double fy = static_cast<double>(sums[3 * c + 1]) * invCount;
-                double fz = static_cast<double>(sums[3 * c + 2]) * invCount;
-                double scale = static_cast<double>(kFixedScale);
-                rep = make_float3(static_cast<float>((fx / scale) * 2.0 - 1.0),
-                                   static_cast<float>((fy / scale) * 2.0 - 1.0),
-                                   static_cast<float>((fz / scale) * 2.0 - 1.0));
-            }
-            else
-            {
-                uint32_t lin = static_cast<uint32_t>(c);
-                uint32_t cx = lin % N;
-                uint32_t cy = (lin / N) % N;
-                uint32_t cz = lin / (N * N);
-                float cs = 2.0f / static_cast<float>(N);
-                rep = make_float3(-1.0f + (static_cast<float>(cx) + 0.5f) * cs,
-                                   -1.0f + (static_cast<float>(cy) + 0.5f) * cs,
-                                   -1.0f + (static_cast<float>(cz) + 0.5f) * cs);
-            }
-        }
-
-        // Intra-block prefix via a shared counter, then a single global reservation per block.
-        if (threadIdx.x == 0) { s_count = 0u; }
-        __syncthreads();
-        uint32_t local = emit ? atomicAdd(&s_count, 1u) : 0u; // this thread's offset within the block
-        __syncthreads();
-        if (threadIdx.x == 0) { s_base = (s_count > 0u) ? atomicAdd(occupied, s_count) : 0u; }
-        __syncthreads();
-
-        if (emit)
-        {
-            uint32_t slot = s_base + local;
-            // 64-bit base: slot can approach N^3 (< 2^32), so slot*3 must be computed in 64 bits or it
-            // wraps past ~1.43 B occupied cells and scatters representatives to garbage low offsets. The
-            // slang emit widens the same way (uint64_t(slot) * 12ull). Mirrors the AABB-path 64-bit fix.
+            uint32_t slot = s_blockBase + s_written + rank;
+            // 64-bit base: slot approaches N^3 (< 2^32); slot*3 in 32 bits wraps past ~1.43 B cells and
+            // scatters representatives to garbage low offsets (mirrors the AABB-path 64-bit fix).
             size_t base = static_cast<size_t>(slot) * 3;
+            float3 rep = cellRepresentative(c, N, centroid, counts, sums);
             reduced_pos[base + 0] = rep.x;
             reduced_pos[base + 1] = rep.y;
             reduced_pos[base + 2] = rep.z;
         }
+        __syncthreads();
+        if (threadIdx.x == 0) { s_written += total; }
+        __syncthreads();
     }
 }
 
@@ -228,6 +275,7 @@ struct LodReduce::Impl
 
     uint32_t* counts = nullptr;             // uint32_t[nCells]
     unsigned long long* sums = nullptr;     // uint64_t[3*nCells]  (centroid only)
+    int sm_count = 1;                        // SMs on the device; sizes the emit's persistent grid
 
     Impl(uint64_t max_particles_, uint32_t gridN_, bool centroid_)
         : max_particles(max_particles_), gridN(gridN_), centroid(centroid_),
@@ -239,6 +287,10 @@ struct LodReduce::Impl
             checkCuda(cudaMalloc(&sums, 3 * nCells * sizeof(unsigned long long)),
                       "cudaMalloc sums");
         }
+        int dev = 0;
+        cudaGetDevice(&dev);
+        cudaDeviceGetAttribute(&sm_count, cudaDevAttrMultiProcessorCount, dev);
+        if (sm_count < 1) { sm_count = 1; }
     }
 
     ~Impl()
@@ -286,7 +338,15 @@ struct LodReduce::Impl
         }
         if (ktime_now) { cudaEventRecord(e_scatter, stream); }
 
-        emitKernel<<<gridFor(nCells), kThreads, 0, stream>>>(
+        // Persistent grid: each block grid-strides over many cells and issues a single global atomicAdd
+        // (see emitKernel), so the emit's global atomic traffic is O(blocks) = a few per SM, not O(cells).
+        // Capped at one-thread-per-cell for small grids so blocks never sit idle.
+        constexpr uint32_t kEmitBlocksPerSM = 32;
+        const uint64_t one_per_cell = (nCells + kThreads - 1) / kThreads;
+        const uint64_t persistent   = static_cast<uint64_t>(sm_count) * kEmitBlocksPerSM;
+        uint32_t emit_blocks = static_cast<uint32_t>(one_per_cell < persistent ? one_per_cell : persistent);
+        if (emit_blocks < 1) { emit_blocks = 1; }
+        emitKernel<<<emit_blocks, kThreads, 0, stream>>>(
             counts, sums, nCells, gridN, centroid, reduced_pos, occupied_dev);
         checkLaunch("emitKernel");
 
