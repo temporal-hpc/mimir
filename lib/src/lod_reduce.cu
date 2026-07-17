@@ -25,6 +25,7 @@
 #include <cuda_runtime.h>
 
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 
@@ -364,10 +365,21 @@ struct LodReduce::Impl
         // Per-kernel timing (MIMIR_LOD_KTIME): record stream events around clear/scatter/emit so one
         // run reports which kernel dominates -- the read is ~1.5 ms of 11.4 GB at 7.6 TB/s, so a large
         // total points at the scattered accumulator writes, not the read. Events are on the stream (no
-        // inter-kernel serialization); the elapsed times are read after a sync at the end. Throttled.
+        // inter-kernel serialization); the elapsed times are read after a sync at the end. Throttled to
+        // ~once per second by wall-clock (not by call count) so it prints regardless of frame rate --
+        // at huge N a frame can take seconds, and a fixed every-Nth-call throttle would rarely fire.
         static const bool ktime = (std::getenv("MIMIR_LOD_KTIME") != nullptr);
-        static uint64_t ktime_call = 0;
-        const bool ktime_now = ktime && ((ktime_call++ % 30) == 0);
+        static auto ktime_last = std::chrono::steady_clock::now() - std::chrono::hours(1);
+        bool ktime_now = false;
+        if (ktime)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - ktime_last).count() >= 1000)
+            {
+                ktime_now = true;
+                ktime_last = now;
+            }
+        }
         cudaEvent_t e_start{}, e_clear{}, e_scatter{}, e_emit{};
         if (ktime_now)
         {
