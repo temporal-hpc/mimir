@@ -204,44 +204,71 @@ __device__ __forceinline__ float3 cellRepresentative(uint64_t c, uint32_t N, boo
                        -1.0f + (static_cast<float>(cz) + 0.5f) * cs);
 }
 
-// Compacting emit via a block-wide parallel prefix scan (warp shuffle), on a PERSISTENT grid. Each
-// occupied cell (counts[c] != 0) gets a unique reduced_pos slot without a per-cell atomic: the earlier
-// designs funneled either every cell (per-cell atomicAdd) or every block-iteration through a single
-// global address, which serializes catastrophically on a distributed/multi-die L2 (the B300 emit ran
-// ~23x a weaker RTX PRO 6000 from this alone). Here each block grid-strides over MANY cells, counts all
-// its emitters (phase 1), reserves ONE contiguous global range with a single atomicAdd, then re-scans
-// and writes (phase 2). Global atomic traffic is O(gridDim) -- a few per SM, total -- not O(cells).
+// Fully atomic-free compacting emit, in three passes over a PERSISTENT grid (one block per resident
+// slot, so gridDim is small -- a few thousand). Earlier designs claimed each cell's (or each block's)
+// slot with a global atomicAdd; on a distributed/multi-die L2 even a few thousand single-address
+// atomics cost ~1 us each (the B300 emit was atomic-latency-bound). Here NO kernel touches a shared
+// global counter:
+//   1. emitCountKernel: each block counts its emitters (block-wide warp-shuffle scan, summed over its
+//      strided cells) and stores the count in block_counts[blockIdx].
+//   2. scanBlockCountsKernel: exclusive-scans block_counts -> per-block base offsets (in place), and
+//      writes the grand total (= occupied-cell count) to *occupied. One small block, no atomics.
+//   3. emitWriteKernel: each block reads its base offset and re-scans/writes its emitters contiguously.
+// The count/write kernels MUST launch with the same grid so blockIdx indexes block_counts consistently.
 //   cell-center: center = -1 + (cell + 0.5) * (2/N) per axis.  centroid: mass centroid in [-1,1].
-__global__ void emitKernel(const uint32_t* counts, const unsigned long long* sums, uint64_t nCells,
-                            uint32_t N, bool centroid, float* reduced_pos, uint32_t* occupied)
-{
-    __shared__ uint32_t s_scan[kWarp + 1];  // per-warp scan scratch (max 32 warps/block) + block total
-    __shared__ uint32_t s_blockBase;        // global base slot reserved for this block (all iterations)
-    __shared__ uint32_t s_written;          // emitters this block has already placed (across iterations)
 
+// Pass 1 -- per-block emitter count (no writes to reduced_pos, no atomics).
+__global__ void emitCountKernel(const uint32_t* counts, uint64_t nCells, uint32_t* block_counts)
+{
+    __shared__ uint32_t s_scan[kWarp + 1];
     const uint64_t stride = static_cast<uint64_t>(blockDim.x) * gridDim.x;
     const uint64_t start  = static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-    // Round up so every thread runs the same iteration count -- the __syncthreads must not diverge.
     const uint64_t iters_end = ((nCells + stride - 1) / stride) * stride;
 
-    // Phase 1: count this block's emitters across all its strided cells, then reserve ONE global range.
     uint32_t blockOwn = 0;
     for (uint64_t c = start; c < iters_end; c += stride)
     {
         const bool emit = (c < nCells) && (counts[c] != 0u);
         uint32_t total = 0;
-        blockExclusiveScan(emit, s_scan, total);
+        blockExclusiveScan(emit, s_scan, total);  // uniform call; we use only the block total here
         if (threadIdx.x == 0) { blockOwn += total; }
-        __syncthreads();  // s_scan is reused next iteration
+        __syncthreads();  // s_scan reused next iteration
     }
+    if (threadIdx.x == 0) { block_counts[blockIdx.x] = blockOwn; }
+}
+
+// Pass 2 -- exclusive-scan the (small) per-block counts into base offsets, in place; write grand total.
+// Single block; block_counts has one entry per emit block (a few thousand, bounded by kMaxScanElems).
+constexpr uint32_t kMaxScanElems = 8192;
+__global__ void scanBlockCountsKernel(uint32_t* block_counts, uint32_t num_blocks, uint32_t* occupied)
+{
+    __shared__ uint32_t s[kMaxScanElems];
+    for (uint32_t i = threadIdx.x; i < num_blocks; i += blockDim.x) { s[i] = block_counts[i]; }
+    __syncthreads();
     if (threadIdx.x == 0)
     {
-        s_blockBase = (blockOwn > 0u) ? atomicAdd(occupied, blockOwn) : 0u;
-        s_written = 0u;
+        uint32_t acc = 0;
+        for (uint32_t i = 0; i < num_blocks; ++i) { uint32_t v = s[i]; s[i] = acc; acc += v; }
+        *occupied = acc;  // grand total = number of occupied cells
     }
     __syncthreads();
+    for (uint32_t i = threadIdx.x; i < num_blocks; i += blockDim.x) { block_counts[i] = s[i]; }
+}
 
-    // Phase 2: re-scan and write each emitter at base + (already written by this block) + (block rank).
+// Pass 3 -- write each emitter at its block's base offset + (already written by this block) + block rank.
+__global__ void emitWriteKernel(const uint32_t* counts, const unsigned long long* sums, uint64_t nCells,
+                                uint32_t N, bool centroid, float* reduced_pos, const uint32_t* block_base)
+{
+    __shared__ uint32_t s_scan[kWarp + 1];
+    __shared__ uint32_t s_written;  // emitters this block has already placed (across iterations)
+
+    const uint32_t base = block_base[blockIdx.x];
+    if (threadIdx.x == 0) { s_written = 0u; }
+    __syncthreads();
+
+    const uint64_t stride = static_cast<uint64_t>(blockDim.x) * gridDim.x;
+    const uint64_t start  = static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const uint64_t iters_end = ((nCells + stride - 1) / stride) * stride;
     for (uint64_t c = start; c < iters_end; c += stride)
     {
         const bool emit = (c < nCells) && (counts[c] != 0u);
@@ -249,14 +276,14 @@ __global__ void emitKernel(const uint32_t* counts, const unsigned long long* sum
         const uint32_t rank = blockExclusiveScan(emit, s_scan, total);
         if (emit)
         {
-            uint32_t slot = s_blockBase + s_written + rank;
+            uint32_t slot = base + s_written + rank;
             // 64-bit base: slot approaches N^3 (< 2^32); slot*3 in 32 bits wraps past ~1.43 B cells and
             // scatters representatives to garbage low offsets (mirrors the AABB-path 64-bit fix).
-            size_t base = static_cast<size_t>(slot) * 3;
+            size_t off = static_cast<size_t>(slot) * 3;
             float3 rep = cellRepresentative(c, N, centroid, counts, sums);
-            reduced_pos[base + 0] = rep.x;
-            reduced_pos[base + 1] = rep.y;
-            reduced_pos[base + 2] = rep.z;
+            reduced_pos[off + 0] = rep.x;
+            reduced_pos[off + 1] = rep.y;
+            reduced_pos[off + 2] = rep.z;
         }
         __syncthreads();
         if (threadIdx.x == 0) { s_written += total; }
@@ -275,8 +302,10 @@ struct LodReduce::Impl
 
     uint32_t* counts = nullptr;             // uint32_t[nCells]
     unsigned long long* sums = nullptr;     // uint64_t[3*nCells]  (centroid only)
+    uint32_t* block_counts = nullptr;       // uint32_t[emit_blocks]: per-block emitter counts -> offsets
     int sm_count = 1;                        // SMs on the device; sizes the emit's persistent grid
     int emit_blocks_per_sm = 1;              // max emit blocks resident per SM (occupancy-limited)
+    uint32_t emit_blocks = 1;                // persistent-grid block count for the emit passes
 
     Impl(uint64_t max_particles_, uint32_t gridN_, bool centroid_)
         : max_particles(max_particles_), gridN(gridN_), centroid(centroid_),
@@ -292,18 +321,25 @@ struct LodReduce::Impl
         cudaGetDevice(&dev);
         cudaDeviceGetAttribute(&sm_count, cudaDevAttrMultiProcessorCount, dev);
         if (sm_count < 1) { sm_count = 1; }
-        // Size the emit's persistent grid to exactly what an SM can hold resident: more blocks than
-        // that add global atomicAdds (one per block) without adding parallelism -- and on a
-        // distributed-L2 GPU each single-address atomic is expensive, so over-launching directly
-        // inflated emit (B300: 32/SM = 4736 blocks -> ~4.7 ms of atomic latency).
-        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&emit_blocks_per_sm, emitKernel, kThreads, 0);
+        // Size the emit's persistent grid to exactly what an SM can hold resident: fewer blocks means
+        // fewer block-count entries to scan and, historically, fewer global atomics (now none). Capped
+        // at one-thread-per-cell (small grids) and at kMaxScanElems (the single-block scan's capacity).
+        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&emit_blocks_per_sm, emitWriteKernel, kThreads, 0);
         if (emit_blocks_per_sm < 1) { emit_blocks_per_sm = 1; }
+        const uint64_t one_per_cell = (nCells + kThreads - 1) / kThreads;
+        uint64_t blocks = static_cast<uint64_t>(sm_count) * emit_blocks_per_sm;
+        if (blocks > one_per_cell)  { blocks = one_per_cell; }
+        if (blocks > kMaxScanElems) { blocks = kMaxScanElems; }
+        if (blocks < 1)             { blocks = 1; }
+        emit_blocks = static_cast<uint32_t>(blocks);
+        checkCuda(cudaMalloc(&block_counts, emit_blocks * sizeof(uint32_t)), "cudaMalloc block_counts");
     }
 
     ~Impl()
     {
         cudaFree(counts);
         cudaFree(sums);
+        cudaFree(block_counts);
     }
 
     void reduce(cudaStream_t stream, const void* positions_dev, uint64_t count,
@@ -345,17 +381,16 @@ struct LodReduce::Impl
         }
         if (ktime_now) { cudaEventRecord(e_scatter, stream); }
 
-        // Persistent grid sized to the SM-resident block count (occupancy), so each block grid-strides
-        // over many cells and the emit issues exactly one global atomicAdd per RESIDENT block -- the
-        // minimum that still saturates the GPU. Over-launching only adds atomic latency (see Impl ctor).
-        // Capped at one-thread-per-cell for small grids so blocks never sit idle.
-        const uint64_t one_per_cell = (nCells + kThreads - 1) / kThreads;
-        const uint64_t persistent   = static_cast<uint64_t>(sm_count) * emit_blocks_per_sm;
-        uint32_t emit_blocks = static_cast<uint32_t>(one_per_cell < persistent ? one_per_cell : persistent);
-        if (emit_blocks < 1) { emit_blocks = 1; }
-        emitKernel<<<emit_blocks, kThreads, 0, stream>>>(
-            counts, sums, nCells, gridN, centroid, reduced_pos, occupied_dev);
-        checkLaunch("emitKernel");
+        // Atomic-free compaction in three passes on the persistent grid (emit_blocks fixed at ctor time
+        // to the SM-resident count, capped at kMaxScanElems): count per block -> scan the block counts
+        // into base offsets -> write. No kernel touches a shared global counter (see the emit kernels).
+        emitCountKernel<<<emit_blocks, kThreads, 0, stream>>>(counts, nCells, block_counts);
+        checkLaunch("emitCountKernel");
+        scanBlockCountsKernel<<<1, kThreads, 0, stream>>>(block_counts, emit_blocks, occupied_dev);
+        checkLaunch("scanBlockCountsKernel");
+        emitWriteKernel<<<emit_blocks, kThreads, 0, stream>>>(
+            counts, sums, nCells, gridN, centroid, reduced_pos, block_counts);
+        checkLaunch("emitWriteKernel");
 
         if (ktime_now)
         {
