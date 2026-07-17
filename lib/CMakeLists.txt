@@ -113,6 +113,7 @@ target_link_libraries(mimir
         Vulkan::Vulkan CUDA::cudart
     PRIVATE
         slang glm::glm glfw imgui spdlog::spdlog
+        CUDA::cuda_driver   # driver API (cuMemCreate/cuMemMap) for the VMM large-page interop path
         "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"
 )
 
