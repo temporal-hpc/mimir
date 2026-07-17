@@ -276,6 +276,7 @@ struct LodReduce::Impl
     uint32_t* counts = nullptr;             // uint32_t[nCells]
     unsigned long long* sums = nullptr;     // uint64_t[3*nCells]  (centroid only)
     int sm_count = 1;                        // SMs on the device; sizes the emit's persistent grid
+    int emit_blocks_per_sm = 1;              // max emit blocks resident per SM (occupancy-limited)
 
     Impl(uint64_t max_particles_, uint32_t gridN_, bool centroid_)
         : max_particles(max_particles_), gridN(gridN_), centroid(centroid_),
@@ -291,6 +292,12 @@ struct LodReduce::Impl
         cudaGetDevice(&dev);
         cudaDeviceGetAttribute(&sm_count, cudaDevAttrMultiProcessorCount, dev);
         if (sm_count < 1) { sm_count = 1; }
+        // Size the emit's persistent grid to exactly what an SM can hold resident: more blocks than
+        // that add global atomicAdds (one per block) without adding parallelism -- and on a
+        // distributed-L2 GPU each single-address atomic is expensive, so over-launching directly
+        // inflated emit (B300: 32/SM = 4736 blocks -> ~4.7 ms of atomic latency).
+        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&emit_blocks_per_sm, emitKernel, kThreads, 0);
+        if (emit_blocks_per_sm < 1) { emit_blocks_per_sm = 1; }
     }
 
     ~Impl()
@@ -338,12 +345,12 @@ struct LodReduce::Impl
         }
         if (ktime_now) { cudaEventRecord(e_scatter, stream); }
 
-        // Persistent grid: each block grid-strides over many cells and issues a single global atomicAdd
-        // (see emitKernel), so the emit's global atomic traffic is O(blocks) = a few per SM, not O(cells).
+        // Persistent grid sized to the SM-resident block count (occupancy), so each block grid-strides
+        // over many cells and the emit issues exactly one global atomicAdd per RESIDENT block -- the
+        // minimum that still saturates the GPU. Over-launching only adds atomic latency (see Impl ctor).
         // Capped at one-thread-per-cell for small grids so blocks never sit idle.
-        constexpr uint32_t kEmitBlocksPerSM = 32;
         const uint64_t one_per_cell = (nCells + kThreads - 1) / kThreads;
-        const uint64_t persistent   = static_cast<uint64_t>(sm_count) * kEmitBlocksPerSM;
+        const uint64_t persistent   = static_cast<uint64_t>(sm_count) * emit_blocks_per_sm;
         uint32_t emit_blocks = static_cast<uint32_t>(one_per_cell < persistent ? one_per_cell : persistent);
         if (emit_blocks < 1) { emit_blocks = 1; }
         emitKernel<<<emit_blocks, kThreads, 0, stream>>>(
