@@ -234,8 +234,24 @@ struct LodReduce::Impl
         checkCuda(cudaMemsetAsync(occupied_dev, 0, sizeof(uint32_t), stream),
                   "memsetAsync occupied");
 
+        // Per-kernel timing (MIMIR_LOD_KTIME): record stream events around clear/scatter/emit so one
+        // run reports which kernel dominates -- the read is ~1.5 ms of 11.4 GB at 7.6 TB/s, so a large
+        // total points at the scattered accumulator writes, not the read. Events are on the stream (no
+        // inter-kernel serialization); the elapsed times are read after a sync at the end. Throttled.
+        static const bool ktime = (std::getenv("MIMIR_LOD_KTIME") != nullptr);
+        static uint64_t ktime_call = 0;
+        const bool ktime_now = ktime && ((ktime_call++ % 30) == 0);
+        cudaEvent_t e_start{}, e_clear{}, e_scatter{}, e_emit{};
+        if (ktime_now)
+        {
+            cudaEventCreate(&e_start); cudaEventCreate(&e_clear);
+            cudaEventCreate(&e_scatter); cudaEventCreate(&e_emit);
+            cudaEventRecord(e_start, stream);
+        }
+
         clearKernel<<<gridFor(nCells), kThreads, 0, stream>>>(counts, sums, nCells, centroid);
         checkLaunch("clearKernel");
+        if (ktime_now) { cudaEventRecord(e_clear, stream); }
 
         if (count > 0)
         {
@@ -243,10 +259,29 @@ struct LodReduce::Impl
                 positions, count, gridN, centroid, counts, sums);
             checkLaunch("scatterKernel");
         }
+        if (ktime_now) { cudaEventRecord(e_scatter, stream); }
 
         emitKernel<<<gridFor(nCells), kThreads, 0, stream>>>(
             counts, sums, nCells, gridN, centroid, reduced_pos, occupied_dev);
         checkLaunch("emitKernel");
+
+        if (ktime_now)
+        {
+            cudaEventRecord(e_emit, stream);
+            cudaEventSynchronize(e_emit);
+            float t_clear = 0.f, t_scatter = 0.f, t_emit = 0.f;
+            cudaEventElapsedTime(&t_clear,   e_start,   e_clear);
+            cudaEventElapsedTime(&t_scatter, e_clear,   e_scatter);
+            cudaEventElapsedTime(&t_emit,    e_scatter, e_emit);
+            std::fprintf(stderr,
+                "[lod-ktime] N=%llu cells=%llu %s | clear %.2f ms | scatter %.2f ms | emit %.2f ms | total %.2f ms\n",
+                static_cast<unsigned long long>(count),
+                static_cast<unsigned long long>(nCells),
+                centroid ? "centroid" : "cell-center",
+                t_clear, t_scatter, t_emit, t_clear + t_scatter + t_emit);
+            cudaEventDestroy(e_start); cudaEventDestroy(e_clear);
+            cudaEventDestroy(e_scatter); cudaEventDestroy(e_emit);
+        }
     }
 };
 
