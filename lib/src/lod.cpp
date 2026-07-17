@@ -436,11 +436,18 @@ void LodContext::reduceCuda(cudaStream_t sim_stream, const void* positions_dev, 
     active_reduce_stream = lod_decoupled ? reduce_stream : sim_stream;
     lod_reduce->reduce(active_reduce_stream, positions_dev, count,
         reducedPositionsDevicePtr(slot), occupiedDevicePtr(slot));
+    reduce_launched = true;
 }
 
 void LodContext::syncReduce()
 {
-    if (!use_cuda || active_reduce_stream == nullptr) { return; }
+    // Sync whenever a reduction was actually issued. Do NOT gate on active_reduce_stream != nullptr:
+    // in coupled/lockstep mode the reduction runs on the default stream (nullptr), and skipping the
+    // wait there lets the Vulkan draw consume reduced_pos while the reduction is still running --
+    // a race that stays hidden at small N (the reduction finishes first) but blanks the frame once
+    // the reduction is slow enough to lose it (e.g. ~1e9 particles). cudaStreamSynchronize(0) is a
+    // valid, cheap wait on the default stream.
+    if (!use_cuda || !reduce_launched) { return; }
     validation::checkCuda(cudaStreamSynchronize(active_reduce_stream));
 }
 

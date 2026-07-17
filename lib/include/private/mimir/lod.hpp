@@ -181,7 +181,12 @@ private:
     // (coupled: ordered after the sim on its stream => tear-free). Set by setDecoupledReduction().
     bool lod_decoupled = false;
     // The stream the most recent reduceCuda() actually ran on; syncReduce() blocks on this one.
+    // NOTE: the default stream is itself nullptr, so it cannot double as the "nothing launched"
+    // sentinel -- reduce_launched tracks that instead, else syncReduce() would silently skip the
+    // wait whenever the reduction runs on the default stream (coupled/lockstep mode) and the draw
+    // would race the still-running reduction.
     cudaStream_t active_reduce_stream = nullptr;
+    bool reduce_launched = false;
 
     // Accumulators (BDA): per-cell occupancy count and the fixed-point position sum (centroid only).
     // SINGLE-buffered (shared across frame slots): this is the N^3 memory hog (~30 GB at 1024^3) and is
