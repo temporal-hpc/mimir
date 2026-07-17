@@ -11,6 +11,7 @@ ENABLE_REMOTE=ON
 ENABLE_QUIC=ON
 HEADLESS=OFF
 RR_CLIENT_ONLY=OFF
+CUDA_ARCH=""
 JOBS=$(nproc)
 
 usage() {
@@ -38,6 +39,11 @@ Options:
                      Needs ffmpeg and GLFW installed; --gcc is not needed. ngtcp2 + OpenSSL
                      are optional (without them the viewer builds TCP-only, which lets it
                      build on distros lacking libngtcp2_crypto_ossl, e.g. Ubuntu <= 24.04).
+  --cuda-arch <arch> CUDA architecture(s) to compile for, overriding auto-detect. Examples:
+                     103 (Blackwell B300/GB300), 100 (B200/GB200), 120 (RTX PRO 6000), 90 (Hopper),
+                     or a semicolon list like "90;100;103". Default: native (detect the build GPU).
+                     Pin this when auto-detect resolves wrong (e.g. inside a container image built on
+                     a different GPU), which otherwise leaves the running GPU JIT-compiling PTX (slow).
   --debug            Build in Debug mode (default: Release).
   --build-dir <dir>  Build directory (default: build/).
   --jobs <n>         Parallel build jobs (default: $(nproc)).
@@ -61,6 +67,7 @@ while [[ $# -gt 0 ]]; do
         --no-quic)    ENABLE_QUIC=OFF;   shift ;;
         --headless)   HEADLESS=ON;       shift ;;
         --rr-client-only) RR_CLIENT_ONLY=ON;   shift ;;
+        --cuda-arch)  CUDA_ARCH="$2";    shift 2 ;;
         --debug)      BUILD_TYPE=Debug;  shift ;;
         --build-dir)  BUILD_DIR="$2";    shift 2 ;;
         --jobs)       JOBS="$2";         shift 2 ;;
@@ -98,6 +105,11 @@ if [[ -n "$GCC_VERSION" ]]; then
     if [[ "$RR_CLIENT_ONLY" != ON ]]; then
         CMAKE_ARGS+=(-DCMAKE_CUDA_HOST_COMPILER="/usr/bin/g++-${GCC_VERSION}")
     fi
+fi
+
+if [[ -n "$CUDA_ARCH" && "$RR_CLIENT_ONLY" != ON ]]; then
+    CMAKE_ARGS+=(-DMIMIR_CUDA_ARCHITECTURES="$CUDA_ARCH")
+    echo "==> Pinning CUDA architecture(s): $CUDA_ARCH"
 fi
 
 echo "==> Removing prior build directory: $BUILD_DIR"

@@ -15,6 +15,15 @@ option(MIMIR_ENABLE_ASAN "Enable address sanitizer (ASAN)" OFF)
 option(MIMIR_BUILD_SLANG "Build slang library from source" OFF)
 option(MIMIR_BUILD_CLIENT "Build the installable mimir-client remote viewer" ON)
 
+# CUDA architecture(s) to compile device code for. "native" auto-detects the GPU present at CONFIGURE
+# time -- convenient, but it is resolved once and baked into the build cache, so a build dir first
+# configured on a different GPU (or in a container image built elsewhere) silently stays wrong until a
+# fresh configure, and the running GPU then JIT-compiles PTX (correct but far slower). To pin it, set
+# e.g. -DMIMIR_CUDA_ARCHITECTURES=103 (Blackwell B300/GB300) | 100 (B200/GB200) | 120 (RTX PRO 6000) |
+# 90 (Hopper). A semicolon-separated list embeds SASS for several (e.g. "90;100;103;120").
+set(MIMIR_CUDA_ARCHITECTURES "native" CACHE STRING
+    "CUDA architecture(s) for device code: 'native' (auto-detect at configure) or an sm list, e.g. 103")
+
 # TODO: Should handle this in multi-platform style
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(default_build_type "Release")

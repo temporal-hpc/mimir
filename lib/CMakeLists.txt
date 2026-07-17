@@ -47,7 +47,7 @@ target_include_directories(mimir
 
 set_target_properties(mimir PROPERTIES
     COMPILE_WARNING_AS_ERROR ON
-    CUDA_ARCHITECTURES       native
+    CUDA_ARCHITECTURES       "${MIMIR_CUDA_ARCHITECTURES}"
     CUDA_STANDARD            20
 )
 target_compile_features(mimir PRIVATE cxx_std_20)
@@ -188,4 +188,4 @@ install(
 add_executable(lod_reduce_test EXCLUDE_FROM_ALL tests/lod_reduce_test.cu src/lod_reduce.cu)
 target_include_directories(lod_reduce_test PRIVATE include/private include/public)
 target_link_libraries(lod_reduce_test PRIVATE CUDA::cudart)
-set_target_properties(lod_reduce_test PROPERTIES CUDA_STANDARD 20 CUDA_ARCHITECTURES native)
+set_target_properties(lod_reduce_test PROPERTIES CUDA_STANDARD 20 CUDA_ARCHITECTURES "${MIMIR_CUDA_ARCHITECTURES}")
