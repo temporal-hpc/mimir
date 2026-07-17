@@ -80,6 +80,10 @@ RngStates createRngStates(uint32_t seed)
 
     RngStates rng;
     rng.block = 256;
+    // One persistent full-occupancy wave (one RNG state per resident thread); each thread grid-strides
+    // over count/threads particles. Measured: oversubscribing the grid (more waves, fewer iterations
+    // each) does NOT help the throughput fall-off at huge N -- it was neutral-to-worse -- so the
+    // large-N slowdown is a memory-reach (TLB/DRAM) effect, not warp drift, and this stays minimal.
     rng.count = (max_sm_threads / rng.block) * sm_count * rng.block;
     rng.grid  = (rng.count + rng.block - 1) / rng.block;
 
