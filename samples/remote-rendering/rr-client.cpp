@@ -256,19 +256,19 @@ std::vector<std::string> hud_lines()
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     std::vector<std::string> lines;
     lines.push_back(g_hud.server.empty() ? "connecting..." : g_hud.server);
-    // GPU line: model + live server VRAM (used/total) + live board power, so remote memory and
-    // power pressure are both visible next to each other.
+    // GPU line: model | live server VRAM (used/total) | live board power, pipe-separated to match the
+    // pipeline line. Each metric is appended only when the server reported it.
     if (!g_hud.gpu.empty())
     {
-        char pw[24] = "";
-        if (g_hud.power_limit_w > 0)   snprintf(pw, sizeof(pw), "  %u/%u W", g_hud.power_w, g_hud.power_limit_w);
-        else if (g_hud.power_w > 0)    snprintf(pw, sizeof(pw), "  %u W", g_hud.power_w);
-        char g[200];
-        if (g_hud.vram_total_mb > 0)
-            snprintf(g, sizeof(g), "%s  (%.1f/%.1f GB)%s", g_hud.gpu.c_str(),
-                g_hud.vram_used_mb / 1024.0, g_hud.vram_total_mb / 1024.0, pw);
-        else
-            snprintf(g, sizeof(g), "%s%s", g_hud.gpu.c_str(), pw);
+        char g[220];
+        int n = snprintf(g, sizeof(g), "%s", g_hud.gpu.c_str());
+        if (g_hud.vram_total_mb > 0 && n > 0 && n < (int)sizeof(g))
+            n += snprintf(g + n, sizeof(g) - n, " | %.1f/%.1f GB",
+                g_hud.vram_used_mb / 1024.0, g_hud.vram_total_mb / 1024.0);
+        if (g_hud.power_limit_w > 0 && n > 0 && n < (int)sizeof(g))
+            n += snprintf(g + n, sizeof(g) - n, " | %u/%u W", g_hud.power_w, g_hud.power_limit_w);
+        else if (g_hud.power_w > 0 && n > 0 && n < (int)sizeof(g))
+            n += snprintf(g + n, sizeof(g) - n, " | %u W", g_hud.power_w);
         lines.push_back(g);
     }
     // Particle line: scene size + LOD mode + sim throughput. Placed ABOVE the latency line. Only when
