@@ -8,6 +8,7 @@
 // replaced behind the same surface.
 
 #include "mimir/engine.hpp"
+#include "mimir/mimir.hpp" // gpuPower: live NVML board-power sample for the telemetry line
 #include "mimir/framelimit.hpp" // getTargetFrameTime (optional --fps session cap)
 #include "mimir/remote_protocol.hpp"
 #include "mimir/transport.hpp"
@@ -998,6 +999,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .lod_us     = 0,         // filled below (LOD reduction time, part of render)
                     .denoise_us = 0,         // filled below (denoiser time, part of render)
                     .vram_used_mb = 0, .vram_total_mb = 0, // filled below (cudaMemGetInfo)
+                    .power_w = 0, .power_limit_w = 0,       // filled below (NVML power sample)
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
                 // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
@@ -1029,6 +1031,11 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                       st.vram_total_mb = static_cast<uint32_t>(vtot / (1024 * 1024));
                       st.vram_used_mb  = static_cast<uint32_t>((vtot - vfree) / (1024 * 1024));
                   } }
+                // Live board power (W) for the client HUD's GPU line and the [stats] log, sampled once
+                // per window via NVML (0 if this GPU/driver has no power telemetry).
+                { auto pw = gpuPower(0);
+                  st.power_w       = static_cast<uint32_t>(pw.usage_w + 0.5);
+                  st.power_limit_w = static_cast<uint32_t>(pw.limit_w + 0.5); }
                 char step_str[64];
                 if (max_iters != 0)
                 {
@@ -1120,8 +1127,13 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     lod_field = lb;
                     render_pure = std::max(0.0, render_mean - lod_mean);
                 }
+                // Live board power for the log tail (mirrors the client HUD): "<cur>/<max> W", or just
+                // "<cur> W" when the cap is unknown, or "power n/a" when NVML has no telemetry.
+                char pwr[32] = "power n/a";
+                if (st.power_limit_w > 0)   { snprintf(pwr, sizeof(pwr), "%u/%u W", st.power_w, st.power_limit_w); }
+                else if (st.power_w > 0)    { snprintf(pwr, sizeof(pwr), "%u W", st.power_w); }
                 spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}, {:.2f} ms/step) | frame {:6d} | {:5.1f} fps | "
-                    "{:6d} kbps | {}{:5.2f} ms render{} | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {}",
+                    "{:6d} kbps | {}{:5.2f} ms render{} | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {} | {}",
                     step_str,
                     pcount, sps, prate, compute_ms,
                     st.frames,
@@ -1134,7 +1146,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     prod_label,
                     raw_frame_kb, sent_frame_kb,
                     sent_frame_kb > 0.0 ? raw_frame_kb / sent_frame_kb : 0.0,
-                    vram);
+                    vram, pwr);
                 if (csv)
                 {
                     fprintf(csv, "%.3f,%u,%.1f,%.1f,%u,%.3f,%.3f,%.3f\n",

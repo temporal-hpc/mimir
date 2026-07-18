@@ -180,6 +180,8 @@ struct Hud
     std::string gpu;                // server GPU model (own HUD line, with live VRAM)
     uint32_t vram_used_mb = 0;      // server GPU memory used / total (MiB), for the GPU HUD line
     uint32_t vram_total_mb = 0;
+    uint32_t power_w = 0;           // server board power draw / limit (W), on the GPU HUD line
+    uint32_t power_limit_w = 0;
     std::string bench_path;         // --benchmark: the CSV path, shown under the BENCHMARK banner
     bool have_stats = false;        // first Stats message arrived
     bool benchmark = false;         // --benchmark active: HUD shows a "BENCHMARK MODE" banner
@@ -254,15 +256,19 @@ std::vector<std::string> hud_lines()
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     std::vector<std::string> lines;
     lines.push_back(g_hud.server.empty() ? "connecting..." : g_hud.server);
-    // GPU line: model + live server VRAM (used/total), so remote memory pressure is visible.
+    // GPU line: model + live server VRAM (used/total) + live board power, so remote memory and
+    // power pressure are both visible next to each other.
     if (!g_hud.gpu.empty())
     {
-        char g[160];
+        char pw[24] = "";
+        if (g_hud.power_limit_w > 0)   snprintf(pw, sizeof(pw), "  %u/%u W", g_hud.power_w, g_hud.power_limit_w);
+        else if (g_hud.power_w > 0)    snprintf(pw, sizeof(pw), "  %u W", g_hud.power_w);
+        char g[200];
         if (g_hud.vram_total_mb > 0)
-            snprintf(g, sizeof(g), "%s  (%.1f/%.1f GB)", g_hud.gpu.c_str(),
-                g_hud.vram_used_mb / 1024.0, g_hud.vram_total_mb / 1024.0);
+            snprintf(g, sizeof(g), "%s  (%.1f/%.1f GB)%s", g_hud.gpu.c_str(),
+                g_hud.vram_used_mb / 1024.0, g_hud.vram_total_mb / 1024.0, pw);
         else
-            snprintf(g, sizeof(g), "%s", g_hud.gpu.c_str());
+            snprintf(g, sizeof(g), "%s%s", g_hud.gpu.c_str(), pw);
         lines.push_back(g);
     }
     // Particle line: scene size + LOD mode + sim throughput. Placed ABOVE the latency line. Only when
@@ -822,6 +828,8 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             g_hud.decode_ms  = dec_ms;                 // client decode time (measured above)
             g_hud.vram_used_mb  = st.vram_used_mb;     // server GPU memory used/total (GPU HUD line)
             g_hud.vram_total_mb = st.vram_total_mb;
+            g_hud.power_w       = st.power_w;          // server board power draw/limit (GPU HUD line)
+            g_hud.power_limit_w = st.power_limit_w;
             g_hud.have_stats = true;
         }
         return;

@@ -176,6 +176,12 @@ struct Stats
     // appends "(<used>/<total> GB)" to the GPU line so remote VRAM pressure is visible.
     uint32_t vram_used_mb;
     uint32_t vram_total_mb;
+    // Appended (same forward-compat rule -- zero when absent). Instantaneous board power draw and the
+    // enforced power cap ("max"), in watts, sampled once per telemetry window via NVML. The client HUD
+    // shows "<cur>/<max> W" next to the VRAM on the GPU line, and the server log appends it too. 0 =
+    // older server, or a GPU/driver without power telemetry.
+    uint32_t power_w;
+    uint32_t power_limit_w;
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.

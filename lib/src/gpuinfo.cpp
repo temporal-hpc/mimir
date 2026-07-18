@@ -130,6 +130,35 @@ std::string gpuBanner(int device, const GpuCapabilities& c)
     return buf;
 }
 
+GpuPower gpuPower(int device)
+{
+    GpuPower pw;
+    cudaDeviceProp p{};
+    if (cudaGetDeviceProperties(&p, device) != cudaSuccess) { return pw; }
+    if (nvmlInit_v2() != NVML_SUCCESS) { return pw; }
+    unsigned int count = 0;
+    if (nvmlDeviceGetCount_v2(&count) == NVML_SUCCESS)
+    {
+        for (unsigned int i = 0; i < count; ++i)
+        {
+            nvmlDevice_t dev{};
+            nvmlPciInfo_t pci{};
+            if (nvmlDeviceGetHandleByIndex_v2(i, &dev) != NVML_SUCCESS) { continue; }
+            if (nvmlDeviceGetPciInfo_v3(dev, &pci) != NVML_SUCCESS)      { continue; }
+            if (static_cast<int>(pci.domain) != p.pciDomainID ||
+                static_cast<int>(pci.bus)    != p.pciBusID    ||
+                static_cast<int>(pci.device) != p.pciDeviceID) { continue; }
+            unsigned int mw = 0;
+            if (nvmlDeviceGetPowerUsage(dev, &mw) == NVML_SUCCESS) { pw.usage_w = mw / 1000.0; }
+            if (nvmlDeviceGetEnforcedPowerLimit(dev, &mw) == NVML_SUCCESS ||
+                nvmlDeviceGetPowerManagementLimit(dev, &mw) == NVML_SUCCESS) { pw.limit_w = mw / 1000.0; }
+            break;
+        }
+    }
+    nvmlShutdown();
+    return pw;
+}
+
 uint64_t interopBytesPerParticle(LightModel light_model, bool lod_active)
 {
     const bool pt_no_lod = (light_model == LightModel::PathTracing) && !lod_active;

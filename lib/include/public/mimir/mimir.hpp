@@ -96,6 +96,12 @@ GpuCapabilities queryGpuCapabilities(int device = 0);
 //   "device 0 (NVIDIA B300 SXM6 AC) | 268 GB | 7672 GB/s mem BW | 148 SMs | 18944 CUDA cores | ..."
 std::string gpuBanner(int device, const GpuCapabilities& caps);
 
+// Instantaneous board power draw and the enforced power cap ("max"), in watts, via NVML. Unlike the
+// static fields of queryGpuCapabilities, usage_w changes with load, so sample this periodically (e.g.
+// once per telemetry second) for a live reading. Both 0 if the GPU/driver has no power telemetry.
+struct GpuPower { double usage_w = 0.0; double limit_w = 0.0; };
+GpuPower gpuPower(int device = 0);
+
 // Device bytes/particle of mimir's OWN interop allocations: the position buffer (12 B, always) plus a
 // per-particle AABB (24 B) only under path tracing WITHOUT LOD (LOD builds the BVH over occupied cells,
 // not particles). Callers add any per-particle data of their own (a sim's attribute arrays) on top,
