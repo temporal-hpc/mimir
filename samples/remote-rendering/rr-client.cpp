@@ -253,11 +253,6 @@ std::vector<std::string> hud_lines()
 {
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     std::vector<std::string> lines;
-    if (g_hud.benchmark)
-    {
-        lines.push_back("== BENCHMARK MODE ==");
-        if (!g_hud.bench_path.empty()) { lines.push_back("results in " + g_hud.bench_path); }
-    }
     lines.push_back(g_hud.server.empty() ? "connecting..." : g_hud.server);
     // GPU line: model + live server VRAM (used/total), so remote memory pressure is visible.
     if (!g_hud.gpu.empty())
@@ -269,6 +264,19 @@ std::vector<std::string> hud_lines()
         else
             snprintf(g, sizeof(g), "%s", g_hud.gpu.c_str());
         lines.push_back(g);
+    }
+    // Particle line: scene size + LOD mode + sim throughput. Placed ABOVE the latency line. Only when
+    // the server reported it (0 = older server without the fields, or a viewer-only session).
+    if (g_hud.have_stats && g_hud.particle_count > 0)
+    {
+        char lodbuf[16];
+        if (g_hud.lod_cells == 0) { snprintf(lodbuf, sizeof(lodbuf), "native"); }
+        else { snprintf(lodbuf, sizeof(lodbuf), "%u^3", g_hud.lod_cells); }
+        char l3[160];
+        snprintf(l3, sizeof(l3), "%s particles | LOD %s | %s",
+            hud_scale_count(g_hud.particle_count).c_str(), lodbuf,
+            hud_scale_rate(g_hud.particles_per_sec).c_str());
+        lines.push_back(l3);
     }
     char l2[192];
     if (!g_hud.have_stats)
@@ -290,40 +298,19 @@ std::vector<std::string> hud_lines()
             static_cast<unsigned long long>(g_hud.step));
     }
     lines.push_back(l2);
-    // Particle line: scene size + LOD mode + sim throughput. Only when the server reported it (0 =
-    // older server without the fields, or a viewer-only session with no particles).
-    if (g_hud.have_stats && g_hud.particle_count > 0)
-    {
-        char lodbuf[16];
-        if (g_hud.lod_cells == 0) { snprintf(lodbuf, sizeof(lodbuf), "native"); }
-        else { snprintf(lodbuf, sizeof(lodbuf), "%u^3", g_hud.lod_cells); }
-        char l3[160];
-        snprintf(l3, sizeof(l3), "%s particles | LOD %s | %s",
-            hud_scale_count(g_hud.particle_count).c_str(), lodbuf,
-            hud_scale_rate(g_hud.particles_per_sec).c_str());
-        lines.push_back(l3);
-    }
-    // Pipeline line: where the time goes. render + encode + network + decode are the components of
-    // the end-to-end latency on line 2 (render = local GPU cost; encode + network + decode = remote
-    // transfer cost). `network` is the residual latency minus the measured stages (pure wire transit
-    // + frame-boundary wait), floored at 0 and tilde-marked because it is derived, not measured.
-    // compute (sim ms/step): in DECOUPLED mode it is a throughput number OFF the latency path (the
-    // sim runs on its own thread; a frame samples the latest state), so nothing is subtracted. In
-    // LOCKSTEP mode (steps_per_frame >= 1) the server runs steps_per_frame steps THEN renders, so
-    // that compute IS on the frame path and part of latency -- subtract it (steps_per_frame *
-    // compute_ms) so network~ stays wire+wait rather than absorbing the sim time.
+    // Pipeline line, in pipeline order: compute -> lod -> render -> denoise -> encode -> network -> decode.
+    // render + denoise + encode + network + decode are the components of the end-to-end latency on the
+    // line above (render/denoise = local GPU cost; encode + network + decode = remote transfer cost).
+    // `network~` is the residual latency minus the measured stages (wire transit + frame-boundary wait),
+    // floored at 0. render_ms from the server INCLUDES lod and denoise, so those are broken out as their
+    // own stages and render is shown as the pure draw/trace cost (render_ms - lod - denoise); the full
+    // render_ms stays on the latency path so network~ is unchanged. compute (sim ms/step): in DECOUPLED
+    // mode it is OFF the latency path (nothing subtracted); in LOCKSTEP it is on-path, so steps_per_frame
+    // * compute_ms is subtracted from network~. lod/denoise appear only when nonzero.
     if (g_hud.have_stats)
     {
         const double lat = g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms;
         const double compute_on_path = g_hud.compute_ms * static_cast<double>(g_hud.steps_per_frame);
-        // render_ms (from the server) includes the LOD reduction, so break the reduction out as its
-        // own pipeline stage and show render as the PURE draw cost (render_ms - lod_ms) -- otherwise
-        // render reads high and misleads. The full render_ms (lod + pure) stays on the latency path,
-        // so network~ is unchanged. LOD is a distinct stage before render only when it is active.
-        // render_ms (from the server) includes the LOD reduction AND the denoiser, so break each out as
-        // its own stage and show render as the PURE draw/trace cost (render_ms - lod - denoise). The full
-        // render_ms stays on the latency path, so network~ is unchanged. lod/denoise appear only when
-        // nonzero (LOD active / --denoise under path tracing).
         const double render_pure = std::max(0.0, g_hud.render_ms - g_hud.lod_ms - g_hud.denoise_ms);
         const double network_ms = std::max(0.0,
             lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms - compute_on_path);
@@ -332,9 +319,22 @@ std::vector<std::string> hud_lines()
         if (g_hud.denoise_ms > 0.005) { snprintf(dnseg, sizeof(dnseg), "denoise %.1f ms | ", g_hud.denoise_ms); }
         char l4[288];
         snprintf(l4, sizeof(l4),
-            "compute %.2f ms/step | %s%srender %.1f ms | encode %.1f ms | network~%.1f ms | decode %.1f ms",
-            g_hud.compute_ms, lodseg, dnseg, render_pure, g_hud.encode_ms, network_ms, g_hud.decode_ms);
+            "compute %.2f ms/step | %srender %.1f ms | %sencode %.1f ms | network~%.1f ms | decode %.1f ms",
+            g_hud.compute_ms, lodseg, render_pure, dnseg, g_hud.encode_ms, network_ms, g_hud.decode_ms);
         lines.push_back(l4);
+    }
+    return lines;
+}
+
+// Benchmark banner + CSV destination, drawn separately in the bottom-left corner (see hud_draw).
+std::vector<std::string> bench_lines()
+{
+    std::lock_guard<std::mutex> lock(g_hud.mtx);
+    std::vector<std::string> lines;
+    if (g_hud.benchmark)
+    {
+        lines.push_back("== BENCHMARK MODE ==");
+        if (!g_hud.bench_path.empty()) { lines.push_back("results in " + g_hud.bench_path); }
     }
     return lines;
 }
@@ -543,10 +543,25 @@ void hud_draw(int fb_h)
     else           { hud_rasterize(hud_lines(), px, w, h); }
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glPixelZoom(zoom, -zoom); // negative y draws downward from the top-left corner
+    glPixelZoom(zoom, -zoom); // negative y draws downward from the raster position
     glRasterPos2f(-1.f, 1.f);
-    glBitmap(0, 0, 0.f, 0.f, 8.f, -8.f, nullptr); // nudge in from the corner, in window pixels
+    glBitmap(0, 0, 0.f, 0.f, 8.f, -8.f, nullptr); // nudge in from the top-left corner, in window pixels
     glDrawPixels(w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+
+    // Benchmark banner + CSV path in the BOTTOM-left corner (its own block, so it stays put regardless
+    // of how many status lines the main HUD has). Anchor at (-1,-1), then nudge the raster position up
+    // by the block's height (+ an 8 px margin) so the block's bottom sits ~8 px above the window bottom.
+    const auto bl = bench_lines();
+    if (!bl.empty())
+    {
+        static std::vector<unsigned char> bpx;
+        int bw = 0, bh = 0;
+        if (g_font.ok) { hud_rasterize_ttf(bl, hud_px_for_height(fb_h), bpx, bw, bh); }
+        else           { hud_rasterize(bl, bpx, bw, bh); }
+        glRasterPos2f(-1.f, -1.f);
+        glBitmap(0, 0, 0.f, 0.f, 8.f, static_cast<float>(bh) * zoom + 8.f, nullptr);
+        glDrawPixels(bw, bh, GL_RGBA, GL_UNSIGNED_BYTE, bpx.data());
+    }
     glDisable(GL_BLEND);
 }
 
@@ -765,12 +780,13 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
         const uint32_t ctrl = g.ctrl_sent.exchange(0);
         // LOD and denoise are distinct stages (server render_us includes both), so break them out and
         // show render as the pure draw/trace cost (render_us - lod - denoise); mirrors the on-screen HUD.
+        // Pipeline order: lod | render | denoise (render shown pure = render_us - lod - denoise).
         char cons_render[96], cr_lod[24] = "", cr_dn[28] = "";
         if (st.lod_us > 5)     { snprintf(cr_lod, sizeof(cr_lod), "lod %.1f ms | ", st.lod_us / 1000.0); }
-        if (st.denoise_us > 5) { snprintf(cr_dn, sizeof(cr_dn), "denoise %.1f ms | ", st.denoise_us / 1000.0); }
-        snprintf(cons_render, sizeof(cons_render), "%s%srender %.1f", cr_lod, cr_dn,
-            std::max(0.0, (st.render_us - st.lod_us - st.denoise_us) / 1000.0));
-        printf("%s[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | %s ms | decode %.2f+-%.2f ms | "
+        if (st.denoise_us > 5) { snprintf(cr_dn, sizeof(cr_dn), " | denoise %.1f ms", st.denoise_us / 1000.0); }
+        snprintf(cons_render, sizeof(cons_render), "%srender %.1f ms%s", cr_lod,
+            std::max(0.0, (st.render_us - st.lod_us - st.denoise_us) / 1000.0), cr_dn);
+        printf("%s[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | %s | decode %.2f+-%.2f ms | "
             "latency %.1f+-%.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)%s\n",
             ansi::dim(), st.fps_milli / 1000.0, st.kbps,
             dec.stream_codec == Codec::H264 ? "encode" : "readback",
