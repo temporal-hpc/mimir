@@ -347,6 +347,18 @@ std::string formatVram()
     return buf;
 }
 
+// Live board power (current draw / enforced cap, W) via NVML, for the log lines. "<cur>/<max> W",
+// or "<cur> W" when the cap is unknown, or "power n/a" when the GPU/driver has no power telemetry.
+std::string formatPower()
+{
+    auto pw = gpuPower(0);
+    char buf[32];
+    if (pw.limit_w > 0.0)      std::snprintf(buf, sizeof(buf), "%.0f/%.0f W", pw.usage_w, pw.limit_w);
+    else if (pw.usage_w > 0.0) std::snprintf(buf, sizeof(buf), "%.0f W", pw.usage_w);
+    else                       std::snprintf(buf, sizeof(buf), "power n/a");
+    return buf;
+}
+
 } // namespace
 
 void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute,
@@ -536,6 +548,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const std::string prate = formatParticleRate(rate * static_cast<double>(particle_total));
                 const std::string pcount = formatParticleCount(particle_total);
                 const std::string vram = formatVram();
+                const std::string power = formatPower(); // live board draw next to VRAM
                 // Mean sim compute() time per step over this heartbeat window (the kernel compute
                 // time), from the ns accumulator divided by the steps taken in the window.
                 const uint64_t cn_now = compute_ns_total.load(std::memory_order_relaxed);
@@ -544,15 +557,15 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     ? static_cast<double>(cn_now - sim_log_compute_ns) / static_cast<double>(d_iter) / 1e6 : 0.0;
                 if (max_iters != 0)
                 {
-                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {} particles | {:.0f} steps/s ({:.2f} ms/step) | {} | {} | no viewer",
+                    spdlog::info("[sim] step {} of {} ({:.1f}%) | {} particles | {:.0f} steps/s ({:.2f} ms/step) | {} | {} | {} | no viewer",
                         iters, max_iters,
                         100.0 * static_cast<double>(iters) / static_cast<double>(max_iters),
-                        pcount, rate, compute_ms, prate, vram);
+                        pcount, rate, compute_ms, prate, vram, power);
                 }
                 else
                 {
-                    spdlog::info("[sim] step {} | {} particles | {:.0f} steps/s ({:.2f} ms/step) | {} | {} | no viewer",
-                        iters, pcount, rate, compute_ms, prate, vram);
+                    spdlog::info("[sim] step {} | {} particles | {:.0f} steps/s ({:.2f} ms/step) | {} | {} | {} | no viewer",
+                        iters, pcount, rate, compute_ms, prate, vram, power);
                 }
                 sim_log_time = sim_now;
                 sim_log_iter = iters;
