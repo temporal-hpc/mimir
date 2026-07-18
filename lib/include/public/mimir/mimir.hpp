@@ -88,6 +88,8 @@ struct GpuCapabilities
     int      rt_cores             = 0;   // 0 => software BVH
     bool     nvenc                = false;
     bool     nvdec                = false;
+    double   power_usage_w        = 0.0; // instantaneous board draw at query time (0 if unreported)
+    double   power_limit_w        = 0.0; // enforced power cap ("max"), 0 if unreported
 };
 GpuCapabilities queryGpuCapabilities(int device = 0);
 // One-line human banner assembled from the caps, e.g.

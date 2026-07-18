@@ -49,12 +49,14 @@ int rtCores(const cudaDeviceProp& p)
     return rt_capable ? p.multiProcessorCount : 0;
 }
 
-// NVENC/NVDEC presence via NVML. NVML ignores CUDA_VISIBLE_DEVICES and enumerates every physical GPU,
-// so match the one whose PCI location equals our CUDA device. Encoder-capacity / decoder-utilization
-// return NOT_SUPPORTED on a GPU lacking that engine (e.g. the A100: NVDEC yes, NVENC no).
-void queryVideoEngines(const cudaDeviceProp& p, bool& nvenc, bool& nvdec)
+// NVENC/NVDEC presence + power via NVML. NVML ignores CUDA_VISIBLE_DEVICES and enumerates every
+// physical GPU, so match the one whose PCI location equals our CUDA device. Encoder-capacity /
+// decoder-utilization return NOT_SUPPORTED on a GPU lacking that engine (e.g. the A100: NVDEC yes,
+// NVENC no). Power draw/limit come in milliwatts; 0 stays if the GPU or driver does not report them.
+void queryNvml(const cudaDeviceProp& p, bool& nvenc, bool& nvdec, double& power_w, double& power_limit_w)
 {
     nvenc = nvdec = false;
+    power_w = power_limit_w = 0.0;
     if (nvmlInit_v2() != NVML_SUCCESS) { return; }
     unsigned int count = 0;
     if (nvmlDeviceGetCount_v2(&count) == NVML_SUCCESS)
@@ -72,6 +74,12 @@ void queryVideoEngines(const cudaDeviceProp& p, bool& nvenc, bool& nvdec)
             nvenc = nvmlDeviceGetEncoderCapacity(dev, NVML_ENCODER_QUERY_H264, &cap) == NVML_SUCCESS;
             unsigned int util = 0, period = 0;
             nvdec = nvmlDeviceGetDecoderUtilization(dev, &util, &period) == NVML_SUCCESS;
+            unsigned int mw = 0;
+            if (nvmlDeviceGetPowerUsage(dev, &mw) == NVML_SUCCESS) { power_w = mw / 1000.0; }
+            // Enforced limit is the effective "max" (respects any user/admin cap); fall back to the
+            // management limit if the enforced query is unsupported on this part.
+            if (nvmlDeviceGetEnforcedPowerLimit(dev, &mw) == NVML_SUCCESS ||
+                nvmlDeviceGetPowerManagementLimit(dev, &mw) == NVML_SUCCESS) { power_limit_w = mw / 1000.0; }
             break;
         }
     }
@@ -98,14 +106,14 @@ GpuCapabilities queryGpuCapabilities(int device)
     cudaDeviceGetAttribute(&mem_bus_bits, cudaDevAttrGlobalMemoryBusWidth, device);
     caps.mem_bandwidth_gbps =
         2.0 * static_cast<double>(mem_clock_khz) * 1e3 * (static_cast<double>(mem_bus_bits) / 8.0) / 1e9;
-    queryVideoEngines(p, caps.nvenc, caps.nvdec);
+    queryNvml(p, caps.nvenc, caps.nvdec, caps.power_usage_w, caps.power_limit_w);
     return caps;
 }
 
 std::string gpuBanner(int device, const GpuCapabilities& c)
 {
     char buf[512];
-    std::snprintf(buf, sizeof(buf),
+    int n = std::snprintf(buf, sizeof(buf),
         "device %d (%s) | %.0f GB | %.0f GB/s mem BW | %d SMs | %d CUDA cores | %d tensor cores | "
         "%d RT cores (%s) | NVENC %s | NVDEC %s",
         device, c.name.c_str(),
@@ -113,6 +121,12 @@ std::string gpuBanner(int device, const GpuCapabilities& c)
         c.sm_count, c.cuda_cores, c.tensor_cores,
         c.rt_cores, c.rt_cores > 0 ? "hardware BVH traversal" : "none -> software BVH",
         c.nvenc ? "yes" : "no", c.nvdec ? "yes" : "no");
+    // Append power as "current/limit W" only when NVML reported it (0 = unsupported on this GPU/driver).
+    if (n > 0 && n < static_cast<int>(sizeof(buf)) && c.power_limit_w > 0.0)
+    {
+        std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n),
+            " | %.0f/%.0f W", c.power_usage_w, c.power_limit_w);
+    }
     return buf;
 }
 
