@@ -66,3 +66,30 @@ void launchInitPositions(float* pos3, const PointsParams& params,
 // cluster center, clamped to the cube.
 void launchIntegrate3D(float* pos3, size_t point_count, const ClusterData& clusters,
                        RngStates& rng, cudaStream_t s = 0);
+
+// ---- Experimental: periodic spatial sort of the particles ---------------------------------------
+// Reorders pos3 (and the matching cluster ids) so particles that fall in the same sortN^3 grid cell
+// become contiguous in memory. This is a pure locality aid for the render-side LOD reduction: with
+// same-cell particles adjacent, the LOD's warp-aggregated centroid scatter collapses ~2.75x faster
+// (measured). The kmodal walk is per-particle independent, so permuting pos+ids together is exact.
+// Cost is amortized by re-sorting only every K steps; particles drift, so the ordering decays
+// gradually and must be refreshed. Counting sort by row-major cell id (atomic histogram + scan +
+// placement), size_t-indexed. Scratch (histogram/offsets/cursor O(sortN^3) + shadow pos/ids O(count))
+// is allocated once in createSortScratch.
+struct SortScratch {
+    void*    hist       = nullptr;  // uint32[sortN^3]  cell histogram
+    void*    off        = nullptr;  // uint32[sortN^3]  exclusive-scanned offsets
+    void*    blockSums  = nullptr;  // uint32[scanBlocks]
+    void*    cursor     = nullptr;  // uint32[sortN^3]  per-cell placement cursor
+    void*    pos_sorted = nullptr;  // float[3*count]   shadow, sorted, copied back into pos3
+    void*    ids_sorted = nullptr;  // uint32[count]    shadow, sorted, copied back into ids
+    uint32_t sortN      = 0;
+    uint64_t nCells     = 0;
+    size_t   count      = 0;
+};
+SortScratch createSortScratch(size_t count, uint32_t sortN);
+void destroySortScratch(SortScratch& s);
+size_t sortScratchBytes(const SortScratch& s);
+// Reorder pos3 + ids in place (via the scratch shadow) so same-cell particles are contiguous.
+void launchSpatialSort(float* pos3, unsigned int* ids, size_t count, SortScratch& s,
+                       cudaStream_t stream = 0);

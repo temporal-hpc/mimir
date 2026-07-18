@@ -16,6 +16,7 @@
 
 #include <cstdio>  // snprintf (byte-limit formatting)
 #include <cstdlib> // setenv (pin to a GPU via CUDA_VISIBLE_DEVICES)
+#include <chrono>  // throttled [sim-sort] timing print
 #include <string> // std::stoul
 #include <vector>
 
@@ -458,14 +459,52 @@ int main(int argc, char *argv[])
         quic ? "UDP/QUIC" : "TCP", port, width, height, (unsigned long long)point_count,
         use_h264 ? "H.264" : "raw", lm);
 
+    // Experimental: periodically re-sort particles by cell so the render-side LOD reduction gets
+    // spatial locality (warp-agg centroid scatter collapses ~2.75x faster). MIMIR_SIM_SORT_EVERY=K
+    // sorts every K sim steps (0/unset = off); needs --lod (sortN = the LOD grid N). See kmodal_sim.cu.
+    const char* sort_env = std::getenv("MIMIR_SIM_SORT_EVERY");
+    int sort_every = sort_env ? std::atoi(sort_env) : 0;
+    SortScratch sort_scratch{};
+    if (sort_every > 0 && lod_cells > 0)
+    {
+        sort_scratch = createSortScratch(point_count, lod_cells);
+        printf("rr-server: sim spatial sort ON -- every %d steps, sortN=%u, scratch %.2f GB\n",
+               sort_every, lod_cells, (double)sortScratchBytes(sort_scratch) / 1e9);
+        launchSpatialSort(d_pos, (unsigned int*)clusters.ids, point_count, sort_scratch); // start sorted
+        checkCuda(cudaDeviceSynchronize());
+    }
+    else if (sort_every > 0)
+    {
+        printf("rr-server: MIMIR_SIM_SORT_EVERY ignored (needs --lod)\n");
+        sort_every = 0;
+    }
+    uint64_t sim_step = 0;
+    cudaEvent_t se0{}, se1{}; cudaEventCreate(&se0); cudaEventCreate(&se1);
+    auto sort_log = std::chrono::steady_clock::now() - std::chrono::hours(1);
+
     // Blocks serving clients. The lambda advances the simulation each (non-paused) frame over
     // interop-mapped memory.
     serveRemote(instance, port, [&]{
         launchIntegrate3D(d_pos, point_count, clusters, rng);
+        if (sort_every > 0 && (++sim_step % (uint64_t)sort_every == 0))
+        {
+            cudaEventRecord(se0);
+            launchSpatialSort(d_pos, (unsigned int*)clusters.ids, point_count, sort_scratch);
+            cudaEventRecord(se1); cudaEventSynchronize(se1);
+            float ms = 0.f; cudaEventElapsedTime(&ms, se0, se1);
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - sort_log).count() >= 1000)
+            {
+                printf("[sim-sort] step %llu | spatial sort %.2f ms (sortN=%u, every %d)\n",
+                       (unsigned long long)sim_step, ms, lod_cells, sort_every);
+                sort_log = now;
+            }
+        }
         checkCuda(cudaDeviceSynchronize());
     }, max_steps, use_h264, transport, token.c_str(), bitrate_kbps,
         bench_csv.empty() ? nullptr : bench_csv.c_str(), fps_cap, steps_per_frame);
 
+    if (sort_scratch.sortN) destroySortScratch(sort_scratch);
     destroyClusters(clusters);
     destroyRngStates(rng);
     destroyInstance(instance);

@@ -2,6 +2,8 @@
 #include <curand_kernel.h>
 #include <random>
 #include <vector>
+#include <cstdlib> // getenv (MIMIR_SIM_SORT_KTIME)
+#include <cstdio>  // fprintf (sort stage timing)
 
 // ---------------------------------------------------------------------------
 // Kernels
@@ -63,6 +65,100 @@ __global__ void integrate3dKernel(float* coords, size_t point_count,
         points[i] = p;
     }
     rng[tidx] = state;
+}
+
+// ---------------------------------------------------------------------------
+// Experimental spatial sort (see kmodal_sim.cuh)
+// ---------------------------------------------------------------------------
+static constexpr int kSortThreads = 256;
+static inline uint32_t sortGridFor(uint64_t n){ uint64_t b=(n+kSortThreads-1)/kSortThreads; if(b>2147483647ull)b=2147483647ull; if(b<1)b=1; return (uint32_t)b; }
+
+__device__ __forceinline__ uint32_t sortCellId(float px, float py, float pz, uint32_t N)
+{
+    float n=(float)N;
+    int cx=(int)fminf(fmaxf((px+1.f)*0.5f*n,0.f),n-1.f);
+    int cy=(int)fminf(fmaxf((py+1.f)*0.5f*n,0.f),n-1.f);
+    int cz=(int)fminf(fmaxf((pz+1.f)*0.5f*n,0.f),n-1.f);
+    return (uint32_t)cx + N*((uint32_t)cy + N*(uint32_t)cz);
+}
+__global__ void sortClearKernel(uint32_t* a, uint64_t n){
+    for(uint64_t i=(uint64_t)blockIdx.x*blockDim.x+threadIdx.x;i<n;i+=(uint64_t)blockDim.x*gridDim.x) a[i]=0u; }
+__global__ void sortHistKernel(const float* pos, size_t count, uint32_t N, uint32_t* hist){
+    for(uint64_t i=(uint64_t)blockIdx.x*blockDim.x+threadIdx.x;i<count;i+=(uint64_t)blockDim.x*gridDim.x)
+        atomicAdd(&hist[sortCellId(pos[i*3],pos[i*3+1],pos[i*3+2],N)],1u); }
+// exclusive scan pieces (blockSums must be scanned by sortScanSingle, then added back)
+__global__ void sortScanLocalKernel(const uint32_t* in, uint32_t* out, uint32_t* blockSums, uint64_t n){
+    __shared__ uint32_t s[kSortThreads];
+    uint64_t g=(uint64_t)blockIdx.x*blockDim.x+threadIdx.x; uint32_t v=(g<n)?in[g]:0u; s[threadIdx.x]=v; __syncthreads();
+    for(uint32_t o=1;o<blockDim.x;o<<=1){ uint32_t t=(threadIdx.x>=o)?s[threadIdx.x-o]:0u; __syncthreads(); s[threadIdx.x]+=t; __syncthreads(); }
+    if(g<n) out[g]=s[threadIdx.x]-v; if(threadIdx.x==blockDim.x-1) blockSums[blockIdx.x]=s[threadIdx.x]; }
+__global__ void sortScanSingleKernel(uint32_t* data, uint32_t L){
+    __shared__ uint32_t s[kSortThreads]; __shared__ uint32_t run; if(threadIdx.x==0) run=0u; __syncthreads();
+    for(uint32_t base=0;base<L;base+=blockDim.x){ uint32_t idx=base+threadIdx.x; uint32_t v=(idx<L)?data[idx]:0u; s[threadIdx.x]=v; __syncthreads();
+        for(uint32_t o=1;o<blockDim.x;o<<=1){ uint32_t t=(threadIdx.x>=o)?s[threadIdx.x-o]:0u; __syncthreads(); s[threadIdx.x]+=t; __syncthreads(); }
+        if(idx<L) data[idx]=s[threadIdx.x]-v+run; __syncthreads(); if(threadIdx.x==0) run+=s[blockDim.x-1]; __syncthreads(); } }
+__global__ void sortAddOffsetsKernel(uint32_t* out, const uint32_t* blockScan, uint64_t n){
+    uint64_t g=(uint64_t)blockIdx.x*blockDim.x+threadIdx.x; if(g<n) out[g]+=blockScan[blockIdx.x]; }
+__global__ void sortPlaceKernel(const float* pos, const unsigned int* ids, size_t count, uint32_t N,
+                                uint32_t* cursor, float* posOut, unsigned int* idsOut){
+    for(uint64_t i=(uint64_t)blockIdx.x*blockDim.x+threadIdx.x;i<count;i+=(uint64_t)blockDim.x*gridDim.x){
+        float px=pos[i*3],py=pos[i*3+1],pz=pos[i*3+2]; uint32_t c=sortCellId(px,py,pz,N);
+        uint32_t d=atomicAdd(&cursor[c],1u); posOut[3*(uint64_t)d]=px; posOut[3*(uint64_t)d+1]=py; posOut[3*(uint64_t)d+2]=pz; idsOut[d]=ids[i]; } }
+
+SortScratch createSortScratch(size_t count, uint32_t sortN)
+{
+    SortScratch s; s.sortN=sortN; s.count=count; s.nCells=(uint64_t)sortN*sortN*sortN;
+    uint32_t scanBlocks=sortGridFor(s.nCells);
+    cudaMalloc(&s.hist,       s.nCells*sizeof(uint32_t));
+    cudaMalloc(&s.off,        s.nCells*sizeof(uint32_t));
+    cudaMalloc(&s.blockSums,  (size_t)scanBlocks*sizeof(uint32_t));
+    cudaMalloc(&s.cursor,     s.nCells*sizeof(uint32_t));
+    cudaMalloc(&s.pos_sorted, count*3*sizeof(float));
+    cudaMalloc(&s.ids_sorted, count*sizeof(unsigned int));
+    return s;
+}
+void destroySortScratch(SortScratch& s)
+{
+    cudaFree(s.hist); cudaFree(s.off); cudaFree(s.blockSums); cudaFree(s.cursor);
+    cudaFree(s.pos_sorted); cudaFree(s.ids_sorted);
+    s = SortScratch{};
+}
+size_t sortScratchBytes(const SortScratch& s)
+{
+    uint32_t scanBlocks=sortGridFor(s.nCells);
+    return (3*s.nCells + scanBlocks)*sizeof(uint32_t) + s.count*3*sizeof(float) + s.count*sizeof(unsigned int);
+}
+void launchSpatialSort(float* pos3, unsigned int* ids, size_t count, SortScratch& s, cudaStream_t stream)
+{
+    const uint32_t N=s.sortN; const uint64_t nC=s.nCells;
+    auto* hist=(uint32_t*)s.hist; auto* off=(uint32_t*)s.off; auto* bsum=(uint32_t*)s.blockSums;
+    auto* cursor=(uint32_t*)s.cursor; auto* posS=(float*)s.pos_sorted; auto* idsS=(unsigned int*)s.ids_sorted;
+    uint32_t scanBlocks=sortGridFor(nC);
+    // Persistent grid for the per-particle passes (hist/place): occupancy-sized, grid-strided -- like
+    // the LOD scatter -- instead of 781K one-shot blocks, which schedule poorly on the atomic passes.
+    static int sm=0; if(!sm){ int d; cudaGetDevice(&d); cudaDeviceGetAttribute(&sm,cudaDevAttrMultiProcessorCount,d); }
+    uint32_t partBlocks=sortGridFor(count); if(partBlocks>(uint32_t)sm*32) partBlocks=(uint32_t)sm*32;
+    static const bool ktime = (std::getenv("MIMIR_SIM_SORT_KTIME") != nullptr);
+    cudaEvent_t e[6]{}; if(ktime){ for(auto& ev:e) cudaEventCreate(&ev); cudaEventRecord(e[0],stream); }
+    sortClearKernel<<<sortGridFor(nC),kSortThreads,0,stream>>>(hist,nC);
+    sortHistKernel<<<partBlocks,kSortThreads,0,stream>>>(pos3,count,N,hist);
+    if(ktime) cudaEventRecord(e[1],stream);
+    sortScanLocalKernel<<<scanBlocks,kSortThreads,0,stream>>>(hist,off,bsum,nC);
+    sortScanSingleKernel<<<1,kSortThreads,0,stream>>>(bsum,scanBlocks);
+    sortAddOffsetsKernel<<<scanBlocks,kSortThreads,0,stream>>>(off,bsum,nC);
+    cudaMemcpyAsync(cursor,off,nC*sizeof(uint32_t),cudaMemcpyDeviceToDevice,stream);
+    if(ktime) cudaEventRecord(e[2],stream);
+    sortPlaceKernel<<<partBlocks,kSortThreads,0,stream>>>(pos3,ids,count,N,cursor,posS,idsS);
+    if(ktime) cudaEventRecord(e[3],stream);
+    // copy the sorted shadow back into the live interop position buffer + ids
+    cudaMemcpyAsync(pos3,posS,count*3*sizeof(float),cudaMemcpyDeviceToDevice,stream);
+    if(ktime) cudaEventRecord(e[4],stream);
+    cudaMemcpyAsync(ids,idsS,count*sizeof(unsigned int),cudaMemcpyDeviceToDevice,stream);
+    if(ktime){ cudaEventRecord(e[5],stream); cudaEventSynchronize(e[5]);
+        float t1,t2,t3,t4,t5; cudaEventElapsedTime(&t1,e[0],e[1]); cudaEventElapsedTime(&t2,e[1],e[2]);
+        cudaEventElapsedTime(&t3,e[2],e[3]); cudaEventElapsedTime(&t4,e[3],e[4]); cudaEventElapsedTime(&t5,e[4],e[5]);
+        std::fprintf(stderr,"[sim-sort-ktime] clear+hist %.2f | scan %.2f | place %.2f | copyback-pos %.2f | copyback-ids %.2f ms\n",t1,t2,t3,t4,t5);
+        for(auto& ev:e) cudaEventDestroy(ev); }
 }
 
 // ---------------------------------------------------------------------------
