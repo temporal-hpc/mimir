@@ -174,8 +174,13 @@ struct Hud
     double compute_ms = 0.0;        // server: mean sim compute() time per step
     double render_ms = 0.0;         // server: mean GPU render/trace time per frame
     double lod_ms = 0.0;            // server: mean LOD-reduction time per frame (part of render_ms)
+    double denoise_ms = 0.0;        // server: mean denoiser time per frame (part of render_ms; PT+--denoise)
     double encode_ms = 0.0;         // server: mean encode (or readback) time per frame
     double decode_ms = 0.0;         // client: mean decode time per frame (measured here)
+    std::string gpu;                // server GPU model (own HUD line, with live VRAM)
+    uint32_t vram_used_mb = 0;      // server GPU memory used / total (MiB), for the GPU HUD line
+    uint32_t vram_total_mb = 0;
+    std::string bench_path;         // --benchmark: the CSV path, shown under the BENCHMARK banner
     bool have_stats = false;        // first Stats message arrived
     bool benchmark = false;         // --benchmark active: HUD shows a "BENCHMARK MODE" banner
     std::atomic<bool> visible{true};
@@ -211,11 +216,12 @@ void hud_set_server(const Hello& hello, const char *transport)
     where += host[0] ? host : g_dial_host;
     where += ':'; where += g_dial_port;
     char line[256];
-    snprintf(line, sizeof(line), "%s  %s/%s %ux%u%s%s", where.c_str(), transport,
+    snprintf(line, sizeof(line), "%s  %s/%s %ux%u", where.c_str(), transport,
         static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
-        hello.width, hello.height, gpu[0] ? "  |  " : "", gpu);
+        hello.width, hello.height);
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     g_hud.server = line;
+    g_hud.gpu = gpu;                   // shown on its own HUD line with live VRAM (see hud_lines)
     g_hud.lod_cells = hello.lod_cells; // 0 = native, N = N^3 grid (shown on the particle line)
     g_hud.steps_per_frame = hello.steps_per_frame; // 0 = decoupled, N = lockstep (compute on path)
 }
@@ -247,8 +253,23 @@ std::vector<std::string> hud_lines()
 {
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     std::vector<std::string> lines;
-    if (g_hud.benchmark) { lines.push_back("== BENCHMARK MODE =="); }
+    if (g_hud.benchmark)
+    {
+        lines.push_back("== BENCHMARK MODE ==");
+        if (!g_hud.bench_path.empty()) { lines.push_back("results in " + g_hud.bench_path); }
+    }
     lines.push_back(g_hud.server.empty() ? "connecting..." : g_hud.server);
+    // GPU line: model + live server VRAM (used/total), so remote memory pressure is visible.
+    if (!g_hud.gpu.empty())
+    {
+        char g[160];
+        if (g_hud.vram_total_mb > 0)
+            snprintf(g, sizeof(g), "%s  (%.1f/%.1f GB)", g_hud.gpu.c_str(),
+                g_hud.vram_used_mb / 1024.0, g_hud.vram_total_mb / 1024.0);
+        else
+            snprintf(g, sizeof(g), "%s", g_hud.gpu.c_str());
+        lines.push_back(g);
+    }
     char l2[192];
     if (!g_hud.have_stats)
     {
@@ -299,25 +320,20 @@ std::vector<std::string> hud_lines()
         // own pipeline stage and show render as the PURE draw cost (render_ms - lod_ms) -- otherwise
         // render reads high and misleads. The full render_ms (lod + pure) stays on the latency path,
         // so network~ is unchanged. LOD is a distinct stage before render only when it is active.
-        const double render_pure = std::max(0.0, g_hud.render_ms - g_hud.lod_ms);
+        // render_ms (from the server) includes the LOD reduction AND the denoiser, so break each out as
+        // its own stage and show render as the PURE draw/trace cost (render_ms - lod - denoise). The full
+        // render_ms stays on the latency path, so network~ is unchanged. lod/denoise appear only when
+        // nonzero (LOD active / --denoise under path tracing).
+        const double render_pure = std::max(0.0, g_hud.render_ms - g_hud.lod_ms - g_hud.denoise_ms);
         const double network_ms = std::max(0.0,
             lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms - compute_on_path);
-        char l4[256];
-        if (g_hud.lod_ms > 0.005)
-        {
-            snprintf(l4, sizeof(l4),
-                "compute %.2f ms/step | lod %.1f ms | render %.1f ms | encode %.1f ms | "
-                "network~%.1f ms | decode %.1f ms",
-                g_hud.compute_ms, g_hud.lod_ms, render_pure, g_hud.encode_ms, network_ms,
-                g_hud.decode_ms);
-        }
-        else
-        {
-            snprintf(l4, sizeof(l4),
-                "compute %.2f ms/step | render %.1f ms | encode %.1f ms | network~%.1f ms | "
-                "decode %.1f ms",
-                g_hud.compute_ms, g_hud.render_ms, g_hud.encode_ms, network_ms, g_hud.decode_ms);
-        }
+        char lodseg[32] = "", dnseg[32] = "";
+        if (g_hud.lod_ms > 0.005)     { snprintf(lodseg, sizeof(lodseg), "lod %.1f ms | ", g_hud.lod_ms); }
+        if (g_hud.denoise_ms > 0.005) { snprintf(dnseg, sizeof(dnseg), "denoise %.1f ms | ", g_hud.denoise_ms); }
+        char l4[288];
+        snprintf(l4, sizeof(l4),
+            "compute %.2f ms/step | %s%srender %.1f ms | encode %.1f ms | network~%.1f ms | decode %.1f ms",
+            g_hud.compute_ms, lodseg, dnseg, render_pure, g_hud.encode_ms, network_ms, g_hud.decode_ms);
         lines.push_back(l4);
     }
     return lines;
@@ -555,6 +571,7 @@ void bench_csv_open(const Hello& hello)
     fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,compute_ms,render_ms,decode_ms,decode_ms_std,"
         "lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase\n");
     fflush(g_csv);
+    { std::lock_guard<std::mutex> lock(g_hud.mtx); g_hud.bench_path = path; } // show it under the HUD banner
     printf("%srr-client: benchmark CSV -> %s%s\n", ansi::cyn(), path.c_str(), ansi::rst());
 }
 
@@ -746,15 +763,13 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             lat_max = dec.lat_ms.back();
         }
         const uint32_t ctrl = g.ctrl_sent.exchange(0);
-        // LOD is a distinct stage (server render_us includes it), so break it out and show render as
-        // the pure draw cost (render_us - lod_us); mirrors the on-screen HUD. Only when LOD is active.
-        char cons_render[64];
-        if (st.lod_us > 5)
-        {
-            snprintf(cons_render, sizeof(cons_render), "lod %.1f ms | render %.1f",
-                st.lod_us / 1000.0, std::max(0.0, st.render_us / 1000.0 - st.lod_us / 1000.0));
-        }
-        else { snprintf(cons_render, sizeof(cons_render), "render %.1f", st.render_us / 1000.0); }
+        // LOD and denoise are distinct stages (server render_us includes both), so break them out and
+        // show render as the pure draw/trace cost (render_us - lod - denoise); mirrors the on-screen HUD.
+        char cons_render[96], cr_lod[24] = "", cr_dn[28] = "";
+        if (st.lod_us > 5)     { snprintf(cr_lod, sizeof(cr_lod), "lod %.1f ms | ", st.lod_us / 1000.0); }
+        if (st.denoise_us > 5) { snprintf(cr_dn, sizeof(cr_dn), "denoise %.1f ms | ", st.denoise_us / 1000.0); }
+        snprintf(cons_render, sizeof(cons_render), "%s%srender %.1f", cr_lod, cr_dn,
+            std::max(0.0, (st.render_us - st.lod_us - st.denoise_us) / 1000.0));
         printf("%s[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | %s ms | decode %.2f+-%.2f ms | "
             "latency %.1f+-%.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)%s\n",
             ansi::dim(), st.fps_milli / 1000.0, st.kbps,
@@ -786,8 +801,11 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             g_hud.compute_ms = st.compute_us / 1000.0; // server sim step time
             g_hud.render_ms  = st.render_us / 1000.0;  // server GPU render time
             g_hud.lod_ms     = st.lod_us / 1000.0;     // server LOD reduction time (part of render)
+            g_hud.denoise_ms = st.denoise_us / 1000.0; // server denoiser time (part of render)
             g_hud.encode_ms  = st.encode_us / 1000.0;  // server encode/readback time
             g_hud.decode_ms  = dec_ms;                 // client decode time (measured above)
+            g_hud.vram_used_mb  = st.vram_used_mb;     // server GPU memory used/total (GPU HUD line)
+            g_hud.vram_total_mb = st.vram_total_mb;
             g_hud.have_stats = true;
         }
         return;

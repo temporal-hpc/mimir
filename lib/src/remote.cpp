@@ -665,6 +665,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         // the mode-sensitive part -- a full rebuild is ~2x a refit -- so it is kept per mode. Trace is
         // summed over every traced frame (skips still trace, with ~0 build).
         double win_aabb_ms = 0.0, win_tlas_ms = 0.0, win_trace_ms = 0.0, win_lod_ms = 0.0;
+        double win_denoise_ms = 0.0;
         double win_refit_blas_ms = 0.0, win_rebuild_blas_ms = 0.0;
         uint64_t win_refit_n = 0, win_rebuild_n = 0, win_skip_n = 0;
 
@@ -970,6 +971,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                             ++win_skip_n; break; // skip build time is ~0 (adjacent timestamps)
                     }
                     win_trace_ms += raytracing.last_trace_ms;
+                    win_denoise_ms += raytracing.last_denoise_ms; // à-trous denoiser (0 without --denoise)
                 }
             }
             const auto now = std::chrono::steady_clock::now();
@@ -994,6 +996,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .compute_us = 0,         // filled below (sim step + GPU render times)
                     .render_us  = 0,
                     .lod_us     = 0,         // filled below (LOD reduction time, part of render)
+                    .denoise_us = 0,         // filled below (denoiser time, part of render)
+                    .vram_used_mb = 0, .vram_total_mb = 0, // filled below (cudaMemGetInfo)
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
                 // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
@@ -1016,6 +1020,15 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 // Mean LOD-reduction time/frame this window (sub-component of render_us; 0 = no LOD).
                 st.lod_us     = static_cast<uint32_t>(
                     (win_lod_ms / static_cast<double>(win_frames)) * 1000.0);
+                // Mean denoiser time/frame (sub-component of render_us; 0 without --denoise).
+                st.denoise_us = static_cast<uint32_t>(
+                    (win_denoise_ms / static_cast<double>(win_frames)) * 1000.0);
+                // Live GPU memory (MiB) for the client HUD's GPU line.
+                { size_t vfree = 0, vtot = 0;
+                  if (cudaMemGetInfo(&vfree, &vtot) == cudaSuccess && vtot > 0) {
+                      st.vram_total_mb = static_cast<uint32_t>(vtot / (1024 * 1024));
+                      st.vram_used_mb  = static_cast<uint32_t>((vtot - vfree) / (1024 * 1024));
+                  } }
                 char step_str[64];
                 if (max_iters != 0)
                 {
@@ -1078,11 +1091,15 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     }
                     else { build_part = "no build"; } // window was all skips
                     // LOD is reported as its own leading field (below), not inside this build split.
-                    char buf[288];
+                    // Show the denoiser as its own phase only when it ran (--denoise); otherwise omit it.
+                    const double denoise_mean = win_denoise_ms / static_cast<double>(win_frames);
+                    char dn[32] = "";
+                    if (denoise_mean > 0.005) { snprintf(dn, sizeof(dn), " + denoise %.1f", denoise_mean); }
+                    char buf[320];
                     snprintf(buf, sizeof(buf),
-                        " (%s + trace %.1f ms | %llu refit, %llu rebuild, %llu skip)",
+                        " (%s + trace %.1f%s ms | %llu refit, %llu rebuild, %llu skip)",
                         build_part.c_str(),
-                        win_trace_ms / static_cast<double>(win_frames),
+                        win_trace_ms / static_cast<double>(win_frames), dn,
                         static_cast<unsigned long long>(win_refit_n),
                         static_cast<unsigned long long>(win_rebuild_n),
                         static_cast<unsigned long long>(win_skip_n));
@@ -1137,6 +1154,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 win_start = now; win_frames = 0; win_bytes = 0;
                 win_enc_us = 0.0; win_enc_us_sq = 0.0; win_render_ms = 0.0;
                 win_aabb_ms = 0.0; win_tlas_ms = 0.0; win_trace_ms = 0.0; win_lod_ms = 0.0;
+                win_denoise_ms = 0.0;
                 win_refit_blas_ms = 0.0; win_rebuild_blas_ms = 0.0;
                 win_refit_n = 0; win_rebuild_n = 0; win_skip_n = 0;
                 win_start_iter = iters;

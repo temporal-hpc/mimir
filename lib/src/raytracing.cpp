@@ -1771,6 +1771,13 @@ void RayTracingContext::recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     if (gbuffer_images.empty() || atrous_pipeline == VK_NULL_HANDLE) { return; }
 
+    // Denoise-phase GPU timestamp start (slots 6/7; read back in readTimings only when denoise ran).
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool,
+            frame_idx * TS_PER_FRAME + 6);
+    }
+
     // The raygen just wrote the accumulator and the G-buffer (RT shader stage). Make those visible
     // to the à-trous compute reads. The display image is still GENERAL (recordTrace was asked to
     // leave it so); the final pass writes it here.
@@ -1828,15 +1835,25 @@ void RayTracingContext::recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx)
             last ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             0, 0, nullptr, 0, nullptr, 1, &b);
     }
+
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool,
+            frame_idx * TS_PER_FRAME + 7);
+    }
 }
 
 void RayTracingContext::readTimings(uint32_t frame_idx)
 {
     if (timing_pool == VK_NULL_HANDLE) { return; }
-    uint64_t ts[TS_PER_FRAME] = {};
+    const uint32_t base = frame_idx * TS_PER_FRAME;
+    // Read only the 6 always-written build+trace slots. The denoise slots (6/7) are read separately
+    // below when denoise ran -- reading all 8 here would return VK_NOT_READY (and drop the whole frame's
+    // timings) on the common no-denoise path where 6/7 are reset but never written.
+    uint64_t ts[6] = {};
     // No WAIT_BIT: the caller only reads after the frame's fence, so results are ready; if for any
     // reason they are not (VK_NOT_READY), keep the previous values rather than stalling.
-    VkResult r = vkGetQueryPoolResults(device, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME,
+    VkResult r = vkGetQueryPoolResults(device, timing_pool, base, 6,
         sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
     if (r != VK_SUCCESS) { return; }
     // Slots: 0 build start, 1 after AABB, 2 after BLAS, 3 after TLAS (build end), 4/5 trace.
@@ -1846,6 +1863,18 @@ void RayTracingContext::readTimings(uint32_t frame_idx)
     last_tlas_ms  = static_cast<double>(ts[3] - ts[2]) * ms_per_tick;
     last_build_ms = static_cast<double>(ts[3] - ts[0]) * ms_per_tick;
     last_trace_ms = static_cast<double>(ts[5] - ts[4]) * ms_per_tick;
+    // Denoise phase (slots 6/7): only written when the à-trous denoiser ran this frame. 0 otherwise.
+    const bool denoise_active = !gbuffer_images.empty() && atrous_pipeline != VK_NULL_HANDLE;
+    if (denoise_active)
+    {
+        uint64_t d[2] = {};
+        if (vkGetQueryPoolResults(device, timing_pool, base + 6, 2, sizeof(d), d,
+                sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+        {
+            last_denoise_ms = static_cast<double>(d[1] - d[0]) * ms_per_tick;
+        }
+    }
+    else { last_denoise_ms = 0.0; }
     have_timings = true; // readings are now real, not the session-start defaults
     // Pair the build time with the mode that produced it. slot_build_mode[frame_idx] was stamped by
     // recordUpdateScene FRAMES frames ago -- the same frame these timestamps are from -- so the split

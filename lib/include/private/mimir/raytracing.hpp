@@ -270,10 +270,11 @@ struct RayTracingContext
     // large N the build dominates, but which part -- the AABB writer, the BLAS build/refit, or the
     // TLAS rebuild -- was previously hidden in one lumped "build" number). Per-frame slots:
     //   +0 build start (TOP_OF_PIPE)   +1 after AABB writer   +2 after BLAS   +3 after TLAS (build end)
-    //   +4 trace start (TOP_OF_PIPE)   +5 trace end
+    //   +4 trace start (TOP_OF_PIPE)   +5 trace end   +6 denoise start   +7 denoise end
     // Read back with FRAMES frames of latency (after the frame's fence). last_*_ms hold the most
-    // recent readings; last_build_ms = aabb+blas+tlas (the whole build phase).
-    static constexpr uint32_t TS_PER_FRAME = 6;
+    // recent readings; last_build_ms = aabb+blas+tlas (the whole build phase). The denoise slots (6/7)
+    // are only written/read when the à-trous denoiser runs (--denoise), so the main read stays 0..5.
+    static constexpr uint32_t TS_PER_FRAME = 8;
     VkQueryPool timing_pool = VK_NULL_HANDLE;
     float timestamp_period = 0.f; // nanoseconds per tick (0 = timestamps unsupported, disabled)
     double last_aabb_ms  = 0.0;   // AABB writer (fills the shared aabb_buffer from positions), last frame
@@ -281,6 +282,7 @@ struct RayTracingContext
     double last_tlas_ms  = 0.0;   // TLAS rebuild over the per-chunk instances, last frame
     double last_build_ms = 0.0;   // whole AS-build phase = aabb + blas + tlas, last frame
     double last_trace_ms = 0.0;   // vkCmdTraceRays time, last completed frame
+    double last_denoise_ms = 0.0; // à-trous denoiser compute time, last frame (0 when --denoise is off)
     // LOD reduction (scatter+emit over ALL particles) for the PT path. Unlike the GPU-timestamped
     // sub-phases above, this is CPU wall-clock of PT's BLOCKING one-shot reduction submit (see
     // recordLodUpdate) -- so it is the CURRENT frame's value, valid immediately (no FRAMES-frame

@@ -168,6 +168,14 @@ struct Stats
     // (0 when no LOD is active, or an older server). The client HUD shows it as a sub-component of
     // render so the reduction cost is visible separately from the rest of the frame's GPU work.
     uint32_t lod_us;
+    // Appended (same forward-compat rule -- zero when absent). Mean à-trous denoiser time per frame this
+    // window, microseconds -- part of render_us, nonzero only under path tracing with --denoise. Shown
+    // as its own pipeline stage in the client HUD and the server log.
+    uint32_t denoise_us;
+    // Server-side GPU memory this instant: used and total, in MiB (from cudaMemGetInfo). The client HUD
+    // appends "(<used>/<total> GB)" to the GPU line so remote VRAM pressure is visible.
+    uint32_t vram_used_mb;
+    uint32_t vram_total_mb;
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.
