@@ -8,6 +8,7 @@ target_sources(mimir
         src/formats.cpp
         src/engine.cpp
         src/device.cpp
+        src/gpuinfo.cpp
         src/camera.cpp
         src/framebuffer.cpp
         src/framelimit.cpp
@@ -114,6 +115,7 @@ target_link_libraries(mimir
     PRIVATE
         slang glm::glm glfw imgui spdlog::spdlog
         CUDA::cuda_driver   # driver API (cuMemCreate/cuMemMap) for the VMM large-page interop path
+        CUDA::nvml          # NVENC/NVDEC presence probe in queryGpuCapabilities (gpuinfo.cpp)
         "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"
 )
 

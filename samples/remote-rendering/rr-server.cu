@@ -14,13 +14,11 @@
 //     transport: "tcp" (default, works everywhere incl. ssh -L) or "quic" (-DMIMIR_ENABLE_QUIC=ON)
 //     token:     optional shared secret the client must present (empty = accept any client)
 
-#include <cstdio>  // snprintf (NVML PCI bus id)
+#include <cstdio>  // snprintf (byte-limit formatting)
 #include <cstdlib> // setenv (pin to a GPU via CUDA_VISIBLE_DEVICES)
-#include <cstring> // std::strstr (GPU-name matching)
 #include <string> // std::stoul
 #include <vector>
 
-#include <nvml.h>  // NVENC/NVDEC presence for the startup GPU banner
 #include <spdlog/spdlog.h>
 
 #include "kmodal_sim.cuh"
@@ -29,72 +27,8 @@
 #include "validation.hpp" // checkCuda
 using namespace mimir;
 
-// Shader cores per SM by compute capability (NVIDIA's well-known table, from CUDA samples).
-static int coresPerSM(int major, int minor)
-{
-    switch ((major << 4) | minor)
-    {
-        case 0x30: case 0x32: case 0x35: case 0x37: return 192;            // Kepler
-        case 0x50: case 0x52: case 0x53:            return 128;            // Maxwell
-        case 0x60:                                  return 64;             // Pascal GP100
-        case 0x61: case 0x62:                       return 128;            // Pascal
-        case 0x70: case 0x72: case 0x75:            return 64;             // Volta / Turing
-        case 0x80:                                  return 64;             // Ampere GA100 (A100)
-        case 0x86: case 0x87: case 0x89:            return 128;            // Ampere / Ada
-        case 0x90:                                  return 128;            // Hopper
-        default:                                    return 128;            // newer archs (approx)
-    }
-}
-
-// Tensor cores per SM: none before Volta, 8 on Volta/Turing, 4 on Ampere and later.
-static int tensorPerSM(int major) { return major < 7 ? 0 : (major == 7 ? 8 : 4); }
-
-// RT-core count is NOT queryable via CUDA (or CUDA-visible), so this is a best-effort estimate:
-// NVIDIA has ~1 RT core per SM on RT-capable GPUs, and 0 on datacenter compute parts. Those are
-// hard to tell apart by compute capability alone (a new datacenter arch can share a CC with a
-// consumer one), so match the known compute families by name too.
-static int rtCores(const cudaDeviceProp& p)
-{
-    static const char *const compute_only[] = {
-        "V100", "A100", "A800", "H100", "H200", "H800", "GH200",
-        "B100", "B200", "B300", "GB200", "GB300", // Blackwell datacenter: no RT cores
-    };
-    for (const char *s : compute_only) { if (std::strstr(p.name, s) != nullptr) { return 0; } }
-    const bool cc_datacenter =
-        (p.minor == 0 && (p.major == 7 || p.major == 8 || p.major == 9 || p.major == 10));
-    const bool rt_capable = (p.major * 10 + p.minor) >= 75 && !cc_datacenter; // Turing+ w/ display
-    return rt_capable ? p.multiProcessorCount : 0;
-}
-
-// Query NVENC/NVDEC presence via NVML. NVML ignores CUDA_VISIBLE_DEVICES and enumerates every
-// physical GPU, so find the one whose PCI location matches our CUDA device (numeric compare, no
-// bus-string formatting). Encoder-capacity / decoder-utilization return NOT_SUPPORTED on a GPU
-// that lacks that engine -- e.g. the A100 (NVDEC yes, NVENC no).
-static void queryVideoEngines(const cudaDeviceProp& p, bool& nvenc, bool& nvdec)
-{
-    nvenc = nvdec = false;
-    if (nvmlInit_v2() != NVML_SUCCESS) { return; }
-    unsigned int count = 0;
-    if (nvmlDeviceGetCount_v2(&count) == NVML_SUCCESS)
-    {
-        for (unsigned int i = 0; i < count; ++i)
-        {
-            nvmlDevice_t dev{};
-            nvmlPciInfo_t pci{};
-            if (nvmlDeviceGetHandleByIndex_v2(i, &dev) != NVML_SUCCESS) { continue; }
-            if (nvmlDeviceGetPciInfo_v3(dev, &pci) != NVML_SUCCESS)      { continue; }
-            if (static_cast<int>(pci.domain) != p.pciDomainID ||
-                static_cast<int>(pci.bus)    != p.pciBusID    ||
-                static_cast<int>(pci.device) != p.pciDeviceID) { continue; }
-            unsigned int cap = 0;
-            nvenc = nvmlDeviceGetEncoderCapacity(dev, NVML_ENCODER_QUERY_H264, &cap) == NVML_SUCCESS;
-            unsigned int util = 0, period = 0;
-            nvdec = nvmlDeviceGetDecoderUtilization(dev, &util, &period) == NVML_SUCCESS;
-            break;
-        }
-    }
-    nvmlShutdown();
-}
+// GPU capability reporting (core-count tables, RT-core estimate, NVENC/NVDEC probe) moved into the
+// library: mimir::queryGpuCapabilities() + mimir::gpuBanner() (see mimir/mimir.hpp).
 
 // Parse a color as "G" (grey level) or "R,G,B" in [0,1].
 static float3 parseColor(const std::string& v)
@@ -343,63 +277,39 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
     checkCuda(cudaSetDevice(0)); // device 0 of the (now single-device) visible set == --dev N
-    cudaDeviceProp gpu_prop{};
-    if (cudaGetDeviceProperties(&gpu_prop, 0) == cudaSuccess)
-    {
-        bool nvenc = false, nvdec = false;
-        queryVideoEngines(gpu_prop, nvenc, nvdec);
-        // Theoretical peak HBM/GDDR bandwidth = 2 (DDR) * memory clock * bus width. The clock (kHz)
-        // and bus width (bits) come from device attributes -- cudaDeviceProp dropped memoryClockRate
-        // in newer CUDA. /8 for bytes, /1e9 for GB/s. This is the headline number that separates
-        // datacenter HBM parts from graphics GDDR ones (e.g. B300 HBM3e ~8 TB/s vs RTX PRO 6000 GDDR7
-        // ~1.8 TB/s) and governs the memory-bound sim's steps/s.
-        int mem_clock_khz = 0, mem_bus_bits = 0;
-        cudaDeviceGetAttribute(&mem_clock_khz, cudaDevAttrMemoryClockRate, 0);
-        cudaDeviceGetAttribute(&mem_bus_bits, cudaDevAttrGlobalMemoryBusWidth, 0);
-        const double mem_bw_gbs = 2.0 * static_cast<double>(mem_clock_khz) * 1e3
-            * (static_cast<double>(mem_bus_bits) / 8.0) / 1e9;
-        const int rt = rtCores(gpu_prop);
-        printf("rr-server: using GPU device %d (%s) | %.0f GB | %.0f GB/s mem BW | %d SMs | "
-               "%d CUDA cores | %d tensor cores | %d RT cores (%s) | NVENC %s | NVDEC %s\n",
-            cuda_dev, gpu_prop.name,
-            static_cast<double>(gpu_prop.totalGlobalMem) / (1024.0 * 1024.0 * 1024.0),
-            mem_bw_gbs,
-            gpu_prop.multiProcessorCount,
-            gpu_prop.multiProcessorCount * coresPerSM(gpu_prop.major, gpu_prop.minor),
-            gpu_prop.multiProcessorCount * tensorPerSM(gpu_prop.major),
-            rt, rt > 0 ? "hardware BVH traversal" : "none -> software BVH",
-            nvenc ? "yes" : "no", nvdec ? "yes" : "no");
-    }
-    else
-    {
+    // GPU banner via the library (core tables, RT-core estimate, NVENC/NVDEC probe). Query device 0
+    // (the single visible device after CUDA_VISIBLE_DEVICES pinned --dev N); print it as cuda_dev.
+    auto caps = mimir::queryGpuCapabilities(0);
+    if (!caps.name.empty()) {
+        printf("rr-server: using GPU %s\n", mimir::gpuBanner(cuda_dev, caps).c_str());
+    } else {
         printf("rr-server: using GPU device %d\n", cuda_dev);
     }
-    // Baseline free VRAM (context already up) so we can report mimir's footprint after setup.
-    size_t vram_free0 = 0, vram_total = 0;
-    cudaMemGetInfo(&vram_free0, &vram_total);
 
     // Memory pre-flight: reject a count that will not fit the GPU memory free right now, BEFORE Vulkan
-    // OOMs. Per-particle device allocations: interop positions (12 B, always) + the kmodal sim's
-    // per-particle cluster id (4 B, always -- see kmodal_sim.cu createClusters) + per-particle AABBs
-    // (24 B) only under path-tracing WITHOUT LOD (LOD builds the BVH over occupied cells, not particles).
-    // The N^3 LOD accumulator and the render targets are fixed-ish and checked separately below.
+    // OOMs. Per-particle device allocations: mimir's interop (positions, always; + per-particle AABBs
+    // under path-tracing WITHOUT LOD) plus the kmodal sim's per-particle cluster id (4 B, always --
+    // see kmodal_sim.cu createClusters). The N^3 LOD accumulator and render targets are checked below.
+    const bool pt_no_lod = (light_model == LightModel::PathTracing) && (lod_cells == 0);
+    const unsigned long long bytes_per_particle =
+        mimir::interopBytesPerParticle(light_model, lod_cells > 0) + 4ull; // +4: kmodal cluster id
+    auto budget = mimir::memoryBudget(point_count, bytes_per_particle, 0);
+    const size_t vram_free0 = budget.free_bytes; // reused by the LOD-accumulator check below
     {
-        const bool pt_no_lod = (light_model == LightModel::PathTracing) && (lod_cells == 0);
-        const unsigned long long bytes_per_particle = 12ull + 4ull + (pt_no_lod ? 24ull : 0ull);
         const unsigned long long need = (unsigned long long)point_count * bytes_per_particle;
-        const unsigned long long max_fit = (unsigned long long)vram_free0 / bytes_per_particle;
-        if (need > (unsigned long long)vram_free0) {
+        if (!budget.fits) {
             fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s, %llu B/particle) but only %.1f GB "
                     "is free on the GPU right now -- max feasible here is ~%llu particles\n",
                     (unsigned long long)point_count, (double)need/1e9,
                     pt_no_lod ? "positions+ids+AABBs" : "positions+ids", bytes_per_particle,
-                    (double)vram_free0/1e9, max_fit);
+                    (double)vram_free0/1e9, (unsigned long long)budget.max_particles);
             return EXIT_FAILURE;
         }
         printf("rr-server: memory pre-flight OK -- %llu particles need %.1f GB of %.1f GB free "
                "(%llu B/particle); this GPU fits ~%llu particles in %s mode\n",
                (unsigned long long)point_count, (double)need/1e9, (double)vram_free0/1e9,
-               bytes_per_particle, max_fit, pt_no_lod ? "path-tracing (no LOD)" : "raster/LOD");
+               bytes_per_particle, (unsigned long long)budget.max_particles,
+               pt_no_lod ? "path-tracing (no LOD)" : "raster/LOD");
     }
 
     // Accumulator is N^3 * bytes_per_cell. Reject an --lod whose accumulator would not fit the device
@@ -531,7 +441,7 @@ int main(int argc, char *argv[])
     };
     // Practical ceiling: ~135 B/particle (positions 12 + AABBs 24 + BVH+scratch ~100) against total
     // VRAM. This, not the buffer cap, is what runs out first -- report both.
-    const unsigned long long vram_particles = vram_total / 135ull;
+    const unsigned long long vram_particles = vram_total1 / 135ull;
     printf("rr-server: RT limits -- max-primitives/BLAS %llu (chunked), max-buffer %s => path-tracing "
            "buffer cap ~%.0f M particles; VRAM budget ~%llu M particles (~135 B each)\n",
            static_cast<unsigned long long>(lim.max_primitive_count),

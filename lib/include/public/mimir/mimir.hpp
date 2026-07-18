@@ -8,6 +8,7 @@
 
 #include <cstdint> // uint64_t (DeviceBufferLimits)
 #include <functional> // std::function
+#include <string>  // GpuCapabilities::name, gpuBanner
 
 namespace mimir
 {
@@ -67,6 +68,48 @@ DeviceBufferLimits deviceBufferLimits(InstanceHandle engine);
 // ViewType::Image cannot present a grid larger than this in any dimension regardless of free VRAM;
 // callers must downsample or tile past it. 0 if no device is selected.
 uint32_t maxImageDimension2D(InstanceHandle engine);
+
+// ---- Device capability + memory-budget helpers (for a startup banner / pre-flight) -------------
+// These need no InstanceHandle -- they query the CUDA device directly -- so a sample can report the
+// GPU and reject an over-large workload BEFORE creating an instance, without re-deriving the CUDA/NVML
+// boilerplate. Device ordinal is in the CUDA-visible set (i.e. 0 after a cudaSetDevice / --dev N).
+
+// GPU capabilities for a banner / diagnostics. Core counts come from the compute-capability tables;
+// the RT-core count is a best-effort estimate (NOT CUDA-queryable) -- 0 means no hardware RT (datacenter
+// parts) and thus software BVH. NVENC/NVDEC presence is probed via NVML.
+struct GpuCapabilities
+{
+    std::string name;
+    size_t   vram_total_bytes    = 0;
+    double   mem_bandwidth_gbps   = 0.0; // theoretical peak HBM/GDDR bandwidth (2 * clock * bus / 8)
+    int      sm_count             = 0;
+    int      cuda_cores           = 0;
+    int      tensor_cores         = 0;
+    int      rt_cores             = 0;   // 0 => software BVH
+    bool     nvenc                = false;
+    bool     nvdec                = false;
+};
+GpuCapabilities queryGpuCapabilities(int device = 0);
+// One-line human banner assembled from the caps, e.g.
+//   "device 0 (NVIDIA B300 SXM6 AC) | 268 GB | 7672 GB/s mem BW | 148 SMs | 18944 CUDA cores | ..."
+std::string gpuBanner(int device, const GpuCapabilities& caps);
+
+// Device bytes/particle of mimir's OWN interop allocations: the position buffer (12 B, always) plus a
+// per-particle AABB (24 B) only under path tracing WITHOUT LOD (LOD builds the BVH over occupied cells,
+// not particles). Callers add any per-particle data of their own (a sim's attribute arrays) on top,
+// then pass the sum to memoryBudget().
+uint64_t interopBytesPerParticle(LightModel light_model, bool lod_active);
+
+// GPU memory budget for `particle_count` at `bytes_per_particle`, from the CURRENTLY-FREE VRAM on the
+// device -- a pre-flight so a too-large count is rejected cleanly before Vulkan OOMs mid-setup.
+struct MemoryBudget
+{
+    size_t   free_bytes    = 0;
+    size_t   total_bytes   = 0;
+    uint64_t max_particles = 0;     // free_bytes / bytes_per_particle
+    bool     fits          = false; // particle_count <= max_particles
+};
+MemoryBudget memoryBudget(uint64_t particle_count, uint64_t bytes_per_particle, int device = 0);
 
 // Row-pitch alignment (in texels) the device requires for a LINEAR-tiled image of the given format
 // -- e.g. 128 for R8_UNORM on NVIDIA. An interop Image view aliases a buffer to such an image, so a
