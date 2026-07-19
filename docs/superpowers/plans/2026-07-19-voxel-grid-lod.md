@@ -46,8 +46,15 @@ Added to `samples/CA3D-voxels/main.cu` on top of the LOD work, all built + headl
 - **System info** (`print_system_info`): GPU (cudaDeviceProp), CPU (/proc/cpuinfo + hw threads), RAM (sysinfo).
 - HUD gained Light/Opacity rows.
 
-**PATH TRACING FOR VOXELS — DESIGNED, NOT IMPLEMENTED** (`--light-mode path-tracing` currently prints a
-note and falls back to phong). User decisions: render the living cells as **ray-traced BOXES** (not
+**PATH TRACING FOR VOXELS — DONE & committed** (commits 48c50d1, 52c8383, c4a84c5). `--light-model
+path-tracing` traces the living cells as O(living) ray-traced boxes with `--opacity` transmission.
+Implementation: (1) `voxelCompactLiving` compacts the N^3 state grid into living-cell centers + count;
+(2) `pathtrace.slang` `primitiveIntersect` branches sphere/box on `sun_dir.w` (>= 0.5 = box, lane also
+carries `1 + opacity`); (3) `RayTracingContext::voxel_boxes` + `recordVoxelUpdate` build the BLAS per
+frame from an engine-compacted buffer with a dynamic count (`updateVoxelPtScene` compacts the visible
+view's living cells on the interop stream each frame); (4) stochastic transmission in `tracePath` for
+`--opacity < 1`. Verified headless (opaque + translucent), zero NEW validation errors. Original design
+notes (superseded by the above): User decisions: render the living cells as **ray-traced BOXES** (not
 spheres), **O(living)** (compact the state grid, not N^3), sim stays O(N^3), and **transmission from the
 start** (so `--opacity < 1` makes PT boxes see-through). Three pieces, all in the delicate RT/interop core:
 1. **Living-cell compaction** — GPU scan of the N^3 int state -> compact list of living-cell world
