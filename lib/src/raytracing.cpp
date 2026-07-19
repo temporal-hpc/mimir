@@ -1681,6 +1681,24 @@ void RayTracingContext::recordVoxelUpdate(VkCommandBuffer cmd, uint32_t frame_id
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 0);
     }
 
+    // Cross-frame serialization: the AABB buffer / BLAS / TLAS / scratch are single shared copies, so
+    // this frame's AABB writer + AS rebuild must not start until the PREVIOUS frame's trace has finished
+    // reading the TLAS (write-after-read). Same queue + submission order => an execution dependency from
+    // ray tracing to compute/build orders us after all prior traces. Unlike recordLodUpdate (which gets
+    // this serialization for free from its BLOCKING reduction submit), the voxel compaction runs on a
+    // decoupled stream, so we need this barrier explicitly -- without it the concurrent build corrupts
+    // the in-flight trace and the device faults (a hang). No-op on the first frame (no prior trace).
+    VkMemoryBarrier serialize{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        0, 1, &serialize, 0, nullptr, 0, nullptr);
+
     // The compaction kernel wrote position_address in a separate execution domain (CUDA on the interop
     // stream, host-ordered by cudaStreamSynchronize before this Vulkan submit). Make its writes visible
     // to the AABB-writer compute read within `cmd` (write -> read hazard), same as the LOD path.

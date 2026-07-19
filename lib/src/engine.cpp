@@ -325,7 +325,7 @@ void MimirInstance::prepare()
                 auto c = view->desc.default_color;
                 raytracing.voxel_boxes   = true;
                 raytracing.voxel_opacity = c.w;
-                updateVoxelPtScene();
+                updateVoxelPtScene(); // seed the initial compaction so bindScene's first build has geometry
                 raytracing.bindScene(voxel_pt_positions_addr, n3, voxel_pt_radius,
                     glm::vec4(c.x, c.y, c.z, c.w));
                 spdlog::info("Voxel path tracing: {}^3 grid, up to {} living-cell boxes, radius {:.4f}, "
@@ -687,6 +687,12 @@ void MimirInstance::updateViews()
     if (options.present.enable_interop_sync && std::atomic_ref<bool>(running).load(std::memory_order_acquire))
     {
         compute_monitor.stopWatch();
+        // Voxel path tracing: compact the visible living cells HERE, on the compute thread, after the
+        // sim kernel and BEFORE signalKernelFinish. This keeps all CUDA work on the compute thread (the
+        // render thread must never launch CUDA while an interop wait is pending -- it stalls the GPU
+        // device-wide). Ordered after the kernel on the interop stream; the positions + count are ready
+        // before the render's AS build (which the interop signal below gates).
+        if (raytracing.voxel_boxes) { updateVoxelPtScene(); }
         signalKernelFinish();
     }
 }
@@ -2280,6 +2286,9 @@ void MimirInstance::updateVoxelPtScene()
     const uint32_t N = voxel_pt_N;
     const uint64_t n3 = (uint64_t)N * N * N;
     float3 spacing{ voxel_pt_spacing, voxel_pt_spacing, voxel_pt_spacing };
+    // Runs on the compute thread (updateViews) or once at setup -- NEVER the render thread. On the
+    // interop stream (0) so it is ordered after the sim kernel's writes; the blocking sync is safe here
+    // because this thread is the one that later signals the interop semaphore (no self-deadlock).
     voxelCompactLiving((const int*)state, N, voxel_pt_origin, spacing,
         (float*)voxel_pt_positions_cuda, (uint32_t)std::min<uint64_t>(n3, 0xFFFFFFFFu),
         voxel_pt_count_dev, interop.cuda_stream);
@@ -2503,9 +2512,10 @@ void MimirInstance::renderFrame(bool advance_interop)
         // (Re)build/refit this frame's AS from the live interop positions (only when they changed),
         // then trace it. When denoising, the trace leaves the display image in GENERAL and
         // recordDenoise writes the filtered result.
-        // Voxel PT: compact the visible living cells (sets voxel_prim_count) before the AS build reads
-        // them. Only when the geometry changed (a new sim step); a static/paused view reuses the AS.
-        if (raytracing.voxel_boxes && geo_changed) { updateVoxelPtScene(); }
+        // Voxel PT: the living-cell compaction runs on the COMPUTE thread (updateViews), NOT here --
+        // the render thread must never launch CUDA work while the compute thread has a pending interop
+        // semaphore wait (it stalls the GPU device-wide -> deadlock). voxel_prim_count / the positions
+        // buffer are already set by that compaction, ordered before the interop signal this frame waits on.
         raytracing.recordUpdateScene(cmd, frame_idx, /*rebuild=*/geo_changed);
         raytracing.recordTrace(cmd, frame_idx, pc, /*leave_image_general=*/options.pt_denoise);
         if (options.pt_denoise) { raytracing.recordDenoise(cmd, frame_idx); }
