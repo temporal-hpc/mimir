@@ -55,6 +55,8 @@ static void print_usage(const char* prog)
     printf("                     living cells are visible. Applies to the chosen light mode.\n");
     printf("  --background-color C  window background: grey 'G' or 'R,G,B' in [0,1]\n");
     printf("  --cell-color C        living-cell color: grey 'G' or 'R,G,B' in [0,1]\n");
+    printf("  --steps-per-frame K   advance K CA steps per rendered frame (default 1; faster evolution)\n");
+    printf("  --fps K               cap the frame rate at K (default 60; K <= 0 = uncapped)\n");
     printf("  -h, --help         show this help and exit\n\n");
     printf("Environment:\n");
     printf("  CA_SHOT=<path>     render one offscreen frame (initial state) to a PPM and exit (no window)\n");
@@ -132,12 +134,16 @@ int main(int argc, char **argv){
     float    opacity = 1.0f;
     float3   bg_color   = { 0.10f, 0.10f, 0.12f }; // window background (dark makes the volume pop)
     float3   cell_color = { 0.15f, 0.45f, 1.00f }; // living-cell color
+    int      steps_per_frame = 1;                 // CA steps advanced per rendered frame
+    int      fps_cap = 60;                        // frame-rate cap (<= 0 => uncapped)
     for (int i = 8; i < argc; ++i)
     {
         std::string a = argv[i];
         if      (a == "--lod" && i + 1 < argc) lod_cells = (unsigned)std::stoul(argv[++i]);
         else if (a == "--fly")                 fly = true;
         else if (a == "--opacity" && i + 1 < argc) opacity = std::stof(argv[++i]);
+        else if (a == "--steps-per-frame" && i + 1 < argc) steps_per_frame = std::max(1, atoi(argv[++i]));
+        else if (a == "--fps" && i + 1 < argc) fps_cap = atoi(argv[++i]);
         else if (a == "--light-model" && i + 1 < argc)
         {
             std::string m = argv[++i];
@@ -207,6 +213,9 @@ int main(int argc, char **argv){
                      : (light == VoxLight::PathTracing) ? LightModel::PathTracing
                                                         : LightModel::None;
     opts.background_color = { bg_color.x, bg_color.y, bg_color.z, 1.f };
+    // Frame-rate cap: --fps K limits rendering to K fps (default 60); K <= 0 uncaps it.
+    if (fps_cap > 0) { opts.present.enable_fps_limit = true;  opts.present.target_fps = fps_cap; }
+    else             { opts.present.enable_fps_limit = false; }
     if (light == VoxLight::PathTracing)
     {
         // A few samples/bounces per frame keep the live path-traced volume readable (it also keeps
@@ -427,10 +436,10 @@ int main(int argc, char **argv){
         while (isRunning(instance) && !quit.load())
         {
             prepareViews(instance);
-            // Advance when running, or exactly once per Step request while paused.
-            bool advance = step_i < steps
-                && (!paused.load() || step_once.exchange(false));
-            if (advance)
+            // Advance up to steps_per_frame CA steps this frame while running; when paused, exactly one
+            // step per Step request. All steps run inside a single interop section (one render per frame).
+            int budget = paused.load() ? (step_once.exchange(false) ? 1 : 0) : steps_per_frame;
+            for (int s = 0; s < budget && step_i < steps; ++s)
             {
                 kernel_CA3D<<<grid, block>>>(n, d1, d2);
                 gpuErrchk(cudaPeekAtLastError());
