@@ -259,20 +259,21 @@ void missMain(inout Payload payload)
     payload.hit_t = -1.0;
 }
 
-// Ray-sphere intersection for the procedural AABB geometry. Each primitive is a sphere whose
-// centre + radius are recovered from its AABB (pc.aabbs[PrimitiveIndex]). Reports the nearest hit
-// within the ray interval and hands the world-space normal to the closest-hit shader. The single
-// TLAS instance is identity, so object space == world space here.
+// Ray intersection for the procedural AABB geometry. Each primitive's AABB (pc.aabbs[PrimitiveIndex])
+// is interpreted as either a sphere (centre + radius from the AABB) or an axis-aligned BOX (the AABB
+// itself), selected by pc.sun_dir.w: < 0.5 = sphere (particles-kmodal-3d, default), >= 0.5 = box
+// (CA3D-voxels; the lane also carries 1 + opacity, decoded by the path integrator). Reports the nearest
+// hit and hands the world-space face normal to the closest-hit shader. The TLAS instance is identity,
+// so object space == world space here.
 [shader("intersection")]
-void sphereIntersect()
+void primitiveIntersect()
 {
     // Particles above maxPrimitiveCount are split across several BLASes (one TLAS instance each), so
-    // PrimitiveIndex() is LOCAL to this instance's BLAS. Recover the global particle index into the
-    // shared AABB buffer: instance c (InstanceID) covers globals [c*chunk, c*chunk+chunk). chunk is
-    // packed into cam_pos.w; for a single BLAS InstanceID()==0 so this reduces to PrimitiveIndex().
-    // The multiply itself must happen in 64-bit: chunk (blas_chunk_prims) can be up to ~5.3e8, and
-    // for InstanceID() >= ~8 the 32-bit product InstanceID()*chunk overflows and wraps, recovering
-    // the wrong global index (garbage sphere) for every particle past the 2^32 boundary.
+    // PrimitiveIndex() is LOCAL to this instance's BLAS. Recover the global index into the shared AABB
+    // buffer: instance c (InstanceID) covers globals [c*chunk, c*chunk+chunk). chunk is packed into
+    // cam_pos.w; for a single BLAS InstanceID()==0 so this reduces to PrimitiveIndex(). The multiply
+    // must happen in 64-bit: chunk can be up to ~5.3e8, and for InstanceID() >= ~8 a 32-bit product
+    // overflows and wraps, recovering the wrong global index for every primitive past the 2^32 boundary.
     uint chunk = asuint(pc.cam_pos.w);
     uint64_t gid = uint64_t(InstanceID()) * uint64_t(chunk) + uint64_t(PrimitiveIndex());
     // Explicit 64-bit address + cast, NOT pointer indexing: OpPtrAccessChain offsets are truncated
@@ -281,14 +282,52 @@ void sphereIntersect()
     Aabb box = *(Aabb*)(uint64_t(pc.aabbs) + gid * 24ull);
     float3 mn = float3(box.minx, box.miny, box.minz);
     float3 mx = float3(box.maxx, box.maxy, box.maxz);
+
+    float3 ro = ObjectRayOrigin();
+    float3 rd = ObjectRayDirection(); // world dir is normalized; identity instance => object dir too
+
+    if (pc.sun_dir.w >= 0.5) // ---- axis-aligned box (slab test) ----
+    {
+        float3 inv    = 1.0 / rd; // rd is normalized; a 0 component yields +/-inf, handled by min/max
+        float3 t0     = (mn - ro) * inv;
+        float3 t1     = (mx - ro) * inv;
+        float3 tsmall = min(t0, t1);
+        float3 tbig   = max(t0, t1);
+        float  tenter = max(max(tsmall.x, tsmall.y), tsmall.z);
+        float  texit  = min(min(tbig.x, tbig.y), tbig.z);
+        if (tenter > texit || texit < RayTMin()) { return; }
+
+        bool inside = tenter < RayTMin();
+        float t = inside ? texit : tenter;
+        if (t < RayTMin() || t > RayTCurrent()) { return; }
+
+        // Outward face normal = the axis of the entry (or exit, if the origin is inside the box).
+        float3 n = float3(0);
+        if (!inside)
+        {
+            if      (tenter == tsmall.x) n.x = -sign(rd.x);
+            else if (tenter == tsmall.y) n.y = -sign(rd.y);
+            else                         n.z = -sign(rd.z);
+        }
+        else
+        {
+            if      (texit == tbig.x) n.x = sign(rd.x);
+            else if (texit == tbig.y) n.y = sign(rd.y);
+            else                      n.z = sign(rd.z);
+        }
+        SphereHit hit;
+        hit.normal = n;
+        ReportHit(t, 0u, hit);
+        return;
+    }
+
+    // ---- sphere (centre + radius recovered from the AABB) ----
     float3 center = 0.5 * (mn + mx);
     float  radius = 0.5 * (mx.x - mn.x);
-
-    float3 o = ObjectRayOrigin() - center;
-    float3 d = ObjectRayDirection(); // world dir is normalized; identity instance => object dir too
-    float b = dot(o, d);
+    float3 o = ro - center;
+    float b = dot(o, rd);
     float c = dot(o, o) - radius * radius;
-    float disc = b * b - c;          // dot(d,d) == 1
+    float disc = b * b - c;          // dot(rd,rd) == 1
     if (disc < 0.0) { return; }
     float sq = sqrt(disc);
 
@@ -297,7 +336,7 @@ void sphereIntersect()
     if (t < RayTMin() || t > RayTCurrent()) { return; }
 
     SphereHit hit;
-    hit.normal = normalize((ObjectRayOrigin() + t * d) - center);
+    hit.normal = normalize((ro + t * rd) - center);
     ReportHit(t, 0u, hit);
 }
 

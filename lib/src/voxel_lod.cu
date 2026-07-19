@@ -16,4 +16,35 @@ __global__ void poolMaxKernel(const int* fine, uint32_t N, int* coarse, uint32_t
 void voxelPoolMax(const int* fine,uint32_t N,int* coarse,uint32_t M,cudaStream_t s){
     uint64_t b=((uint64_t)M*M*M+kThreads-1)/kThreads; if(b>2147483647ull)b=2147483647ull; if(b<1)b=1;
     poolMaxKernel<<<(uint32_t)b,kThreads,0,s>>>(fine,N,coarse,M);
+}
+
+namespace {
+__global__ void compactLivingKernel(const int* state, uint32_t N, float3 origin, float3 spacing,
+    float* out_positions, uint32_t capacity, uint32_t* counter)
+{
+    uint64_t cells = (uint64_t)N * N * N;
+    for (uint64_t i = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x; i < cells;
+         i += (uint64_t)blockDim.x * gridDim.x)
+    {
+        if (state[i] == 0) { continue; }
+        uint32_t idx = atomicAdd(counter, 1u);
+        if (idx >= capacity) { continue; } // overflow guard (host sizes capacity >= living count)
+        uint32_t x = (uint32_t)(i % N);
+        uint32_t y = (uint32_t)((i / N) % N);
+        uint32_t z = (uint32_t)(i / ((uint64_t)N * N));
+        out_positions[3 * idx + 0] = origin.x + (float)x * spacing.x;
+        out_positions[3 * idx + 1] = origin.y + (float)y * spacing.y;
+        out_positions[3 * idx + 2] = origin.z + (float)z * spacing.z;
+    }
+}
+}
+void voxelCompactLiving(const int* state, uint32_t N, float3 origin, float3 spacing,
+    float* out_positions, uint32_t capacity, uint32_t* d_count, cudaStream_t s)
+{
+    cudaMemsetAsync(d_count, 0, sizeof(uint32_t), s);
+    uint64_t cells = (uint64_t)N * N * N;
+    uint64_t b = (cells + kThreads - 1) / kThreads;
+    if (b > 65535ull) b = 65535ull; if (b < 1) b = 1; // grid-stride loop covers the rest
+    compactLivingKernel<<<(uint32_t)b, kThreads, 0, s>>>(
+        state, N, origin, spacing, out_positions, capacity, d_count);
 }}

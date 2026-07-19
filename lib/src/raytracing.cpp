@@ -405,7 +405,7 @@ void createRtPipeline(RayTracingContext& ctx)
     auto builder = ShaderBuilder::make();
     ShaderCompileParams params{
         .module_path = "shaders/pathtrace.slang",
-        .entrypoints = { "raygenMain", "missMain", "closestHitMain", "sphereIntersect" },
+        .entrypoints = { "raygenMain", "missMain", "closestHitMain", "primitiveIntersect" },
         .specializations = {},
     };
     auto stages = builder.compileModule(ctx.device, params);
