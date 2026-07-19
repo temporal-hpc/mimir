@@ -158,6 +158,41 @@ struct MimirInstance
     // options.pt_lod_cells > 0. Path tracing consumes it via raytracing.lod; the raster point modes
     // (none/phong) reduce inline in the frame cmd and draw the reduced set via vkCmdDrawIndirect.
     LodContext lod_context{};
+
+    // ---- In-shader Voxels grid-coarsening LOD (voxel_lod.slang) ----
+    // Coarsens a ViewType::Voxels grid without materializing any coarse data: a dedicated pipeline
+    // draws M^3 procedural points whose vertex stage max-pools each coarse cell's fine block on the
+    // fly. Push constants mirror LodPush in voxel_lod.slang.
+    // Layout MUST match voxel_lod.slang's LodPush under std430 push-constant rules: the two leading
+    // uints are followed by 8 bytes of padding so each float4 lands on its 16-byte alignment
+    // (gridOrigin @16, gridSpacing @32; total 48). A tight 40-byte struct would trip
+    // VUID-VkGraphicsPipelineCreateInfo-layout-10069 (block not contained in the push range).
+    struct VoxelLodPush {
+        uint32_t fineN, coarseM;
+        uint32_t _pad0 = 0, _pad1 = 0;
+        float gridOrigin[4];   // fine grid world origin (mirrors makeStructuredGrid's `start`)
+        float gridSpacing[4];  // fine grid world spacing per cell (makeStructuredGrid uses 1)
+    };
+    // Dedicated coarse-voxel pipeline. layout binds set 0 = the shared descriptor_layout (uniforms +
+    // colorbuf) and set 1 = set_layout (the fine-state SSBO), with a vertex-stage push-constant range.
+    struct VoxelLodPipeline {
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VkPipelineLayout layout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
+    };
+    VoxelLodPipeline voxel_lod_pipeline{};
+    // Per-view record: the fine-state SSBO (the color-index interop buffer), its set-1 descriptor and
+    // the push constants. One per qualifying Voxels view; drawElements routes these to the LOD path.
+    struct VoxelLodView {
+        View* view = nullptr;
+        VkBuffer fine_state = VK_NULL_HANDLE;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        VoxelLodPush push{};
+    };
+    std::vector<VoxelLodView> voxel_lod_views{};
+    // Build the coarse-voxel pipeline (empty vertex input, point topology; geometry entry per domain).
+    VoxelLodPipeline makeVoxelLodPipeline(DomainType domain);
+
     // Raster LOD (none/phong): the interop position buffer address + full particle count captured at
     // init, used each frame to record the reduction inline. Set only when the raster point-mode LOD
     // path is active (rt_enabled uses raytracing's own address instead).

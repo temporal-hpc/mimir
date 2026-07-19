@@ -27,6 +27,9 @@ struct ViewParams
     float default_size;
     float linewidth;
     float antialias;
+    // 0 = flat/unlit; 1 = lit (voxels use this for --light-mode phong: shade cube faces by the scene
+    // light using the geometry-stage normal). Other view shaders ignore it.
+    float shading;
 };
 
 ConstantBuffer<ModelViewProjection> mvp;

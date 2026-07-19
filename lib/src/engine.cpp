@@ -9,6 +9,11 @@
 #include "mimir/resources.hpp"
 #include "mimir/validation.hpp"
 #include "mimir/shader_types.hpp"
+#include "mimir/shader.hpp" // ShaderBuilder (Voxels-LOD pipeline)
+
+#include <filesystem> // std::filesystem::current_path (shader load cwd)
+#include <array> // std::array
+#include <spdlog/fmt/fmt.h> // fmt::format (geometry entry name)
 
 #include <cuda.h> // driver API (cuMemCreate/cuMemMap) for the VMM large-page interop path
 #include <cstring>  // strcmp for MIMIR_VMM_INTEROP mode parsing
@@ -26,6 +31,9 @@
 #include <cmath> // std::sqrt
 #include <cstdint> // uint64_t, UINT32_MAX
 #include <cstring> // std::memcpy
+
+// Defined at global scope in pipeline.cpp; resolves the runtime shader directory.
+std::string getDefaultShaderPath();
 
 namespace mimir
 {
@@ -357,12 +365,107 @@ void MimirInstance::prepare()
         }
     }
 
+    // In-shader Voxels grid-coarsening LOD: for each ViewType::Voxels view draw M^3 coarse cubes whose
+    // per-cube state is max-pooled from the fine N^3 grid on the fly (voxel_lod.slang). No coarse buffers,
+    // no compute, no extra interop sync -- the shader reads the view's own fine int-state SSBO, so the
+    // existing sim->draw ordering applies. Ping/pong views are handled independently (each binds its own
+    // fine state). Runs regardless of RT/BDA support (unlike the point-cloud Markers LOD above).
+    if (options.pt_lod_cells > 0)
+    {
+        for (auto* view : views)
+        {
+            if (view->desc.type != ViewType::Voxels) { continue; }
+            const uint32_t M = options.pt_lod_cells;
+            const uint64_t fine_cells = view->element_count;
+            const uint32_t N = (uint32_t)llround(std::cbrt((double)fine_cells));
+            // LOD only for a true cubic N^3 grid; M must coarsen (0 < M < N), never upsample.
+            if (M == 0 || M >= N || (uint64_t)N * N * N != fine_cells) { continue; }
+
+            auto cit = view->desc.attributes.find(AttributeType::Color);
+            if (cit == view->desc.attributes.end() || !hasIndexing(cit->second)
+                || cit->second.indexing.index_size != (unsigned)sizeof(int)) { continue; }
+            if (view->vb_count == 0) { continue; } // need the fine-state (color-index) vertex buffer
+
+            if (voxel_lod_pipeline.pipeline == VK_NULL_HANDLE)
+            {
+                voxel_lod_pipeline = makeVoxelLodPipeline(view->desc.domain);
+            }
+
+            // The fine N^3 int-state SSBO is the color-index interop buffer -- the last vbo bound for a
+            // Voxels view (Position -> vbo[0], indexed Color -> vbo[last]). createView gave it STORAGE
+            // usage because pt_lod_cells > 0 (see the indexed-attribute path).
+            VkBuffer fine_state = view->vbo[view->vb_count - 1];
+
+            // Allocate set 1 (the fine-state SSBO) and point it at this view's buffer.
+            VkDescriptorSetAllocateInfo set_info{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                .pNext = nullptr,
+                .descriptorPool     = descriptor_pool,
+                .descriptorSetCount = 1,
+                .pSetLayouts        = &voxel_lod_pipeline.set_layout,
+            };
+            VkDescriptorSet set = VK_NULL_HANDLE;
+            validation::checkVulkan(vkAllocateDescriptorSets(device, &set_info, &set));
+            VkDescriptorBufferInfo buf_info{ .buffer = fine_state, .offset = 0, .range = VK_WHOLE_SIZE };
+            VkWriteDescriptorSet write{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext            = nullptr,
+                .dstSet           = set,
+                .dstBinding       = 0,
+                .dstArrayElement  = 0,
+                .descriptorCount  = 1,
+                .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pImageInfo       = nullptr,
+                .pBufferInfo      = &buf_info,
+                .pTexelBufferView = nullptr,
+            };
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+            // Push constants: the fine grid mapping, read from the structured-grid position buffer so
+            // the coarse cubes land in the same world box even when the grid is not at the origin (e.g.
+            // centered). makeStructuredGrid writes cell (x,y,z) at start + (x,y,z)*spacing into
+            // host-visible memory, so cell 0 is the origin and cell 1 - cell 0 is the (isotropic) spacing.
+            float3 grid_origin{ 0.f, 0.f, 0.f };
+            float  grid_spacing = 1.f;
+            {
+                VkDeviceMemory pos_mem =
+                    getMemoryVulkan(view->desc.attributes[AttributeType::Position].source);
+                float3* mapped = nullptr;
+                if (vkMapMemory(device, pos_mem, 0, sizeof(float3) * 2, 0, (void**)&mapped)
+                        == VK_SUCCESS)
+                {
+                    grid_origin = mapped[0];
+                    const float sx = mapped[1].x - mapped[0].x;
+                    if (sx > 0.f) { grid_spacing = sx; }
+                    vkUnmapMemory(device, pos_mem);
+                }
+            }
+
+            VoxelLodPush push{};
+            push.fineN = N;
+            push.coarseM = M;
+            push.gridOrigin[0]  = grid_origin.x; push.gridOrigin[1] = grid_origin.y;
+            push.gridOrigin[2]  = grid_origin.z; push.gridOrigin[3] = 0.f;
+            push.gridSpacing[0] = grid_spacing; push.gridSpacing[1] = grid_spacing;
+            push.gridSpacing[2] = grid_spacing; push.gridSpacing[3] = 0.f;
+
+            // Draw M^3 procedural points; drawElements routes this view to the LOD pipeline + custom draw.
+            const uint64_t coarse_cells = (uint64_t)M * M * M;
+            view->draw_count = (uint32_t)coarse_cells; // M^3 < 2^32 for M <= 1625
+
+            voxel_lod_views.push_back(VoxelLodView{ view, fine_state, set, push });
+            spdlog::info("Voxels LOD (in-shader): {}^3 -> {}^3 grid ({} -> {} cubes, {:.1f}x fewer), "
+                "max-pooled", N, M, fine_cells, coarse_cells,
+                (double)fine_cells / (double)coarse_cells);
+        }
+    }
+
     // --lod was requested but nothing consumed it: LOD is a point-cloud reduction (positions -> N^3
     // grid -> representative points), so it only applies to Markers (particle) views. The RT path and
     // the no-BDA path warn for their own cases above; this covers Voxels/Image/Edges, where --lod would
     // otherwise be a silent no-op with the full data still drawn.
     if (options.pt_lod_cells > 0 && !rt_enabled && !lod_context.active()
-        && supportsRayTracing(physical_device.handle))
+        && voxel_lod_views.empty() && supportsRayTracing(physical_device.handle))
     {
         spdlog::warn("--lod {} ignored: point-cloud LOD applies only to Markers (particle) views; the "
                      "active view type does not support it -- rendering all elements",
@@ -1430,12 +1533,16 @@ View *MimirInstance::createView(ViewDescription *desc)
                 vb_size, getSourceSize(attr.source)
             );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            // Path tracing (AABB writer) AND the shared LOD reduction (scatter pass) read positions by
-            // buffer-device-address, so the position buffer needs the SHADER_DEVICE_ADDRESS usage (its
-            // interop memory already carries the DEVICE_ADDRESS alloc flag from allocLinear). Same gate
-            // as allocLinear: bufferDeviceAddress is only enabled on RT-capable devices.
-            if (rt_enabled
-                || (options.pt_lod_cells > 0 && supportsRayTracing(physical_device.handle)))
+            // Path tracing (AABB writer) AND the shared point-cloud LOD reduction (scatter pass) read
+            // positions by buffer-device-address, so the position buffer needs the SHADER_DEVICE_ADDRESS
+            // usage (its interop memory already carries the DEVICE_ADDRESS alloc flag from allocLinear).
+            // Same gate as allocLinear: bufferDeviceAddress is only enabled on RT-capable devices.
+            // Voxels are excluded: their structured-grid positions are host-allocated (no device-address
+            // alloc flag) and the in-shader grid-coarsening LOD never reads them by BDA -- requesting the
+            // usage here would trip VUID-vkBindBufferMemory-bufferDeviceAddress-03339.
+            if (desc->type != ViewType::Voxels
+                && (rt_enabled
+                    || (options.pt_lod_cells > 0 && supportsRayTracing(physical_device.handle))))
             {
                 vb_usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
             }
@@ -1476,6 +1583,14 @@ View *MimirInstance::createView(ViewDescription *desc)
         else
         {
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            // Voxels grid-coarsening LOD reads this index buffer (the fine per-voxel int state) as a
+            // storage buffer in the coarse vertex shader (voxel_lod.slang). Add STORAGE usage so the
+            // same interop buffer can be bound as an SSBO; harmless for the normal vertex-attribute draw.
+            if (desc->type == ViewType::Voxels && type == AttributeType::Color
+                && options.pt_lod_cells > 0)
+            {
+                vb_usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            }
             view.vbo_stride[view.vb_count] = static_cast<VkDeviceSize>(attr.indexing.index_size);
             view.vbo_rate[view.vb_count]   = VK_VERTEX_INPUT_RATE_VERTEX;
             view.vbo[view.vb_count++] = createAttributeBuffer(memsize, vb_usage, memory);
@@ -2605,6 +2720,28 @@ void MimirInstance::drawElements(uint32_t image_idx)
             i * size_ubo + size_mvp + size_view,
             i * size_ubo + size_mvp
         };
+
+        // In-shader Voxels grid-coarsening LOD: this view draws M^3 procedural coarse cubes with the
+        // dedicated LOD pipeline (voxel_lod.slang) instead of its per-voxel geometry. Bind set 0 (the
+        // shared uniforms/colorbuf, dynamic offsets) + set 1 (the fine-state SSBO) with the LOD layout,
+        // push the grid mapping, and draw M^3 with NO vertex buffers. The LOD pipeline layout's set 0 is
+        // the same descriptor_layout, so the dynamic-offset UBOs bind identically.
+        const VoxelLodView* lod_rec = nullptr;
+        for (auto& rec : voxel_lod_views) { if (rec.view == view) { lod_rec = &rec; break; } }
+        if (lod_rec != nullptr)
+        {
+            VkDescriptorSet sets[2] = { descriptor_sets[image_idx], lod_rec->set };
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_lod_pipeline.pipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                voxel_lod_pipeline.layout, 0, 2, sets, offsets.size(), offsets.data()
+            );
+            vkCmdPushConstants(cmd, voxel_lod_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT,
+                0, sizeof(VoxelLodPush), &lod_rec->push
+            );
+            vkCmdDraw(cmd, view->draw_count, 1, 0, 0); // M^3 coarse cubes, procedural (no vbo)
+            continue;
+        }
+
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );
@@ -2718,6 +2855,152 @@ void MimirInstance::createViewPipelines(/*std::span<std::shared_ptr<InteropView>
     spdlog::trace("Created {} pipeline object(s) in {} ms", pipelines.size(), elapsed);
 }
 
+// Build the dedicated in-shader Voxels-LOD pipeline (voxel_lod.slang). It draws M^3 procedural points
+// (no vertex buffers) whose vertex stage max-pools the fine grid; the geometry/fragment stages mirror
+// voxel.slang so coarse cubes render identically. Layout: set 0 = the shared uniforms/colorbuf
+// descriptor_layout (bound as usual with dynamic offsets), set 1 = the fine-state SSBO, plus a
+// vertex-stage push-constant range (grid mapping + N/M). Created once, lazily, in prepare().
+MimirInstance::VoxelLodPipeline MimirInstance::makeVoxelLodPipeline(DomainType domain)
+{
+    VoxelLodPipeline out{};
+
+    // Set 1: the fine N^3 int-state grid, read-only in the vertex stage.
+    std::vector<VkDescriptorSetLayoutBinding> set1_bindings{
+        descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT),
+    };
+    out.set_layout = createDescriptorSetLayout(device, set1_bindings);
+
+    // Pipeline layout: set 0 = shared descriptor_layout (uniforms/colorbuf), set 1 = fine-state SSBO;
+    // one vertex push-constant range for the grid mapping.
+    VkPushConstantRange push_range{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .offset     = 0,
+        .size       = sizeof(VoxelLodPush),
+    };
+    std::array<VkDescriptorSetLayout, 2> set_layouts{ descriptor_layout, out.set_layout };
+    VkPipelineLayoutCreateInfo layout_info{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .setLayoutCount         = (uint32_t)set_layouts.size(),
+        .pSetLayouts            = set_layouts.data(),
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges    = &push_range,
+    };
+    validation::checkVulkan(vkCreatePipelineLayout(device, &layout_info, nullptr, &out.layout));
+
+    // Compile the self-contained shader from the shader dir (so `import uniforms` resolves).
+    auto orig_path = std::filesystem::current_path();
+    std::filesystem::current_path(getDefaultShaderPath());
+    auto shader_builder = ShaderBuilder::make();
+    std::string geom_entry = fmt::format("geometryMain{}", getDomainType(domain));
+    ShaderCompileParams compile{
+        .module_path     = "shaders/voxel_lod.slang",
+        .entrypoints     = { "vertexLodMain", geom_entry, "fragmentMain" },
+        .specializations = {},
+    };
+    auto stages = shader_builder.compileModule(device, compile);
+    std::filesystem::current_path(orig_path);
+
+    // Fixed-function state: mirror the Voxels raster pipeline, but with an EMPTY vertex input (the draw
+    // is procedural, keyed off SV_VertexID).
+    ViewDescription vd{};
+    vd.type   = ViewType::Voxels;
+    vd.domain = domain;
+    VkPipelineVertexInputStateCreateInfo vertex_input{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .vertexBindingDescriptionCount   = 0,
+        .pVertexBindingDescriptions      = nullptr,
+        .vertexAttributeDescriptionCount = 0,
+        .pVertexAttributeDescriptions    = nullptr,
+    };
+    auto input_assembly = getInputAssemblyInfo(vd);
+    auto rasterizer     = getRasterizationInfo(vd);
+    auto depth          = getDepthInfo(vd);
+
+    // Same alpha blending as the normal Voxels pipeline (voxel colors carry alpha).
+    VkPipelineColorBlendAttachmentState blend_attachment{
+        .blendEnable         = VK_TRUE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .colorBlendOp        = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp        = VK_BLEND_OP_ADD,
+        .colorWriteMask      =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+    VkPipelineColorBlendStateCreateInfo color_blend{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .pNext           = nullptr,
+        .flags           = 0,
+        .logicOpEnable   = VK_FALSE,
+        .logicOp         = VK_LOGIC_OP_NO_OP,
+        .attachmentCount = 1,
+        .pAttachments    = &blend_attachment,
+        .blendConstants  = { 0.f, 0.f, 0.f, 0.f },
+    };
+    VkPipelineMultisampleStateCreateInfo multisampling{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .pNext                 = nullptr,
+        .flags                 = 0,
+        .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable   = VK_FALSE,
+        .minSampleShading      = 1.f,
+        .pSampleMask           = nullptr,
+        .alphaToCoverageEnable = VK_FALSE,
+        .alphaToOneEnable      = VK_FALSE,
+    };
+    VkViewport viewport{ 0.f, 0.f,
+        (float)swapchain.extent.width, (float)swapchain.extent.height, 0.f, 1.f };
+    VkRect2D scissor{ {0, 0}, swapchain.extent };
+    VkPipelineViewportStateCreateInfo viewport_state{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .pNext         = nullptr,
+        .flags         = 0,
+        .viewportCount = 1,
+        .pViewports    = &viewport,
+        .scissorCount  = 1,
+        .pScissors     = &scissor,
+    };
+
+    VkGraphicsPipelineCreateInfo create_info{
+        .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext               = nullptr,
+        .flags               = 0,
+        .stageCount          = (uint32_t)stages.size(),
+        .pStages             = stages.data(),
+        .pVertexInputState   = &vertex_input,
+        .pInputAssemblyState = &input_assembly,
+        .pTessellationState  = nullptr,
+        .pViewportState      = &viewport_state,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState   = &multisampling,
+        .pDepthStencilState  = &depth,
+        .pColorBlendState    = &color_blend,
+        .pDynamicState       = nullptr,
+        .layout              = out.layout,
+        .renderPass          = render_pass,
+        .subpass             = 0,
+        .basePipelineHandle  = VK_NULL_HANDLE,
+        .basePipelineIndex   = -1,
+    };
+    validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE,
+        1, &create_info, nullptr, &out.pipeline));
+
+    for (auto& stage : stages) { vkDestroyShaderModule(device, stage.module, nullptr); }
+
+    deletors.graphics.add([=,this]{
+        vkDestroyPipeline(device, out.pipeline, nullptr);
+        vkDestroyPipelineLayout(device, out.layout, nullptr);
+        vkDestroyDescriptorSetLayout(device, out.set_layout, nullptr);
+    });
+    return out;
+}
+
 void MimirInstance::initUniformBuffers()
 {
     auto min_alignment = physical_device.getUboOffsetAlignment();
@@ -2809,6 +3092,9 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
             .size      = marker_size,
             .linewidth = view->desc.linewidth,
             .antialias = view->desc.antialias,
+            // Voxels read this to shade cube faces under --light-mode phong (LightModel::Phong). Other
+            // view shaders ignore it, so a global instance-wide flag is fine.
+            .shading   = (options.light_model == LightModel::Phong) ? 1.f : 0.f,
         };
 
         auto bg = options.background_color;

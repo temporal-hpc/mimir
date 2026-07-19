@@ -182,6 +182,16 @@ struct ViewerOptions
     // the Vulkan-compute scatter/emit fallback instead (also used automatically when CUDA/Vulkan
     // interop is unavailable); it produces identical occupied-cell counts/positions, just slower,
     // especially under the centroid placement's atomic contention (see lod_centroid below).
+    //
+    // ViewType::Voxels reinterprets this as a grid-COARSENING factor M: a fine N^3 int-state voxel grid
+    // is max-pooled ON THE FLY in the vertex shader into an M^3 grid, and M^3 cubes are drawn (M < N;
+    // M >= N or M == 0 is a no-op that draws the fine grid). No coarse data is materialized -- each
+    // coarse cell reads its disjoint (N/M)^3 fine block directly and takes the max (state 0 = dead), so
+    // it reuses the same sim->draw synchronization as the normal voxel color attribute and needs no
+    // extra buffers/compute/interop sync. Requires the color attribute to be an int32 index (the
+    // colormap-index type) over a true cubic N^3 grid; other cases draw the fine grid unchanged. Unlike
+    // the Markers reduction above, this path needs no ray-tracing/BDA support. Other view types
+    // (Image/Edges) ignore pt_lod_cells (a warning is logged).
     unsigned int pt_lod_cells = 0;
 
     // LOD representative placement (only meaningful when pt_lod_cells > 0):

@@ -16,6 +16,7 @@ target_sources(mimir
         src/interop.cpp
         src/lod.cpp
         src/lod_reduce.cu
+        src/voxel_lod.cu
         src/metrics.cpp
         src/pipeline.cpp
         src/raytracing.cpp

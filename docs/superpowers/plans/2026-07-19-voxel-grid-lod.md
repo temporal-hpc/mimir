@@ -8,16 +8,57 @@
 
 **Tech Stack:** Slang (new `voxel_lod.slang`), Vulkan (graphics pipeline variant + storage-buffer descriptors + push constants), CUDA-interop (fine state buffer, read-only in the shader), C++20, spdlog, CMake.
 
-## CURRENT STATUS (resume here — 2026-07-19)
+## CURRENT STATUS (ALL TASKS DONE — 2026-07-19, on a display machine)
 
-- **Task 1: DONE & pushed** (commit `daa08e4`, branch `feature/remote-rendering`). The reference max-pool
-  kernel (`lib/src/voxel_lod.cu`, `lib/include/private/mimir/voxel_lod.hpp`) + standalone parity test
-  (`lib/tests/voxel_pool_ref_test.cu`, CMake target `voxel_pool_ref_test`) all pass, incl. non-divisible
-  N/M (9/4, 100/25, 130/31). This kernel is the test oracle + optional `CA_LOD_CHECK`, NOT the render path.
-- **Tasks 2–5: TODO.** These are the graphics-pipeline/shader/draw integration + CA3D-voxels demo + docs.
-  **Do these on a machine with a display (or a headless-render path)** — they can only be validated by
-  running the sample under Vulkan validation layers (VUID errors + visual + the `CA_LOD_CHECK` gate).
-  This server has no display, which is why execution paused here.
+- **Task 1: DONE & pushed** (commit `daa08e4`). Reference max-pool kernel + parity test. NOTE: the plan's
+  Task 1 Step 5 (`voxel_lod.slang`) was NOT in that commit; it was written during Tasks 2–5 below as a
+  **self-contained** shader (per the shader-module decision), and `src/voxel_lod.cu` was added to the
+  mimir library target so `voxelPoolMax` links into the sample's `CA_LOD_CHECK`.
+- **Tasks 2–5: DONE (uncommitted).** Implemented + verified on an RTX 4090 laptop GPU:
+  - `shaders/voxel_lod.slang` (self-contained VS+GS+FS; VertexData carries a per-cell `blockdim` so the
+    geometry stage sizes each coarse cube to fill the fine box, incl. non-divisible N/M).
+  - `MimirInstance::makeVoxelLodPipeline` (pipeline.hpp exposes the shared raster/depth/topology builders;
+    layout = set0 shared uniforms/colorbuf + set1 fine-state SSBO + vertex push range). `VoxelLodPush` is
+    padded to 48 B to match the shader's std430 push block.
+  - `engine.cpp` detection (reads the true grid origin/spacing from the position buffer — no hardcoded
+    origin), per-view SSBO descriptor, and the `drawElements` LOD path (bind 2 sets + push + `vkCmdDraw(M^3)`).
+    Voxels are excluded from the position-buffer `SHADER_DEVICE_ADDRESS` usage (that is Markers/BDA only).
+  - `samples/CA3D-voxels`: `--lod M`, `CA_LOD_CHECK` gate, `CA_SHOT=<path>` headless PPM screenshot, a
+    centered grid + framed camera, a `--fly` camera option (speed scaled to the grid), and a top-right
+    ImGui **Performance HUD** (proportional port of the kmodal HUD via public `getMetrics`).
+  - `options.hpp` documents the Voxels grid-coarsening semantics.
+  - **Verification:** zero Vulkan validation (VUID) errors across 64/128 (divisible) and 100/30
+    (non-divisible); `CA_LOD_CHECK: OK` (0 mismatch) on all; headless PPMs confirm correct coarsening +
+    centered framing. Validation layer: `sudo pacman -S vulkan-validation-layers`; force with
+    `VK_LOADER_LAYERS_ENABLE=VK_LAYER_KHRONOS_validation`; logs need `SPDLOG_LEVEL=info` (Release mutes them).
+  - **NOT yet done:** git commit; a human eyeball of the live ImGui HUD + `--fly` feel (this GNOME/Wayland
+    session blocks non-interactive screenshots, so the HUD was verified only by a clean windowed run).
+
+## EXTENDED SAMPLE UX (2026-07-19, uncommitted) + PT PLAN
+
+Added to `samples/CA3D-voxels/main.cu` on top of the LOD work, all built + headless-verified:
+- `--help`; `--light-mode flat|phong|path-tracing`; `--opacity A`; `--background-color`; `--cell-color`.
+- Voxel **lit shading** (library): `float shading` added to `ViewParams`/`ViewUniforms` (fill from
+  `options.light_model == Phong`); `voxel.slang` + `voxel_lod.slang` fragments gained `shadeVoxel()`
+  (Lambert + ambient over the face normal). Dead cells hidden (alpha 0); living use `--cell-color` at
+  `--opacity`; `depth_test` off when opacity < 1 so interior cells show through.
+- **Auto-run**: GPU path uses blocking `display(step, steps)` (no getchar); window persists after steps.
+- **System info** (`print_system_info`): GPU (cudaDeviceProp), CPU (/proc/cpuinfo + hw threads), RAM (sysinfo).
+- HUD gained Light/Opacity rows.
+
+**PATH TRACING FOR VOXELS — DESIGNED, NOT IMPLEMENTED** (`--light-mode path-tracing` currently prints a
+note and falls back to phong). User decisions: render the living cells as **ray-traced BOXES** (not
+spheres), **O(living)** (compact the state grid, not N^3), sim stays O(N^3), and **transmission from the
+start** (so `--opacity < 1` makes PT boxes see-through). Three pieces, all in the delicate RT/interop core:
+1. **Living-cell compaction** — GPU scan of the N^3 int state -> compact list of living-cell world
+   centers + count, each step (like a stream compaction; mirror the `voxelPoolMax` lib+test pattern).
+2. **Ray-box intersection** — add a box (slab) intersection variant to `pathtrace.slang` alongside the
+   existing ray-sphere `sphereIntersect`; select per-instance so particles-kmodal-3d stays spheres.
+   Closest-hit returns the box face normal; transmission rays for translucent boxes.
+3. **Engine wiring** — `RayTracingContext::bindScene` is Markers-only; teach the PT path to bind a
+   **Voxels** view's compacted living cells and rebuild the BLAS per frame with the DYNAMIC count. The
+   machinery for a per-frame variable primitive count already exists (`lod_prim_count` / `recordLodUpdate`).
+See [[project_pathtracing_status]] for the RT architecture.
 - **Shader-module decision already made (supersedes Task 2 Step 3's open question):** `lib/src/shader.cpp`
   loads ONE `module_path` and calls `findEntryPointByName` per entry, so entrypoints cannot span modules.
   Make `voxel_lod.slang` **self-contained**: `import uniforms;`, define `vertexLodMain` (procedural,
