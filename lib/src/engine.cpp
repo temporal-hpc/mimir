@@ -10,6 +10,7 @@
 #include "mimir/validation.hpp"
 #include "mimir/shader_types.hpp"
 #include "mimir/shader.hpp" // ShaderBuilder (Voxels-LOD pipeline)
+#include "mimir/voxel_lod.hpp" // voxelCompactLiving (voxel path tracing)
 
 #include <filesystem> // std::filesystem::current_path (shader load cwd)
 #include <array> // std::array
@@ -259,9 +260,83 @@ void MimirInstance::prepare()
                 break;
             }
         }
+        // Voxel path tracing: no Markers view, but a Voxels view can be traced as boxes over its LIVING
+        // cells. Set up a compacted-positions interop buffer (sized N^3 = max living) that the engine
+        // refills each frame (voxelCompactLiving) and the AABB writer reads by device address. The box
+        // half-extent + albedo/opacity come from the view (default_color.rgb = cell color, .w = opacity).
         if (!raytracing.scene_bound)
         {
-            spdlog::warn("Path tracing: no Markers view found to bind; RT frames will be empty");
+            for (auto* view : views)
+            {
+                if (view->desc.type != ViewType::Voxels) { continue; }
+                const uint64_t fine_cells = view->element_count;
+                const uint32_t N = (uint32_t)llround(std::cbrt((double)fine_cells));
+                if ((uint64_t)N * N * N != fine_cells || N == 0) { continue; }
+                auto cit = view->desc.attributes.find(AttributeType::Color);
+                if (cit == view->desc.attributes.end() || !hasIndexing(cit->second)
+                    || cit->second.indexing.index_size != (unsigned)sizeof(int)) { continue; }
+
+                // Grid mapping (origin/spacing) from the structured-grid position buffer, as in the LOD
+                // detection: makeStructuredGrid writes cell (x,y,z) at start + (x,y,z)*spacing.
+                voxel_pt_N = N;
+                voxel_pt_origin = float3{0.f, 0.f, 0.f};
+                voxel_pt_spacing = 1.f;
+                {
+                    VkDeviceMemory pos_mem =
+                        getMemoryVulkan(view->desc.attributes[AttributeType::Position].source);
+                    float3* mapped = nullptr;
+                    if (vkMapMemory(device, pos_mem, 0, sizeof(float3) * 2, 0, (void**)&mapped)
+                            == VK_SUCCESS)
+                    {
+                        voxel_pt_origin = mapped[0];
+                        float sx = mapped[1].x - mapped[0].x;
+                        if (sx > 0.f) { voxel_pt_spacing = sx; }
+                        vkUnmapMemory(device, pos_mem);
+                    }
+                }
+                voxel_pt_radius = view->desc.default_size * voxel_pt_spacing;
+
+                // Record every Voxels view's fine-state CUDA pointer (ping/pong); the per-frame update
+                // compacts whichever one is currently visible.
+                for (auto* vv : views)
+                {
+                    if (vv->desc.type != ViewType::Voxels) { continue; }
+                    auto vc = vv->desc.attributes.find(AttributeType::Color);
+                    if (vc == vv->desc.attributes.end() || !hasIndexing(vc->second)) { continue; }
+                    voxel_pt_views.push_back(VoxelPtView{
+                        vv, getDevicePtrCuda(vc->second.indexing.source) });
+                }
+
+                // Compacted living-cell positions: interop (CUDA-written, Vulkan BDA-read), sized N^3.
+                const uint64_t n3 = (uint64_t)N * N * N;
+                LinearAlloc* pos_alloc = allocLinear(&voxel_pt_positions_cuda, n3 * sizeof(float3));
+                VkBuffer pos_buf = createAttributeBuffer(n3 * sizeof(float3),
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                    getMemoryVulkan(AllocHandle{pos_alloc}));
+                VkBufferDeviceAddressInfo pos_ai{
+                    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                    .pNext = nullptr, .buffer = pos_buf,
+                };
+                voxel_pt_positions_addr = vkGetBufferDeviceAddress(device, &pos_ai);
+                cudaMalloc(&voxel_pt_count_dev, sizeof(uint32_t));
+
+                // Box mode + albedo/opacity from the view color, then compact the initial state so the
+                // first build (inside bindScene) has real geometry.
+                auto c = view->desc.default_color;
+                raytracing.voxel_boxes   = true;
+                raytracing.voxel_opacity = c.w;
+                updateVoxelPtScene();
+                raytracing.bindScene(voxel_pt_positions_addr, n3, voxel_pt_radius,
+                    glm::vec4(c.x, c.y, c.z, c.w));
+                spdlog::info("Voxel path tracing: {}^3 grid, up to {} living-cell boxes, radius {:.4f}, "
+                    "opacity {:.2f}", N, (unsigned long long)n3, voxel_pt_radius, c.w);
+                break;
+            }
+        }
+
+        if (!raytracing.scene_bound)
+        {
+            spdlog::warn("Path tracing: no Markers/Voxels view found to bind; RT frames will be empty");
         }
     }
 
@@ -2188,6 +2263,32 @@ void MimirInstance::waitTimelineHost()
     validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
 }
 
+// Voxel path tracing: compact the currently-visible Voxels view's living cells into the interop
+// positions buffer and set the RT's per-frame primitive count. Runs on the interop CUDA stream and
+// blocks for the count (like the LOD CUDA reduction), so the count is on the host before the frame's
+// AS build reads it. No-op when voxel PT is inactive or no voxel view is visible.
+void MimirInstance::updateVoxelPtScene()
+{
+    if (!raytracing.voxel_boxes || voxel_pt_views.empty()) { return; }
+    void* state = nullptr;
+    for (auto& vp : voxel_pt_views)
+    {
+        if (vp.view->desc.visible && vp.state_cuda != nullptr) { state = vp.state_cuda; break; }
+    }
+    if (state == nullptr) { raytracing.voxel_prim_count = 0; return; }
+
+    const uint32_t N = voxel_pt_N;
+    const uint64_t n3 = (uint64_t)N * N * N;
+    float3 spacing{ voxel_pt_spacing, voxel_pt_spacing, voxel_pt_spacing };
+    voxelCompactLiving((const int*)state, N, voxel_pt_origin, spacing,
+        (float*)voxel_pt_positions_cuda, (uint32_t)std::min<uint64_t>(n3, 0xFFFFFFFFu),
+        voxel_pt_count_dev, interop.cuda_stream);
+    cudaStreamSynchronize(interop.cuda_stream);
+    uint32_t living = 0;
+    cudaMemcpy(&living, voxel_pt_count_dev, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    raytracing.voxel_prim_count = (uint32_t)std::min<uint64_t>(living, n3);
+}
+
 void MimirInstance::renderFrame(bool advance_interop)
 {
     // Get frame index from the inflight frames array
@@ -2361,7 +2462,11 @@ void MimirInstance::renderFrame(bool advance_interop)
         pc.aspect       = (float)swapchain.extent.width / (float)swapchain.extent.height;
         auto lp = options.light_pos;
         auto bg = options.background_color;
-        pc.sun_dir     = glm::vec4(lp.x, lp.y, lp.z, 0.f);
+        // sun_dir.w selects the procedural-AABB primitive in the intersection shader: 0 = sphere
+        // (particles), >= 0.5 = box (voxels), where the box lane also carries 1 + opacity so the
+        // integrator can spawn transmission rays for translucent voxels (--opacity < 1).
+        float shape_w = raytracing.voxel_boxes ? (1.f + raytracing.voxel_opacity) : 0.f;
+        pc.sun_dir     = glm::vec4(lp.x, lp.y, lp.z, shape_w);
         // Path-traced sky/environment = the instance background color (w = intensity), so a
         // simulation controls the backdrop (incl. black) with the same knob as the raster modes.
         pc.sky_color   = glm::vec4(bg.x, bg.y, bg.z, 1.0f);
@@ -2398,6 +2503,9 @@ void MimirInstance::renderFrame(bool advance_interop)
         // (Re)build/refit this frame's AS from the live interop positions (only when they changed),
         // then trace it. When denoising, the trace leaves the display image in GENERAL and
         // recordDenoise writes the filtered result.
+        // Voxel PT: compact the visible living cells (sets voxel_prim_count) before the AS build reads
+        // them. Only when the geometry changed (a new sim step); a static/paused view reuses the AS.
+        if (raytracing.voxel_boxes && geo_changed) { updateVoxelPtScene(); }
         raytracing.recordUpdateScene(cmd, frame_idx, /*rebuild=*/geo_changed);
         raytracing.recordTrace(cmd, frame_idx, pc, /*leave_image_general=*/options.pt_denoise);
         if (options.pt_denoise) { raytracing.recordDenoise(cmd, frame_idx); }

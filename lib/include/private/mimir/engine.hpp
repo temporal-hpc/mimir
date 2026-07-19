@@ -154,6 +154,24 @@ struct MimirInstance
     // extent-dependent frame resources are (re)built in initGraphics.
     bool rt_enabled = false;
     RayTracingContext raytracing{};
+
+    // ---- Voxel box path tracing (CA3D-voxels): trace the LIVING cells as boxes, O(living) ----
+    // Each frame the engine compacts the visible Voxels view's fine int-state grid into a positions
+    // buffer (voxelCompactLiving) and hands the RT the per-frame count; the RT traces boxes (see
+    // RayTracingContext::voxel_boxes). Set up in prepare() when a Voxels view is path-traced; empty
+    // otherwise. state_cuda is the view's fine-state CUDA device pointer (the color-index interop buffer).
+    struct VoxelPtView { struct View* view = nullptr; void* state_cuda = nullptr; };
+    std::vector<VoxelPtView> voxel_pt_views{};
+    void*           voxel_pt_positions_cuda = nullptr; // compacted living-cell centers (interop, CUDA side)
+    VkDeviceAddress voxel_pt_positions_addr = 0;        // ... same buffer, read by the AABB writer (BDA)
+    uint32_t*       voxel_pt_count_dev = nullptr;       // device counter for the compaction
+    uint32_t        voxel_pt_N = 0;
+    float3          voxel_pt_origin{0.f, 0.f, 0.f};
+    float           voxel_pt_spacing = 1.f;
+    float           voxel_pt_radius = 0.5f;             // box half-extent (world)
+    // Compact the visible Voxels view's living cells and set raytracing.voxel_prim_count. Called each
+    // frame before recordUpdateScene when voxel PT is active. No-op if no PT voxel view is visible.
+    void updateVoxelPtScene();
     // Shared LOD data-reduction stage (lib/src/lod.cpp). Engine-owned; initialized when
     // options.pt_lod_cells > 0. Path tracing consumes it via raytracing.lod; the raster point modes
     // (none/phong) reduce inline in the frame cmd and draw the reduced set via vkCmdDrawIndirect.

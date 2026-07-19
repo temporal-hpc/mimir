@@ -164,13 +164,6 @@ int main(int argc, char **argv){
     }
     if (opacity < 0.f) opacity = 0.f;
     if (opacity > 1.f) opacity = 1.f;
-    // Path tracing for voxels (ray-traced boxes over the living cells) is not wired yet -- the RT scene
-    // binder is Markers-only, so PT would render empty frames. Fall back to phong until it lands.
-    if (light == VoxLight::PathTracing)
-    {
-        fprintf(stderr, "[note] --light-model path-tracing is not available for voxels yet; using phong.\n");
-        light = VoxLight::Phong;
-    }
     double t1;
 
     if(B > 10 || modo > 1){
@@ -259,8 +252,11 @@ int main(int argc, char **argv){
                 }
             }}
         },
-        .layout       = grid_layout,
-        .default_size = .5f,
+        .layout        = grid_layout,
+        // default_color carries the living-cell color + opacity to the path tracer (raster voxels use
+        // the colormap instead, so this is PT-only): albedo = cell color, alpha = --opacity.
+        .default_color = { cell_color.x, cell_color.y, cell_color.z, opacity },
+        .default_size  = .5f,
     };
     // Translucent volume (--opacity < 1): disable depth so living cubes behind others still blend in,
     // revealing interior cells. Opaque (opacity == 1) keeps normal depth testing.

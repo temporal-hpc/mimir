@@ -265,6 +265,18 @@ struct RayTracingContext
     }
     void recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
 
+    // ---- Voxel box path tracing (CA3D-voxels) ----
+    // When set (before bindScene), the procedural AABBs are traced as axis-aligned BOXES (the trace
+    // push sets sun_dir.w = 1 + voxel_opacity, selecting the box branch + carrying opacity for
+    // transmission) and the AABB writer runs over an ENGINE-supplied compacted living-cell buffer
+    // (position_address) with a per-frame count (voxel_prim_count). No internal reduction here -- the
+    // engine compacts the visible voxel view's state into position_address each frame (voxelCompactLiving)
+    // and sets voxel_prim_count before recordUpdateScene. Sized like the LOD path to min(N^3, count).
+    bool     voxel_boxes = false;
+    float    voxel_opacity = 1.f;    // living-cell alpha (< 1 => transmission rays in the integrator)
+    uint32_t voxel_prim_count = 0;   // living cells this frame (engine sets it before recordUpdateScene)
+    void recordVoxelUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
+
     // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*TS_PER_FRAME timestamps. The
     // build phase is split into its three sub-phases so callers can see where the frame goes (at
     // large N the build dominates, but which part -- the AABB writer, the BLAS build/refit, or the

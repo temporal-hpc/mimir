@@ -1223,7 +1223,15 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, flo
     // LOD aggregates particles into <= min(N^3, P) occupied-cell spheres, so both the AABB buffer
     // and the BLAS are sized to that bound (smaller than P at large N). Per-particle mode sizes to P.
     uint64_t geom_prims = count;
-    if (lod_cells > 0)
+    if (voxel_boxes)
+    {
+        // Voxel PT: `count` is the max living-cell count (N^3). The AABB buffer + BLAS are sized to it;
+        // the engine compacts the living cells into position_address each frame and sets the per-frame
+        // build count (voxel_prim_count <= count). Single chunk, like the LOD path.
+        lod_max_cells = static_cast<uint32_t>(count);
+        geom_prims = count;
+    }
+    else if (lod_cells > 0)
     {
         // The reduction (accumulators, scatter/emit, reduced positions) lives in the shared LodContext
         // (engine-owned; `lod` set before bindScene). Here we only size the AABB buffer + BLAS to the
@@ -1251,7 +1259,7 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, flo
     // override shrank blas_chunk_prims below lod_max_cells here, num_chunks would become > 1 and
     // chunk c>0 would read past the emitted primitive list / AABB buffer. So the override only applies
     // in per-particle mode, where blas_chunk_prims is already <= maxPrimitiveCount as computed above.
-    if (lod_cells == 0)
+    if (lod_cells == 0 && !voxel_boxes)
     {
         if (const char* env = std::getenv("MIMIR_PT_BLAS_CHUNK"))
         {
@@ -1354,7 +1362,7 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     // dominant cost, so we do as little as the scene allows.
     bool must_build = rebuild || !accel_ever_built;
 
-    if (lod_cells > 0)
+    if (voxel_boxes || lod_cells > 0)
     {
         if (!must_build)
         {
@@ -1372,7 +1380,8 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
             }
             return;
         }
-        recordLodUpdate(cmd, frame_idx);
+        if (voxel_boxes) { recordVoxelUpdate(cmd, frame_idx); }
+        else             { recordLodUpdate(cmd, frame_idx); }
         return;
     }
 
@@ -1652,6 +1661,85 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
             "sphere radius {:.5f} (--size {:.5f}, cell-fill at {:.5f})",
             occupied, occupied ? double(particle_count) / double(occupied) : 0.0, particle_count,
             lod->sphereRadius(particle_radius), particle_radius, LodContext::LOD_REFERENCE_SIZE);
+    }
+}
+
+// Voxel PT: the engine has already compacted the visible voxel view's living cells into
+// position_address (voxelCompactLiving, on the interop CUDA stream, host-ordered before this submit)
+// and set voxel_prim_count. So this is the LOD build path WITHOUT the internal reduction: AABB writer
+// over position_address (count = voxel_prim_count, boxes are AABB = centre +/- radius), then a full
+// BLAS/TLAS rebuild over exactly that many primitives.
+void RayTracingContext::recordVoxelUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
+{
+    assert(scene_blas.size() == 1 && "voxel PT requires a single BLAS chunk");
+    uint32_t count = std::min(voxel_prim_count, lod_max_cells);
+    lod_prim_count = count; // reuse the LOD stat field for the HUD/logs
+
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdResetQueryPool(cmd, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 0);
+    }
+
+    // The compaction kernel wrote position_address in a separate execution domain (CUDA on the interop
+    // stream, host-ordered by cudaStreamSynchronize before this Vulkan submit). Make its writes visible
+    // to the AABB-writer compute read within `cmd` (write -> read hazard), same as the LOD path.
+    VkMemoryBarrier compact_to_writer{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &compact_to_writer, 0, nullptr, 0, nullptr);
+
+    // AABB writer over the compacted living-cell centres: one box (AABB = centre +/- radius) per cell.
+    const uint32_t kMaxGroups = 1u << 25;
+    uint32_t groups = (uint32_t)std::min<uint64_t>((count + 63u) / 64u, kMaxGroups);
+    if (groups == 0) groups = 1;
+    AabbWriterPush push{
+        .aabbs = aabb_buffer.address,
+        .positions = position_address,
+        .count = (uint64_t)count, .radius = particle_radius, .stride = groups * 64u,
+    };
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
+    vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+    vkCmdDispatch(cmd, groups, 1, 1);
+
+    VkMemoryBarrier emit_to_build{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &emit_to_build, 0, nullptr, 0, nullptr);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 1);
+    }
+
+    // Full BLAS rebuild over `count` boxes (single chunk).
+    recordBlasBuildChunks(*this, cmd, aabb_buffer.address, /*update=*/false, /*override_prims=*/count);
+    accel_ever_built = true;
+    frames_since_full_rebuild = 0;
+    stat_full_rebuilds++;
+    slot_build_mode[frame_idx] = BlasBuild::Rebuild;
+
+    VkMemoryBarrier blas_to_tlas{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &blas_to_tlas, 0, nullptr, 0, nullptr);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 2);
+    }
+
+    recordTlasBuild(*this, cmd, scene_tlas, tlas_scratch, tlas_instance_buffer.address,
+        static_cast<uint32_t>(scene_blas.size()));
+
+    VkMemoryBarrier to_trace{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1, &to_trace, 0, nullptr, 0, nullptr);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 3);
     }
 }
 
