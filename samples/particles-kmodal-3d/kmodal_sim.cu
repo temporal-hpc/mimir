@@ -73,13 +73,30 @@ __global__ void integrate3dKernel(float* coords, size_t point_count,
 static constexpr int kSortThreads = 256;
 static inline uint32_t sortGridFor(uint64_t n){ uint64_t b=(n+kSortThreads-1)/kSortThreads; if(b>2147483647ull)b=2147483647ull; if(b<1)b=1; return (uint32_t)b; }
 
+// Spread the low 10 bits of x so each occupies every 3rd bit (Morton/Z-order interleave helper);
+// supports grid resolutions up to 1024 per axis (30-bit code, fits uint32).
+__device__ __forceinline__ uint32_t sortPart1by2(uint32_t x)
+{
+    x &= 0x3ffu;
+    x = (x | (x << 16)) & 0x030000FFu;
+    x = (x | (x <<  8)) & 0x0300F00Fu;
+    x = (x | (x <<  4)) & 0x030C30C3u;
+    x = (x | (x <<  2)) & 0x09249249u;
+    return x;
+}
+// Morton (Z-order) key of a particle's cell at grid resolution N. Unlike a row-major index it is
+// HIERARCHICAL: sorting by it groups particles at every coarser power-of-2 resolution at once, so one
+// sort serves any power-of-2 LOD grid <= N without re-coupling the sort to a specific LOD size. The
+// key is a pure function of the position -- computed on the fly here, never stored (no O(n) array).
+// Codes lie in [0, R^3) where R = next-pow2(N) (the interleave bit width); createSortScratch sizes the
+// histogram to R^3 to match.
 __device__ __forceinline__ uint32_t sortCellId(float px, float py, float pz, uint32_t N)
 {
     float n=(float)N;
-    int cx=(int)fminf(fmaxf((px+1.f)*0.5f*n,0.f),n-1.f);
-    int cy=(int)fminf(fmaxf((py+1.f)*0.5f*n,0.f),n-1.f);
-    int cz=(int)fminf(fmaxf((pz+1.f)*0.5f*n,0.f),n-1.f);
-    return (uint32_t)cx + N*((uint32_t)cy + N*(uint32_t)cz);
+    uint32_t cx=(uint32_t)fminf(fmaxf((px+1.f)*0.5f*n,0.f),n-1.f);
+    uint32_t cy=(uint32_t)fminf(fmaxf((py+1.f)*0.5f*n,0.f),n-1.f);
+    uint32_t cz=(uint32_t)fminf(fmaxf((pz+1.f)*0.5f*n,0.f),n-1.f);
+    return sortPart1by2(cx) | (sortPart1by2(cy) << 1) | (sortPart1by2(cz) << 2);
 }
 __global__ void sortClearKernel(uint32_t* a, uint64_t n){
     for(uint64_t i=(uint64_t)blockIdx.x*blockDim.x+threadIdx.x;i<n;i+=(uint64_t)blockDim.x*gridDim.x) a[i]=0u; }
@@ -107,7 +124,10 @@ __global__ void sortPlaceKernel(const float* pos, const unsigned int* ids, size_
 
 SortScratch createSortScratch(size_t count, uint32_t sortN)
 {
-    SortScratch s; s.sortN=sortN; s.count=count; s.nCells=(uint64_t)sortN*sortN*sortN;
+    // Morton codes for coords in [0,sortN) span [0, R^3) with R = next-pow2(sortN) (the interleave bit
+    // width), so the histogram must cover R^3 cells, not sortN^3. Equal when sortN is a power of 2.
+    uint32_t R=1; while(R<sortN) R<<=1;
+    SortScratch s; s.sortN=sortN; s.count=count; s.nCells=(uint64_t)R*R*R;
     uint32_t scanBlocks=sortGridFor(s.nCells);
     cudaMalloc(&s.hist,       s.nCells*sizeof(uint32_t));
     cudaMalloc(&s.off,        s.nCells*sizeof(uint32_t));

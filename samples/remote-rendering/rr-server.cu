@@ -287,29 +287,42 @@ int main(int argc, char *argv[])
         printf("rr-server: using GPU device %d\n", cuda_dev);
     }
 
+    // Experimental spatial sort (MIMIR_SIM_SORT_EVERY): parsed here so its VRAM is in the pre-flight.
+    // It doubles per-particle storage (a 16 B/particle sorted shadow: 12 pos + 4 id) plus a flat
+    // Morton-code histogram (3 x R^3 x 4 B, R = next-pow2(lod_cells)); see kmodal_sim.cu SortScratch.
+    const char* sort_env = std::getenv("MIMIR_SIM_SORT_EVERY");
+    int sort_every = sort_env ? std::atoi(sort_env) : 0;
+    const bool sort_on = (sort_every > 0 && lod_cells > 0);
+    uint64_t sort_R = 1; while (sort_R < lod_cells) sort_R <<= 1;
+    const unsigned long long sort_hist_bytes = sort_on
+        ? (3ull * sort_R * sort_R * sort_R + (sort_R * sort_R * sort_R / 256ull + 1ull)) * 4ull : 0ull;
+
     // Memory pre-flight: reject a count that will not fit the GPU memory free right now, BEFORE Vulkan
     // OOMs. Per-particle device allocations: mimir's interop (positions, always; + per-particle AABBs
     // under path-tracing WITHOUT LOD) plus the kmodal sim's per-particle cluster id (4 B, always --
-    // see kmodal_sim.cu createClusters). The N^3 LOD accumulator and render targets are checked below.
+    // see kmodal_sim.cu createClusters); + 16 B/particle for the spatial-sort shadow when enabled.
+    // The N^3 LOD accumulator and render targets are checked below.
     const bool pt_no_lod = (light_model == LightModel::PathTracing) && (lod_cells == 0);
     const unsigned long long bytes_per_particle =
-        mimir::interopBytesPerParticle(light_model, lod_cells > 0) + 4ull; // +4: kmodal cluster id
+        mimir::interopBytesPerParticle(light_model, lod_cells > 0) + 4ull  // +4: kmodal cluster id
+        + (sort_on ? 16ull : 0ull);                                        // +16: sort shadow (pos+id)
     auto budget = mimir::memoryBudget(point_count, bytes_per_particle, 0);
     const size_t vram_free0 = budget.free_bytes; // reused by the LOD-accumulator check below
     {
-        const unsigned long long need = (unsigned long long)point_count * bytes_per_particle;
-        if (!budget.fits) {
-            fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s, %llu B/particle) but only %.1f GB "
+        const unsigned long long need = (unsigned long long)point_count * bytes_per_particle + sort_hist_bytes;
+        if (need > (unsigned long long)vram_free0) {
+            fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s, %llu B/particle%s) but only %.1f GB "
                     "is free on the GPU right now -- max feasible here is ~%llu particles\n",
                     (unsigned long long)point_count, (double)need/1e9,
                     pt_no_lod ? "positions+ids+AABBs" : "positions+ids", bytes_per_particle,
-                    (double)vram_free0/1e9, (unsigned long long)budget.max_particles);
+                    sort_on ? "+sort" : "", (double)vram_free0/1e9,
+                    (unsigned long long)((vram_free0 > sort_hist_bytes ? vram_free0 - sort_hist_bytes : 0) / bytes_per_particle));
             return EXIT_FAILURE;
         }
         printf("rr-server: memory pre-flight OK -- %llu particles need %.1f GB of %.1f GB free "
-               "(%llu B/particle); this GPU fits ~%llu particles in %s mode\n",
+               "(%llu B/particle%s); this GPU fits ~%llu particles in %s mode\n",
                (unsigned long long)point_count, (double)need/1e9, (double)vram_free0/1e9,
-               bytes_per_particle, (unsigned long long)budget.max_particles,
+               bytes_per_particle, sort_on ? "+sort shadow" : "", (unsigned long long)budget.max_particles,
                pt_no_lod ? "path-tracing (no LOD)" : "raster/LOD");
     }
 
@@ -459,16 +472,14 @@ int main(int argc, char *argv[])
         quic ? "UDP/QUIC" : "TCP", port, width, height, (unsigned long long)point_count,
         use_h264 ? "H.264" : "raw", lm);
 
-    // Experimental: periodically re-sort particles by cell so the render-side LOD reduction gets
-    // spatial locality (warp-agg centroid scatter collapses ~2.75x faster). MIMIR_SIM_SORT_EVERY=K
-    // sorts every K sim steps (0/unset = off); needs --lod (sortN = the LOD grid N). See kmodal_sim.cu.
-    const char* sort_env = std::getenv("MIMIR_SIM_SORT_EVERY");
-    int sort_every = sort_env ? std::atoi(sort_env) : 0;
+    // Experimental: periodically re-sort particles by Morton cell key so the render-side LOD reduction
+    // gets spatial locality (warp-agg centroid scatter collapses ~3.3x faster). Parsed + budgeted above
+    // (MIMIR_SIM_SORT_EVERY / sort_on); allocate the scratch and start sorted here. See kmodal_sim.cu.
     SortScratch sort_scratch{};
-    if (sort_every > 0 && lod_cells > 0)
+    if (sort_on)
     {
         sort_scratch = createSortScratch(point_count, lod_cells);
-        printf("rr-server: sim spatial sort ON -- every %d steps, sortN=%u, scratch %.2f GB\n",
+        printf("rr-server: sim spatial sort ON -- every %d steps, sortN=%u (Morton), scratch %.2f GB\n",
                sort_every, lod_cells, (double)sortScratchBytes(sort_scratch) / 1e9);
         launchSpatialSort(d_pos, (unsigned int*)clusters.ids, point_count, sort_scratch); // start sorted
         checkCuda(cudaDeviceSynchronize());
