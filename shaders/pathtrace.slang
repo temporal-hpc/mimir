@@ -140,7 +140,14 @@ float3 tracePath(float3 origin, float3 dir, inout uint seed,
     g_normal = float3(0.0);
     g_depth  = 1e4; // miss sentinel (far)
 
-    // bounces + 1 segments: the primary ray plus pc.bounces indirect bounces.
+    // Translucency (voxel boxes): opacity is packed into sun_dir.w as 1 + opacity (box mode, >= 0.5);
+    // spheres leave sun_dir.w = 0, so opacity is 1 (opaque) there. Transmission is stochastic: at a hit
+    // a box lets the ray pass straight through with probability 1 - opacity, so over the accumulated
+    // samples the volume reads as see-through, revealing interior living cells.
+    float opacity = pc.sun_dir.w >= 0.5 ? (pc.sun_dir.w - 1.0) : 1.0;
+
+    // bounces + 1 shading segments: the primary ray plus pc.bounces indirect bounces. Pass-throughs do
+    // NOT consume a segment (capped separately) so a translucent volume stays see-through in depth.
     uint segments = pc.bounces + 1u;
     RayDesc ray;
     ray.Origin = origin;
@@ -148,7 +155,9 @@ float3 tracePath(float3 origin, float3 dir, inout uint seed,
     ray.TMin = 1e-3;
     ray.TMax = 1e4;
 
-    for (uint b = 0; b < segments; ++b)
+    bool captured = false;
+    uint transmits = 0;
+    for (uint b = 0; b < segments; )
     {
         Payload payload;
         payload.hit_t = -1.0;
@@ -161,8 +170,17 @@ float3 tracePath(float3 origin, float3 dir, inout uint seed,
             break;
         }
 
-        // Capture the primary-hit guide (denoiser edge-stopping) on the first segment.
-        if (b == 0u) { g_normal = payload.normal; g_depth = payload.hit_t; }
+        // Capture the primary-hit guide (denoiser edge-stopping) on the first surface encountered.
+        if (!captured) { g_normal = payload.normal; g_depth = payload.hit_t; captured = true; }
+
+        // Stochastic transmission: let the ray pass through this box (unshaded, undimmed) so that,
+        // averaged over samples, only a `opacity` fraction of hits shade -- the see-through look.
+        if (opacity < 1.0 && transmits < 64u && rnd(seed) >= opacity)
+        {
+            ray.Origin = payload.position + ray.Direction * 1e-3; // step just past the hit
+            transmits++;
+            continue; // does not consume a shading segment
+        }
 
         // Emissive materials add their own radiance regardless of external lighting (area lights).
         radiance += throughput * payload.emission;
@@ -178,6 +196,7 @@ float3 tracePath(float3 origin, float3 dir, inout uint seed,
         throughput *= payload.albedo;
         ray.Origin = payload.position + payload.normal * 1e-3;
         ray.Direction = cosineSampleHemisphere(payload.normal, seed);
+        b++; // a shading segment was consumed (pass-throughs above did not increment b)
     }
     return radiance;
 }

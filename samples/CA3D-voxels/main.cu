@@ -207,6 +207,13 @@ int main(int argc, char **argv){
                      : (light == VoxLight::PathTracing) ? LightModel::PathTracing
                                                         : LightModel::None;
     opts.background_color = { bg_color.x, bg_color.y, bg_color.z, 1.f };
+    if (light == VoxLight::PathTracing)
+    {
+        // A few samples/bounces per frame keep the live path-traced volume readable (it also keeps
+        // accumulating across static frames). Transmission (--opacity < 1) is noisier, so lean higher.
+        opts.pt_samples_per_pixel = (opacity < 1.f) ? 8 : 4;
+        opts.pt_max_bounces       = 3;
+    }
     // CA_SHOT=<path>: render one offscreen frame of the initial state to a PPM and exit (no window).
     // Handy for eyeballing the LOD framing / capturing docs images without an interactive session.
     const char* shot_path = std::getenv("CA_SHOT");
