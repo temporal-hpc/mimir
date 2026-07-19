@@ -357,6 +357,18 @@ void MimirInstance::prepare()
         }
     }
 
+    // --lod was requested but nothing consumed it: LOD is a point-cloud reduction (positions -> N^3
+    // grid -> representative points), so it only applies to Markers (particle) views. The RT path and
+    // the no-BDA path warn for their own cases above; this covers Voxels/Image/Edges, where --lod would
+    // otherwise be a silent no-op with the full data still drawn.
+    if (options.pt_lod_cells > 0 && !rt_enabled && !lod_context.active()
+        && supportsRayTracing(physical_device.handle))
+    {
+        spdlog::warn("--lod {} ignored: point-cloud LOD applies only to Markers (particle) views; the "
+                     "active view type does not support it -- rendering all elements",
+                     options.pt_lod_cells);
+    }
+
     // Fly camera starts with the cursor captured for immediate mouse-look (TAB frees it for the
     // HUD). Skipped in headless (no window).
     if (window_context.window && options.camera_control == CameraControl::Fly)
