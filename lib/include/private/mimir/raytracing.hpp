@@ -263,6 +263,12 @@ struct RayTracingContext
         lod_cuda_stream = stream;
         lod_positions_dev = positions_dev;
     }
+    // Run the LOD reduction (scatter/emit) over the live positions and set lod_prim_count. This is the
+    // CUDA/blocking part of the LOD PT update; it MUST run on the COMPUTE thread (the engine calls it
+    // from updateViews, and once at setup), NOT the render thread -- launching CUDA on the render thread
+    // while the compute thread holds a pending interop semaphore wait stalls the GPU device-wide and
+    // deadlocks. recordLodUpdate() then records the AS build over the reduced set (render thread).
+    void reduceLodCompute();
     void recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
 
     // ---- Voxel box path tracing (CA3D-voxels) ----

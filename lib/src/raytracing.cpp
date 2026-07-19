@@ -1343,6 +1343,11 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, flo
         vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
+    // LOD PT: run the initial reduction here (setup thread, no interop wait pending) so lod_prim_count
+    // + the reduced-positions buffer are ready for the first build below. Per-frame reductions run on
+    // the compute thread (engine updateViews). Voxel PT already seeded voxel_prim_count before bindScene.
+    if (lod != nullptr && !voxel_boxes) { reduceLodCompute(); }
+
     // Populate the AABBs and build the BLAS + TLAS once (positions are already valid at bind time),
     // so the first rendered frame has a coherent AS even before its own update.
     submit([&](VkCommandBuffer cmd) {
@@ -1523,39 +1528,19 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
 // input set for the AABB writer; everything downstream is identical to per-particle mode. Aggregate
 // time is not itemized in the GPU sub-phase split (it runs outside `cmd`); the AABB writer over the
 // reduced set IS timed in the AABB sub-phase.
-void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
+// The reduction half of the LOD PT update. Runs the scatter/emit over ALL live positions and sets
+// lod_prim_count (the occupied-cell count) + fills lod->reducedPositionsBuffer(0). MUST run on the
+// COMPUTE thread (see the header): it blocks on CUDA, which cannot happen on the render thread while an
+// interop semaphore wait is pending (device-wide GPU stall -> deadlock). recordLodUpdate() below then
+// records the AS build over the reduced set on the render thread, reading lod_prim_count.
+void RayTracingContext::reduceLodCompute()
 {
-    // Belt-and-suspenders: LOD assumes a single BLAS chunk (see the MIMIR_PT_BLAS_CHUNK guard in
-    // bindScene) because override_prims below is applied to every chunk in recordBlasBuildChunks.
-    assert(scene_blas.size() == 1 && "LOD requires a single BLAS chunk");
-    assert(lod != nullptr && "LOD active but no LodContext bound (engine must set rt.lod)");
-    bool first_build = !accel_ever_built;
-
-    // 1) Reduce, then read the occupied-cell count and clamp to the sizing bound. PT needs the count
-    // on the host BEFORE it can build the AS over `occupied` primitives in `cmd`, so it blocks on the
-    // reduction (CUDA: cudaStreamSynchronize; Vulkan fallback: a one-shot submit + vkQueueWaitIdle).
-    // Either way the reduced positions land in lod->reducedPositionsBuffer(0) and the block also
-    // serializes against the previous frame's trace, so a fixed slot 0 of the ringed output buffers
-    // is safe -- no two PT reductions are ever in flight at once. (Raster instead records the Vulkan
-    // reduction inline in the frame cmd with no stall -- it never reads the count back.) Both backends
-    // take the 64-bit particle_count directly. CPU wall-clock the blocking reduction: the whole
-    // scatter+emit over ALL particles, the LOD "reduction" cost, isolated from the AS build/trace.
-    // Two reduction backends produce the same result -- the occupied-cell count + the reduced
-    // positions in lod->reducedPositionsBuffer(0) -- so everything downstream (the AABB writer, the
-    // AS build) is identical. usesCuda() picks the native-CUDA reduction (the default); the else
-    // branch is the MIMIR_LOD_NO_CUDA Vulkan scatter/emit fallback, unchanged from before.
+    if (lod == nullptr) { return; }
     uint32_t occupied = 0;
     if (lod->usesCuda())
     {
-        // CUDA path: run the reduction on the interop stream reading the SAME positions the AABB
-        // writer reads (as a CUDA device pointer), then block until it finishes so the occupied count
-        // is on the host before we build the AS over it. No Vulkan submit / recordReduction here --
-        // on the CUDA path the Vulkan N^3 accumulator was never allocated (LodReduce owns the only
-        // one), so recordReduction would dereference null BDA-0 buffers. CPU wall-clock the whole
-        // reduce+sync into last_lod_ms, mirroring the Vulkan branch's timing.
-        // The engine must have plumbed the interop positions device pointer (setLodInterop) before the
-        // first CUDA reduction; a null here means the Markers position source was not an allocLinear
-        // buffer (or setLodInterop was skipped) and would fault opaquely inside the kernel launch.
+        // CUDA path: reduce on the interop stream reading the SAME positions the AABB writer reads (as a
+        // CUDA device pointer), then block so the count is on the host before the render builds the AS.
         assert(lod_positions_dev != nullptr && "CUDA LOD active but interop positions ptr not set");
         const auto lod_t0 = std::chrono::steady_clock::now();
         lod->reduceCuda(lod_cuda_stream, lod_positions_dev, particle_count, /*slot=*/0u);
@@ -1566,6 +1551,7 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     }
     else
     {
+        // Vulkan fallback (MIMIR_LOD_NO_CUDA): a one-shot blocking submit of the scatter/emit.
         const auto lod_t0 = std::chrono::steady_clock::now();
         submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address,
             particle_count, /*slot=*/0u); });
@@ -1574,6 +1560,33 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
         occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
     }
     lod_prim_count = occupied;
+}
+
+void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
+{
+    // Belt-and-suspenders: LOD assumes a single BLAS chunk (see the MIMIR_PT_BLAS_CHUNK guard in
+    // bindScene) because override_prims below is applied to every chunk in recordBlasBuildChunks.
+    assert(scene_blas.size() == 1 && "LOD requires a single BLAS chunk");
+    assert(lod != nullptr && "LOD active but no LodContext bound (engine must set rt.lod)");
+    bool first_build = !accel_ever_built;
+
+    // The reduction ran on the compute thread (reduceLodCompute) and set lod_prim_count + filled the
+    // reduced-positions buffer; here we only record the AS build over that reduced set. Serialization
+    // against the previous frame's trace is provided by the serialize barrier below.
+    uint32_t occupied = lod_prim_count;
+
+    // Cross-frame serialization for the shared AABB buffer / BLAS / TLAS (the blocking reduction used
+    // to provide this; now that it runs on the compute thread, do it explicitly here).
+    VkMemoryBarrier lod_serialize{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        0, 1, &lod_serialize, 0, nullptr, 0, nullptr);
 
     // 2) Build the AS in the frame command buffer over `occupied` primitives (always a full rebuild).
     if (timing_pool != VK_NULL_HANDLE)

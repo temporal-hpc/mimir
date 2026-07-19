@@ -687,12 +687,13 @@ void MimirInstance::updateViews()
     if (options.present.enable_interop_sync && std::atomic_ref<bool>(running).load(std::memory_order_acquire))
     {
         compute_monitor.stopWatch();
-        // Voxel path tracing: compact the visible living cells HERE, on the compute thread, after the
-        // sim kernel and BEFORE signalKernelFinish. This keeps all CUDA work on the compute thread (the
-        // render thread must never launch CUDA while an interop wait is pending -- it stalls the GPU
-        // device-wide). Ordered after the kernel on the interop stream; the positions + count are ready
-        // before the render's AS build (which the interop signal below gates).
-        if (raytracing.voxel_boxes) { updateVoxelPtScene(); }
+        // Path tracing: all per-frame CUDA work runs HERE, on the compute thread, after the sim kernel
+        // and BEFORE signalKernelFinish -- never on the render thread, where a pending interop semaphore
+        // wait stalls the GPU device-wide (deadlock). Voxel PT compacts the living cells; Markers PT+LOD
+        // runs the reduction. Both set the RT's per-frame primitive count + fill its positions buffer,
+        // ready before the render's AS build (gated by the interop signal below).
+        if (raytracing.voxel_boxes)                        { updateVoxelPtScene(); }
+        else if (rt_enabled && raytracing.lod != nullptr)  { raytracing.reduceLodCompute(); }
         signalKernelFinish();
     }
 }
