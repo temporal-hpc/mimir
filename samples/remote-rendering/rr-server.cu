@@ -288,35 +288,34 @@ int main(int argc, char *argv[])
     }
 
     // Experimental spatial sort (MIMIR_SIM_SORT_EVERY): parsed here so its VRAM is in the pre-flight.
-    // It doubles per-particle storage (a 16 B/particle sorted shadow: 12 pos + 4 id) plus a flat
-    // Morton-code histogram (3 x R^3 x 4 B, R = next-pow2(lod_cells)); see kmodal_sim.cu SortScratch.
+    // The onesweep radix uses 32 B/particle (keys 8 + vals 8 ping-pong + pos 12 + id 4 gather shadow)
+    // plus a flat decoupled-look-back status array (numTiles*256*8 B); see kmodal_sim.cu SortScratch.
     const char* sort_env = std::getenv("MIMIR_SIM_SORT_EVERY");
     int sort_every = sort_env ? std::atoi(sort_env) : 0;
     const bool sort_on = (sort_every > 0 && lod_cells > 0);
-    uint64_t sort_R = 1; while (sort_R < lod_cells) sort_R <<= 1;
-    const unsigned long long sort_hist_bytes = sort_on
-        ? (3ull * sort_R * sort_R * sort_R + (sort_R * sort_R * sort_R / 256ull + 1ull)) * 4ull : 0ull;
+    const unsigned long long sort_status_bytes = sort_on
+        ? ((point_count + 2047ull) / 2048ull) * 256ull * 8ull + 16ull * 1024ull : 0ull; // status + gHist/gOff
 
     // Memory pre-flight: reject a count that will not fit the GPU memory free right now, BEFORE Vulkan
     // OOMs. Per-particle device allocations: mimir's interop (positions, always; + per-particle AABBs
     // under path-tracing WITHOUT LOD) plus the kmodal sim's per-particle cluster id (4 B, always --
-    // see kmodal_sim.cu createClusters); + 16 B/particle for the spatial-sort shadow when enabled.
+    // see kmodal_sim.cu createClusters); + 32 B/particle for the spatial-sort radix when enabled.
     // The N^3 LOD accumulator and render targets are checked below.
     const bool pt_no_lod = (light_model == LightModel::PathTracing) && (lod_cells == 0);
     const unsigned long long bytes_per_particle =
         mimir::interopBytesPerParticle(light_model, lod_cells > 0) + 4ull  // +4: kmodal cluster id
-        + (sort_on ? 16ull : 0ull);                                        // +16: sort shadow (pos+id)
+        + (sort_on ? 32ull : 0ull);                                        // +32: radix sort scratch
     auto budget = mimir::memoryBudget(point_count, bytes_per_particle, 0);
     const size_t vram_free0 = budget.free_bytes; // reused by the LOD-accumulator check below
     {
-        const unsigned long long need = (unsigned long long)point_count * bytes_per_particle + sort_hist_bytes;
+        const unsigned long long need = (unsigned long long)point_count * bytes_per_particle + sort_status_bytes;
         if (need > (unsigned long long)vram_free0) {
             fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s, %llu B/particle%s) but only %.1f GB "
                     "is free on the GPU right now -- max feasible here is ~%llu particles\n",
                     (unsigned long long)point_count, (double)need/1e9,
                     pt_no_lod ? "positions+ids+AABBs" : "positions+ids", bytes_per_particle,
                     sort_on ? "+sort" : "", (double)vram_free0/1e9,
-                    (unsigned long long)((vram_free0 > sort_hist_bytes ? vram_free0 - sort_hist_bytes : 0) / bytes_per_particle));
+                    (unsigned long long)((vram_free0 > sort_status_bytes ? vram_free0 - sort_status_bytes : 0) / bytes_per_particle));
             return EXIT_FAILURE;
         }
         printf("rr-server: memory pre-flight OK -- %llu particles need %.1f GB of %.1f GB free "

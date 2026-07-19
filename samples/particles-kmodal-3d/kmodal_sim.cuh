@@ -68,23 +68,28 @@ void launchIntegrate3D(float* pos3, size_t point_count, const ClusterData& clust
                        RngStates& rng, cudaStream_t s = 0);
 
 // ---- Experimental: periodic spatial sort of the particles ---------------------------------------
-// Reorders pos3 (and the matching cluster ids) so particles that fall in the same sortN^3 grid cell
-// become contiguous in memory. This is a pure locality aid for the render-side LOD reduction: with
-// same-cell particles adjacent, the LOD's warp-aggregated centroid scatter collapses ~2.75x faster
-// (measured). The kmodal walk is per-particle independent, so permuting pos+ids together is exact.
-// Cost is amortized by re-sorting only every K steps; particles drift, so the ordering decays
-// gradually and must be refreshed. Counting sort by row-major cell id (atomic histogram + scan +
-// placement), size_t-indexed. Scratch (histogram/offsets/cursor O(sortN^3) + shadow pos/ids O(count))
-// is allocated once in createSortScratch.
+// Reorders pos3 (and the matching cluster ids) so particles in the same Morton cell become contiguous
+// in memory. Pure locality aid for the render-side LOD reduction: with same-cell particles adjacent,
+// the warp-aggregated centroid scatter collapses ~3.3x faster (measured). The kmodal walk is per-
+// particle independent, so permuting pos+ids together is exact. Cost is amortized by re-sorting only
+// every K steps (order drifts gradually and must be refreshed). Sorts (Morton key, particle index)
+// with a hand-made onesweep LSB radix (no global atomics in the scatter; resolution-independent,
+// fixed 256-bucket histogram; ~1.5-1.8x CUB), then gathers pos+ids. Scratch is allocated once.
 struct SortScratch {
-    void*    hist       = nullptr;  // uint32[sortN^3]  cell histogram
-    void*    off        = nullptr;  // uint32[sortN^3]  exclusive-scanned offsets
-    void*    blockSums  = nullptr;  // uint32[scanBlocks]
-    void*    cursor     = nullptr;  // uint32[sortN^3]  per-cell placement cursor
-    void*    pos_sorted = nullptr;  // float[3*count]   shadow, sorted, copied back into pos3
-    void*    ids_sorted = nullptr;  // uint32[count]    shadow, sorted, copied back into ids
+    void*    keysA      = nullptr;  // uint32[count]   Morton keys (ping-pong with keysB)
+    void*    keysB      = nullptr;
+    void*    valsA      = nullptr;  // uint32[count]   particle indices (ping-pong with valsB)
+    void*    valsB      = nullptr;
+    void*    status     = nullptr;  // uint64[numTiles*256]  decoupled look-back status
+    void*    gHist      = nullptr;  // uint64[4*256]   global digit histograms (all passes)
+    void*    gOff       = nullptr;  // uint64[4*256]   global digit base offsets
+    void*    tileCtr    = nullptr;  // uint32          monotonic tile-id counter
+    void*    pos_sorted = nullptr;  // float[3*count]  gather target, copied back into pos3
+    void*    ids_sorted = nullptr;  // uint32[count]   gather target, copied back into ids
     uint32_t sortN      = 0;
-    uint64_t nCells     = 0;
+    int      keyBits    = 0;        // significant Morton bits = 3*log2(next-pow2(sortN))
+    uint64_t numTiles   = 0;
+    size_t   dynSmem    = 0;        // dynamic shared bytes for the radix scatter
     size_t   count      = 0;
 };
 SortScratch createSortScratch(size_t count, uint32_t sortN);
