@@ -8,6 +8,28 @@
 
 **Tech Stack:** Slang (new `voxel_lod.slang`), Vulkan (graphics pipeline variant + storage-buffer descriptors + push constants), CUDA-interop (fine state buffer, read-only in the shader), C++20, spdlog, CMake.
 
+## CURRENT STATUS (resume here — 2026-07-19)
+
+- **Task 1: DONE & pushed** (commit `daa08e4`, branch `feature/remote-rendering`). The reference max-pool
+  kernel (`lib/src/voxel_lod.cu`, `lib/include/private/mimir/voxel_lod.hpp`) + standalone parity test
+  (`lib/tests/voxel_pool_ref_test.cu`, CMake target `voxel_pool_ref_test`) all pass, incl. non-divisible
+  N/M (9/4, 100/25, 130/31). This kernel is the test oracle + optional `CA_LOD_CHECK`, NOT the render path.
+- **Tasks 2–5: TODO.** These are the graphics-pipeline/shader/draw integration + CA3D-voxels demo + docs.
+  **Do these on a machine with a display (or a headless-render path)** — they can only be validated by
+  running the sample under Vulkan validation layers (VUID errors + visual + the `CA_LOD_CHECK` gate).
+  This server has no display, which is why execution paused here.
+- **Shader-module decision already made (supersedes Task 2 Step 3's open question):** `lib/src/shader.cpp`
+  loads ONE `module_path` and calls `findEntryPointByName` per entry, so entrypoints cannot span modules.
+  Make `voxel_lod.slang` **self-contained**: `import uniforms;`, define `vertexLodMain` (procedural,
+  reads the two SSBOs + push constants), and **copy** `voxel.slang`'s `geometryMain2D`, `geometryMain3D`,
+  and `fragmentMain` verbatim (they take `VertexData{center,color}` and don't depend on the vertex input).
+  Compile the LOD pipeline with `module_path="shaders/voxel_lod.slang"`, entrypoints
+  `{"vertexLodMain", geom_entry, "fragmentMain"}`. Note the ~60-line geometry/fragment duplication in a
+  comment (acceptable for a self-contained LOD shader; keep it in sync with voxel.slang if that changes).
+- **Verified fact for Task 3:** the fine state is bound today as an indexed vertex attribute; for the SSBO
+  read it likely needs `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT` on that buffer — check with validation on and
+  add the usage bit in the createView indexing path if VUID flags it (Task 3 secondary risk).
+
 ## Global Constraints
 
 - Driven entirely by the existing `--lod`/`options.pt_lod_cells` option + `ViewType::Voxels`. No new public API beyond documenting Voxels semantics.
