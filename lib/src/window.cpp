@@ -160,6 +160,11 @@ void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int 
     {
         app->options.show_gui = !app->options.show_gui;
     }
+    // Built-in performance overlay (FPS/frame time/render): F2 shows/hides it.
+    if (key == GLFW_KEY_F2 && action == GLFW_PRESS)
+    {
+        app->options.show_hud = !app->options.show_hud;
+    }
     // Toggle info panel
     if (key == GLFW_KEY_G && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)
     {

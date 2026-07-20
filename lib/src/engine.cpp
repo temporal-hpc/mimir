@@ -597,7 +597,7 @@ void MimirInstance::displayAsync()
                 auto requested = std::atomic_ref<uint64_t>(render_request).load(std::memory_order_acquire);
                 if (requested > served)
                 {
-                    gui::draw(camera, options, views, gui_callback);
+                    gui::draw(*this, camera, options, views, gui_callback);
                     renderFrame(/*advance_interop=*/true);
                     served++;
                 }
@@ -611,7 +611,7 @@ void MimirInstance::displayAsync()
             else
             {
                 // Unsynchronized: free-run plain frames (no interop timeline participation).
-                gui::draw(camera, options, views, gui_callback);
+                gui::draw(*this, camera, options, views, gui_callback);
                 renderFrame(/*advance_interop=*/false);
             }
         }
@@ -744,7 +744,7 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
     {
         window_context.processEvents();
         updateCamera();
-        gui::draw(camera, options, views, gui_callback);
+        gui::draw(*this, camera, options, views, gui_callback);
         renderFrame(/*advance_interop=*/interop);
 
         if (std::atomic_ref<bool>(running).load(std::memory_order_acquire)) waitKernelStart();

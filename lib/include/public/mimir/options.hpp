@@ -148,6 +148,12 @@ struct ViewerOptions
     // Show/hide the ImGUI demo window.
     bool show_demo_window   = false;
 
+    // Built-in performance overlay: a small always-on-top corner readout of FPS, frame time and
+    // GPU render-pass time, drawn by the engine itself. Lets interactive samples show a HUD without
+    // depending on ImGui or writing any GUI code. Toggled at runtime with F2; hidden with F1 (the
+    // master show_gui switch) like every other window.
+    bool show_hud           = false;
+
     // Background color for the current engine instance.
     float4 background_color = {.5f, .5f, .5f, 1.f};
 
