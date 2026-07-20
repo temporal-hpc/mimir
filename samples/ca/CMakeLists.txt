@@ -16,7 +16,7 @@ find_package(OpenMP)
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/MimirSample.cmake")
 
 add_executable(benchmark_mimir benchmark_mimir.cpp ca_sim.cu)
-target_link_libraries(benchmark_mimir PRIVATE samples_common powermon imgui)
+target_link_libraries(benchmark_mimir PRIVATE samples_common powermon)
 target_compile_options(benchmark_mimir PRIVATE -Wall -Wextra -O3)
 set_target_properties(benchmark_mimir PROPERTIES
     CXX_STANDARD             20

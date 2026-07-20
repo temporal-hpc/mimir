@@ -9,7 +9,7 @@ endif()
 find_package(OpenMP)
 
 add_executable(benchmark benchmark.cpp nbody_gpu.cu nbody_cpu.cpp)
-target_link_libraries(benchmark PRIVATE samples_common powermon OpenMP::OpenMP_CXX imgui)
+target_link_libraries(benchmark PRIVATE samples_common powermon OpenMP::OpenMP_CXX)
 target_compile_options(benchmark PRIVATE -Wall -Wextra -O3)
 set_target_properties(benchmark PROPERTIES
     CXX_STANDARD               20
