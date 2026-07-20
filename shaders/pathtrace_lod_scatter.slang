@@ -20,9 +20,10 @@ struct PushConstants
     uint*     cellCounts; // out: per-cell uint occupancy (N^3). BDA.
     uint64_t* cellSums;   // out: per-cell fixed-point position sum, layout [3*lin + 0..2]. BDA.
                           //      Only dereferenced when centroid != 0 (may be 0/unallocated otherwise).
-    uint      count;      // number of particles
+    uint64_t  count;      // 64-bit particle count
     uint      gridN;      // cells per axis
     uint      centroid;   // 0 = count only (cell-center placement); != 0 = also accumulate the sum
+    uint      stride;     // total dispatched threads (grid-stride step); <= 2^31
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -30,39 +31,55 @@ struct PushConstants
 [numthreads(64, 1, 1)]
 void scatterMain(uint3 tid : SV_DispatchThreadID)
 {
-    uint i = tid.x;
-    if (i >= pc.count) { return; }
-
-    // Explicit 64-bit BDA address arithmetic + cast (NVIDIA truncates OpPtrAccessChain offsets to
-    // 32 bits past 4 GiB; see pathtrace_aabbs.slang).
-    uint64_t pos_addr = uint64_t(pc.positions) + uint64_t(i) * 12ull;
-    float px = *(float*)(pos_addr + 0);
-    float py = *(float*)(pos_addr + 4);
-    float pz = *(float*)(pos_addr + 8);
-
-    float n = float(pc.gridN);
-    // Fixed domain [-1,1] -> [0,1] -> cell index, clamped to [0, N-1].
-    int cx = int(clamp((px + 1.0) * 0.5 * n, 0.0, n - 1.0));
-    int cy = int(clamp((py + 1.0) * 0.5 * n, 0.0, n - 1.0));
-    int cz = int(clamp((pz + 1.0) * 0.5 * n, 0.0, n - 1.0));
-    uint lin = uint(cx) + pc.gridN * (uint(cy) + pc.gridN * uint(cz));
-
-    // Count (always). 32-bit atomic-add through the BDA count pointer.
-    uint old32;
-    InterlockedAdd(*(uint*)(uint64_t(pc.cellCounts) + uint64_t(lin) * 4ull), 1u, old32);
-
-    if (pc.centroid != 0u)
+    // Bounded dispatch + 64-bit grid-stride loop (see pathtrace_aabbs.slang): tid.x stays < 2^32,
+    // each thread walks the full 64-bit particle range in `stride` steps. For count <= 2^32 the
+    // stride >= count so every particle is binned exactly once. The count/sum atomics are
+    // order-independent, so the occupied-cell set and centroids stay deterministic run-to-run.
+    for (uint64_t i = tid.x; i < pc.count; i += uint64_t(pc.stride))
     {
-        // Quantize each component of the clamped position in [-1,1] to [0, 2^30] fixed-point.
-        uint64_t qx = uint64_t((clamp(double(px), -1.0, 1.0) + 1.0) * 0.5 * SCALE);
-        uint64_t qy = uint64_t((clamp(double(py), -1.0, 1.0) + 1.0) * 0.5 * SCALE);
-        uint64_t qz = uint64_t((clamp(double(pz), -1.0, 1.0) + 1.0) * 0.5 * SCALE);
-        // Sum layout: 3 * uint64 per cell at [3*lin + 0..2] => base = ptr + lin*24, comps at +0/+8/+16.
-        // 64-bit OpAtomicIAdd on PhysicalStorageBuffer (validated in lod_atomic_spike.slang).
-        uint64_t base = uint64_t(pc.cellSums) + uint64_t(lin) * 24ull;
-        uint64_t old64;
-        InterlockedAdd(*(uint64_t*)(base + 0ull),  qx, old64);
-        InterlockedAdd(*(uint64_t*)(base + 8ull),  qy, old64);
-        InterlockedAdd(*(uint64_t*)(base + 16ull), qz, old64);
+        // Explicit 64-bit BDA address arithmetic + cast (NVIDIA truncates OpPtrAccessChain offsets to
+        // 32 bits past 4 GiB; see pathtrace_aabbs.slang).
+        uint64_t pos_addr = uint64_t(pc.positions) + i * 12ull;
+        float px = *(float*)(pos_addr + 0);
+        float py = *(float*)(pos_addr + 4);
+        float pz = *(float*)(pos_addr + 8);
+
+        float n = float(pc.gridN);
+        // Fixed domain [-1,1] -> [0,1] -> cell index, clamped to [0, N-1].
+        int cx = int(clamp((px + 1.0) * 0.5 * n, 0.0, n - 1.0));
+        int cy = int(clamp((py + 1.0) * 0.5 * n, 0.0, n - 1.0));
+        int cz = int(clamp((pz + 1.0) * 0.5 * n, 0.0, n - 1.0));
+        uint lin = uint(cx) + pc.gridN * (uint(cy) + pc.gridN * uint(cz));
+
+        uint64_t count_addr = uint64_t(pc.cellCounts) + uint64_t(lin) * 4ull;
+        if (pc.centroid != 0u)
+        {
+            // Centroid placement needs the TRUE per-cell count (it is the denominator of the mass
+            // average in the emit pass), so the count must be an atomic add.
+            uint old32;
+            InterlockedAdd(*(uint*)count_addr, 1u, old32);
+
+            // Quantize each component of the clamped position in [-1,1] to [0, 2^30] fixed-point.
+            uint64_t qx = uint64_t((clamp(double(px), -1.0, 1.0) + 1.0) * 0.5 * SCALE);
+            uint64_t qy = uint64_t((clamp(double(py), -1.0, 1.0) + 1.0) * 0.5 * SCALE);
+            uint64_t qz = uint64_t((clamp(double(pz), -1.0, 1.0) + 1.0) * 0.5 * SCALE);
+            // Sum layout: 3 * uint64 per cell at [3*lin + 0..2] => base = ptr + lin*24, comps at +0/+8/+16.
+            // 64-bit OpAtomicIAdd on PhysicalStorageBuffer (validated in lod_atomic_spike.slang).
+            uint64_t base = uint64_t(pc.cellSums) + uint64_t(lin) * 24ull;
+            uint64_t old64;
+            InterlockedAdd(*(uint64_t*)(base + 0ull),  qx, old64);
+            InterlockedAdd(*(uint64_t*)(base + 8ull),  qy, old64);
+            InterlockedAdd(*(uint64_t*)(base + 16ull), qz, old64);
+        }
+        else
+        {
+            // Cell-center placement needs only OCCUPANCY -- the emit pass merely tests count != 0 and
+            // places the representative at the cell's geometric center (never reads the count value).
+            // So drop the atomic entirely: a plain, non-atomic store of 1 is a BENIGN data race --
+            // every particle landing in this cell writes the identical value, so whichever store wins
+            // the cell still reads 1. This turns the per-particle atomic into a plain memory store,
+            // which is the dominant cost of the reduction at huge N.
+            *(uint*)count_addr = 1u;
+        }
     }
 }

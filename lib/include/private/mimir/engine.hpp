@@ -154,15 +154,84 @@ struct MimirInstance
     // extent-dependent frame resources are (re)built in initGraphics.
     bool rt_enabled = false;
     RayTracingContext raytracing{};
+
+    // ---- Voxel box path tracing (CA3D-voxels): trace the LIVING cells as boxes, O(living) ----
+    // Each frame the engine compacts the visible Voxels view's fine int-state grid into a positions
+    // buffer (voxelCompactLiving) and hands the RT the per-frame count; the RT traces boxes (see
+    // RayTracingContext::voxel_boxes). Set up in prepare() when a Voxels view is path-traced; empty
+    // otherwise. state_cuda is the view's fine-state CUDA device pointer (the color-index interop buffer).
+    struct VoxelPtView { struct View* view = nullptr; void* state_cuda = nullptr; };
+    std::vector<VoxelPtView> voxel_pt_views{};
+    void*           voxel_pt_positions_cuda = nullptr; // compacted living-cell centers (interop, CUDA side)
+    VkDeviceAddress voxel_pt_positions_addr = 0;        // ... same buffer, read by the AABB writer (BDA)
+    uint32_t*       voxel_pt_count_dev = nullptr;       // device counter for the compaction
+    uint32_t        voxel_pt_N = 0;
+    float3          voxel_pt_origin{0.f, 0.f, 0.f};
+    float           voxel_pt_spacing = 1.f;
+    float           voxel_pt_radius = 0.5f;             // box half-extent (world)
+    // --lod M for voxel PT: max-pool the fine N^3 state to M^3 and trace the living COARSE cells as
+    // bigger boxes (O(living coarse)). voxel_pt_M = 0 traces the fine living cells.
+    uint32_t        voxel_pt_M = 0;
+    int*            voxel_pt_coarse_state = nullptr;    // M^3 max-pooled state (device)
+    float3          voxel_pt_coarse_origin{0.f, 0.f, 0.f};
+    float           voxel_pt_coarse_spacing = 1.f;
+    // Compact the visible Voxels view's living cells and set raytracing.voxel_prim_count. Called each
+    // frame before recordUpdateScene when voxel PT is active. No-op if no PT voxel view is visible.
+    void updateVoxelPtScene();
     // Shared LOD data-reduction stage (lib/src/lod.cpp). Engine-owned; initialized when
     // options.pt_lod_cells > 0. Path tracing consumes it via raytracing.lod; the raster point modes
     // (none/phong) reduce inline in the frame cmd and draw the reduced set via vkCmdDrawIndirect.
     LodContext lod_context{};
+
+    // ---- In-shader Voxels grid-coarsening LOD (voxel_lod.slang) ----
+    // Coarsens a ViewType::Voxels grid without materializing any coarse data: a dedicated pipeline
+    // draws M^3 procedural points whose vertex stage max-pools each coarse cell's fine block on the
+    // fly. Push constants mirror LodPush in voxel_lod.slang.
+    // Layout MUST match voxel_lod.slang's LodPush under std430 push-constant rules: the two leading
+    // uints are followed by 8 bytes of padding so each float4 lands on its 16-byte alignment
+    // (gridOrigin @16, gridSpacing @32; total 48). A tight 40-byte struct would trip
+    // VUID-VkGraphicsPipelineCreateInfo-layout-10069 (block not contained in the push range).
+    struct VoxelLodPush {
+        uint32_t fineN, coarseM;
+        uint32_t _pad0 = 0, _pad1 = 0;
+        float gridOrigin[4];   // fine grid world origin (mirrors makeStructuredGrid's `start`)
+        float gridSpacing[4];  // fine grid world spacing per cell (makeStructuredGrid uses 1)
+    };
+    // Dedicated coarse-voxel pipeline. layout binds set 0 = the shared descriptor_layout (uniforms +
+    // colorbuf) and set 1 = set_layout (the fine-state SSBO), with a vertex-stage push-constant range.
+    struct VoxelLodPipeline {
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VkPipelineLayout layout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
+    };
+    VoxelLodPipeline voxel_lod_pipeline{};
+    // Per-view record: the fine-state SSBO (the color-index interop buffer), its set-1 descriptor and
+    // the push constants. One per qualifying Voxels view; drawElements routes these to the LOD path.
+    struct VoxelLodView {
+        View* view = nullptr;
+        VkBuffer fine_state = VK_NULL_HANDLE;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        VoxelLodPush push{};
+    };
+    std::vector<VoxelLodView> voxel_lod_views{};
+    // Build the coarse-voxel pipeline (empty vertex input, point topology; geometry entry per domain).
+    VoxelLodPipeline makeVoxelLodPipeline(DomainType domain);
+
     // Raster LOD (none/phong): the interop position buffer address + full particle count captured at
     // init, used each frame to record the reduction inline. Set only when the raster point-mode LOD
     // path is active (rt_enabled uses raytracing's own address instead).
     VkDeviceAddress lod_raster_pos_addr = 0;
-    uint32_t        lod_raster_count    = 0;
+    uint64_t        lod_raster_count    = 0;
+    // CUDA-mapped device pointer aliasing the SAME positions as lod_raster_pos_addr, set at bind time
+    // only when lod_context.usesCuda(). Fed to LodContext::reduceCuda on the CUDA reduction path (the
+    // Vulkan N^3 accumulator is not allocated there, so recordReduction must NOT be used). nullptr on
+    // the Vulkan-fallback path.
+    const void*     lod_raster_pos_cuda = nullptr;
+    // CPU wall-clock of the raster reduction (recordLodRaster's reduceCuda + cudaStreamSynchronize),
+    // mirroring RayTracingContext::last_lod_ms. Only meaningful on the CUDA path: the Vulkan-fallback
+    // reduction runs async, in-cmd, with no host stall, so a CPU timer there would be measuring
+    // nothing but cmd-buffer recording overhead -- left at 0.0 (see recordLodRaster).
+    double          last_lod_raster_ms  = 0.0;
     // True when the active raster-LOD view is an instanced mesh marker (phong-mesh / SphereMesh):
     // the reduction feeds per-INSTANCE positions (binding 1) and the draw is vkCmdDrawIndexedIndirect
     // (fixed indexCount = sphere_index_count, varying instanceCount). False for point modes (none/phong).
@@ -170,6 +239,9 @@ struct MimirInstance
     // Records the per-frame reduction + indirect-args build for raster point modes, BEFORE the render
     // pass (compute cannot run inside one). No-op when the raster LOD path is inactive.
     void recordLodRaster(VkCommandBuffer cmd, uint32_t slot);
+    // Refresh copy-path interop Image views from their shared buffers (vkCmdCopyBufferToImage) before
+    // the render pass. No-op for zero-copy aliased image views. See the ViewType::Image creation path.
+    void recordImageCopies(VkCommandBuffer cmd);
 
     // Shared template icosphere for the instanced mesh marker mode (LightModel::PhongMesh /
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is

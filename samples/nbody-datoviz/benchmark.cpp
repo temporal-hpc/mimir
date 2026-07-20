@@ -125,6 +125,7 @@ struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics power;
     GPUMemoryMetrics memory;
+    int iters;  // iterations actually executed (divide the time TOTALS by this for per-frame averages)
 };
 
 void formatResults(BenchmarkInput input, BenchmarkResult result)
@@ -144,31 +145,35 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
     // Same column order as nbody.
     // graphics_time = dvz_scene_step (H2D staging write + D2D upload + draw, inseparable).
     // pack_time/d2h_time/h2h_time are the three measurable transfer stages.
+    // Column names carry units; time columns are TOTALS over the run in seconds, memory in GB, power in
+    // W, energy in J. pipeline_time is 0 (datoviz has no public render-pass timing API -- see above).
     printAligned({
-        {"mode",          mode},
-        {"windowres",     resolution},
-        {"N",             sd(input.body_count)},
-        {"framerate",     sf(library.frame_rate)},
-        {"compute_time",  sf(library.times.compute)},
-        {"pipeline_time", sf(library.times.pipeline)},
-        {"graphics_time", sf(library.times.graphics)},
-        {"vk_usage",      sf(library.devmem.usage)},
-        {"vk_budget",     sf(library.devmem.budget)},
-        {"gpu_power",     sf(gpu.average_power)},
-        {"gpu_energy",    sf(gpu.total_energy)},
-        {"gpu_time",      sf(gpu.total_time)},
-        {"nvml_free",     sf(nvml.free)},
-        {"nvml_reserved", sf(nvml.reserved)},
-        {"nvml_total",    sf(nvml.total)},
-        {"nvml_used",     sf(nvml.used)},
-        {"pack_time",     sf(library.transfer.pack)},
-        {"d2h_time",      sf(library.transfer.d2h)},
-        {"h2h_time",      sf(library.transfer.h2h)},
+        {"mode",             mode},
+        {"windowres",        resolution},
+        {"N",                sd(input.body_count)},
+        {"iters",            sd(result.iters)},
+        {"framerate_fps",    sf(library.frame_rate)},
+        {"compute_time_s",   sf(library.times.compute)},
+        {"pipeline_time_s",  sf(library.times.pipeline)},
+        {"graphics_time_s",  sf(library.times.graphics)},
+        {"vk_usage_gb",      sf(library.devmem.usage)},
+        {"vk_budget_gb",     sf(library.devmem.budget)},
+        {"gpu_power_w",      sf(gpu.average_power)},
+        {"gpu_energy_j",     sf(gpu.total_energy)},
+        {"gpu_time_s",       sf(gpu.total_time)},
+        {"nvml_free_gb",     sf(nvml.free)},
+        {"nvml_reserved_gb", sf(nvml.reserved)},
+        {"nvml_total_gb",    sf(nvml.total)},
+        {"nvml_used_gb",     sf(nvml.used)},
+        {"pack_time_s",      sf(library.transfer.pack)},
+        {"d2h_time_s",       sf(library.transfer.d2h)},
+        {"h2h_time_s",       sf(library.transfer.h2h)},
     });
-    printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
+        result.iters,
         library.frame_rate,
         library.times.compute,
         library.times.pipeline,
@@ -568,6 +573,9 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     float total_compute = 0.f, total_pack = 0.f, total_d2h = 0.f,
           total_h2h = 0.f, total_graphics = 0.f;
     size_t frame_count = 0;
+    // Iterations actually executed; the number of frames the time TOTALS accumulate over, so
+    // totals / iters_run = per-frame average.
+    int iters_run = 0;
 
     GPUPowerBegin("gpu", 100);
     printSystemInfo(nbody_memsize, vec3_memsize);
@@ -605,6 +613,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
         for (int i = 0; i < input.iter_count; ++i)
         {
+            iters_run = i + 1;
             auto c0 = clk::now();
             integrateNBodySystemCpu(host, params.time_step,
                 params.damping, params.softening, n
@@ -662,6 +671,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     {
         for (int i = 0; i < input.iter_count; ++i)
         {
+            iters_run = i + 1;
             // --- Compute (physics kernel only, same as mimir's compute metric) ---
             checkCuda(cudaEventRecord(cstart));
             integrateNbodySystem(device, current_read, params.time_step,
@@ -777,7 +787,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     delete[] host.pos;
     delete[] host.vel;
 
-    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml, .iters = iters_run };
 }
 
 static void usage(const char *prog)

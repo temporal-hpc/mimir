@@ -26,13 +26,13 @@ enum class FormatKind { Float, Signed, Unsigned, SignedNormalized, UnsignedNorma
 struct Layout
 {
     // Layout size in cartesian (x,y,z) format.
-    unsigned int x = 0, y = 1, z = 1;
+    size_t x = 0, y = 1, z = 1;
 
     // Returns the total number of elements contained in this layout.
-    unsigned int getTotalCount() { return x * y * z; };
+    size_t getTotalCount() { return x * y * z; };
 
     // Creates a layout with default value of 1 for Y and Z axes.
-    static Layout make(unsigned int x, unsigned int y = 1, unsigned int z = 1)
+    static Layout make(size_t x, size_t y = 1, size_t z = 1)
     {
         return Layout{ .x = x, .y = y, .z = z };
     }
@@ -65,6 +65,9 @@ struct IndexDescription
     AllocHandle source = {};
     // Number of elements contained in the source allocation
     // Must be non-zero to describe a valid indexing.
+    // Intentionally unsigned int (not size_t): indexed-position views (Edges / plain indexed mesh)
+    // are not part of the 64-bit particle-count feature and their draw path stays bound to
+    // UINT32_MAX elements. Only direct point clouds and instanced meshes support >2^32 elements.
     unsigned int size = 0;
     // Size in bits of the index type stored in the indices allocation.
     // Must be non-zero to describe a valid indexing.
@@ -80,7 +83,7 @@ struct AttributeDescription
     AllocHandle source = {};
     // Number of elements contained in the source allocation.
     // Must be non-zero to describe a valid attribute.
-    unsigned int size = 0;
+    size_t size = 0;
     // Format description for the elements in the source array; ignored when sources is null.
     FormatDescription format = {};
     // Handle for the allocation containing indices referencing the source array.

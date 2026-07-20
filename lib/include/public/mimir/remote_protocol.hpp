@@ -96,6 +96,19 @@ struct Hello
     char     host[HOST_MAX];
     uint32_t flags;  // HelloFlags (e.g. HELLO_CAMERA_FLY); 0 = trackball/orbit session
     char     gpu[GPU_MAX]; // GPU model rendering/encoding the stream (HUD); NUL-padded, may be empty
+    // LOD reduction mode for this session (static): 0 = native (per-particle), N = an N^3 voxel
+    // grid, one representative per occupied cell. The client shows it in the HUD.
+    uint32_t lod_cells;
+    // Sim/frame coupling (static): 0 = decoupled (the sim runs on its own thread, OFF the frame
+    // latency path), N>=1 = lockstep (N sim steps then one frame, sequentially -- so N*compute per
+    // step IS part of the frame's latency). The client subtracts that on-path compute from its
+    // network~ estimate in lockstep so the residual stays wire+wait, not sim time.
+    uint32_t steps_per_frame;
+    // Appended (forward-compat: older peers read min(payload, sizeof) and leave these zero). Static
+    // scene identity the client uses to name benchmark CSVs and label its HUD: total particle count,
+    // and the light model (LightModel ordinal: 0 None/raster, 1 Phong, 2 PhongMesh, 3 PathTracing).
+    uint64_t particle_count;
+    uint32_t light_model;
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
@@ -142,6 +155,33 @@ struct Stats
     // in particles/sec, so the client HUD can show scene size and sim throughput.
     uint64_t particle_count;
     uint64_t particles_per_sec;
+    // Appended (same forward-compat rule -- zero when absent). Mean wall-clock time of one sim
+    // compute() step over the reporting window, microseconds: the "kernel compute time" shown live
+    // in the client HUD and the server logs. 0 = older server, or no step measured yet this window.
+    uint32_t compute_us;
+    // Mean server-side GPU render time per frame this window, microseconds (raster or the full
+    // path-trace build+trace). The client HUD shows it as the "render" stage of the pipeline so the
+    // local GPU cost is separable from the remote transfer cost (encode + network + decode).
+    uint32_t render_us;
+    // Appended (same forward-compat rule -- zero when absent). Mean LOD-reduction time per frame this
+    // window, microseconds -- the portion of render_us spent reducing the particles into the N^3 grid
+    // (0 when no LOD is active, or an older server). The client HUD shows it as a sub-component of
+    // render so the reduction cost is visible separately from the rest of the frame's GPU work.
+    uint32_t lod_us;
+    // Appended (same forward-compat rule -- zero when absent). Mean à-trous denoiser time per frame this
+    // window, microseconds -- part of render_us, nonzero only under path tracing with --denoise. Shown
+    // as its own pipeline stage in the client HUD and the server log.
+    uint32_t denoise_us;
+    // Server-side GPU memory this instant: used and total, in MiB (from cudaMemGetInfo). The client HUD
+    // appends "(<used>/<total> GB)" to the GPU line so remote VRAM pressure is visible.
+    uint32_t vram_used_mb;
+    uint32_t vram_total_mb;
+    // Appended (same forward-compat rule -- zero when absent). Instantaneous board power draw and the
+    // enforced power cap ("max"), in watts, sampled once per telemetry window via NVML. The client HUD
+    // shows "<cur>/<max> W" next to the VRAM on the GPU line, and the server log appends it too. 0 =
+    // older server, or a GPU/driver without power telemetry.
+    uint32_t power_w;
+    uint32_t power_limit_w;
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.
@@ -194,7 +234,10 @@ inline std::string hostTag(const std::string& host)
 inline std::string gpuTag(std::string name)
 {
     for (auto& c : name) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); }
-    for (const char *w : {"NVIDIA", "GEFORCE", "LAPTOP", "GPU"})
+    // Drop vendor + marketing/arch words that bloat the tag without disambiguating the model
+    // ("RTX PRO 6000 Blackwell Server Edition" -> "RTXPRO6000", "B300 SXM6 AC" -> "B300SXM6AC").
+    for (const char *w : {"NVIDIA", "GEFORCE", "LAPTOP", "GPU", "BLACKWELL", "HOPPER", "AMPERE",
+                          "ADA", "TURING", "SERVER", "EDITION", "GENERATION"})
     {
         for (size_t p; (p = name.find(w)) != std::string::npos; )
         {
@@ -209,6 +252,7 @@ inline std::string gpuTag(std::string name)
     }
     while (!out.empty() && out.back()  == '-') { out.pop_back(); }
     while (!out.empty() && out.front() == '-') { out.erase(out.begin()); }
+    if (out.size() > 20) { out.resize(20); }   // hard cap so no single tag can blow up the filename
     return out.empty() ? "GPU" : out;
 }
 
@@ -227,14 +271,47 @@ inline std::string dateStamp()
     return buf;
 }
 
-// Assembles the full CSV path from a caller-supplied path+prefix and the run's identities.
+// Compact particle-count tag so the count stays short in filenames: 6000000000 -> "6G",
+// 100000000 -> "100M", 1500000 -> "1.5M", 250000 -> "250K", 0 -> "0".
+inline std::string countTag(uint64_t n)
+{
+    const char* suf[] = { "", "K", "M", "G", "T" };
+    double v = static_cast<double>(n); int s = 0;
+    while (v >= 1000.0 && s < 4) { v /= 1000.0; ++s; }
+    char b[32];
+    if (v == static_cast<double>(static_cast<long long>(v)))
+        std::snprintf(b, sizeof(b), "%lld%s", static_cast<long long>(v), suf[s]);
+    else
+        std::snprintf(b, sizeof(b), "%.1f%s", v, suf[s]);
+    return b;
+}
+
+// Short light-model tag (LightModel ordinal): 0 None -> raster, 1 Phong, 2 PhongMesh, 3 PathTracing.
+inline const char* lightTag(uint32_t light_model)
+{
+    switch (light_model) {
+        case 1:  return "phong";
+        case 2:  return "mesh";
+        case 3:  return "pt";
+        case 0:  return "raster";
+        default: return "lm";
+    }
+}
+
+// Assembles the full CSV path from a caller-supplied path+prefix and the run's identities + scene. The
+// scene tag (-n<count>-lod<N>-<light>) stays compact so the name is informative without ballooning:
+//   <prefix>-<date>-rr-<role>-n6G-lod256-pt-c<client>-s<server>-<gpu>.csv
 inline std::string benchmarkCsvPath(const std::string& prefix, const char *role,
-    const std::string& client, const std::string& server, const std::string& gpu)
+    const std::string& client, const std::string& server, const std::string& gpu,
+    uint64_t particles, uint32_t lod_cells, uint32_t light_model)
 {
     std::string p = prefix;
     if (!p.empty() && p.back() != '/' && p.back() != '-') { p += '-'; }
     p += dateStamp();
     p += "-rr-"; p += role;
+    p += "-n"   + countTag(particles);
+    p += "-lod" + (lod_cells ? std::to_string(lod_cells) : std::string("off"));
+    p += "-"    + std::string(lightTag(light_model));
     p += "-c" + hostTag(client);
     p += "-s" + hostTag(server);
     p += "-"  + gpuTag(gpu);

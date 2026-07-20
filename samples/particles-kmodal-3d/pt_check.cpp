@@ -27,6 +27,7 @@ int main(int argc, char** argv)
     // denoiser); PT_DENOISE=1 turns on the à-trous denoiser.
     if (const char* s = getenv("PT_SPP"))     { opts.pt_samples_per_pixel = (unsigned)atoi(s); }
     if (const char* d = getenv("PT_DENOISE")) { opts.pt_denoise = (atoi(d) != 0); }
+    if (const char* l = getenv("PT_LOD"))     { opts.pt_lod_cells = (unsigned)atoi(l); } // exercise LOD PT
 
     InstanceHandle engine = nullptr;
     createInstance(opts, &engine);

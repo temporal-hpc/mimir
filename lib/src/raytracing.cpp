@@ -4,6 +4,8 @@
 
 #include <algorithm>     // std::max
 #include <cassert>       // assert (LOD single-chunk invariant)
+#include <chrono>        // steady_clock (CPU-time the LOD reduction submit)
+#include <cuda_runtime_api.h> // cudaStreamSynchronize (CUDA LOD reduction sync)
 #include <cstring>       // std::memcpy
 #include <cstdlib>       // std::getenv, std::strtoull (MIMIR_PT_BLAS_CHUNK)
 #include <cmath>         // std::sqrt
@@ -154,17 +156,17 @@ VkDeviceAddress chunkAabbAddr(const RayTracingContext& ctx, VkDeviceAddress aabb
 // Primitive count of chunk `c` (all full-sized except possibly the last).
 uint32_t chunkPrimCount(const RayTracingContext& ctx, uint32_t c)
 {
-    uint32_t base = c * ctx.blas_chunk_prims;
-    uint32_t rem = ctx.particle_count - base;
-    return rem < ctx.blas_chunk_prims ? rem : ctx.blas_chunk_prims;
+    uint64_t base = (uint64_t)c * ctx.blas_chunk_prims;
+    uint64_t rem  = ctx.particle_count - base;
+    return rem < ctx.blas_chunk_prims ? (uint32_t)rem : ctx.blas_chunk_prims;
 }
 
 // Allocates ceil(count / blas_chunk_prims) BLASes over consecutive AABB chunks, plus ONE shared build
 // scratch sized for the largest chunk. maxPrimitiveCount is a per-BLAS limit; chunking lifts the
 // overall particle cap to (num_chunks * maxPrimitiveCount), i.e. VRAM. Does not build yet.
-void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, uint32_t count)
+void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, uint64_t count)
 {
-    uint32_t num_chunks = (count + ctx.blas_chunk_prims - 1) / ctx.blas_chunk_prims;
+    uint32_t num_chunks = (uint32_t)((count + ctx.blas_chunk_prims - 1) / ctx.blas_chunk_prims);
     ctx.scene_blas.assign(num_chunks, AccelStruct{});
     VkDeviceSize max_scratch = 0;
 
@@ -403,7 +405,7 @@ void createRtPipeline(RayTracingContext& ctx)
     auto builder = ShaderBuilder::make();
     ShaderCompileParams params{
         .module_path = "shaders/pathtrace.slang",
-        .entrypoints = { "raygenMain", "missMain", "closestHitMain", "sphereIntersect" },
+        .entrypoints = { "raygenMain", "missMain", "closestHitMain", "primitiveIntersect" },
         .specializations = {},
     };
     auto stages = builder.compileModule(ctx.device, params);
@@ -678,9 +680,12 @@ struct AabbWriterPush
 {
     VkDeviceAddress aabbs;     // BDA pointer to the AABB output buffer (offset 0, 8-byte aligned)
     VkDeviceAddress positions; // BDA pointer to the interop positions (offset 8)
-    uint32_t count;
+    uint64_t count;            // 64-bit particle count
     float radius;
+    uint32_t stride;           // total dispatched threads (grid-stride step) = groups * 64
 };
+// Must match PushConstants in pathtrace_aabbs.slang: 2*8 (BDA) + 8 (count) + 4 (radius) + 4 (stride).
+static_assert(sizeof(AabbWriterPush) == 32, "AabbWriterPush layout must match the shader push block");
 
 void createAabbWriter(RayTracingContext& ctx)
 {
@@ -1195,7 +1200,7 @@ void RayTracingContext::updateMaterial(uint32_t index)
     vkUnmapMemory(device, sbt_buffer.memory);
 }
 
-void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, float radius, glm::vec4 color)
+void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, float radius, glm::vec4 color)
 {
     position_address = positions;
     particle_count  = count;
@@ -1217,8 +1222,16 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     //
     // LOD aggregates particles into <= min(N^3, P) occupied-cell spheres, so both the AABB buffer
     // and the BLAS are sized to that bound (smaller than P at large N). Per-particle mode sizes to P.
-    uint32_t geom_prims = count;
-    if (lod_cells > 0)
+    uint64_t geom_prims = count;
+    if (voxel_boxes)
+    {
+        // Voxel PT: `count` is the max living-cell count (N^3). The AABB buffer + BLAS are sized to it;
+        // the engine compacts the living cells into position_address each frame and sets the per-frame
+        // build count (voxel_prim_count <= count). Single chunk, like the LOD path.
+        lod_max_cells = static_cast<uint32_t>(count);
+        geom_prims = count;
+    }
+    else if (lod_cells > 0)
     {
         // The reduction (accumulators, scatter/emit, reduced positions) lives in the shared LodContext
         // (engine-owned; `lod` set before bindScene). Here we only size the AABB buffer + BLAS to the
@@ -1240,13 +1253,13 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
     // back into a global one.
     blas_chunk_prims = accel_props.maxPrimitiveCount > 0
         ? static_cast<uint32_t>(std::min<uint64_t>(accel_props.maxPrimitiveCount, geom_prims))
-        : geom_prims;
+        : static_cast<uint32_t>(geom_prims);
     // LOD mode requires exactly one BLAS chunk: recordLodUpdate() passes the per-frame `occupied`
     // count as override_prims to recordBlasBuildChunks(), which applies it to EVERY chunk. If the env
     // override shrank blas_chunk_prims below lod_max_cells here, num_chunks would become > 1 and
     // chunk c>0 would read past the emitted primitive list / AABB buffer. So the override only applies
     // in per-particle mode, where blas_chunk_prims is already <= maxPrimitiveCount as computed above.
-    if (lod_cells == 0)
+    if (lod_cells == 0 && !voxel_boxes)
     {
         if (const char* env = std::getenv("MIMIR_PT_BLAS_CHUNK"))
         {
@@ -1330,6 +1343,11 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint32_t count, flo
         vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
+    // LOD PT: run the initial reduction here (setup thread, no interop wait pending) so lod_prim_count
+    // + the reduced-positions buffer are ready for the first build below. Per-frame reductions run on
+    // the compute thread (engine updateViews). Voxel PT already seeded voxel_prim_count before bindScene.
+    if (lod != nullptr && !voxel_boxes) { reduceLodCompute(); }
+
     // Populate the AABBs and build the BLAS + TLAS once (positions are already valid at bind time),
     // so the first rendered frame has a coherent AS even before its own update.
     submit([&](VkCommandBuffer cmd) {
@@ -1349,7 +1367,7 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
     // dominant cost, so we do as little as the scene allows.
     bool must_build = rebuild || !accel_ever_built;
 
-    if (lod_cells > 0)
+    if (voxel_boxes || lod_cells > 0)
     {
         if (!must_build)
         {
@@ -1367,7 +1385,8 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
             }
             return;
         }
-        recordLodUpdate(cmd, frame_idx);
+        if (voxel_boxes) { recordVoxelUpdate(cmd, frame_idx); }
+        else             { recordLodUpdate(cmd, frame_idx); }
         return;
     }
 
@@ -1423,15 +1442,20 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
 
     // 1) AABB writer: fill the shared AABB buffer from the live positions (one sphere per particle).
     // Both buffers are BDA pointers in the push constants, so there is no descriptor set to bind.
+    // Bounded dispatch + 64-bit grid-stride: cap the group count so total threads <= 2^31 (tid.x <
+    // 2^32) and the stride fits a uint32; the shader loops over the full 64-bit particle_count.
+    const uint32_t kMaxGroups = 1u << 25;   // 2^25 groups * 64 = 2^31 threads max (fits uint32 stride)
+    uint32_t groups = (uint32_t)std::min<uint64_t>((particle_count + 63) / 64, kMaxGroups);
+    if (groups == 0) groups = 1;
     AabbWriterPush push{
         .aabbs = aabb_buffer.address,
         .positions = position_address,
-        .count = particle_count, .radius = particle_radius,
+        .count = (uint64_t)particle_count, .radius = particle_radius, .stride = groups * 64u,
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
     vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
         0, sizeof(push), &push);
-    vkCmdDispatch(cmd, (particle_count + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, groups, 1, 1);
 
     // Barrier: compute writes -> BLAS build reads the AABB buffer.
     VkMemoryBarrier to_build{
@@ -1504,6 +1528,40 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
 // input set for the AABB writer; everything downstream is identical to per-particle mode. Aggregate
 // time is not itemized in the GPU sub-phase split (it runs outside `cmd`); the AABB writer over the
 // reduced set IS timed in the AABB sub-phase.
+// The reduction half of the LOD PT update. Runs the scatter/emit over ALL live positions and sets
+// lod_prim_count (the occupied-cell count) + fills lod->reducedPositionsBuffer(0). MUST run on the
+// COMPUTE thread (see the header): it blocks on CUDA, which cannot happen on the render thread while an
+// interop semaphore wait is pending (device-wide GPU stall -> deadlock). recordLodUpdate() below then
+// records the AS build over the reduced set on the render thread, reading lod_prim_count.
+void RayTracingContext::reduceLodCompute()
+{
+    if (lod == nullptr) { return; }
+    uint32_t occupied = 0;
+    if (lod->usesCuda())
+    {
+        // CUDA path: reduce on the interop stream reading the SAME positions the AABB writer reads (as a
+        // CUDA device pointer), then block so the count is on the host before the render builds the AS.
+        assert(lod_positions_dev != nullptr && "CUDA LOD active but interop positions ptr not set");
+        const auto lod_t0 = std::chrono::steady_clock::now();
+        lod->reduceCuda(lod_cuda_stream, lod_positions_dev, particle_count, /*slot=*/0u);
+        lod->syncReduce();
+        last_lod_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - lod_t0).count();
+        occupied = std::min(lod->occupiedFromCuda(/*slot=*/0u), lod_max_cells);
+    }
+    else
+    {
+        // Vulkan fallback (MIMIR_LOD_NO_CUDA): a one-shot blocking submit of the scatter/emit.
+        const auto lod_t0 = std::chrono::steady_clock::now();
+        submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address,
+            particle_count, /*slot=*/0u); });
+        last_lod_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - lod_t0).count();
+        occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
+    }
+    lod_prim_count = occupied;
+}
+
 void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     // Belt-and-suspenders: LOD assumes a single BLAS chunk (see the MIMIR_PT_BLAS_CHUNK guard in
@@ -1512,17 +1570,23 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     assert(lod != nullptr && "LOD active but no LodContext bound (engine must set rt.lod)");
     bool first_build = !accel_ever_built;
 
-    // 1) Reduce, then read the occupied-cell count and clamp to the sizing bound. recordReduction is
-    // now record-only (Task 2 refactor), so PT wraps it in its own blocking one-shot submit: PT needs
-    // the count on the host BEFORE it can build the AS over `occupied` primitives in `cmd`. The
-    // one-shot's vkQueueWaitIdle also serializes against the previous frame's trace. (Raster instead
-    // records the reduction inline in the frame cmd with no stall -- it never calls readCount.) The
-    // reduced positions live in lod->reducedPositionsBuffer().
-    // PT serializes itself (blocking one-shot submit + vkQueueWaitIdle), so a fixed slot 0 of the ringed
-    // output buffers is safe -- no two PT reductions are ever in flight at once.
-    submit([&](VkCommandBuffer c) { lod->recordReduction(c, position_address, particle_count, /*slot=*/0u); });
-    uint32_t occupied = std::min(lod->readCount(/*slot=*/0u), lod_max_cells);
-    lod_prim_count = occupied;
+    // The reduction ran on the compute thread (reduceLodCompute) and set lod_prim_count + filled the
+    // reduced-positions buffer; here we only record the AS build over that reduced set. Serialization
+    // against the previous frame's trace is provided by the serialize barrier below.
+    uint32_t occupied = lod_prim_count;
+
+    // Cross-frame serialization for the shared AABB buffer / BLAS / TLAS (the blocking reduction used
+    // to provide this; now that it runs on the compute thread, do it explicitly here).
+    VkMemoryBarrier lod_serialize{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        0, 1, &lod_serialize, 0, nullptr, 0, nullptr);
 
     // 2) Build the AS in the frame command buffer over `occupied` primitives (always a full rebuild).
     if (timing_pool != VK_NULL_HANDLE)
@@ -1531,11 +1595,12 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 0);
     }
 
-    // Barrier: the emit compute shader's writes to the reduced-position buffer happened inside the
-    // one-shot submit above. vkQueueWaitIdle (inside submit()) gives host-domain execution ordering
-    // only -- not device-domain memory availability/visibility for `cmd`, a separate submission on the
-    // same queue. Without this, the AABB writer below reading the reduced positions is a Read-After-
-    // Write hazard per the Vulkan memory model (compute SHADER_WRITE -> compute SHADER_READ).
+    // Barrier: the reduction's writes to the reduced-position buffer happened in a separate execution
+    // domain from `cmd` -- the Vulkan-fallback's one-shot submit (host-ordered by vkQueueWaitIdle), or
+    // on the CUDA path a CUDA kernel host-ordered by cudaStreamSynchronize before this Vulkan queue
+    // submit. Both give host-domain execution ordering only, not device-domain memory availability/
+    // visibility for `cmd`. This memory barrier covers that within `cmd` so the AABB writer below
+    // reading the reduced positions is not a Read-After-Write hazard (compute WRITE -> compute READ).
     VkMemoryBarrier reduce_to_writer{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1545,14 +1610,19 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     // representative radius scales with the view's --size (lod->sphereRadius); at the reference --size
     // it equals the old cell-fill radius, so the default look is unchanged. Both buffers are BDA
     // push-constant pointers -- no descriptor set to bind.
+    // Bounded dispatch + grid-stride, same as the non-LOD writer. `occupied` <= N^3 < 2^32 so groups
+    // never hits kMaxGroups here, but the push must still carry `count` (64-bit) and `stride`.
+    const uint32_t kMaxGroups = 1u << 25;
+    uint32_t groups = (uint32_t)std::min<uint64_t>((occupied + 63) / 64, kMaxGroups);
+    if (groups == 0) groups = 1;
     AabbWriterPush push{
         .aabbs = aabb_buffer.address,
         .positions = lod->reducedPositionsAddress(/*slot=*/0u),
-        .count = occupied, .radius = lod->sphereRadius(particle_radius),
+        .count = (uint64_t)occupied, .radius = lod->sphereRadius(particle_radius), .stride = groups * 64u,
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
     vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-    vkCmdDispatch(cmd, (occupied + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, groups, 1, 1);
 
     // Barrier: AABB-writer compute writes -> BLAS build reads the AABB buffer.
     VkMemoryBarrier emit_to_build{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
@@ -1604,6 +1674,103 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
             "sphere radius {:.5f} (--size {:.5f}, cell-fill at {:.5f})",
             occupied, occupied ? double(particle_count) / double(occupied) : 0.0, particle_count,
             lod->sphereRadius(particle_radius), particle_radius, LodContext::LOD_REFERENCE_SIZE);
+    }
+}
+
+// Voxel PT: the engine has already compacted the visible voxel view's living cells into
+// position_address (voxelCompactLiving, on the interop CUDA stream, host-ordered before this submit)
+// and set voxel_prim_count. So this is the LOD build path WITHOUT the internal reduction: AABB writer
+// over position_address (count = voxel_prim_count, boxes are AABB = centre +/- radius), then a full
+// BLAS/TLAS rebuild over exactly that many primitives.
+void RayTracingContext::recordVoxelUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
+{
+    assert(scene_blas.size() == 1 && "voxel PT requires a single BLAS chunk");
+    uint32_t count = std::min(voxel_prim_count, lod_max_cells);
+    lod_prim_count = count; // reuse the LOD stat field for the HUD/logs
+
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdResetQueryPool(cmd, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 0);
+    }
+
+    // Cross-frame serialization: the AABB buffer / BLAS / TLAS / scratch are single shared copies, so
+    // this frame's AABB writer + AS rebuild must not start until the PREVIOUS frame's trace has finished
+    // reading the TLAS (write-after-read). Same queue + submission order => an execution dependency from
+    // ray tracing to compute/build orders us after all prior traces. Unlike recordLodUpdate (which gets
+    // this serialization for free from its BLOCKING reduction submit), the voxel compaction runs on a
+    // decoupled stream, so we need this barrier explicitly -- without it the concurrent build corrupts
+    // the in-flight trace and the device faults (a hang). No-op on the first frame (no prior trace).
+    VkMemoryBarrier serialize{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
+                       | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        0, 1, &serialize, 0, nullptr, 0, nullptr);
+
+    // The compaction kernel wrote position_address in a separate execution domain (CUDA on the interop
+    // stream, host-ordered by cudaStreamSynchronize before this Vulkan submit). Make its writes visible
+    // to the AABB-writer compute read within `cmd` (write -> read hazard), same as the LOD path.
+    VkMemoryBarrier compact_to_writer{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &compact_to_writer, 0, nullptr, 0, nullptr);
+
+    // AABB writer over the compacted living-cell centres: one box (AABB = centre +/- radius) per cell.
+    const uint32_t kMaxGroups = 1u << 25;
+    uint32_t groups = (uint32_t)std::min<uint64_t>((count + 63u) / 64u, kMaxGroups);
+    if (groups == 0) groups = 1;
+    AabbWriterPush push{
+        .aabbs = aabb_buffer.address,
+        .positions = position_address,
+        .count = (uint64_t)count, .radius = particle_radius, .stride = groups * 64u,
+    };
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
+    vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+    vkCmdDispatch(cmd, groups, 1, 1);
+
+    VkMemoryBarrier emit_to_build{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &emit_to_build, 0, nullptr, 0, nullptr);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 1);
+    }
+
+    // Full BLAS rebuild over `count` boxes (single chunk).
+    recordBlasBuildChunks(*this, cmd, aabb_buffer.address, /*update=*/false, /*override_prims=*/count);
+    accel_ever_built = true;
+    frames_since_full_rebuild = 0;
+    stat_full_rebuilds++;
+    slot_build_mode[frame_idx] = BlasBuild::Rebuild;
+
+    VkMemoryBarrier blas_to_tlas{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &blas_to_tlas, 0, nullptr, 0, nullptr);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 2);
+    }
+
+    recordTlasBuild(*this, cmd, scene_tlas, tlas_scratch, tlas_instance_buffer.address,
+        static_cast<uint32_t>(scene_blas.size()));
+
+    VkMemoryBarrier to_trace{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1, &to_trace, 0, nullptr, 0, nullptr);
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool, frame_idx * TS_PER_FRAME + 3);
     }
 }
 
@@ -1723,6 +1890,13 @@ void RayTracingContext::recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     if (gbuffer_images.empty() || atrous_pipeline == VK_NULL_HANDLE) { return; }
 
+    // Denoise-phase GPU timestamp start (slots 6/7; read back in readTimings only when denoise ran).
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool,
+            frame_idx * TS_PER_FRAME + 6);
+    }
+
     // The raygen just wrote the accumulator and the G-buffer (RT shader stage). Make those visible
     // to the à-trous compute reads. The display image is still GENERAL (recordTrace was asked to
     // leave it so); the final pass writes it here.
@@ -1780,15 +1954,25 @@ void RayTracingContext::recordDenoise(VkCommandBuffer cmd, uint32_t frame_idx)
             last ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             0, 0, nullptr, 0, nullptr, 1, &b);
     }
+
+    if (timing_pool != VK_NULL_HANDLE)
+    {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool,
+            frame_idx * TS_PER_FRAME + 7);
+    }
 }
 
 void RayTracingContext::readTimings(uint32_t frame_idx)
 {
     if (timing_pool == VK_NULL_HANDLE) { return; }
-    uint64_t ts[TS_PER_FRAME] = {};
+    const uint32_t base = frame_idx * TS_PER_FRAME;
+    // Read only the 6 always-written build+trace slots. The denoise slots (6/7) are read separately
+    // below when denoise ran -- reading all 8 here would return VK_NOT_READY (and drop the whole frame's
+    // timings) on the common no-denoise path where 6/7 are reset but never written.
+    uint64_t ts[6] = {};
     // No WAIT_BIT: the caller only reads after the frame's fence, so results are ready; if for any
     // reason they are not (VK_NOT_READY), keep the previous values rather than stalling.
-    VkResult r = vkGetQueryPoolResults(device, timing_pool, frame_idx * TS_PER_FRAME, TS_PER_FRAME,
+    VkResult r = vkGetQueryPoolResults(device, timing_pool, base, 6,
         sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
     if (r != VK_SUCCESS) { return; }
     // Slots: 0 build start, 1 after AABB, 2 after BLAS, 3 after TLAS (build end), 4/5 trace.
@@ -1798,6 +1982,18 @@ void RayTracingContext::readTimings(uint32_t frame_idx)
     last_tlas_ms  = static_cast<double>(ts[3] - ts[2]) * ms_per_tick;
     last_build_ms = static_cast<double>(ts[3] - ts[0]) * ms_per_tick;
     last_trace_ms = static_cast<double>(ts[5] - ts[4]) * ms_per_tick;
+    // Denoise phase (slots 6/7): only written when the à-trous denoiser ran this frame. 0 otherwise.
+    const bool denoise_active = !gbuffer_images.empty() && atrous_pipeline != VK_NULL_HANDLE;
+    if (denoise_active)
+    {
+        uint64_t d[2] = {};
+        if (vkGetQueryPoolResults(device, timing_pool, base + 6, 2, sizeof(d), d,
+                sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+        {
+            last_denoise_ms = static_cast<double>(d[1] - d[0]) * ms_per_tick;
+        }
+    }
+    else { last_denoise_ms = 0.0; }
     have_timings = true; // readings are now real, not the session-start defaults
     // Pair the build time with the mode that produced it. slot_build_mode[frame_idx] was stamped by
     // recordUpdateScene FRAMES frames ago -- the same frame these timestamps are from -- so the split

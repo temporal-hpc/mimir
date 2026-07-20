@@ -27,6 +27,12 @@ struct PipelineInfo
     VkPipelineMultisampleStateCreateInfo multisampling;
 };
 
+// Fixed-function state builders (defined in pipeline.cpp). Exposed so a standalone pipeline (e.g. the
+// Voxels-LOD variant in engine.cpp) can reuse the exact raster/depth/topology a view type renders with.
+VkPipelineRasterizationStateCreateInfo getRasterizationInfo(const ViewDescription& desc);
+VkPipelineDepthStencilStateCreateInfo getDepthInfo(const ViewDescription& desc);
+VkPipelineInputAssemblyStateCreateInfo getInputAssemblyInfo(const ViewDescription& desc);
+
 struct PipelineBuilder
 {
     std::vector<PipelineInfo> pipeline_infos;

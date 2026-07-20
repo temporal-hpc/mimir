@@ -14,13 +14,12 @@
 //     transport: "tcp" (default, works everywhere incl. ssh -L) or "quic" (-DMIMIR_ENABLE_QUIC=ON)
 //     token:     optional shared secret the client must present (empty = accept any client)
 
-#include <cstdio>  // snprintf (NVML PCI bus id)
+#include <cstdio>  // snprintf (byte-limit formatting)
 #include <cstdlib> // setenv (pin to a GPU via CUDA_VISIBLE_DEVICES)
-#include <cstring> // std::strstr (GPU-name matching)
+#include <chrono>  // throttled [sim-sort] timing print
 #include <string> // std::stoul
 #include <vector>
 
-#include <nvml.h>  // NVENC/NVDEC presence for the startup GPU banner
 #include <spdlog/spdlog.h>
 
 #include "kmodal_sim.cuh"
@@ -29,72 +28,8 @@
 #include "validation.hpp" // checkCuda
 using namespace mimir;
 
-// Shader cores per SM by compute capability (NVIDIA's well-known table, from CUDA samples).
-static int coresPerSM(int major, int minor)
-{
-    switch ((major << 4) | minor)
-    {
-        case 0x30: case 0x32: case 0x35: case 0x37: return 192;            // Kepler
-        case 0x50: case 0x52: case 0x53:            return 128;            // Maxwell
-        case 0x60:                                  return 64;             // Pascal GP100
-        case 0x61: case 0x62:                       return 128;            // Pascal
-        case 0x70: case 0x72: case 0x75:            return 64;             // Volta / Turing
-        case 0x80:                                  return 64;             // Ampere GA100 (A100)
-        case 0x86: case 0x87: case 0x89:            return 128;            // Ampere / Ada
-        case 0x90:                                  return 128;            // Hopper
-        default:                                    return 128;            // newer archs (approx)
-    }
-}
-
-// Tensor cores per SM: none before Volta, 8 on Volta/Turing, 4 on Ampere and later.
-static int tensorPerSM(int major) { return major < 7 ? 0 : (major == 7 ? 8 : 4); }
-
-// RT-core count is NOT queryable via CUDA (or CUDA-visible), so this is a best-effort estimate:
-// NVIDIA has ~1 RT core per SM on RT-capable GPUs, and 0 on datacenter compute parts. Those are
-// hard to tell apart by compute capability alone (a new datacenter arch can share a CC with a
-// consumer one), so match the known compute families by name too.
-static int rtCores(const cudaDeviceProp& p)
-{
-    static const char *const compute_only[] = {
-        "V100", "A100", "A800", "H100", "H200", "H800", "GH200",
-        "B100", "B200", "B300", "GB200", "GB300", // Blackwell datacenter: no RT cores
-    };
-    for (const char *s : compute_only) { if (std::strstr(p.name, s) != nullptr) { return 0; } }
-    const bool cc_datacenter =
-        (p.minor == 0 && (p.major == 7 || p.major == 8 || p.major == 9 || p.major == 10));
-    const bool rt_capable = (p.major * 10 + p.minor) >= 75 && !cc_datacenter; // Turing+ w/ display
-    return rt_capable ? p.multiProcessorCount : 0;
-}
-
-// Query NVENC/NVDEC presence via NVML. NVML ignores CUDA_VISIBLE_DEVICES and enumerates every
-// physical GPU, so find the one whose PCI location matches our CUDA device (numeric compare, no
-// bus-string formatting). Encoder-capacity / decoder-utilization return NOT_SUPPORTED on a GPU
-// that lacks that engine -- e.g. the A100 (NVDEC yes, NVENC no).
-static void queryVideoEngines(const cudaDeviceProp& p, bool& nvenc, bool& nvdec)
-{
-    nvenc = nvdec = false;
-    if (nvmlInit_v2() != NVML_SUCCESS) { return; }
-    unsigned int count = 0;
-    if (nvmlDeviceGetCount_v2(&count) == NVML_SUCCESS)
-    {
-        for (unsigned int i = 0; i < count; ++i)
-        {
-            nvmlDevice_t dev{};
-            nvmlPciInfo_t pci{};
-            if (nvmlDeviceGetHandleByIndex_v2(i, &dev) != NVML_SUCCESS) { continue; }
-            if (nvmlDeviceGetPciInfo_v3(dev, &pci) != NVML_SUCCESS)      { continue; }
-            if (static_cast<int>(pci.domain) != p.pciDomainID ||
-                static_cast<int>(pci.bus)    != p.pciBusID    ||
-                static_cast<int>(pci.device) != p.pciDeviceID) { continue; }
-            unsigned int cap = 0;
-            nvenc = nvmlDeviceGetEncoderCapacity(dev, NVML_ENCODER_QUERY_H264, &cap) == NVML_SUCCESS;
-            unsigned int util = 0, period = 0;
-            nvdec = nvmlDeviceGetDecoderUtilization(dev, &util, &period) == NVML_SUCCESS;
-            break;
-        }
-    }
-    nvmlShutdown();
-}
+// GPU capability reporting (core-count tables, RT-core estimate, NVENC/NVDEC probe) moved into the
+// library: mimir::queryGpuCapabilities() + mimir::gpuBanner() (see mimir/mimir.hpp).
 
 // Parse a color as "G" (grey level) or "R,G,B" in [0,1].
 static float3 parseColor(const std::string& v)
@@ -127,6 +62,12 @@ static void usage(const char *prog)
         "  width       Render width in pixels              (default: 1280)\n"
         "  height      Render height in pixels             (default: 720)\n"
         "  point_count Number of 3-D points to simulate    (default: 100000)\n"
+        "              No fixed maximum -- bounded by GPU memory. Positions cost 12 B/particle;\n"
+        "              path-tracing WITHOUT --lod adds 24 B/particle for AABBs (36 B total);\n"
+        "              --lod and the raster light models (none/phong/phong-mesh) stay ~12 B/particle.\n"
+        "              An over-memory count is rejected up front (before any Vulkan allocation).\n"
+        "              Rough per-card ceiling: ~7.5 B particles on a 96 GB GPU (none/phong/PT+LOD);\n"
+        "              ~2.6 B for path-tracing without LOD; more on larger-VRAM cards.\n"
         "  h264        1 = H.264 encoding (needs -DMIMIR_ENABLE_REMOTE=ON), 0 = raw (default: 0)\n"
         "  transport   tcp (default, works with ssh -L) | quic (needs -DMIMIR_ENABLE_QUIC=ON)\n"
         "  token       Shared secret the client must send  (default: empty = accept anyone)\n"
@@ -142,6 +83,17 @@ static void usage(const char *prog)
         "                     larger N needs more memory. Trades detail for speed. Under lit\n"
         "                     modes, --size scales the representative sphere's cell-fill radius;\n"
         "                     under none, --size is unaffected (still the point's pixel size).\n"
+        "                     The reduction (clear/scatter/emit) runs on custom native-CUDA kernels\n"
+        "                     by default (single-digit ms at hundreds of millions of particles).\n"
+        "                     Set MIMIR_LOD_NO_CUDA=1 to force the Vulkan-compute fallback instead\n"
+        "                     (used automatically when CUDA/Vulkan interop is unavailable); it is\n"
+        "                     slower under heavy atomic contention but scales past 2^32 particles,\n"
+        "                     unlike a CUB-based reduction, which is limited to a 32-bit item count.\n"
+        "  --lod-placement P  Where each cell's representative sits: centroid (default) = the mass\n"
+        "                     centroid of the cell's particles; cell = the cell's geometric center.\n"
+        "                     cell drops 3 int64 atomics/particle in the reduction, so it is much\n"
+        "                     faster at huge N (the reduction is atomic-bound there) and needs 8x\n"
+        "                     less accumulator VRAM, at slightly coarser positions. No-op without --lod.\n"
         "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1]    (default: light grey)\n"
         "  --background C     Window/sky color: grey 'G' or 'R,G,B' in [0,1]  (default: 0.1,0.1,0.12)\n"
         "  --seed N           RNG seed for positions/walk                     (default: 12345)\n"
@@ -152,9 +104,10 @@ static void usage(const char *prog)
         "                     much more (e.g. 40000+) or interiors smear/ghost under motion.\n"
         "  --benchmark P      Write per-second server telemetry to an auto-named CSV. P is a\n"
         "                     path+prefix; the full name is assembled when a client connects as\n"
-        "                       <P>-<YYYYMMDD>-rr-server-c<client>-s<server>-<gpu>.csv\n"
-        "                     (columns time_s,frame,fps,steps_s,kbps,encode_ms), pairing with the\n"
-        "                     client's file. Pair with the client's --benchmark scripted camera.\n"
+        "                       <P>-<YYYYMMDD>-rr-server-n<count>-lod<N>-<light>-c<client>-s<server>-<gpu>.csv\n"
+        "                     (e.g. run1-...-rr-server-n6G-lod256-pt-...; columns time_s,frame,fps,\n"
+        "                     steps_s,kbps,encode_ms), pairing with the client's file. Pair with the\n"
+        "                     client's --benchmark scripted camera.\n"
         "  --fps N            Cap the streamed FRAME rate at N fps and honor --bitrate at that\n"
         "                     cadence (default: 0 = uncapped). The simulation runs on its own\n"
         "                     thread, so this caps pixels-on-the-wire only and never slows the\n"
@@ -198,6 +151,13 @@ static void usage(const char *prog)
         "  # Path-traced over QUIC:\n"
         "  %s 9000 1920 1080 50000 1 quic --light-model path-tracing --spp 2\n"
         "\n"
+        "  # Paired benchmark for a research run: server and client each write a CSV that share\n"
+        "  # the SAME <prefix> and line up for the identical 60 s scripted camera. On this host:\n"
+        "  %s 9000 1280 720 100000000 1 tcp --benchmark run1\n"
+        "  # then on the client:  rr-client 127.0.0.1 9000 \"\" tcp --benchmark run1\n"
+        "  # -> run1-<date>-rr-server-...csv (here) + run1-<date>-rr-client-...csv (client);\n"
+        "  #    plot both with research/scripts/plot_benchmark.py\n"
+        "\n"
         "Serving to a remote client over SSH (e.g. this server in a Slurm + Pyxis job):\n"
         "  The server binds all interfaces (0.0.0.0) and enroot shares the host network, so it is\n"
         "  reachable at <compute-node-name>:<port> with no container port mapping. SSH forwards TCP\n"
@@ -216,7 +176,7 @@ static void usage(const char *prog)
         "\n"
         "Run from the build directory (shaders must be next to the binary):\n"
         "  cd samples/remote-rendering/build && ./rr-server ...\n",
-        prog, prog, prog, prog, prog);
+        prog, prog, prog, prog, prog, prog);
 }
 
 int main(int argc, char *argv[])
@@ -225,7 +185,7 @@ int main(int argc, char *argv[])
     unsigned short port      = 9000;
     int width                = 1280;
     int height               = 720;
-    unsigned int point_count = 100000;
+    uint64_t point_count     = 100000;
     bool use_h264            = false;
     remote::TransportKind transport = remote::TransportKind::Tcp;
     std::string token        = "";
@@ -241,6 +201,7 @@ int main(int argc, char *argv[])
     bool subdiv_set         = false;
     bool pt_denoise         = false;
     unsigned int lod_cells   = 0;
+    bool lod_centroid       = true;   // LOD placement: centroid (default) vs cell-center
     bool fly                = false;
     int bitrate_kbps        = 8000;
     int fps_cap             = 0;
@@ -273,6 +234,7 @@ int main(int argc, char *argv[])
             else if (a == "--spp")         pt_spp = (unsigned int)std::stoul(v);
             else if (a == "--bounces")     pt_bounces = (unsigned int)std::stoul(v);
             else if (a == "--lod")         lod_cells = (unsigned int)std::stoul(v);
+            else if (a == "--lod-placement") lod_centroid = (v != "cell" && v != "cell-center");
             else if (a == "--subdiv")    { pt_subdiv = (unsigned int)std::stoul(v); subdiv_set = true; }
             else if (a == "--bitrate")     bitrate_kbps = std::stoi(v);
             else if (a == "--benchmark")   bench_csv = v;
@@ -286,7 +248,14 @@ int main(int argc, char *argv[])
     }
     if (posv.size() >= 1) port        = (unsigned short)std::stoi(posv[0]);
     if (posv.size() >= 3) { width = std::stoi(posv[1]); height = std::stoi(posv[2]); }
-    if (posv.size() >= 4) point_count = (unsigned int)std::stoul(posv[3]);
+    if (posv.size() >= 4) {
+        unsigned long long pc = std::stoull(posv[3]);
+        if (pc == 0ull) {
+            fprintf(stderr, "rr-server: point_count must be >= 1\n");
+            return EXIT_FAILURE;
+        }
+        point_count = (uint64_t)pc;   // no upper cap: the memory pre-flight below bounds it
+    }
     if (posv.size() >= 5) use_h264    = std::stoi(posv[4]) != 0;
     if (posv.size() >= 6) transport   = (posv[5] == "quic")?
         remote::TransportKind::Quic : remote::TransportKind::Tcp;
@@ -309,46 +278,58 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
     checkCuda(cudaSetDevice(0)); // device 0 of the (now single-device) visible set == --dev N
-    cudaDeviceProp gpu_prop{};
-    if (cudaGetDeviceProperties(&gpu_prop, 0) == cudaSuccess)
-    {
-        bool nvenc = false, nvdec = false;
-        queryVideoEngines(gpu_prop, nvenc, nvdec);
-        // Theoretical peak HBM/GDDR bandwidth = 2 (DDR) * memory clock * bus width. The clock (kHz)
-        // and bus width (bits) come from device attributes -- cudaDeviceProp dropped memoryClockRate
-        // in newer CUDA. /8 for bytes, /1e9 for GB/s. This is the headline number that separates
-        // datacenter HBM parts from graphics GDDR ones (e.g. B300 HBM3e ~8 TB/s vs RTX PRO 6000 GDDR7
-        // ~1.8 TB/s) and governs the memory-bound sim's steps/s.
-        int mem_clock_khz = 0, mem_bus_bits = 0;
-        cudaDeviceGetAttribute(&mem_clock_khz, cudaDevAttrMemoryClockRate, 0);
-        cudaDeviceGetAttribute(&mem_bus_bits, cudaDevAttrGlobalMemoryBusWidth, 0);
-        const double mem_bw_gbs = 2.0 * static_cast<double>(mem_clock_khz) * 1e3
-            * (static_cast<double>(mem_bus_bits) / 8.0) / 1e9;
-        const int rt = rtCores(gpu_prop);
-        printf("rr-server: using GPU device %d (%s) | %.0f GB | %.0f GB/s mem BW | %d SMs | "
-               "%d CUDA cores | %d tensor cores | %d RT cores (%s) | NVENC %s | NVDEC %s\n",
-            cuda_dev, gpu_prop.name,
-            static_cast<double>(gpu_prop.totalGlobalMem) / (1024.0 * 1024.0 * 1024.0),
-            mem_bw_gbs,
-            gpu_prop.multiProcessorCount,
-            gpu_prop.multiProcessorCount * coresPerSM(gpu_prop.major, gpu_prop.minor),
-            gpu_prop.multiProcessorCount * tensorPerSM(gpu_prop.major),
-            rt, rt > 0 ? "hardware BVH traversal" : "none -> software BVH",
-            nvenc ? "yes" : "no", nvdec ? "yes" : "no");
-    }
-    else
-    {
+    // GPU banner via the library (core tables, RT-core estimate, NVENC/NVDEC probe). Query device 0
+    // (the single visible device after CUDA_VISIBLE_DEVICES pinned --dev N); print it as cuda_dev.
+    auto caps = mimir::queryGpuCapabilities(0);
+    if (!caps.name.empty()) {
+        printf("rr-server: using GPU %s\n", mimir::gpuBanner(cuda_dev, caps).c_str());
+    } else {
         printf("rr-server: using GPU device %d\n", cuda_dev);
     }
-    // Baseline free VRAM (context already up) so we can report mimir's footprint after setup.
-    size_t vram_free0 = 0, vram_total = 0;
-    cudaMemGetInfo(&vram_free0, &vram_total);
 
-    // Accumulator is N^3 * bytes_per_cell (32 for centroid, 4 for cell-center). Reject an --lod whose
-    // accumulator would not fit the device memory that is ACTUALLY free at this moment (vram_free0,
-    // queried live above via cudaMemGetInfo -- no fixed budget fraction). Conservatively assume
-    // centroid placement (32 B/cell) since that's the default on capable GPUs.
-    const unsigned long long bytes_per_cell = 32ull; // conservative (centroid)
+    // Experimental spatial sort (MIMIR_SIM_SORT_EVERY): parsed here so its VRAM is in the pre-flight.
+    // The onesweep radix uses 32 B/particle (keys 8 + vals 8 ping-pong + pos 12 + id 4 gather shadow)
+    // plus a flat decoupled-look-back status array (numTiles*256*8 B); see kmodal_sim.cu SortScratch.
+    const char* sort_env = std::getenv("MIMIR_SIM_SORT_EVERY");
+    int sort_every = sort_env ? std::atoi(sort_env) : 0;
+    const bool sort_on = (sort_every > 0 && lod_cells > 0);
+    const unsigned long long sort_status_bytes = sort_on
+        ? ((point_count + 2047ull) / 2048ull) * 256ull * 8ull + 16ull * 1024ull : 0ull; // status + gHist/gOff
+
+    // Memory pre-flight: reject a count that will not fit the GPU memory free right now, BEFORE Vulkan
+    // OOMs. Per-particle device allocations: mimir's interop (positions, always; + per-particle AABBs
+    // under path-tracing WITHOUT LOD) plus the kmodal sim's per-particle cluster id (4 B, always --
+    // see kmodal_sim.cu createClusters); + 32 B/particle for the spatial-sort radix when enabled.
+    // The N^3 LOD accumulator and render targets are checked below.
+    const bool pt_no_lod = (light_model == LightModel::PathTracing) && (lod_cells == 0);
+    const unsigned long long bytes_per_particle =
+        mimir::interopBytesPerParticle(light_model, lod_cells > 0) + 4ull  // +4: kmodal cluster id
+        + (sort_on ? 32ull : 0ull);                                        // +32: radix sort scratch
+    auto budget = mimir::memoryBudget(point_count, bytes_per_particle, 0);
+    const size_t vram_free0 = budget.free_bytes; // reused by the LOD-accumulator check below
+    {
+        const unsigned long long need = (unsigned long long)point_count * bytes_per_particle + sort_status_bytes;
+        if (need > (unsigned long long)vram_free0) {
+            fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s, %llu B/particle%s) but only %.1f GB "
+                    "is free on the GPU right now -- max feasible here is ~%llu particles\n",
+                    (unsigned long long)point_count, (double)need/1e9,
+                    pt_no_lod ? "positions+ids+AABBs" : "positions+ids", bytes_per_particle,
+                    sort_on ? "+sort" : "", (double)vram_free0/1e9,
+                    (unsigned long long)((vram_free0 > sort_status_bytes ? vram_free0 - sort_status_bytes : 0) / bytes_per_particle));
+            return EXIT_FAILURE;
+        }
+        printf("rr-server: memory pre-flight OK -- %llu particles need %.1f GB of %.1f GB free "
+               "(%llu B/particle%s); this GPU fits ~%llu particles in %s mode\n",
+               (unsigned long long)point_count, (double)need/1e9, (double)vram_free0/1e9,
+               bytes_per_particle, sort_on ? "+sort shadow" : "", (unsigned long long)budget.max_particles,
+               pt_no_lod ? "path-tracing (no LOD)" : "raster/LOD");
+    }
+
+    // Accumulator is N^3 * bytes_per_cell. Reject an --lod whose accumulator would not fit the device
+    // memory ACTUALLY free at this moment (vram_free0, queried live above via cudaMemGetInfo -- no
+    // fixed budget fraction). Centroid placement keeps a per-cell count (u32) + a 3*u64 position sum
+    // (~32 B/cell); cell-center keeps only the count (4 B/cell), so it fits a much larger N.
+    const unsigned long long bytes_per_cell = lod_centroid ? 32ull : 4ull;
     const unsigned long long max_cells = (unsigned long long)vram_free0 / bytes_per_cell;
     // Largest N whose accumulator fits the currently-free VRAM, bounded by the uint32 cell-index limit.
     // The LOD shaders (pathtrace_lod_scatter.slang, pathtrace_lod_emit.slang) compute the linear cell
@@ -367,7 +348,7 @@ int main(int argc, char *argv[])
     }
     if (lod_cells > 0 && (unsigned long long)lod_cells*lod_cells*lod_cells > (unsigned long long)point_count/8ull) {
         fprintf(stderr, "rr-server: note: --lod %u gives little benefit here; occupied cells approach "
-                        "the particle count (%u)\n", lod_cells, point_count);
+                        "the particle count (%llu)\n", lod_cells, (unsigned long long)point_count);
     }
 
     ViewerOptions options;
@@ -386,6 +367,7 @@ int main(int argc, char *argv[])
     options.pt_subdivisions      = pt_subdiv;
     options.pt_denoise           = pt_denoise;
     options.pt_lod_cells         = lod_cells;
+    options.lod_centroid         = lod_centroid;
     // Match datoviz/particles-kmodal-3d framing of the [-1,1]^3 domain (45 deg vertical FOV).
     options.camera_fov        = 45.f;
     // --fly: run the first-person camera. serveRemote seeds the fly pose and interprets the
@@ -472,7 +454,7 @@ int main(int argc, char *argv[])
     };
     // Practical ceiling: ~135 B/particle (positions 12 + AABBs 24 + BVH+scratch ~100) against total
     // VRAM. This, not the buffer cap, is what runs out first -- report both.
-    const unsigned long long vram_particles = vram_total / 135ull;
+    const unsigned long long vram_particles = vram_total1 / 135ull;
     printf("rr-server: RT limits -- max-primitives/BLAS %llu (chunked), max-buffer %s => path-tracing "
            "buffer cap ~%.0f M particles; VRAM budget ~%llu M particles (~135 B each)\n",
            static_cast<unsigned long long>(lim.max_primitive_count),
@@ -485,17 +467,54 @@ int main(int argc, char *argv[])
         light_model == LightModel::None       ? "none" :
         light_model == LightModel::Phong      ? "phong" :
         light_model == LightModel::PhongMesh  ? "phong-mesh" : "path-tracing";
-    printf("rr-server: %s port %u (%dx%d, %u points, %s, %s). Connect with rr-client.\n",
-        quic ? "UDP/QUIC" : "TCP", port, width, height, point_count, use_h264 ? "H.264" : "raw", lm);
+    printf("rr-server: %s port %u (%dx%d, %llu points, %s, %s). Connect with rr-client.\n",
+        quic ? "UDP/QUIC" : "TCP", port, width, height, (unsigned long long)point_count,
+        use_h264 ? "H.264" : "raw", lm);
+
+    // Experimental: periodically re-sort particles by Morton cell key so the render-side LOD reduction
+    // gets spatial locality (warp-agg centroid scatter collapses ~3.3x faster). Parsed + budgeted above
+    // (MIMIR_SIM_SORT_EVERY / sort_on); allocate the scratch and start sorted here. See kmodal_sim.cu.
+    SortScratch sort_scratch{};
+    if (sort_on)
+    {
+        sort_scratch = createSortScratch(point_count, lod_cells);
+        printf("rr-server: sim spatial sort ON -- every %d steps, sortN=%u (Morton), scratch %.2f GB\n",
+               sort_every, lod_cells, (double)sortScratchBytes(sort_scratch) / 1e9);
+        launchSpatialSort(d_pos, (unsigned int*)clusters.ids, point_count, sort_scratch); // start sorted
+        checkCuda(cudaDeviceSynchronize());
+    }
+    else if (sort_every > 0)
+    {
+        printf("rr-server: MIMIR_SIM_SORT_EVERY ignored (needs --lod)\n");
+        sort_every = 0;
+    }
+    uint64_t sim_step = 0;
+    cudaEvent_t se0{}, se1{}; cudaEventCreate(&se0); cudaEventCreate(&se1);
+    auto sort_log = std::chrono::steady_clock::now() - std::chrono::hours(1);
 
     // Blocks serving clients. The lambda advances the simulation each (non-paused) frame over
     // interop-mapped memory.
     serveRemote(instance, port, [&]{
         launchIntegrate3D(d_pos, point_count, clusters, rng);
+        if (sort_every > 0 && (++sim_step % (uint64_t)sort_every == 0))
+        {
+            cudaEventRecord(se0);
+            launchSpatialSort(d_pos, (unsigned int*)clusters.ids, point_count, sort_scratch);
+            cudaEventRecord(se1); cudaEventSynchronize(se1);
+            float ms = 0.f; cudaEventElapsedTime(&ms, se0, se1);
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - sort_log).count() >= 1000)
+            {
+                printf("[sim-sort] step %llu | spatial sort %.2f ms (sortN=%u, every %d)\n",
+                       (unsigned long long)sim_step, ms, lod_cells, sort_every);
+                sort_log = now;
+            }
+        }
         checkCuda(cudaDeviceSynchronize());
     }, max_steps, use_h264, transport, token.c_str(), bitrate_kbps,
         bench_csv.empty() ? nullptr : bench_csv.c_str(), fps_cap, steps_per_frame);
 
+    if (sort_scratch.sortN) destroySortScratch(sort_scratch);
     destroyClusters(clusters);
     destroyRngStates(rng);
     destroyInstance(instance);

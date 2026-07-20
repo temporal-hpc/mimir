@@ -20,8 +20,9 @@ struct PushConstants
     // first (8-byte aligned).
     Aabb* aabbs;      // output: one AABB per particle
     float* positions; // input: interop positions, tightly packed x,y,z (stride 12 B, shared w/ CUDA)
-    uint count;       // number of particles
+    uint64_t count;   // 64-bit particle count
     float radius;     // sphere world radius (AABB half-extent)
+    uint stride;      // total dispatched threads (grid-stride step); <= 2^31
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -29,9 +30,11 @@ struct PushConstants
 [numthreads(64, 1, 1)]
 void writeAabbsMain(uint3 tid : SV_DispatchThreadID)
 {
-    uint i = tid.x;
-    if (i >= pc.count) { return; }
-
+    // Bounded dispatch + 64-bit grid-stride loop: the host caps the dispatch at kMaxGroups so
+    // gl_GlobalInvocationID.x (tid.x) stays < 2^32 and the stride fits a uint32; each thread walks
+    // the full 64-bit particle range in `stride` steps. For count <= 2^32 the stride >= count so
+    // every particle is visited exactly once (identical result, determinism preserved).
+    //
     // BDA accesses must compute the byte address in explicit 64-bit integer arithmetic and cast,
     // NOT index the pointer (pc.aabbs[i] / pc.aabbs[uint64_t(i)]): pointer indexing lowers to
     // OpPtrAccessChain, whose index*stride offset the NVIDIA compiler truncates to 32 bits EVEN
@@ -39,14 +42,17 @@ void writeAabbsMain(uint3 tid : SV_DispatchThreadID)
     // 24 that is only ~179M particles (stride 12: ~357M), and the wrapped stores land misaligned
     // across earlier records, shredding the AABB buffer. Verified on Turing/Ampere/Blackwell,
     // driver 610.43.02 (2026-07).
-    uint64_t pos_addr = uint64_t(pc.positions) + uint64_t(i) * 12ull;
-    float px = *(float*)(pos_addr + 0);
-    float py = *(float*)(pos_addr + 4);
-    float pz = *(float*)(pos_addr + 8);
-    float r  = pc.radius;
+    for (uint64_t i = tid.x; i < pc.count; i += uint64_t(pc.stride))
+    {
+        uint64_t pos_addr = uint64_t(pc.positions) + i * 12ull;
+        float px = *(float*)(pos_addr + 0);
+        float py = *(float*)(pos_addr + 4);
+        float pz = *(float*)(pos_addr + 8);
+        float r  = pc.radius;
 
-    Aabb a;
-    a.minx = px - r; a.miny = py - r; a.minz = pz - r;
-    a.maxx = px + r; a.maxy = py + r; a.maxz = pz + r;
-    *(Aabb*)(uint64_t(pc.aabbs) + uint64_t(i) * 24ull) = a;
+        Aabb a;
+        a.minx = px - r; a.miny = py - r; a.minz = pz - r;
+        a.maxx = px + r; a.maxy = py + r; a.maxz = pz + r;
+        *(Aabb*)(uint64_t(pc.aabbs) + i * 24ull) = a;
+    }
 }

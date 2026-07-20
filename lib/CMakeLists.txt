@@ -8,12 +8,15 @@ target_sources(mimir
         src/formats.cpp
         src/engine.cpp
         src/device.cpp
+        src/gpuinfo.cpp
         src/camera.cpp
         src/framebuffer.cpp
         src/framelimit.cpp
         src/gui.cpp
         src/interop.cpp
         src/lod.cpp
+        src/lod_reduce.cu
+        src/voxel_lod.cu
         src/metrics.cpp
         src/pipeline.cpp
         src/raytracing.cpp
@@ -46,7 +49,7 @@ target_include_directories(mimir
 
 set_target_properties(mimir PROPERTIES
     COMPILE_WARNING_AS_ERROR OFF
-    CUDA_ARCHITECTURES       native
+    CUDA_ARCHITECTURES       "${MIMIR_CUDA_ARCHITECTURES}"
     CUDA_STANDARD            20
 )
 target_compile_features(mimir PRIVATE cxx_std_20)
@@ -112,6 +115,8 @@ target_link_libraries(mimir
         Vulkan::Vulkan CUDA::cudart
     PRIVATE
         slang glm::glm glfw imgui spdlog::spdlog
+        CUDA::cuda_driver   # driver API (cuMemCreate/cuMemMap) for the VMM large-page interop path
+        CUDA::nvml          # NVENC/NVDEC presence probe in queryGpuCapabilities (gpuinfo.cpp)
         "$<$<BOOL:${MIMIR_ENABLE_ASAN}>:-fsanitize=address>"
 )
 
@@ -180,3 +185,18 @@ install(
     DIRECTORY "${slang_SOURCE_DIR}/include/"
     DESTINATION include/slang
 )
+
+# Standalone custom-CUDA LOD reduction parity test (Task 1 of the LOD custom-CUDA rewrite; see
+# .superpowers/sdd/task-1-brief.md). Build/run explicitly with
+# `cmake --build build --target lod_reduce_test && ./build/lod_reduce_test`.
+add_executable(lod_reduce_test EXCLUDE_FROM_ALL tests/lod_reduce_test.cu src/lod_reduce.cu)
+target_include_directories(lod_reduce_test PRIVATE include/private include/public)
+target_link_libraries(lod_reduce_test PRIVATE CUDA::cudart)
+set_target_properties(lod_reduce_test PROPERTIES CUDA_STANDARD 20 CUDA_ARCHITECTURES "${MIMIR_CUDA_ARCHITECTURES}")
+
+# Standalone parity test for the Voxels grid-LOD max-pool formula (the vertex shader implements the
+# same pooling live). Build/run: `cmake --build build --target voxel_pool_ref_test && ./build/lib/voxel_pool_ref_test`.
+add_executable(voxel_pool_ref_test EXCLUDE_FROM_ALL tests/voxel_pool_ref_test.cu src/voxel_lod.cu)
+target_include_directories(voxel_pool_ref_test PRIVATE include/private include/public)
+target_link_libraries(voxel_pool_ref_test PRIVATE CUDA::cudart)
+set_target_properties(voxel_pool_ref_test PROPERTIES CUDA_STANDARD 20 CUDA_ARCHITECTURES "${MIMIR_CUDA_ARCHITECTURES}")

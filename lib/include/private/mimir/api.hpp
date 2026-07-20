@@ -21,6 +21,10 @@ struct LinearAlloc
     VkDeviceMemory vk_mem;
     // Cuda external memory handle, provided by the Cuda interop API.
     cudaExternalMemory_t cuda_extmem;
+    // Cuda-mapped device pointer aliasing this buffer's memory (the same pointer handed back to the
+    // caller of allocLinear). Persisted so consumers -- e.g. the LOD CUDA reduction -- can read the
+    // interop positions as a native CUDA device pointer without re-mapping. nullptr until set.
+    void *cuda_ptr = nullptr;
 };
 
 struct OpaqueAlloc
@@ -52,6 +56,13 @@ struct Texture
     VkFormat format;
     // Texture image dimensions.
     VkExtent3D extent;
+    // Copy-path fields, set only when the interop buffer CANNOT be aliased directly to the image
+    // (the device's LINEAR row pitch would differ from the buffer's tight packing and shear). Then
+    // `image` is a device-local image, `copy_src` is a buffer over the shared interop memory, and
+    // `image` is refreshed from `copy_src` each frame via vkCmdCopyBufferToImage (no host round-trip).
+    // Both are VK_NULL_HANDLE on the zero-copy alias path.
+    VkBuffer       copy_src = VK_NULL_HANDLE;
+    VkDeviceMemory own_mem  = VK_NULL_HANDLE;
 };
 
 struct View
@@ -63,12 +74,19 @@ struct View
     // Instances to draw (default 1). >1 for instanced marker meshes: draw_count is the template
     // icosphere's index count and instance_count is the particle count (SphereMesh render mode).
     uint32_t instance_count = 1;
+    // True element (particle/vertex) total — 64-bit source of truth for the chunk loops.
+    // draw_count/instance_count stay uint32 (per-chunk or the mesh index count).
+    uint64_t element_count = 0;
     // Number of vertex buffers in the view.
     uint32_t vb_count;
     // Array of vertex buffer objects associated to the view.
     VkBuffer vbo[max_attr_count];
     // Start region for each buffer object in the view.
     VkDeviceSize offsets[max_attr_count];
+    // Per-binding element stride (bytes) and input rate, so the chunked draw can advance each binding
+    // by chunk_start * stride for the bindings whose rate matches the chunked dimension.
+    VkDeviceSize      vbo_stride[max_attr_count] = {0};
+    VkVertexInputRate vbo_rate[max_attr_count]   = {VK_VERTEX_INPUT_RATE_VERTEX};
     // Set to true at view creation when using an index buffer for drawing; false otherwise.
     bool use_ibo;
     // Index buffer used when is_indexed is true. Uninitialized if view uses direct source mapping.
@@ -203,6 +221,9 @@ VkImageType getImageType(Layout extent);
 VkDeviceSize getSourceSize(AllocHandle alloc);
 VkDeviceMemory getMemoryVulkan(AllocHandle alloc);
 cudaExternalMemory_t getMemoryCuda(AllocHandle alloc);
+// Return the CUDA-mapped device pointer for a LinearAlloc (the interop buffer's CUDA alias), or
+// nullptr for the monostate/OpaqueAlloc cases (which carry no persisted mapped pointer).
+void *getDevicePtrCuda(AllocHandle alloc);
 
 // Return Vulkan image tiling (linear/opaque) from the allocation type.
 VkImageTiling getImageTiling(AllocHandle alloc);

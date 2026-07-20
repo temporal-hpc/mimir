@@ -80,7 +80,7 @@ static LightModel parseLightModel(const std::string& v)
 }
 
 struct HudData {
-    unsigned int points;
+    uint64_t     points;
     int          frame;
     float        fps;
     float        compute_ms;
@@ -117,6 +117,7 @@ struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics    power;
     GPUMemoryMetrics   memory;
+    int                iters;  // iterations executed; divide the time TOTALS by this for per-frame averages
 };
 
 // ---------------------------------------------------------------------------
@@ -124,7 +125,6 @@ struct BenchmarkResult {
 // ---------------------------------------------------------------------------
 
 static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
-static std::string sd(int v)    { return std::to_string(v); }
 static std::string su(uint32_t v) { return std::to_string(v); }
 static std::string smb(size_t bytes) {
     char b[32]; snprintf(b, sizeof(b), "%.2f MB", bytes / (1024.0 * 1024.0)); return b;
@@ -161,7 +161,7 @@ static void printSystemInfo(PointsInput input, size_t rng_bytes, size_t cluster_
     fprintf(stderr, "CUDA device: %d (%s, CC %d.%d)\n",
         device_id, prop.name, prop.major, prop.minor);
     fprintf(stderr, "Total GPU memory: %.2f GB\n", mi.total / gb);
-    fprintf(stderr, "Points: %u  (seed %u)\n", input.pts.count, input.pts.seed);
+    fprintf(stderr, "Points: %llu  (seed %u)\n", (unsigned long long)input.pts.count, input.pts.seed);
     fprintf(stderr, "Init distribution: %u modes, epsilon %.4f\n", input.pts.k, input.pts.epsilon);
     fprintf(stderr, "Buffers:\n");
     fprintf(stderr, "  positions  (interop):  %s\n", smb(pos_bytes).c_str());
@@ -186,40 +186,44 @@ void formatResults(PointsInput input, BenchmarkResult result)
     // pack_time/d2h_time/h2h_time are 0 for mimir (zero-copy, no pack step).
     // graphics_time = mimir's internal render time.
     // Column layout matches benchmark_datoviz for direct CSV comparison.
+    // Column names carry units. Time columns are TOTALS over the run in seconds (including
+    // pipeline_time_s, tlas_time_s and trace_time_s -- summed and ms-converted in runExperiment),
+    // memory in GB, power in W, energy in J. iters is placed with the experiment settings (next to N).
     printAligned({
-        {"mode",          mode},
-        {"windowres",     resolution},
-        {"N",             sd((int)input.pts.count)},
-        {"seed",          su(input.pts.seed)},
-        {"k",             su(input.pts.k)},
-        {"epsilon",       sf(input.pts.epsilon)},
-        {"framerate",     sf(lib.frame_rate)},
-        {"compute_time",  sf(lib.times.compute)},
-        {"pipeline_time", sf(lib.times.pipeline)},
-        {"graphics_time", sf(lib.times.graphics)},
-        {"vk_usage",      sf(lib.devmem.usage)},
-        {"vk_budget",     sf(lib.devmem.budget)},
-        {"gpu_power",     sf(gpu.average_power)},
-        {"gpu_energy",    sf(gpu.total_energy)},
-        {"gpu_time",      sf(gpu.total_time)},
-        {"nvml_free",     sf((float)nvml.free)},
-        {"nvml_reserved", sf((float)nvml.reserved)},
-        {"nvml_total",    sf((float)nvml.total)},
-        {"nvml_used",     sf((float)nvml.used)},
-        {"pack_time",     sf(0.f)},
-        {"d2h_time",      sf(0.f)},
-        {"h2h_time",      sf(0.f)},
+        {"mode",            mode},
+        {"windowres",       resolution},
+        {"N",               std::to_string(input.pts.count)},
+        {"iters",           std::to_string(result.iters)},
+        {"seed",            su(input.pts.seed)},
+        {"k",               su(input.pts.k)},
+        {"epsilon",         sf(input.pts.epsilon)},
+        {"framerate_fps",   sf(lib.frame_rate)},
+        {"compute_time_s",  sf(lib.times.compute)},
+        {"pipeline_time_s", sf(lib.times.pipeline)},
+        {"graphics_time_s", sf(lib.times.graphics)},
+        {"vk_usage_gb",     sf(lib.devmem.usage)},
+        {"vk_budget_gb",    sf(lib.devmem.budget)},
+        {"gpu_power_w",     sf(gpu.average_power)},
+        {"gpu_energy_j",    sf(gpu.total_energy)},
+        {"gpu_time_s",      sf(gpu.total_time)},
+        {"nvml_free_gb",    sf((float)nvml.free)},
+        {"nvml_reserved_gb",sf((float)nvml.reserved)},
+        {"nvml_total_gb",   sf((float)nvml.total)},
+        {"nvml_used_gb",    sf((float)nvml.used)},
+        {"pack_time_s",     sf(0.f)},
+        {"d2h_time_s",      sf(0.f)},
+        {"h2h_time_s",      sf(0.f)},
         // Path-tracing columns (appended so the leading columns stay datoviz-comparable). For
         // non-path-tracing modes spp/bounces/subdiv carry their defaults and the times are 0.
-        {"spp",           su(input.pt_spp)},
-        {"bounces",       su(input.pt_bounces)},
-        {"subdiv",        su(input.pt_subdiv)},
-        {"tlas_time",     sf(lib.times.tlas_build)},
-        {"trace_time",    sf(lib.times.trace)},
+        {"spp",             su(input.pt_spp)},
+        {"bounces",         su(input.pt_bounces)},
+        {"subdiv",          su(input.pt_subdiv)},
+        {"tlas_time_s",     sf(lib.times.tlas_build)},
+        {"trace_time_s",    sf(lib.times.trace)},
     });
-    printf("%s,%s,%u,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f\n",
+    printf("%s,%s,%llu,%d,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        input.pts.count, input.pts.seed, input.pts.k, input.pts.epsilon,
+        (unsigned long long)input.pts.count, result.iters, input.pts.seed, input.pts.k, input.pts.epsilon,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -330,6 +334,24 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.mouse_sensitivity   = input.sensitivity;
     opts.camera_move_speed   = input.cam_speed;
     opts.orbit_speed         = input.orbit_speed;
+
+    // Memory pre-flight: reject a count that will not fit the GPU memory free right now, BEFORE Vulkan
+    // OOMs. Dominant device allocations: positions (12 B/particle, always) + per-particle AABBs
+    // (24 B/particle) only under path-tracing WITHOUT LOD (LOD builds the BVH over occupied cells).
+    // Additive to the LOD-accumulator VRAM cap above -- that sizes the N^3 grid, this sizes the
+    // per-particle buffers.
+    {
+        size_t vram_free = 0, vram_total = 0;
+        checkCuda(cudaMemGetInfo(&vram_free, &vram_total));
+        const bool pt_no_lod = (input.light_model == LightModel::PathTracing) && (input.pt_lod == 0);
+        const unsigned long long bytes_per_particle = 12ull + (pt_no_lod ? 24ull : 0ull);
+        const unsigned long long need = (unsigned long long)n * bytes_per_particle;
+        if (need > (unsigned long long)vram_free) {
+            fprintf(stderr, "benchmark_mimir: %zu particles need %.1f GB but only %.1f GB free\n",
+                    (size_t)n, (double)need/1e9, (double)vram_free/1e9);
+            exit(EXIT_FAILURE);
+        }
+    }
 
     InstanceHandle instance = nullptr;
     createInstance(opts, &instance);
@@ -476,7 +498,7 @@ BenchmarkResult runExperiment(PointsInput input)
 
     // HUD data shared between the simulation loop and the ImGui callback.
     HudData hud{};
-    hud.points  = (unsigned int)n;
+    hud.points  = n;
     hud.seed    = input.pts.seed;
     hud.k       = input.pts.k;
     hud.epsilon = input.pts.epsilon;
@@ -571,7 +593,7 @@ BenchmarkResult runExperiment(PointsInput input)
                     - hud.buf_mb - hud.render_mb - hud.vulkan_mb);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Points");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.points);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%llu", (unsigned long long)hud.points);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Seed");
                 ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.seed);
@@ -682,9 +704,16 @@ BenchmarkResult runExperiment(PointsInput input)
     auto frame_start = Clock::now();
     auto loop_start  = Clock::now();
     size_t frame_count = 0;
+    int iters_run = 0;
+    // Accumulate the per-frame GPU render times into TOTALS (seconds), consistent with compute/graphics
+    // which the engine already totals. getMetrics().times.pipeline/tlas_build/trace are LAST-FRAME
+    // values (pipeline in seconds; tlas/trace in ms), so summing them here -- converting ms to s --
+    // makes every time column in the CSV a comparable total.
+    double total_pipeline_s = 0.0, total_tlas_s = 0.0, total_trace_s = 0.0;
 
     for (int i = 0; i < input.iter_count && (!input.display || (isRunning(instance) && !quit_flag)); ++i)
     {
+        iters_run = i + 1;
         if (input.display) prepareViews(instance);
 
         if (input.display) checkCuda(cudaEventRecord(cstart));
@@ -721,6 +750,9 @@ BenchmarkResult runExperiment(PointsInput input)
             // pipeline is the render-pass GPU time for every light model; tlas/trace are the extra
             // ray-tracing passes under path tracing.
             auto gt = getMetrics(instance).times;
+            total_pipeline_s += gt.pipeline;             // already seconds
+            total_tlas_s     += gt.tlas_build / 1000.0;  // ms -> s (0 when not path tracing)
+            total_trace_s    += gt.trace      / 1000.0;  // ms -> s (0 when not path tracing)
             hud.pipeline_ms = (i == 0) ? gt.pipeline : 0.9f * hud.pipeline_ms + 0.1f * gt.pipeline;
             hud.wait_ms     = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
             hud.record_ms   = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
@@ -791,7 +823,12 @@ BenchmarkResult runExperiment(PointsInput input)
     }
 
     metrics.frame_rate = frame_rate;
-    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+    // Replace the last-frame render times with whole-run totals (seconds), consistent with
+    // compute_time/graphics_time. 0 in no-display mode (no render pass ran).
+    metrics.times.pipeline   = (float)total_pipeline_s;
+    metrics.times.tlas_build = (float)total_tlas_s;
+    metrics.times.trace      = (float)total_trace_s;
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml, .iters = iters_run };
 }
 
 // ---------------------------------------------------------------------------
@@ -806,6 +843,12 @@ static void usage(const char* prog)
         "Positional (in order; win_w/win_h must be supplied together):\n"
         "  win_w  win_h   Window resolution in pixels             (default: 1920 1080)\n"
         "  points         Number of simulated points              (default: 1000000)\n"
+        "                 No fixed maximum -- bounded by GPU memory. Positions cost 12 B/particle;\n"
+        "                 path-tracing WITHOUT --lod adds 24 B/particle for AABBs (36 B total);\n"
+        "                 --lod and the raster light models stay ~12 B/particle. An over-memory\n"
+        "                 count is rejected up front (before any Vulkan allocation). Rough per-card\n"
+        "                 ceiling: ~7.5 B particles on a 96 GB GPU (none/phong/PT+LOD); ~2.6 B for\n"
+        "                 path-tracing without LOD; more on larger-VRAM cards.\n"
         "  seed           RNG seed for positions/walk             (default: 12345)\n"
         "  iters          Simulation steps to run                 (default: 1000000)\n"
         "\n"
@@ -907,7 +950,11 @@ int main(int argc, char* argv[])
         else { pos.push_back(a); }
     }
     if (pos.size() >= 2) { input.win_width = std::stoi(pos[0]); input.win_height = std::stoi(pos[1]); }
-    if (pos.size() >= 3)   input.pts.count = (unsigned int)std::stoul(pos[2]);
+    if (pos.size() >= 3) {
+        unsigned long long pc = std::stoull(pos[2]);
+        if (pc == 0ull) { fprintf(stderr, "benchmark_mimir: point count must be >= 1\n"); exit(EXIT_FAILURE); }
+        input.pts.count = (uint64_t)pc;   // no upper cap; memory pre-flight bounds it
+    }
     if (pos.size() >= 4)   input.pts.seed  = (uint32_t)std::stoul(pos[3]);
     if (pos.size() >= 5)   input.iter_count = std::stoi(pos[4]);
 

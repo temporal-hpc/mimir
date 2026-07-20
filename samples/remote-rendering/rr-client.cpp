@@ -11,8 +11,10 @@
 // that keeps a remote viewer simple and the server's render cost fixed.
 //
 // A minimal HUD overlay in the top-left corner (toggle with H) shows where the simulation runs
-// (user@host:port, transport, codec), the end-to-end latency, the stream fps, and the sim
-// progress (step x of y, or unlimited). Other keys: P pauses the simulation, Q/Esc/Ctrl+W quit.
+// (user@host:port, transport, codec), the end-to-end latency, the stream fps, the sim progress
+// (step x of y, or unlimited), the scene size + LOD mode, and a pipeline breakdown of where a
+// frame's time goes: compute + render (local GPU cost) vs. encode + net + decode (remote transfer
+// cost). Other keys: P pauses the simulation, Q/Esc/Ctrl+W quit.
 //
 // Depends only on the wire-protocol header + ffmpeg + GLFW/OpenGL (no mimir, CUDA, or Vulkan):
 // it models a laptop-class thin client. QUIC (ngtcp2 + OpenSSL) is an optional compile-time
@@ -138,6 +140,18 @@ struct Shared
 Shared g;
 
 // ---------------------------------------------------------------------------------------------
+// Terminal colors for the client's console logs, so info/success/error stand out at a glance. Gated
+// on stdout being a TTY, so redirected/piped output stays plain (no escape-code garbage in files).
+namespace ansi
+{
+    inline bool on()          { static const bool e = ::isatty(fileno(stdout)); return e; }
+    inline const char* grn()  { return on() ? "\033[1;32m" : ""; } // success (connected, ready)
+    inline const char* red()  { return on() ? "\033[1;31m" : ""; } // errors
+    inline const char* cyn()  { return on() ? "\033[36m"   : ""; } // info / notices
+    inline const char* dim()  { return on() ? "\033[2m"    : ""; } // per-second stats (low priority)
+    inline const char* rst()  { return on() ? "\033[0m"    : ""; }
+}
+
 // HUD: a minimal always-on overlay (toggle with H) answering "what am I looking at?": which
 // server runs the simulation (user@host:port, transport, codec), the end-to-end latency, and
 // the simulation progress (step x of y, or unlimited). Written by the session thread as
@@ -153,7 +167,24 @@ struct Hud
     uint64_t step_limit = 0;        // steps the server stops at (0 = unlimited)
     uint64_t particle_count = 0;    // particles the sim advances (0 = older server, hidden in HUD)
     uint64_t particles_per_sec = 0; // current sim throughput (particle_count * steps/s)
+    uint32_t lod_cells = 0;         // LOD mode from the Hello: 0 = native, N = N^3 voxel grid
+    uint32_t steps_per_frame = 0;   // Hello: 0 = decoupled, N>=1 = lockstep (N steps/frame on path)
+    // Real-time pipeline stage times, so the HUD shows where a frame's wall-clock goes: local
+    // GPU cost (compute + render) vs. the remote transfer cost (encode + network + decode).
+    double compute_ms = 0.0;        // server: mean sim compute() time per step
+    double render_ms = 0.0;         // server: mean GPU render/trace time per frame
+    double lod_ms = 0.0;            // server: mean LOD-reduction time per frame (part of render_ms)
+    double denoise_ms = 0.0;        // server: mean denoiser time per frame (part of render_ms; PT+--denoise)
+    double encode_ms = 0.0;         // server: mean encode (or readback) time per frame
+    double decode_ms = 0.0;         // client: mean decode time per frame (measured here)
+    std::string gpu;                // server GPU model (own HUD line, with live VRAM)
+    uint32_t vram_used_mb = 0;      // server GPU memory used / total (MiB), for the GPU HUD line
+    uint32_t vram_total_mb = 0;
+    uint32_t power_w = 0;           // server board power draw / limit (W), on the GPU HUD line
+    uint32_t power_limit_w = 0;
+    std::string bench_path;         // --benchmark: the CSV path, shown under the BENCHMARK banner
     bool have_stats = false;        // first Stats message arrived
+    bool benchmark = false;         // --benchmark active: HUD shows a "BENCHMARK MODE" banner
     std::atomic<bool> visible{true};
 };
 Hud g_hud;
@@ -187,11 +218,14 @@ void hud_set_server(const Hello& hello, const char *transport)
     where += host[0] ? host : g_dial_host;
     where += ':'; where += g_dial_port;
     char line[256];
-    snprintf(line, sizeof(line), "%s  %s/%s %ux%u%s%s", where.c_str(), transport,
+    snprintf(line, sizeof(line), "%s  %s/%s %ux%u", where.c_str(), transport,
         static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
-        hello.width, hello.height, gpu[0] ? "  |  " : "", gpu);
+        hello.width, hello.height);
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     g_hud.server = line;
+    g_hud.gpu = gpu;                   // shown on its own HUD line with live VRAM (see hud_lines)
+    g_hud.lod_cells = hello.lod_cells; // 0 = native, N = N^3 grid (shown on the particle line)
+    g_hud.steps_per_frame = hello.steps_per_frame; // 0 = decoupled, N = lockstep (compute on path)
 }
 
 // Human-scaled count (K/M/G) and per-second rate for the particle HUD line, mirroring the
@@ -222,14 +256,42 @@ std::vector<std::string> hud_lines()
     std::lock_guard<std::mutex> lock(g_hud.mtx);
     std::vector<std::string> lines;
     lines.push_back(g_hud.server.empty() ? "connecting..." : g_hud.server);
+    // GPU line: model | live server VRAM (used/total) | live board power, pipe-separated to match the
+    // pipeline line. Each metric is appended only when the server reported it.
+    if (!g_hud.gpu.empty())
+    {
+        char g[220];
+        int n = snprintf(g, sizeof(g), "%s", g_hud.gpu.c_str());
+        if (g_hud.vram_total_mb > 0 && n > 0 && n < (int)sizeof(g))
+            n += snprintf(g + n, sizeof(g) - n, " | %.1f/%.1f GB",
+                g_hud.vram_used_mb / 1024.0, g_hud.vram_total_mb / 1024.0);
+        if (g_hud.power_limit_w > 0 && n > 0 && n < (int)sizeof(g))
+            n += snprintf(g + n, sizeof(g) - n, " | %u/%u W", g_hud.power_w, g_hud.power_limit_w);
+        else if (g_hud.power_w > 0 && n > 0 && n < (int)sizeof(g))
+            n += snprintf(g + n, sizeof(g) - n, " | %u W", g_hud.power_w);
+        lines.push_back(g);
+    }
+    // Particle line: scene size + LOD mode + sim throughput. Placed ABOVE the latency line. Only when
+    // the server reported it (0 = older server without the fields, or a viewer-only session).
+    if (g_hud.have_stats && g_hud.particle_count > 0)
+    {
+        char lodbuf[16];
+        if (g_hud.lod_cells == 0) { snprintf(lodbuf, sizeof(lodbuf), "native"); }
+        else { snprintf(lodbuf, sizeof(lodbuf), "%u^3", g_hud.lod_cells); }
+        char l3[160];
+        snprintf(l3, sizeof(l3), "%s particles | LOD %s | %s",
+            hud_scale_count(g_hud.particle_count).c_str(), lodbuf,
+            hud_scale_rate(g_hud.particles_per_sec).c_str());
+        lines.push_back(l3);
+    }
     char l2[192];
     if (!g_hud.have_stats)
     {
-        snprintf(l2, sizeof(l2), "latency  --  ms | --  fps | step --");
+        snprintf(l2, sizeof(l2), "latency  --  ms e2e | --  fps | step --");
     }
     else if (g_hud.step_limit > 0)
     {
-        snprintf(l2, sizeof(l2), "latency %5.1f ms | %4.1f fps | step %llu of %llu (%.1f%%)",
+        snprintf(l2, sizeof(l2), "latency %5.1f ms e2e | %4.1f fps | step %llu of %llu (%.1f%%)",
             g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms, g_hud.fps,
             static_cast<unsigned long long>(g_hud.step),
             static_cast<unsigned long long>(g_hud.step_limit),
@@ -237,20 +299,48 @@ std::vector<std::string> hud_lines()
     }
     else
     {
-        snprintf(l2, sizeof(l2), "latency %5.1f ms | %4.1f fps | step %llu of unlimited",
+        snprintf(l2, sizeof(l2), "latency %5.1f ms e2e | %4.1f fps | step %llu of unlimited",
             g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms, g_hud.fps,
             static_cast<unsigned long long>(g_hud.step));
     }
     lines.push_back(l2);
-    // Particle line: scene size + sim throughput. Only when the server reported it (0 =
-    // older server without the fields, or a viewer-only session with no particles).
-    if (g_hud.have_stats && g_hud.particle_count > 0)
+    // Pipeline line, in pipeline order: compute -> lod -> render -> denoise -> encode -> network -> decode.
+    // render + denoise + encode + network + decode are the components of the end-to-end latency on the
+    // line above (render/denoise = local GPU cost; encode + network + decode = remote transfer cost).
+    // `network~` is the residual latency minus the measured stages (wire transit + frame-boundary wait),
+    // floored at 0. render_ms from the server INCLUDES lod and denoise, so those are broken out as their
+    // own stages and render is shown as the pure draw/trace cost (render_ms - lod - denoise); the full
+    // render_ms stays on the latency path so network~ is unchanged. compute (sim ms/step): in DECOUPLED
+    // mode it is OFF the latency path (nothing subtracted); in LOCKSTEP it is on-path, so steps_per_frame
+    // * compute_ms is subtracted from network~. lod/denoise appear only when nonzero.
+    if (g_hud.have_stats)
     {
-        char l3[128];
-        snprintf(l3, sizeof(l3), "%s particles | %s",
-            hud_scale_count(g_hud.particle_count).c_str(),
-            hud_scale_rate(g_hud.particles_per_sec).c_str());
-        lines.push_back(l3);
+        const double lat = g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms;
+        const double compute_on_path = g_hud.compute_ms * static_cast<double>(g_hud.steps_per_frame);
+        const double render_pure = std::max(0.0, g_hud.render_ms - g_hud.lod_ms - g_hud.denoise_ms);
+        const double network_ms = std::max(0.0,
+            lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms - compute_on_path);
+        char lodseg[32] = "", dnseg[32] = "";
+        if (g_hud.lod_ms > 0.005)     { snprintf(lodseg, sizeof(lodseg), "lod %.1f ms | ", g_hud.lod_ms); }
+        if (g_hud.denoise_ms > 0.005) { snprintf(dnseg, sizeof(dnseg), "denoise %.1f ms | ", g_hud.denoise_ms); }
+        char l4[288];
+        snprintf(l4, sizeof(l4),
+            "compute %.2f ms/step | %srender %.1f ms | %sencode %.1f ms | network~%.1f ms | decode %.1f ms",
+            g_hud.compute_ms, lodseg, render_pure, dnseg, g_hud.encode_ms, network_ms, g_hud.decode_ms);
+        lines.push_back(l4);
+    }
+    return lines;
+}
+
+// Benchmark banner + CSV destination, drawn separately in the bottom-left corner (see hud_draw).
+std::vector<std::string> bench_lines()
+{
+    std::lock_guard<std::mutex> lock(g_hud.mtx);
+    std::vector<std::string> lines;
+    if (g_hud.benchmark)
+    {
+        lines.push_back("== BENCHMARK MODE ==");
+        if (!g_hud.bench_path.empty()) { lines.push_back("results in " + g_hud.bench_path); }
     }
     return lines;
 }
@@ -459,10 +549,25 @@ void hud_draw(int fb_h)
     else           { hud_rasterize(hud_lines(), px, w, h); }
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glPixelZoom(zoom, -zoom); // negative y draws downward from the top-left corner
+    glPixelZoom(zoom, -zoom); // negative y draws downward from the raster position
     glRasterPos2f(-1.f, 1.f);
-    glBitmap(0, 0, 0.f, 0.f, 8.f, -8.f, nullptr); // nudge in from the corner, in window pixels
+    glBitmap(0, 0, 0.f, 0.f, 8.f, -8.f, nullptr); // nudge in from the top-left corner, in window pixels
     glDrawPixels(w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+
+    // Benchmark banner + CSV path in the BOTTOM-left corner (its own block, so it stays put regardless
+    // of how many status lines the main HUD has). Anchor at (-1,-1), then nudge the raster position up
+    // by the block's height (+ an 8 px margin) so the block's bottom sits ~8 px above the window bottom.
+    const auto bl = bench_lines();
+    if (!bl.empty())
+    {
+        static std::vector<unsigned char> bpx;
+        int bw = 0, bh = 0;
+        if (g_font.ok) { hud_rasterize_ttf(bl, hud_px_for_height(fb_h), bpx, bw, bh); }
+        else           { hud_rasterize(bl, bpx, bw, bh); }
+        glRasterPos2f(-1.f, -1.f);
+        glBitmap(0, 0, 0.f, 0.f, 8.f, static_cast<float>(bh) * zoom + 8.f, nullptr);
+        glDrawPixels(bw, bh, GL_RGBA, GL_UNSIGNED_BYTE, bpx.data());
+    }
     glDisable(GL_BLEND);
 }
 
@@ -480,13 +585,15 @@ void bench_csv_open(const Hello& hello)
     char server[HOST_MAX + 1] = {}; std::memcpy(server, hello.host, HOST_MAX);
     char gpu[GPU_MAX + 1] = {}; std::memcpy(gpu, hello.gpu, GPU_MAX);
     const std::string path = benchmarkCsvPath(g_bench_prefix, "client", client,
-        server[0] ? server : g_dial_host, gpu);
+        server[0] ? server : g_dial_host, gpu,
+        hello.particle_count, hello.lod_cells, hello.light_model);
     g_csv = fopen(path.c_str(), "w");
     if (!g_csv) { fprintf(stderr, "cannot open csv log '%s'\n", path.c_str()); return; }
-    fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,decode_ms,decode_ms_std,"
+    fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,compute_ms,render_ms,decode_ms,decode_ms_std,"
         "lat_mean_ms,lat_std_ms,lat_p50_ms,lat_p95_ms,lat_max_ms,lost,ctrl_events,phase\n");
     fflush(g_csv);
-    printf("rr-client: benchmark CSV -> %s\n", path.c_str());
+    { std::lock_guard<std::mutex> lock(g_hud.mtx); g_hud.bench_path = path; } // show it under the HUD banner
+    printf("%srr-client: benchmark CSV -> %s%s\n", ansi::cyn(), path.c_str(), ansi::rst());
 }
 
 // Current interaction phase, logged as a CSV column so plots can shade idle vs. moving spans.
@@ -677,20 +784,29 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             lat_max = dec.lat_ms.back();
         }
         const uint32_t ctrl = g.ctrl_sent.exchange(0);
-        printf("[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | decode %.2f+-%.2f ms | "
-            "latency %.1f+-%.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)\n",
-            st.fps_milli / 1000.0, st.kbps,
+        // LOD and denoise are distinct stages (server render_us includes both), so break them out and
+        // show render as the pure draw/trace cost (render_us - lod - denoise); mirrors the on-screen HUD.
+        // Pipeline order: lod | render | denoise (render shown pure = render_us - lod - denoise).
+        char cons_render[96], cr_lod[24] = "", cr_dn[28] = "";
+        if (st.lod_us > 5)     { snprintf(cr_lod, sizeof(cr_lod), "lod %.1f ms | ", st.lod_us / 1000.0); }
+        if (st.denoise_us > 5) { snprintf(cr_dn, sizeof(cr_dn), " | denoise %.1f ms", st.denoise_us / 1000.0); }
+        snprintf(cons_render, sizeof(cons_render), "%srender %.1f ms%s", cr_lod,
+            std::max(0.0, (st.render_us - st.lod_us - st.denoise_us) / 1000.0), cr_dn);
+        printf("%s[stats] %.1f fps, %u kbps | server %s %.2f+-%.2f ms | %s | decode %.2f+-%.2f ms | "
+            "latency %.1f+-%.1f ms (p95 %.1f) | %zu lost | %.0f kB -> %.0f kB/frame (%.1fx larger)%s\n",
+            ansi::dim(), st.fps_milli / 1000.0, st.kbps,
             dec.stream_codec == Codec::H264 ? "encode" : "readback",
-            st.encode_us / 1000.0, st.encode_std_us / 1000.0, dec_ms, dec_std,
+            st.encode_us / 1000.0, st.encode_std_us / 1000.0, cons_render, dec_ms, dec_std,
             lat_mean, lat_std, lat_p95, dec.lost,
-            recv_kb, out_kb, recv_kb > 0.0 ? out_kb / recv_kb : 0.0);
+            recv_kb, out_kb, recv_kb > 0.0 ? out_kb / recv_kb : 0.0, ansi::rst());
         if (g_csv)
         {
             const char *phase = g_phase.load();
             if (phase[0] == '\0') { phase = ctrl > 0 ? "move" : "idle"; }
-            fprintf(g_csv, "%.3f,%.1f,%u,%.3f,%.3f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f,%zu,%u,%s\n",
+            fprintf(g_csv, "%.3f,%.1f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f,%zu,%u,%s\n",
                 now_ms() / 1000.0, st.fps_milli / 1000.0, st.kbps,
-                st.encode_us / 1000.0, st.encode_std_us / 1000.0, dec_ms, dec_std,
+                st.encode_us / 1000.0, st.encode_std_us / 1000.0,
+                st.compute_us / 1000.0, st.render_us / 1000.0, dec_ms, dec_std,
                 lat_mean, lat_std, lat_p50, lat_p95, lat_max, dec.lost, ctrl, phase);
             fflush(g_csv);
         }
@@ -704,6 +820,16 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             g_hud.step_limit = st.step_limit;
             g_hud.particle_count     = st.particle_count;
             g_hud.particles_per_sec  = st.particles_per_sec;
+            g_hud.compute_ms = st.compute_us / 1000.0; // server sim step time
+            g_hud.render_ms  = st.render_us / 1000.0;  // server GPU render time
+            g_hud.lod_ms     = st.lod_us / 1000.0;     // server LOD reduction time (part of render)
+            g_hud.denoise_ms = st.denoise_us / 1000.0; // server denoiser time (part of render)
+            g_hud.encode_ms  = st.encode_us / 1000.0;  // server encode/readback time
+            g_hud.decode_ms  = dec_ms;                 // client decode time (measured above)
+            g_hud.vram_used_mb  = st.vram_used_mb;     // server GPU memory used/total (GPU HUD line)
+            g_hud.vram_total_mb = st.vram_total_mb;
+            g_hud.power_w       = st.power_w;          // server board power draw/limit (GPU HUD line)
+            g_hud.power_limit_w = st.power_limit_w;
             g_hud.have_stats = true;
         }
         return;
@@ -792,16 +918,16 @@ bool run_tcp(const char *host, const char *port, const std::string& token, Decod
     Hello hello{};
     if (!tcpRecvAll(fd, &hello, sizeof(hello)) || hello.magic != PROTOCOL_MAGIC)
     {
-        fprintf(stderr, "TCP: invalid server hello (rejected? wrong token?)\n");
+        fprintf(stderr, "%sTCP: invalid server hello (rejected? wrong token?)%s\n", ansi::red(), ansi::rst());
         close(fd); return false;
     }
     dec.set_geometry(hello);
     g_transport = "TCP";
     hud_set_server(hello, g_transport);
     bench_csv_open(hello);
-    printf("connected over TCP: %ux%u (%s)%s%.*s\n", hello.width, hello.height,
+    printf("%sconnected over TCP: %ux%u (%s)%s%.*s%s\n", ansi::grn(), hello.width, hello.height,
         static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
-        hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu);
+        hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu, ansi::rst());
 
     std::vector<uint8_t> payload;
     uint64_t last_hb = 0;
@@ -986,9 +1112,9 @@ void quic_process_video(Quic *q)
         g_transport = "QUIC";
         hud_set_server(hello, g_transport);
         bench_csv_open(hello);
-        printf("connected over QUIC: %ux%u (%s)%s%.*s\n", hello.width, hello.height,
+        printf("%sconnected over QUIC: %ux%u (%s)%s%.*s%s\n", ansi::grn(), hello.width, hello.height,
             static_cast<Codec>(hello.codec) == Codec::H264 ? "H.264" : "raw",
-            hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu);
+            hello.gpu[0] ? " on " : "", GPU_MAX, hello.gpu, ansi::rst());
     }
     for (;;)
     {
@@ -1316,7 +1442,7 @@ bool wait_for_geometry(int& w, int& h)
 int run_window()
 {
     int w = 0, h = 0;
-    if (!wait_for_geometry(w, h)) { fprintf(stderr, "no stream received\n"); return EXIT_FAILURE; }
+    if (!wait_for_geometry(w, h)) { fprintf(stderr, "%sno stream received%s\n", ansi::red(), ansi::rst()); return EXIT_FAILURE; }
 
     if (!glfwInit()) { fprintf(stderr, "glfwInit failed\n"); return EXIT_FAILURE; }
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // window is freely resizable; the frame is stretched
@@ -1554,6 +1680,15 @@ static void usage(const char *prog)
         "  # Headless test: receive 10 frames, save rr-client.ppm, then exit:\n"
         "  %s 127.0.0.1 9000 \"\" tcp 10\n"
         "\n"
+        "  # Paired benchmark for a research run: server and client each write a CSV that share\n"
+        "  # the SAME <prefix> and line up for the identical 60 s scripted camera. On the GPU host:\n"
+        "  #   rr-server 9000 1280 720 100000000 1 tcp --benchmark run1\n"
+        "  # then on this client (drives the script, writes its CSV, then quits when it ends):\n"
+        "  %s 127.0.0.1 9000 \"\" tcp --benchmark run1\n"
+        "  # -> run1-<date>-rr-server-...csv (host) + run1-<date>-rr-client-...csv (here);\n"
+        "  #    plot both with research/scripts/plot_benchmark.py. Add a large frames value\n"
+        "  #    (e.g. 99999) before --benchmark to run this client headless.\n"
+        "\n"
         "Reaching a server behind SSH (e.g. a Slurm job in a Pyxis/enroot container):\n"
         "  The server binds all interfaces (0.0.0.0) and enroot shares the host network, so it\n"
         "  listens on the compute node directly (no container port mapping needed). SSH forwards\n"
@@ -1571,7 +1706,7 @@ static void usage(const char *prog)
         "  Concrete example (node gpu042, cluster hpc.example.edu, port 9000, token s3cret):\n"
         "    ssh -N -L 9000:gpu042:9000 alice@hpc.example.edu\n"
         "    %s 127.0.0.1 9000 s3cret tcp\n",
-        prog, prog, prog, prog, prog, prog, prog);
+        prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
 int main(int argc, char *argv[])
@@ -1621,7 +1756,7 @@ int main(int argc, char *argv[])
 
     // --benchmark carries a path+prefix; the CSV is opened with its auto-generated name once the
     // server's Hello identifies the server host and GPU (see bench_csv_open).
-    if (bench_csv) { g_bench_prefix = bench_csv; }
+    if (bench_csv) { g_bench_prefix = bench_csv; g_hud.benchmark = true; }
 
     std::thread session(session_thread, host, port, token, mode);
     std::thread bench;

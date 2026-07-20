@@ -76,6 +76,7 @@ struct BenchmarkResult {
     // Grid->display downsample time (seconds), mimir's on-GPU analog of datoviz's pack step.
     // 0 when the grid fits within maxImageDimension2D and is presented zero-copy.
     float              pack_time = 0.f;
+    int                iters = 0;  // iterations executed; divide the time TOTALS by this for per-frame averages
 };
 
 // ---------------------------------------------------------------------------
@@ -149,33 +150,37 @@ void formatResults(CAInput input, BenchmarkResult result)
     // pack_time is the grid->display downsample (0 for grids that fit and are presented zero-copy);
     // d2h_time/h2h_time are always 0 for mimir (no host round-trip). graphics_time = mimir's
     // internal render time. Column layout matches benchmark_datoviz for direct CSV comparison.
+    // Column names carry units; time columns are TOTALS over the run in seconds (including
+    // pipeline_time_s, summed in runExperiment), memory in GB, power in W, energy in J. iters is
+    // placed with the experiment settings, right after the grid size (grid_w x grid_h = N).
     printAligned({
-        {"mode",          mode},
-        {"windowres",     resolution},
-        {"grid_w",        sd(input.ca.width)},
-        {"grid_h",        sd(input.ca.height)},
-        {"seed",          su(input.ca.seed)},
-        {"density",       sf(input.ca.density)},
-        {"framerate",     sf(lib.frame_rate)},
-        {"compute_time",  sf(lib.times.compute)},
-        {"pipeline_time", sf(lib.times.pipeline)},
-        {"graphics_time", sf(lib.times.graphics)},
-        {"vk_usage",      sf(lib.devmem.usage)},
-        {"vk_budget",     sf(lib.devmem.budget)},
-        {"gpu_power",     sf(gpu.average_power)},
-        {"gpu_energy",    sf(gpu.total_energy)},
-        {"gpu_time",      sf(gpu.total_time)},
-        {"nvml_free",     sf((float)nvml.free)},
-        {"nvml_reserved", sf((float)nvml.reserved)},
-        {"nvml_total",    sf((float)nvml.total)},
-        {"nvml_used",     sf((float)nvml.used)},
-        {"pack_time",     sf(result.pack_time)},
-        {"d2h_time",      sf(0.f)},
-        {"h2h_time",      sf(0.f)},
+        {"mode",            mode},
+        {"windowres",       resolution},
+        {"grid_w",          sd(input.ca.width)},
+        {"grid_h",          sd(input.ca.height)},
+        {"iters",           sd(result.iters)},
+        {"seed",            su(input.ca.seed)},
+        {"density",         sf(input.ca.density)},
+        {"framerate_fps",   sf(lib.frame_rate)},
+        {"compute_time_s",  sf(lib.times.compute)},
+        {"pipeline_time_s", sf(lib.times.pipeline)},
+        {"graphics_time_s", sf(lib.times.graphics)},
+        {"vk_usage_gb",     sf(lib.devmem.usage)},
+        {"vk_budget_gb",    sf(lib.devmem.budget)},
+        {"gpu_power_w",     sf(gpu.average_power)},
+        {"gpu_energy_j",    sf(gpu.total_energy)},
+        {"gpu_time_s",      sf(gpu.total_time)},
+        {"nvml_free_gb",    sf((float)nvml.free)},
+        {"nvml_reserved_gb",sf((float)nvml.reserved)},
+        {"nvml_total_gb",   sf((float)nvml.total)},
+        {"nvml_used_gb",    sf((float)nvml.used)},
+        {"pack_time_s",     sf(result.pack_time)},
+        {"d2h_time_s",      sf(0.f)},
+        {"h2h_time_s",      sf(0.f)},
     });
-    printf("%s,%s,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        input.ca.width, input.ca.height, input.ca.seed, input.ca.density,
+        input.ca.width, input.ca.height, result.iters, input.ca.seed, input.ca.density,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -235,37 +240,26 @@ BenchmarkResult runExperiment(CAInput input)
     InstanceHandle instance = nullptr;
     createInstance(opts, &instance);
 
-    // We present the grid as one R8 image. Two device constraints shape how:
-    //   1. maxImageDimension2D (like OpenGL's GL_MAX_TEXTURE_SIZE): a grid larger than this cannot
-    //      be a single image regardless of VRAM.
-    //   2. A LINEAR interop image's row pitch is driver-aligned (128 B on NVIDIA); a width that is
-    //      not a multiple of that alignment shears, because our buffer is tightly packed.
-    // The simulation is a linear buffer with neither constraint, so we keep it full-res and present
-    // through a resampled display buffer whose width is a multiple of the alignment (fully filled,
-    // aspect-preserved). Only when the grid already fits AND its width is aligned do we alias it
-    // directly -- the zero-copy fast path.
+    // A grid larger than the device's maxImageDimension2D (like OpenGL's GL_MAX_TEXTURE_SIZE) cannot
+    // be presented as one image regardless of VRAM. The simulation is a linear buffer with no such
+    // limit, so we keep it full-res and, when it doesn't fit, present a resampled display buffer sized
+    // to the window (aspect-preserved). When it fits we alias the grid buffers directly (zero-copy) at
+    // ANY width -- the library transparently handles the interop image's row-pitch alignment.
     const FormatDescription r8_fmt{ .kind = FormatKind::UnsignedNormalized, .size = 1, .components = 1 };
     uint32_t img_cap = maxImageDimension2D(instance);
     if (img_cap == 0) img_cap = 16384;  // portable floor if no device is selected
-    int align = (int)linearImageRowAlignment(instance, r8_fmt);   // e.g. 128 texels for R8 on NVIDIA
-    if (align < 1) align = 1;
     const int cap = (int)std::min<uint32_t>(img_cap,
         std::max(1, std::max(input.win_width, input.win_height)));
 
-    auto align_up   = [](int v, int a) { return ((v + a - 1) / a) * a; };
-    auto align_down = [](int v, int a) { return (v / a) * a; };
-
-    const bool fits    = (W <= cap && H <= cap);
-    const bool aligned = (W % align == 0);
-    const bool reduce  = !(fits && aligned);   // alias the grid only when it's safe to
+    const bool fits   = (W <= cap && H <= cap);
+    const bool reduce = !fits;
 
     int DW, DH;
     if (reduce)
     {
-        DW = align_up(std::min(W, cap), align);          // multiple of align -> rowPitch == DW, no shear
-        const int dwmax = align_down((int)img_cap, align);
-        if (DW > dwmax) DW = dwmax;
-        DH = (int)((long)DW * H / W);                    // preserve the grid's aspect (rows need no align)
+        DW = std::min(W, cap);
+        if (DW > (int)img_cap) DW = (int)img_cap;
+        DH = (int)((long)DW * H / W);              // preserve the grid's aspect
         DH = std::clamp(DH, 1, (int)img_cap);
     }
     else { DW = W; DH = H; }
@@ -607,9 +601,14 @@ BenchmarkResult runExperiment(CAInput input)
     // into the returned metrics below, matching benchmark_datoviz's compute semantics.
     double total_compute_ms = 0.0;
     double total_pack_ms    = 0.0;
+    // Sum the per-frame render-pass GPU time into a TOTAL (seconds); getMetrics().times.pipeline is
+    // the LAST frame's value, so summing it keeps pipeline_time consistent with compute/graphics.
+    double total_pipeline_s = 0.0;
+    int    iters_run        = 0;
 
     for (int i = 0; i < input.iter_count && (!input.display || (isRunning(instance) && !quit_flag)); ++i)
     {
+        iters_run = i + 1;
         if (input.display) prepareViews(instance);
 
         if (input.display) checkCuda(cudaEventRecord(cstart));
@@ -685,6 +684,7 @@ BenchmarkResult runExperiment(CAInput input)
             // Render sub-costs from the engine (GPU frame latency + CPU phases), same EMA
             // smoothing as the rest of the HUD.
             auto gt = getMetrics(instance).times;
+            total_pipeline_s += gt.pipeline; // per-frame render-pass seconds -> accumulate to a total
             hud.wait_ms    = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
             hud.record_ms  = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
             hud.submit_ms  = (i == 0) ? gt.submit : 0.9f * hud.submit_ms + 0.1f * gt.submit;
@@ -752,9 +752,13 @@ BenchmarkResult runExperiment(CAInput input)
     // Override compute with the benchmark's measured total (seconds); the engine only populates
     // times.compute in interop-sync mode, so this makes async runs report correctly too.
     if (input.display) metrics.times.compute = (float)(total_compute_ms / 1000.0);
+    // Pipeline: whole-run total render-pass GPU time in seconds (see total_pipeline_s), consistent
+    // with compute/graphics. 0 in no-display mode (no render pass ran).
+    metrics.times.pipeline = (float)total_pipeline_s;
     return BenchmarkResult{
         .perf = metrics, .power = gpu_power, .memory = nvml,
         .pack_time = (float)(total_pack_ms / 1000.0),
+        .iters = iters_run,
     };
 }
 

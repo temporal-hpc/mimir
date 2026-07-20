@@ -13,6 +13,12 @@ else()
     include("${CMAKE_CURRENT_LIST_DIR}/../cmake/MimirSample.cmake")
 endif()
 
+# CUDA architecture for rr-server's device code. "native" auto-detects the configure-time GPU; pin it
+# (e.g. -DMIMIR_CUDA_ARCHITECTURES=103 for a B300) to match the library and avoid PTX-JIT on a GPU the
+# build dir was not originally configured for. Keep this in sync with the library's build.
+set(MIMIR_CUDA_ARCHITECTURES "native" CACHE STRING
+    "CUDA architecture(s) for device code: 'native' (auto-detect at configure) or an sm list, e.g. 103")
+
 # --- rr-server: headless GPU renderer/streamer ---------------------------------------------------
 # Renders the k-modal point cloud shared with the particles-kmodal-3d sample (kmodal_sim.cu), so
 # the remote client sees the same phong / phong-mesh / path-traced view.
@@ -20,12 +26,12 @@ if(NOT MIMIR_RR_CLIENT_ONLY)
     set(KMODAL_DIR "${CMAKE_CURRENT_LIST_DIR}/../particles-kmodal-3d")
     add_executable(rr-server rr-server.cu "${KMODAL_DIR}/kmodal_sim.cu")
     target_include_directories(rr-server PRIVATE "${KMODAL_DIR}")
-    # NVML (CUDA::nvml, driver stub) for the startup GPU banner: NVENC/NVDEC presence.
-    find_package(CUDAToolkit REQUIRED)
-    target_link_libraries(rr-server PRIVATE samples_common spdlog::spdlog CUDA::nvml)
+    # The GPU banner + memory pre-flight (NVENC/NVDEC probe, core tables) live in libmimir now
+    # (mimir::queryGpuCapabilities / gpuBanner / memoryBudget); NVML is pulled in transitively.
+    target_link_libraries(rr-server PRIVATE samples_common spdlog::spdlog)
     set_target_properties(rr-server PROPERTIES
         CUDA_STANDARD      20
-        CUDA_ARCHITECTURES native
+        CUDA_ARCHITECTURES "${MIMIR_CUDA_ARCHITECTURES}"
     )
     # Copy the runtime-compiled shaders next to the binary as a DEPENDENCY-TRACKED step, not
     # POST_BUILD: a POST_BUILD copy only fires when the target relinks, so a pull that changes

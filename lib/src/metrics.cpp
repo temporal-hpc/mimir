@@ -55,10 +55,16 @@ double GraphicsMonitor::getRenderTimeResults(VkDevice device, uint32_t frame_idx
 
 float GraphicsMonitor::getFramerate()
 {
+    // Average over the frames currently held in the circular window. The numerator must be the
+    // actual sample count, NOT frame_times.size() (the capacity): before the window fills
+    // (total_frame_count < capacity) the unused slots are 0, so dividing the capacity by the sum
+    // of only the real frames inflates the framerate by capacity/count (e.g. ~10x for a 25-frame run).
     auto frame_sample_size = std::min(frame_times.size(), total_frame_count);
+    if (frame_sample_size == 0) { return 0.f; }
     float total_frame_time = 0;
     for (size_t i = 0; i < frame_sample_size; ++i) total_frame_time += frame_times[i];
-    return frame_times.size() / total_frame_time;
+    if (total_frame_time <= 0.f) { return 0.f; }
+    return static_cast<float>(frame_sample_size) / total_frame_time;
 }
 
 void GraphicsMonitor::startFrameWatch()

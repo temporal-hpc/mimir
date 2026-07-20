@@ -3,9 +3,11 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>  // std::min
+#include <cstdlib>    // std::getenv
 #include <cstring>    // std::memcpy
 #include <filesystem> // std::filesystem
 
+#include "mimir/interop.hpp"
 #include "mimir/resources.hpp"
 #include "mimir/shader.hpp"
 #include "mimir/validation.hpp"
@@ -37,25 +39,52 @@ VkDeviceAddress getBufferAddress(VkDevice device, VkBuffer buffer)
 // Creates a buffer + memory. When want_address is set, the SHADER_DEVICE_ADDRESS usage bit and the
 // matching allocate flag are added and the device address is resolved. Mirrors raytracing.cpp's
 // makeBuffer (kept local so the LOD module is independent of the RT context).
+//
+// When `exportable` is set, the buffer/memory are created with OPAQUE_FD external-memory handles
+// (mirroring engine.cpp's allocLinear interop-export pattern exactly): a
+// VkExternalMemoryBufferCreateInfo chained onto buffer creation, and a VkExportMemoryAllocateInfoKHR
+// chained into the allocation -- nested under the VkMemoryAllocateFlagsInfo (addr_flags.pNext) when
+// want_address is ALSO set, since both extensions must reach vkAllocateMemory's pNext chain.
+//
+// `out_alloc_size` (optional) receives the ACTUAL allocated size (VkMemoryRequirements::size,
+// padded/aligned up from `size`). A CUDA OPAQUE_FD import must use this allocated size for its
+// external-memory handle size, NOT the requested `size`, or cudaImportExternalMemory /
+// GetMappedBuffer fails with cudaErrorInvalidValue -- exactly why engine.cpp:921 imports with
+// memreq.size (while still using the logical `size` for the mapped-buffer view descriptor).
 RtBuffer makeBuffer(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props, VkDeviceSize size,
-    VkBufferUsageFlags usage, VkMemoryPropertyFlags mem_flags, bool want_address)
+    VkBufferUsageFlags usage, VkMemoryPropertyFlags mem_flags, bool want_address,
+    bool exportable = false, VkDeviceSize* out_alloc_size = nullptr)
 {
     if (want_address) { usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; }
 
+    VkExternalMemoryBufferCreateInfo extmem_info{
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
+
     RtBuffer buf{};
-    buf.buffer = createBuffer(device, size, usage);
+    buf.buffer = createBuffer(device, size, usage, exportable ? &extmem_info : nullptr);
 
     VkMemoryRequirements req{};
     vkGetBufferMemoryRequirements(device, buf.buffer, &req);
+    if (out_alloc_size != nullptr) { *out_alloc_size = req.size; }
 
+    VkExportMemoryAllocateInfoKHR export_info{
+        .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+        .pNext       = nullptr,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    };
     VkMemoryAllocateFlagsInfo flags_info{
         .sType      = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-        .pNext      = nullptr,
+        .pNext      = exportable ? static_cast<const void*>(&export_info) : nullptr,
         .flags      = want_address ? VkMemoryAllocateFlags(VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT) : 0u,
         .deviceMask = 0,
     };
-    buf.memory = allocateMemory(device, mem_props, req, mem_flags,
-        want_address ? &flags_info : nullptr);
+    const void* alloc_chain = nullptr;
+    if (want_address) { alloc_chain = &flags_info; }
+    else if (exportable) { alloc_chain = &export_info; }
+    buf.memory = allocateMemory(device, mem_props, req, mem_flags, alloc_chain);
     validation::checkVulkan(vkBindBufferMemory(device, buf.buffer, buf.memory, 0));
 
     if (want_address) { buf.address = getBufferAddress(device, buf.buffer); }
@@ -75,8 +104,11 @@ void destroyBuffer(VkDevice device, RtBuffer& buf)
 struct LodScatterPush
 {
     VkDeviceAddress positions; VkDeviceAddress cellCounts; VkDeviceAddress cellSums;
-    uint32_t count; uint32_t gridN; uint32_t centroid;
+    uint64_t count; uint32_t gridN; uint32_t centroid; uint32_t stride;
 };
+// Must match PushConstants in pathtrace_lod_scatter.slang: 3*8 (BDA) + 8 (count) + 4+4+4 = 44,
+// padded to 48 by the 8-byte alignment of the uint64_t member. vkCmdPushConstants pushes sizeof.
+static_assert(sizeof(LodScatterPush) == 48, "LodScatterPush layout must match the shader push block");
 // Push constants for pathtrace_lod_emit.slang: reduced-position output, per-cell count, and per-cell
 // sum as BDA pointers, then grid resolution and the centroid flag. Only the small global emit counter
 // stays a descriptor (binding 0). The representative RADIUS is no longer here -- emit writes centroid
@@ -99,7 +131,7 @@ struct LodIndirectPush
 } // namespace
 
 void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
-    bool int64_atomics, uint32_t grid, uint32_t particle_count)
+    bool int64_atomics, bool want_centroid, uint32_t grid, uint64_t particle_count)
 {
     device    = dev;
     mem_props = mp;
@@ -108,9 +140,32 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     const uint64_t num_cells = uint64_t(grid) * grid * grid;
     max_cells = static_cast<uint32_t>(std::min<uint64_t>(num_cells, particle_count));
 
-    // Centroid placement needs int64 fixed-point atomics through a BDA pointer; when unavailable,
-    // fall back to cell-center placement (no sum buffer).
-    centroid_active = int64_atomics;
+    // Centroid placement needs int64 fixed-point atomics through a BDA pointer AND the caller opting
+    // in; when either is missing, fall back to cell-center placement (no sum buffer, count-only
+    // scatter -- markedly cheaper at huge particle counts since it drops the 3 int64 atomics/particle).
+    centroid_active = int64_atomics && want_centroid;
+
+    // CUDA-primary path selection: the native-CUDA reduction (LodReduce) is the default; set
+    // MIMIR_LOD_NO_CUDA to force the Vulkan compute-shader scatter/emit fallback (e.g. for
+    // debugging/comparison). No VRAM-fit gate here -- LodReduce's N^3 accumulator is the exact same
+    // size as the Vulkan one it replaces (LodReduce::accumulatorBytes(grid_n, centroid_active)), so if
+    // the Vulkan path would have fit, so does this. This must be decided BEFORE the buffer allocations
+    // below run: when use_cuda, the Vulkan N^3 accumulator (cellcount_buffer/cellsum_buffer) is skipped
+    // entirely (LodReduce owns the only N^3 accumulator) and the per-slot output buffers are allocated
+    // CUDA-exportable so their device-pointer aliases can be imported.
+    use_cuda = (std::getenv("MIMIR_LOD_NO_CUDA") == nullptr);
+    if (use_cuda)
+    {
+        lod_reduce = std::make_unique<LodReduce>(particle_count, grid_n, centroid_active);
+        // Dedicated stream for the decoupled reduction path (see reduceCuda). Non-blocking so it never
+        // implicitly serializes against the legacy default stream the sim runs on.
+        validation::checkCuda(cudaStreamCreateWithFlags(&reduce_stream, cudaStreamNonBlocking));
+        spdlog::info("LOD reduction: custom CUDA kernels");
+    }
+    else
+    {
+        spdlog::info("LOD reduction: Vulkan scatter (MIMIR_LOD_NO_CUDA set)");
+    }
 
     // ---- Pipelines (scatter is descriptor-free; emit keeps a one-binding set for the counter) ----
     {
@@ -177,15 +232,25 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     // ---- Buffers ----
     // Per-cell occupancy counts (one uint each), BDA (the sum below exceeds the descriptor cap at
     // large N, and the count moves to BDA alongside it), cleared each frame via vkCmdFillBuffer.
-    cellcount_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
-    // Per-cell fixed-point position sum (3 * uint64 per cell) for centroid placement, BDA. Only
-    // allocated when centroid is active; up to 3 * N^3 * 8 B (>4 GiB at large N), past the
-    // maxStorageBufferRange descriptor cap -- hence BDA.
-    if (centroid_active)
+    //
+    // SINGLE N^3 accumulator either way: when use_cuda, LodReduce (constructed above) already owns its
+    // OWN N^3 accumulator (counts + optional sums), so the Vulkan cellcount_buffer/cellsum_buffer below
+    // are skipped entirely -- allocating both would double the N^3 footprint (the memory hog, up to
+    // ~30-60 GB at 1024^3) and blow the VRAM budget. The Vulkan scatter/emit pipelines above are still
+    // created (harmless: never dispatched on the CUDA path, since callers branch on usesCuda()), and
+    // destroy()/destroyBuffer already no-op on these buffers' null handles.
+    if (!use_cuda)
     {
-        cellsum_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * 3 * sizeof(uint64_t),
+        cellcount_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * sizeof(uint32_t),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+        // Per-cell fixed-point position sum (3 * uint64 per cell) for centroid placement, BDA. Only
+        // allocated when centroid is active; up to 3 * N^3 * 8 B (>4 GiB at large N), past the
+        // maxStorageBufferRange descriptor cap -- hence BDA.
+        if (centroid_active)
+        {
+            cellsum_buffer = makeBuffer(device, mem_props, VkDeviceSize(num_cells) * 3 * sizeof(uint64_t),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+        }
     }
 
     // Per-slot RINGED output buffers (NUM_SLOTS copies each). These are the only buffers multi-buffered:
@@ -200,15 +265,40 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
     //    INDIRECT_BUFFER. BDA so the finalize shader addresses it as a raw pointer.
     for (uint32_t s = 0; s < NUM_SLOTS; ++s)
     {
-        counter_buffer[s] = makeBuffer(device, mem_props, sizeof(uint32_t),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true);
-        reduced_pos[s] = makeBuffer(device, mem_props, VkDeviceSize(max_cells) * 3 * sizeof(float),
+        const VkDeviceSize counter_size = sizeof(uint32_t);
+        VkDeviceSize counter_alloc_size = 0;
+        counter_buffer[s] = makeBuffer(device, mem_props, counter_size,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST_VISIBLE, true,
+            use_cuda, &counter_alloc_size);
+        const VkDeviceSize reduced_pos_size = VkDeviceSize(max_cells) * 3 * sizeof(float);
+        VkDeviceSize reduced_pos_alloc_size = 0;
+        reduced_pos[s] = makeBuffer(device, mem_props, reduced_pos_size,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-            | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+            | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true, use_cuda, &reduced_pos_alloc_size);
         indirect_buffer[s] = makeBuffer(device, mem_props,
             std::max(sizeof(VkDrawIndirectCommand), sizeof(VkDrawIndexedIndirectCommand)),
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
             | VK_BUFFER_USAGE_TRANSFER_DST_BIT, DEVICE_LOCAL, true);
+
+        // Import CUDA device-pointer aliases for this slot's counter/reduced-position buffers when the
+        // native-CUDA reduction path is active. Dormant until a later stage sets use_cuda=true before
+        // init() runs (nothing in this class sets it yet), so this never executes today and the default
+        // Vulkan path is unaffected. Mirrors engine.cpp's allocLinear import (import -> mapped-buffer):
+        // the external-memory import MUST use the ACTUAL allocated size (VkMemoryRequirements::size,
+        // e.g. ~256 B for the 4 B counter) or CUDA rejects it (cudaErrorInvalidValue); the mapped-buffer
+        // view descriptor keeps the logical requested size at offset 0.
+        if (use_cuda)
+        {
+            counter_extmem[s] = interop::importCudaExternalMemory(counter_buffer[s].memory, counter_alloc_size, device);
+            cudaExternalMemoryBufferDesc counter_desc{ .offset = 0, .size = counter_size, .flags = 0, .reserved = {} };
+            validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+                reinterpret_cast<void**>(&occupied_cuda[s]), counter_extmem[s], &counter_desc));
+
+            reduced_pos_extmem[s] = interop::importCudaExternalMemory(reduced_pos[s].memory, reduced_pos_alloc_size, device);
+            cudaExternalMemoryBufferDesc pos_desc{ .offset = 0, .size = reduced_pos_size, .flags = 0, .reserved = {} };
+            validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+                &reduced_pos_cuda[s], reduced_pos_extmem[s], &pos_desc));
+        }
 
         // Point this slot's emit set global-counter binding (0) at this slot's counter buffer.
         VkDescriptorBufferInfo gc{ .buffer = counter_buffer[s].buffer, .offset = 0, .range = VK_WHOLE_SIZE };
@@ -220,12 +310,14 @@ void LodContext::init(VkDevice dev, VkPhysicalDeviceMemoryProperties mp,
         vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
+    const char* placement = centroid_active ? "centroid"
+        : (want_centroid ? "cell-center (int64 atomics unavailable)" : "cell-center (selected)");
     spdlog::info("LOD: {}^3 grid, up to {} occupied cells (from {} particles), placement: {}",
-        grid, max_cells, particle_count, centroid_active ? "centroid" : "cell-center (int64 atomics unavailable)");
+        grid, max_cells, particle_count, placement);
 }
 
 void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr,
-    uint32_t particle_count, uint32_t slot)
+    uint64_t particle_count, uint32_t slot)
 {
     // Record-only: the clear -> scatter -> emit passes go into `cmd`; the caller executes it (raster
     // inline in the frame cmd; PT in its own one-shot submit so it can readCount()). No internal
@@ -260,11 +352,17 @@ void LodContext::recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         0, 1, &clr, 0, nullptr, 0, nullptr);
 
+    // Bounded dispatch + 64-bit grid-stride: cap groups so total threads <= 2^31 (tid.x < 2^32) and
+    // the stride fits a uint32; the scatter shader loops over the full 64-bit particle_count.
+    const uint32_t kMaxGroups = 1u << 25;
+    uint32_t groups = (uint32_t)std::min<uint64_t>((particle_count + 63) / 64, kMaxGroups);
+    if (groups == 0) groups = 1;
     LodScatterPush sp{ .positions = positions_addr, .cellCounts = cellcount_buffer.address,
-        .cellSums = cellsum_addr, .count = particle_count, .gridN = grid_n, .centroid = centroid_flag };
+        .cellSums = cellsum_addr, .count = particle_count, .gridN = grid_n,
+        .centroid = centroid_flag, .stride = groups * 64u };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, scatter_pipeline);
     vkCmdPushConstants(cmd, scatter_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sp), &sp);
-    vkCmdDispatch(cmd, (particle_count + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, groups, 1, 1);
 
     VkMemoryBarrier s2e{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
@@ -326,6 +424,43 @@ uint32_t LodContext::readCount(uint32_t slot)
     return occupied;
 }
 
+void LodContext::reduceCuda(cudaStream_t sim_stream, const void* positions_dev, uint64_t count, uint32_t slot)
+{
+    // Must-not-be-called on the Vulkan-fallback path (no LodReduce instance exists there); guard
+    // anyway so a stray call is a silent no-op rather than a null-deref.
+    if (!use_cuda) { return; }
+    // Decoupled: run on the dedicated stream so syncReduce() waits only for the reduction, not for the
+    // sovereign sim's work on `sim_stream` -- the render never blocks on the sim (torn-latest reads,
+    // the decoupled contract). Coupled (lockstep/default): run on `sim_stream` itself, so the reduction
+    // is naturally ordered AFTER the sim's writes on that stream (tear-free).
+    active_reduce_stream = lod_decoupled ? reduce_stream : sim_stream;
+    lod_reduce->reduce(active_reduce_stream, positions_dev, count,
+        reducedPositionsDevicePtr(slot), occupiedDevicePtr(slot));
+    reduce_launched = true;
+}
+
+void LodContext::syncReduce()
+{
+    // Sync whenever a reduction was actually issued. Do NOT gate on active_reduce_stream != nullptr:
+    // in coupled/lockstep mode the reduction runs on the default stream (nullptr), and skipping the
+    // wait there lets the Vulkan draw consume reduced_pos while the reduction is still running --
+    // a race that stays hidden at small N (the reduction finishes first) but blanks the frame once
+    // the reduction is slow enough to lose it (e.g. ~1e9 particles). cudaStreamSynchronize(0) is a
+    // valid, cheap wait on the default stream.
+    if (!use_cuda || !reduce_launched) { return; }
+    validation::checkCuda(cudaStreamSynchronize(active_reduce_stream));
+}
+
+uint32_t LodContext::occupiedFromCuda(uint32_t slot)
+{
+    // Blocking device->host copy: the caller is responsible for having already synchronized (or
+    // otherwise ordered against) the stream that reduceCuda ran on, so the occupied count is final
+    // by the time this reads it.
+    uint32_t occupied = 0;
+    validation::checkCuda(cudaMemcpy(&occupied, occupiedDevicePtr(slot), sizeof(uint32_t), cudaMemcpyDeviceToHost));
+    return std::min(occupied, maxCells());
+}
+
 float LodContext::sphereRadius(float default_size) const
 {
     // cellFill reproduces the old cell-derived radius (LOD_COVERAGE * cellSize / 2) at the reference
@@ -354,10 +489,32 @@ void LodContext::destroy()
     destroyBuffer(device, cellsum_buffer);
     for (uint32_t s = 0; s < NUM_SLOTS; ++s)
     {
+        // Release the CUDA-side alias BEFORE freeing the aliased Vulkan memory (destroying the
+        // external memory handle is how the mapped device pointer is released -- it is never
+        // cudaFree'd). No-op when the CUDA path was never active (handles stay null-initialized).
+        if (counter_extmem[s] != nullptr) { validation::checkCuda(cudaDestroyExternalMemory(counter_extmem[s])); }
+        if (reduced_pos_extmem[s] != nullptr) { validation::checkCuda(cudaDestroyExternalMemory(reduced_pos_extmem[s])); }
+        counter_extmem[s] = nullptr;
+        reduced_pos_extmem[s] = nullptr;
+        occupied_cuda[s] = nullptr;
+        reduced_pos_cuda[s] = nullptr;
+
         destroyBuffer(device, counter_buffer[s]);
         destroyBuffer(device, reduced_pos[s]);
         destroyBuffer(device, indirect_buffer[s]);
     }
+
+    // Free LodReduce's N^3 accumulator (a no-op unique_ptr::reset when the CUDA path was never active).
+    lod_reduce.reset();
+
+    // Destroy the dedicated decoupled-reduction stream (null when the CUDA path was never active).
+    if (reduce_stream != nullptr)
+    {
+        validation::checkCuda(cudaStreamDestroy(reduce_stream));
+        reduce_stream = nullptr;
+    }
+    active_reduce_stream = nullptr;
+
     grid_n = 0;
 }
 

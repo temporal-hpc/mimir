@@ -121,6 +121,14 @@ rr-server [port] [width] [height] [point_count] [h264] [transport] [token] [opti
 rr-client [host] [port] [token] [auto|quic|tcp] [frames]
 ```
 
+`point_count` has **no fixed maximum — it is bounded only by GPU memory**. Positions cost 12
+B/particle; path-tracing *without* `--lod` adds 24 B/particle for AABBs (36 B/particle total);
+`--lod` and the raster light models (`none`/`phong`/`phong-mesh`) stay at ~12 B/particle. A count
+that would not fit the GPU's free memory right now is rejected up front, before any Vulkan
+allocation — there's no OOM crash, just a clear error. Rough per-card ceiling: ~7.5 B particles on
+a 96 GB GPU (`none`/`phong`/path-tracing+`--lod`); ~2.6 B for path-tracing without `--lod`; more on
+larger-VRAM cards.
+
 `rr-server` also takes named options after the positional args — `--light-model`, `--spp`,
 `--bounces`, `--subdiv`, `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`,
 `--max-steps`, `--dev` (GPU device id on a multi-GPU host, default 0) (run `./rr-server --help`

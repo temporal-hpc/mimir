@@ -99,6 +99,7 @@ struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics    power;
     GPUMemoryMetrics   memory;
+    int                iters;  // iterations executed; divide the time TOTALS by this for per-frame averages
 };
 
 struct DatovizContext {
@@ -169,33 +170,37 @@ void formatResults(CAInput input, BenchmarkResult result)
     // Same column order as benchmark_mimir.
     // graphics_time = dvz_scene_step (H2D staging write + D2D retile + draw, inseparable).
     // pack_time/d2h_time/h2h_time are the measurable transfer stages.
+    // Column names carry units; time columns are TOTALS over the run in seconds, memory in GB, power
+    // in W, energy in J. pipeline_time_s is 0 (datoviz has no render-pass timing API). iters sits with
+    // the experiment settings, right after the grid size. Leading columns match benchmark_mimir.
     printAligned({
-        {"mode",          mode},
-        {"windowres",     resolution},
-        {"grid_w",        sd(input.ca.width)},
-        {"grid_h",        sd(input.ca.height)},
-        {"seed",          su(input.ca.seed)},
-        {"density",       sf(input.ca.density)},
-        {"framerate",     sf(lib.frame_rate)},
-        {"compute_time",  sf(lib.times.compute)},
-        {"pipeline_time", sf(lib.times.pipeline)},
-        {"graphics_time", sf(lib.times.graphics)},
-        {"vk_usage",      sf(lib.devmem.usage)},
-        {"vk_budget",     sf(lib.devmem.budget)},
-        {"gpu_power",     sf(gpu.average_power)},
-        {"gpu_energy",    sf(gpu.total_energy)},
-        {"gpu_time",      sf(gpu.total_time)},
-        {"nvml_free",     sf((float)nvml.free)},
-        {"nvml_reserved", sf((float)nvml.reserved)},
-        {"nvml_total",    sf((float)nvml.total)},
-        {"nvml_used",     sf((float)nvml.used)},
-        {"pack_time",     sf(lib.transfer.pack)},
-        {"d2h_time",      sf(lib.transfer.d2h)},
-        {"h2h_time",      sf(lib.transfer.h2h)},
+        {"mode",            mode},
+        {"windowres",       resolution},
+        {"grid_w",          sd(input.ca.width)},
+        {"grid_h",          sd(input.ca.height)},
+        {"iters",           sd(result.iters)},
+        {"seed",            su(input.ca.seed)},
+        {"density",         sf(input.ca.density)},
+        {"framerate_fps",   sf(lib.frame_rate)},
+        {"compute_time_s",  sf(lib.times.compute)},
+        {"pipeline_time_s", sf(lib.times.pipeline)},
+        {"graphics_time_s", sf(lib.times.graphics)},
+        {"vk_usage_gb",     sf(lib.devmem.usage)},
+        {"vk_budget_gb",    sf(lib.devmem.budget)},
+        {"gpu_power_w",     sf(gpu.average_power)},
+        {"gpu_energy_j",    sf(gpu.total_energy)},
+        {"gpu_time_s",      sf(gpu.total_time)},
+        {"nvml_free_gb",    sf((float)nvml.free)},
+        {"nvml_reserved_gb",sf((float)nvml.reserved)},
+        {"nvml_total_gb",   sf((float)nvml.total)},
+        {"nvml_used_gb",    sf((float)nvml.used)},
+        {"pack_time_s",     sf(lib.transfer.pack)},
+        {"d2h_time_s",      sf(lib.transfer.d2h)},
+        {"h2h_time_s",      sf(lib.transfer.h2h)},
     });
-    printf("%s,%s,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        input.ca.width, input.ca.height, input.ca.seed, input.ca.density,
+        input.ca.width, input.ca.height, result.iters, input.ca.seed, input.ca.density,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -406,6 +411,7 @@ BenchmarkResult runExperiment(CAInput input)
     float total_h2h      = 0.f;
     float total_graphics = 0.f;
     size_t frame_count   = 0;
+    int    iters_run     = 0;  // iterations the totals above accumulate over (totals / iters = per-frame avg)
 
     GPUPowerBegin("gpu", 100);
     printSystemInfo(input);
@@ -431,6 +437,7 @@ BenchmarkResult runExperiment(CAInput input)
 
     for (int i = 0; i < input.iter_count; ++i)
     {
+        iters_run = i + 1;
         // --- Compute (GoL step only) ---
         checkCuda(cudaEventRecord(cstart));
         launchStepGoL(d_grid[r], d_grid[w], W, H);
@@ -529,7 +536,7 @@ BenchmarkResult runExperiment(CAInput input)
     checkCuda(cudaFree(d_grid[1]));
     checkCuda(cudaFreeHost(h_pixels));
 
-    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml, .iters = iters_run };
 }
 
 // ---------------------------------------------------------------------------

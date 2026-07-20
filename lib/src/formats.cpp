@@ -39,6 +39,14 @@ cudaExternalMemory_t getMemoryCuda(AllocHandle alloc)
     }, alloc);
 }
 
+void *getDevicePtrCuda(AllocHandle alloc)
+{
+    return std::visit(overloaded{
+        [](auto) { return static_cast<void*>(nullptr); },
+        [](LinearAlloc *arg) { return arg->cuda_ptr; }
+    }, alloc);
+}
+
 VkImageTiling getImageTiling(AllocHandle alloc)
 {
     return std::visit(overloaded{
@@ -70,11 +78,13 @@ VkImageType getImageType(Layout extent)
 
 VkExtent3D getVulkanExtent(Layout extent)
 {
+    // Image extents stay uint32_t (Vulkan's VkExtent3D type); Layout widened to size_t only
+    // to carry >2^32 particle counts, not texel extents, so this narrowing is intentional.
     return VkExtent3D
     {
-        .width  = extent.x > 0? extent.x : 1,
-        .height = extent.y > 0? extent.y : 1,
-        .depth  = extent.z > 0? extent.z : 1,
+        .width  = static_cast<uint32_t>(extent.x > 0? extent.x : 1),
+        .height = static_cast<uint32_t>(extent.y > 0? extent.y : 1),
+        .depth  = static_cast<uint32_t>(extent.z > 0? extent.z : 1),
     };
 }
 

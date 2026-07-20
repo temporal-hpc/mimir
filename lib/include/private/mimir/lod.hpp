@@ -1,10 +1,13 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <cuda_runtime_api.h>
 
 #include <array>
 #include <cstdint>
+#include <memory>
 
+#include "mimir/lod_reduce.hpp"  // LodReduce (native-CUDA reduction, pure C++ pImpl facade)
 #include "mimir/raytracing.hpp" // RtBuffer (shared device-buffer helper type)
 
 namespace mimir
@@ -53,12 +56,13 @@ public:
 
     // Build the LOD stage: create the scatter/emit compute pipelines and allocate the accumulator,
     // counter, and reduced-position buffers for an N^3 grid over `particle_count` particles.
-    // `int64_atomics` gates centroid placement (else cell-center fallback). Call-once: there is no
-    // idempotency guard, so a second call would leak the pipelines/buffers allocated by the first
-    // (callers already guarantee init() runs at most once per instance). active() is true afterwards
-    // (grid_n = N > 0).
+    // Centroid placement is used only when BOTH the hardware has int64 atomics (`int64_atomics`)
+    // AND the caller requests it (`want_centroid`); otherwise it falls back to cell-center placement
+    // (no sum buffer, no int64 atomics in the scatter). Call-once: there is no idempotency guard, so
+    // a second call would leak the pipelines/buffers allocated by the first (callers already
+    // guarantee init() runs at most once per instance). active() is true afterwards (grid_n = N > 0).
     void init(VkDevice device, VkPhysicalDeviceMemoryProperties mem_props,
-        bool int64_atomics, uint32_t grid_n, uint32_t particle_count);
+        bool int64_atomics, bool want_centroid, uint32_t grid_n, uint64_t particle_count);
 
     // Record the reduction for this frame INTO `cmd` (clear -> scatter -> emit), reading the live
     // positions at `positions_addr` (tightly-packed float3, BDA). Writes the reduced positions + the
@@ -74,7 +78,7 @@ public:
     // accumulator is shared across slots, so this records a cross-frame serialize barrier at the START
     // (prior-frame COMPUTE read/write on the accumulator -> this frame's TRANSFER clear) before the
     // clear fill, ordering this reduction after the previous frame's scatter/emit still reading it.
-    void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint32_t particle_count,
+    void recordReduction(VkCommandBuffer cmd, VkDeviceAddress positions_addr, uint64_t particle_count,
         uint32_t slot);
 
     // Record the indirect-args build INTO `cmd` for EITHER command layout. The host writes the whole
@@ -100,6 +104,41 @@ public:
     // The GPU-resident VkDrawIndirectCommand written by recordIndirectArgs for `slot` (INDIRECT_BUFFER).
     VkBuffer indirectBuffer(uint32_t slot) const { return indirect_buffer[slot].buffer; }
 
+    // CUDA device pointers aliasing this slot's reduced-position / occupied-count buffers, imported
+    // via external memory when the CUDA reduction path is active (`use_cuda`); nullptr otherwise (the
+    // default Vulkan-only path, where LodReduce is never invoked and these aliases are never created).
+    void*     reducedPositionsDevicePtr(uint32_t slot) const { return reduced_pos_cuda[slot]; }
+    uint32_t* occupiedDevicePtr(uint32_t slot)          const { return occupied_cuda[slot]; }
+
+    // True when the CUDA reduction path is active (the default; false only under
+    // MIMIR_LOD_NO_CUDA, which forces the Vulkan scatter/emit fallback).
+    bool usesCuda() const { return use_cuda; }
+
+    // Frame/sim coupling for the CUDA reduction. When decoupled (the remote server's sovereign-sim
+    // mode), the reduction runs on a DEDICATED stream so its blocking syncReduce() waits only for the
+    // reduction, never for the sim's stream -- preserving "the viewer never slows the run" and the
+    // torn-latest read contract. When coupled (lockstep / windowed display, the default), the
+    // reduction runs on the caller-provided sim stream so it is naturally ordered AFTER the sim's
+    // writes (tear-free). Default false (coupled) is the safe choice for every non-decoupled path.
+    void setDecoupledReduction(bool decoupled) { lod_decoupled = decoupled; }
+
+    // Run the CUDA reduction for `slot`: reads `count` positions from `positions_dev` (device ptr,
+    // packed float3), writes this slot's reduced-position + occupied-count CUDA aliases. Runs on the
+    // dedicated reduce stream when decoupled (see setDecoupledReduction), else on `sim_stream` (so it
+    // is ordered after the sim). Pair every call with syncReduce() before reading the outputs. No-op
+    // when !usesCuda() -- must not be called on the Vulkan-fallback path.
+    void reduceCuda(cudaStream_t sim_stream, const void* positions_dev, uint64_t count, uint32_t slot);
+
+    // Block the host until the most recent reduceCuda() (on whichever stream it chose) has completed,
+    // so its reduced-position/occupied-count writes are final before the Vulkan renderer reads them
+    // and before occupiedFromCuda(). No-op when !usesCuda().
+    void syncReduce();
+
+    // Device->host copy of slot `slot`'s CUDA-reduced occupied-cell count, clamped to maxCells().
+    // The caller must have already called syncReduce() (or otherwise ordered against the reduction)
+    // before calling this -- the copy itself is a plain blocking cudaMemcpy.
+    uint32_t occupiedFromCuda(uint32_t slot);
+
     // World radius of an LOD representative sphere given the view's default --size (lit world value).
     // = cellFill * (default_size / LOD_REFERENCE_SIZE), cellFill = LOD_COVERAGE * (2/N) * 0.5.
     float sphereRadius(float default_size) const;
@@ -121,6 +160,34 @@ private:
     uint32_t max_cells = 0;       // min(N^3, particle_count)
     bool     centroid_active = false; // centroid placement (int64 atomics available) vs cell-center
 
+    // Selects the CUDA-primary reduction path: true unless MIMIR_LOD_NO_CUDA is set (see init()). When
+    // true, init() constructs `lod_reduce`, imports the CUDA device-pointer aliases for
+    // reduced_pos[]/counter_buffer[], and SKIPS allocating the Vulkan N^3 accumulator
+    // (cellcount_buffer/cellsum_buffer) -- LodReduce owns the one and only N^3 accumulator. When false
+    // (the MIMIR_LOD_NO_CUDA fallback), the Vulkan scatter/emit path and its N^3 accumulator are used
+    // exactly as before, unchanged.
+    bool use_cuda = false;
+
+    // Native-CUDA reduction (Task 1). Owns its own N^3 accumulator; constructed in init() only when
+    // use_cuda is true. Non-copyable, so held by pointer; reset() in destroy() to free its accumulator.
+    std::unique_ptr<LodReduce> lod_reduce;
+
+    // Dedicated CUDA stream the reduction runs on in DECOUPLED mode, so the render thread's blocking
+    // syncReduce() waits only for the reduction and not for the sovereign sim's (default-stream) work.
+    // Created in init() when use_cuda, destroyed in destroy(). In coupled (lockstep/default) mode the
+    // reduction instead runs on the caller's sim stream, so this stream stays idle.
+    cudaStream_t reduce_stream = nullptr;
+    // Whether the reduction is decoupled from the sim (torn-latest reads, independent). Default false
+    // (coupled: ordered after the sim on its stream => tear-free). Set by setDecoupledReduction().
+    bool lod_decoupled = false;
+    // The stream the most recent reduceCuda() actually ran on; syncReduce() blocks on this one.
+    // NOTE: the default stream is itself nullptr, so it cannot double as the "nothing launched"
+    // sentinel -- reduce_launched tracks that instead, else syncReduce() would silently skip the
+    // wait whenever the reduction runs on the default stream (coupled/lockstep mode) and the draw
+    // would race the still-running reduction.
+    cudaStream_t active_reduce_stream = nullptr;
+    bool reduce_launched = false;
+
     // Accumulators (BDA): per-cell occupancy count and the fixed-point position sum (centroid only).
     // SINGLE-buffered (shared across frame slots): this is the N^3 memory hog (~30 GB at 1024^3) and is
     // per-frame scratch (cleared -> scattered -> emitted, never read cross-frame), so it is not ringed;
@@ -134,6 +201,16 @@ private:
     std::array<RtBuffer, NUM_SLOTS> counter_buffer;   // 1 uint emitted-primitive counter (HOST_VISIBLE, readback)
     std::array<RtBuffer, NUM_SLOTS> reduced_pos;      // min(N^3,P) float3 representative positions (DEVICE_LOCAL, BDA + VBO)
     std::array<RtBuffer, NUM_SLOTS> indirect_buffer;  // 1 Vk*IndirectCommand (max(16,20)=20 B) for raster indirect draw (DEVICE_LOCAL, BDA)
+
+    // CUDA external-memory handles + mapped device-pointer aliases for counter_buffer[]/reduced_pos[],
+    // populated only when use_cuda is true (see init()). Torn down in destroy() via
+    // cudaDestroyExternalMemory before the aliased Vulkan memory is freed; the mapped pointers
+    // themselves are never cudaFree'd (release is via destroying the external memory, same as the
+    // engine's interop position buffer -- see engine.cpp's allocLinear).
+    std::array<cudaExternalMemory_t, NUM_SLOTS> reduced_pos_extmem{};
+    std::array<cudaExternalMemory_t, NUM_SLOTS> counter_extmem{};
+    std::array<void*, NUM_SLOTS>     reduced_pos_cuda{}; // CUDA ptr aliasing reduced_pos[slot]
+    std::array<uint32_t*, NUM_SLOTS> occupied_cuda{};    // CUDA ptr aliasing counter_buffer[slot]
 
     // Scatter/emit compute pipelines. Scatter binds no descriptors (all accumulators are BDA); emit
     // keeps one descriptor for the global emit counter (binding 0). Finalize (indirect-args build) is

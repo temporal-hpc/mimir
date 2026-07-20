@@ -7,6 +7,7 @@
 #include "mimir/validation.hpp"
 
 #include <algorithm> // std::clamp
+#include <cstdlib>   // std::exit, EXIT_FAILURE
 
 namespace mimir::validation
 {
@@ -214,6 +215,22 @@ GlfwContext GlfwContext::make(WindowOptions options, void *engine)
 
     auto window = glfwCreateWindow(options.size.x, options.size.y, options.title.c_str(), nullptr, nullptr);
     //glfwSetWindowSize(ctx.window, width, height);
+
+    // glfwCreateWindow returns null when there is no reachable display server (a headless shell,
+    // or SSH without X forwarding). Without this guard the very next call dereferences the null
+    // window and the process dies with an opaque SIGSEGV; fail with an actionable message instead.
+    if (window == nullptr)
+    {
+        const char *desc = nullptr;
+        glfwGetError(&desc);
+        // Write straight to stderr, not spdlog: release builds set the log level to `off`
+        // (see MimirInstance::make), which would swallow this fatal, must-see message.
+        fprintf(stderr, "mimir: glfwCreateWindow failed: %s. No display server available? "
+            "On-screen rendering (RenderMode::Local) needs a desktop session (X11/Wayland); "
+            "use RenderMode::Headless to render offscreen.\n",
+            desc != nullptr ? desc : "unknown error");
+        std::exit(EXIT_FAILURE);
+    }
 
     // Set GLFW action callbacks
     glfwSetWindowUserPointer(window, engine);

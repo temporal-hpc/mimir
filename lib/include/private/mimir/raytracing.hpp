@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <cuda_runtime_api.h> // cudaStream_t (LOD CUDA-reduction interop)
 #include <glm/glm.hpp>
 
 #include <array> // std::array
@@ -129,7 +130,7 @@ struct RayTracingContext
     // case this enables. The TLAS holds ONE instance pointing at the BLAS (identity transform).
     bool scene_bound = false;
     VkDeviceAddress position_address = 0; // interop positions, read by BDA (owned by the view, not us)
-    uint32_t particle_count = 0;
+    uint64_t particle_count = 0;
     float particle_radius = 0.f;
     glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
     // maxPrimitiveCount (~2^29) is a PER-BLAS limit, so particle counts above it are split across
@@ -250,17 +251,48 @@ struct RayTracingContext
     LodContext* lod = nullptr;
     uint32_t lod_max_cells  = 0;   // min(N^3, particle_count): BLAS/AABB sizing bound
     uint32_t lod_prim_count = 0;   // occupied cells emitted this frame (per-frame build count)
+    // Interop handles for the CUDA LOD reduction (used only when lod->usesCuda()): the interop
+    // stream the engine's CUDA<->Vulkan work runs on, and the CUDA device pointer aliasing the SAME
+    // interop positions the Vulkan AABB writer reads by BDA (position_address). Set by the engine via
+    // setLodInterop before the first recordLodUpdate; both are stable once set. Left null on the
+    // Vulkan-fallback path (MIMIR_LOD_NO_CUDA), where recordLodUpdate never touches them.
+    cudaStream_t lod_cuda_stream = nullptr;
+    const void*  lod_positions_dev = nullptr;
+    void setLodInterop(cudaStream_t stream, const void* positions_dev)
+    {
+        lod_cuda_stream = stream;
+        lod_positions_dev = positions_dev;
+    }
+    // Run the LOD reduction (scatter/emit) over the live positions and set lod_prim_count. This is the
+    // CUDA/blocking part of the LOD PT update; it MUST run on the COMPUTE thread (the engine calls it
+    // from updateViews, and once at setup), NOT the render thread -- launching CUDA on the render thread
+    // while the compute thread holds a pending interop semaphore wait stalls the GPU device-wide and
+    // deadlocks. recordLodUpdate() then records the AS build over the reduced set (render thread).
+    void reduceLodCompute();
     void recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
+
+    // ---- Voxel box path tracing (CA3D-voxels) ----
+    // When set (before bindScene), the procedural AABBs are traced as axis-aligned BOXES (the trace
+    // push sets sun_dir.w = 1 + voxel_opacity, selecting the box branch + carrying opacity for
+    // transmission) and the AABB writer runs over an ENGINE-supplied compacted living-cell buffer
+    // (position_address) with a per-frame count (voxel_prim_count). No internal reduction here -- the
+    // engine compacts the visible voxel view's state into position_address each frame (voxelCompactLiving)
+    // and sets voxel_prim_count before recordUpdateScene. Sized like the LOD path to min(N^3, count).
+    bool     voxel_boxes = false;
+    float    voxel_opacity = 1.f;    // living-cell alpha (< 1 => transmission rays in the integrator)
+    uint32_t voxel_prim_count = 0;   // living cells this frame (engine sets it before recordUpdateScene)
+    void recordVoxelUpdate(VkCommandBuffer cmd, uint32_t frame_idx);
 
     // GPU-timestamp timing for the HUD/CSV: a query pool with FRAMES*TS_PER_FRAME timestamps. The
     // build phase is split into its three sub-phases so callers can see where the frame goes (at
     // large N the build dominates, but which part -- the AABB writer, the BLAS build/refit, or the
     // TLAS rebuild -- was previously hidden in one lumped "build" number). Per-frame slots:
     //   +0 build start (TOP_OF_PIPE)   +1 after AABB writer   +2 after BLAS   +3 after TLAS (build end)
-    //   +4 trace start (TOP_OF_PIPE)   +5 trace end
+    //   +4 trace start (TOP_OF_PIPE)   +5 trace end   +6 denoise start   +7 denoise end
     // Read back with FRAMES frames of latency (after the frame's fence). last_*_ms hold the most
-    // recent readings; last_build_ms = aabb+blas+tlas (the whole build phase).
-    static constexpr uint32_t TS_PER_FRAME = 6;
+    // recent readings; last_build_ms = aabb+blas+tlas (the whole build phase). The denoise slots (6/7)
+    // are only written/read when the à-trous denoiser runs (--denoise), so the main read stays 0..5.
+    static constexpr uint32_t TS_PER_FRAME = 8;
     VkQueryPool timing_pool = VK_NULL_HANDLE;
     float timestamp_period = 0.f; // nanoseconds per tick (0 = timestamps unsupported, disabled)
     double last_aabb_ms  = 0.0;   // AABB writer (fills the shared aabb_buffer from positions), last frame
@@ -268,6 +300,12 @@ struct RayTracingContext
     double last_tlas_ms  = 0.0;   // TLAS rebuild over the per-chunk instances, last frame
     double last_build_ms = 0.0;   // whole AS-build phase = aabb + blas + tlas, last frame
     double last_trace_ms = 0.0;   // vkCmdTraceRays time, last completed frame
+    double last_denoise_ms = 0.0; // à-trous denoiser compute time, last frame (0 when --denoise is off)
+    // LOD reduction (scatter+emit over ALL particles) for the PT path. Unlike the GPU-timestamped
+    // sub-phases above, this is CPU wall-clock of PT's BLOCKING one-shot reduction submit (see
+    // recordLodUpdate) -- so it is the CURRENT frame's value, valid immediately (no FRAMES-frame
+    // readback lag, not gated on have_timings). 0 when LOD is inactive.
+    double last_lod_ms = 0.0;
     BlasBuild last_build_mode = BlasBuild::Skip; // mode of the frame the last_*_ms readings are from
     // False until readTimings first reads real results. For the first FRAMES frames of a session the
     // readback slot has not been written yet, so last_*_ms/last_build_mode are still defaults (0 ms,
@@ -301,7 +339,7 @@ struct RayTracingContext
     // Allocates the AABB buffer / BLAS / one-instance TLAS / scratch and builds them once. The AABB
     // writer reads positions by buffer-device-address (no storage-range cap). Call once after view
     // creation.
-    void bindScene(VkDeviceAddress positions, uint32_t particle_count, float radius, glm::vec4 color);
+    void bindScene(VkDeviceAddress positions, uint64_t particle_count, float radius, glm::vec4 color);
 
     // Record the per-frame scene update for this frame: dispatch the instance-writer compute
     // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a

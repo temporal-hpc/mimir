@@ -168,6 +168,25 @@ else
     echo "==> Reusing existing build directory: $BUILD_DIR"
 fi
 
+# ── Force a relink when the mimir static library is newer than a built sample ──────────────────
+# The mimir library links into samples as a static archive (libmimir.a). After you rebuild the
+# library (e.g. mimir-build-from-change.sh following an edit under lib/), the sample binary here is
+# stale until it relinks. CMake's imported-target dependency on the .a does not always trigger that
+# relink, which silently leaves the sample running against the old library -- the exact "I forgot to
+# recompile" trap. Guard it: if the .a is newer than an already-built ELF binary in this build dir,
+# delete that binary so the build below relinks it. The object files are untouched, so this is a
+# link step only (fast), not a recompile. Skipped on a fresh build dir (nothing to be stale yet).
+LIB_A="$(cd "$MIMIR_DIR/.." 2>/dev/null && pwd)/libmimir.a"
+if [[ -f "$LIB_A" && -f "$BUILD_DIR/CMakeCache.txt" ]]; then
+    while IFS= read -r bin; do
+        # only real ELF binaries, and only when the library is strictly newer than the binary
+        if [[ "$LIB_A" -nt "$bin" ]] && head -c4 "$bin" 2>/dev/null | grep -qa 'ELF'; then
+            echo "==> libmimir.a is newer than $(basename "$bin"); removing it to force a relink"
+            rm -f "$bin"
+        fi
+    done < <(find "$BUILD_DIR" -maxdepth 2 -type f -perm -u+x 2>/dev/null)
+fi
+
 echo "==> Building with $JOBS jobs..."
 cmake --build "$BUILD_DIR" -j "$JOBS"
 

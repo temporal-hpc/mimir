@@ -9,18 +9,32 @@
 #include "mimir/resources.hpp"
 #include "mimir/validation.hpp"
 #include "mimir/shader_types.hpp"
+#include "mimir/shader.hpp" // ShaderBuilder (Voxels-LOD pipeline)
+#include "mimir/voxel_lod.hpp" // voxelCompactLiving (voxel path tracing)
+
+#include <filesystem> // std::filesystem::current_path (shader load cwd)
+#include <array> // std::array
+#include <spdlog/fmt/fmt.h> // fmt::format (geometry entry name)
+
+#include <cuda.h> // driver API (cuMemCreate/cuMemMap) for the VMM large-page interop path
+#include <cstring>  // strcmp for MIMIR_VMM_INTEROP mode parsing
+#include <unistd.h> // close() for the fallback path's fd cleanup
 
 #include <glm/gtc/matrix_transform.hpp> // glm::lookAt (fly camera world-to-view)
 
 #include <atomic> // std::atomic_ref
 #include <iostream>
 #include <fstream> // std::ofstream
-#include <algorithm> // std::max
+#include <algorithm> // std::max, std::min
 #include <chrono> // std::chrono
 #include <set> // std::set
 #include <unordered_map> // std::unordered_map (icosphere edge cache)
 #include <cmath> // std::sqrt
+#include <cstdint> // uint64_t, UINT32_MAX
 #include <cstring> // std::memcpy
+
+// Defined at global scope in pipeline.cpp; resolves the runtime shader directory.
+std::string getDefaultShaderPath();
 
 namespace mimir
 {
@@ -127,7 +141,10 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
     // SPDLOG_LEVEL=<level> overrides the build-type default (e.g. to get slang
     // compile diagnostics out of a release build).
     spdlog::cfg::load_env_levels();
-    spdlog::set_pattern("[%H:%M:%S] [%l] %v");
+    // %^...%$ wraps the level in spdlog's per-level console color (info=green, warn=yellow, error=red,
+    // debug/trace dim) so log severity is identifiable at a glance. The default console sink is a color
+    // sink and no-ops the codes when stdout is not a TTY (piped/redirected), so files stay clean.
+    spdlog::set_pattern("[%H:%M:%S] [%^%l%$] %v");
 
     engine.options.present.target_frame_time = getTargetFrameTime(
         engine.options.present.enable_fps_limit, engine.options.present.target_fps
@@ -218,19 +235,129 @@ void MimirInstance::prepare()
                 if (options.pt_lod_cells > 0)
                 {
                     lod_context.init(device, physical_device.memory.memoryProperties,
-                        supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
-                        view->draw_count);
+                        supportsInt64Atomics(physical_device.handle), options.lod_centroid,
+                        options.pt_lod_cells,
+                        // LodContext::init takes the 64-bit count directly (Task 5).
+                        view->element_count);
                     raytracing.lod = &lod_context;
                     deletors.context.add([this]{ lod_context.destroy(); });
+                    // On the CUDA reduction path, hand the path tracer the interop stream + the CUDA
+                    // device pointer aliasing the SAME positions its Vulkan AABB writer reads by BDA,
+                    // so recordLodUpdate can run the native reduction. interop.cuda_stream is the CUDA
+                    // default stream (0) -- Barrier::make sets it to 0, it is never a created stream --
+                    // so it is valid immediately and stable; the sim, the interop semaphore ops, and the
+                    // reduction all serialize on stream 0, which is what makes the blocking host-sync
+                    // reduction model correct here. The mapped positions pointer is likewise stable.
+                    if (lod_context.usesCuda())
+                    {
+                        void* pos_cuda = getDevicePtrCuda(
+                            view->desc.attributes[AttributeType::Position].source);
+                        raytracing.setLodInterop(interop.cuda_stream, pos_cuda);
+                    }
                 }
-                raytracing.bindScene(pos_addr, view->draw_count, view->desc.default_size,
-                    glm::vec4(c.x, c.y, c.z, c.w));
+                raytracing.bindScene(pos_addr, view->element_count,
+                    view->desc.default_size, glm::vec4(c.x, c.y, c.z, c.w));
                 break;
             }
         }
+        // Voxel path tracing: no Markers view, but a Voxels view can be traced as boxes over its LIVING
+        // cells. Set up a compacted-positions interop buffer (sized N^3 = max living) that the engine
+        // refills each frame (voxelCompactLiving) and the AABB writer reads by device address. The box
+        // half-extent + albedo/opacity come from the view (default_color.rgb = cell color, .w = opacity).
         if (!raytracing.scene_bound)
         {
-            spdlog::warn("Path tracing: no Markers view found to bind; RT frames will be empty");
+            for (auto* view : views)
+            {
+                if (view->desc.type != ViewType::Voxels) { continue; }
+                const uint64_t fine_cells = view->element_count;
+                const uint32_t N = (uint32_t)llround(std::cbrt((double)fine_cells));
+                if ((uint64_t)N * N * N != fine_cells || N == 0) { continue; }
+                auto cit = view->desc.attributes.find(AttributeType::Color);
+                if (cit == view->desc.attributes.end() || !hasIndexing(cit->second)
+                    || cit->second.indexing.index_size != (unsigned)sizeof(int)) { continue; }
+
+                // Grid mapping (origin/spacing) from the structured-grid position buffer, as in the LOD
+                // detection: makeStructuredGrid writes cell (x,y,z) at start + (x,y,z)*spacing.
+                voxel_pt_N = N;
+                voxel_pt_origin = float3{0.f, 0.f, 0.f};
+                voxel_pt_spacing = 1.f;
+                {
+                    VkDeviceMemory pos_mem =
+                        getMemoryVulkan(view->desc.attributes[AttributeType::Position].source);
+                    float3* mapped = nullptr;
+                    if (vkMapMemory(device, pos_mem, 0, sizeof(float3) * 2, 0, (void**)&mapped)
+                            == VK_SUCCESS)
+                    {
+                        voxel_pt_origin = mapped[0];
+                        float sx = mapped[1].x - mapped[0].x;
+                        if (sx > 0.f) { voxel_pt_spacing = sx; }
+                        vkUnmapMemory(device, pos_mem);
+                    }
+                }
+                voxel_pt_radius = view->desc.default_size * voxel_pt_spacing;
+
+                // --lod M: trace the living cells of an M^3 max-pooled grid as bigger boxes. Coarse cell
+                // c spans fine [c*N/M,(c+1)*N/M); for divisible N/M this is exact (mirrors voxel_lod.slang):
+                // coarse spacing = K*fine spacing, coarse origin = fine origin + (K-1)/2*fine spacing.
+                const uint32_t M = options.pt_lod_cells;
+                voxel_pt_M = (M > 0 && M < N) ? M : 0;
+                uint32_t grid_res = voxel_pt_M ? voxel_pt_M : N; // effective grid the boxes come from
+                if (voxel_pt_M)
+                {
+                    const float K = (float)N / (float)voxel_pt_M;
+                    voxel_pt_coarse_spacing = voxel_pt_spacing * K;
+                    voxel_pt_coarse_origin  = float3{
+                        voxel_pt_origin.x + voxel_pt_spacing * (K - 1.f) * 0.5f,
+                        voxel_pt_origin.y + voxel_pt_spacing * (K - 1.f) * 0.5f,
+                        voxel_pt_origin.z + voxel_pt_spacing * (K - 1.f) * 0.5f };
+                    voxel_pt_radius = view->desc.default_size * K * voxel_pt_spacing; // coarse cube half-size
+                    cudaMalloc(&voxel_pt_coarse_state,
+                        (size_t)voxel_pt_M * voxel_pt_M * voxel_pt_M * sizeof(int));
+                }
+
+                // Record every Voxels view's fine-state CUDA pointer (ping/pong); the per-frame update
+                // compacts whichever one is currently visible.
+                for (auto* vv : views)
+                {
+                    if (vv->desc.type != ViewType::Voxels) { continue; }
+                    auto vc = vv->desc.attributes.find(AttributeType::Color);
+                    if (vc == vv->desc.attributes.end() || !hasIndexing(vc->second)) { continue; }
+                    voxel_pt_views.push_back(VoxelPtView{
+                        vv, getDevicePtrCuda(vc->second.indexing.source) });
+                }
+
+                // Compacted living-cell positions: interop (CUDA-written, Vulkan BDA-read), sized to the
+                // effective grid (M^3 under LOD, else N^3 -- the max living-cell count).
+                const uint64_t cells = (uint64_t)grid_res * grid_res * grid_res;
+                LinearAlloc* pos_alloc = allocLinear(&voxel_pt_positions_cuda, cells * sizeof(float3));
+                VkBuffer pos_buf = createAttributeBuffer(cells * sizeof(float3),
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                    getMemoryVulkan(AllocHandle{pos_alloc}));
+                VkBufferDeviceAddressInfo pos_ai{
+                    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                    .pNext = nullptr, .buffer = pos_buf,
+                };
+                voxel_pt_positions_addr = vkGetBufferDeviceAddress(device, &pos_ai);
+                cudaMalloc(&voxel_pt_count_dev, sizeof(uint32_t));
+
+                // Box mode + albedo/opacity from the view color, then compact the initial state so the
+                // first build (inside bindScene) has real geometry.
+                auto c = view->desc.default_color;
+                raytracing.voxel_boxes   = true;
+                raytracing.voxel_opacity = c.w;
+                updateVoxelPtScene(); // seed the initial compaction so bindScene's first build has geometry
+                raytracing.bindScene(voxel_pt_positions_addr, cells, voxel_pt_radius,
+                    glm::vec4(c.x, c.y, c.z, c.w));
+                spdlog::info("Voxel path tracing: {}^3 grid -> {}^3 boxes, up to {} living boxes, "
+                    "radius {:.4f}, opacity {:.2f}", N, grid_res, (unsigned long long)cells,
+                    voxel_pt_radius, c.w);
+                break;
+            }
+        }
+
+        if (!raytracing.scene_bound)
+        {
+            spdlog::warn("Path tracing: no Markers/Voxels view found to bind; RT frames will be empty");
         }
     }
 
@@ -268,26 +395,57 @@ void MimirInstance::prepare()
                 lod_raster_mesh = is_mesh;
 
                 VkBuffer  pos_buffer = is_mesh ? view->vbo[1] : view->vbo[0];
-                uint32_t  particle_count = is_mesh ? view->instance_count : view->draw_count;
+                // element_count is the true particle total in both mesh and point modes.
+                uint64_t  particle_count = view->element_count;
                 VkBufferDeviceAddressInfo addr_info{
                     .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
                     .pNext = nullptr, .buffer = pos_buffer, // interop float3 particle positions
                 };
                 lod_raster_pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
+                // init/recordReduction take the 64-bit count directly (Task 5) -- pass particle_count.
+                // lod_raster_count is a uint64_t member (unclamped) so the per-frame raster path
+                // (recordLodRaster -> recordReduction) reduces the full count past 2^32, not just
+                // the first ~4.29B particles.
                 lod_raster_count    = particle_count;
                 lod_context.init(device, physical_device.memory.memoryProperties,
-                    supportsInt64Atomics(physical_device.handle), options.pt_lod_cells,
-                    particle_count);
+                    supportsInt64Atomics(physical_device.handle), options.lod_centroid,
+                    options.pt_lod_cells, particle_count);
                 deletors.context.add([this]{ lod_context.destroy(); });
+
+                // On the CUDA reduction path grab the interop CUDA pointer aliasing the SAME positions
+                // as lod_raster_pos_addr (the Position attribute source backs pos_buffer in both point
+                // and mesh modes; the reduction bins particle centers). The Vulkan N^3 accumulator is
+                // NOT allocated on this path, so recordReduction MUST NOT be called -- reduceCuda is used
+                // instead (here and per-frame in recordLodRaster).
+                if (lod_context.usesCuda())
+                {
+                    lod_raster_pos_cuda = getDevicePtrCuda(
+                        view->desc.attributes[AttributeType::Position].source);
+                    assert(lod_raster_pos_cuda != nullptr
+                        && "raster LOD CUDA path: null Position CUDA pointer");
+                }
 
                 // One-time reduction + occupied-count log at setup (mirrors the path tracer's
                 // first-build log), so headless runs verify the reduction matches PT WITHOUT a viewer
-                // (renderFrame only runs once a client connects). A single blocking submit + readback
+                // (renderFrame only runs once a client connects). A single blocking reduction + readback
                 // here; the per-frame raster path (recordLodRaster) never reads back -- no stall.
-                immediateSubmit([&](VkCommandBuffer c) {
-                    lod_context.recordReduction(c, lod_raster_pos_addr, lod_raster_count, /*slot=*/0u);
-                });
-                uint32_t occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
+                uint32_t occupied = 0;
+                if (lod_context.usesCuda())
+                {
+                    // CUDA: reduce on the interop stream and block for the count (setup-time only). Skip
+                    // recordReduction/readCount -- those touch the unallocated Vulkan accumulator.
+                    lod_context.reduceCuda(interop.cuda_stream, lod_raster_pos_cuda, particle_count,
+                        /*slot=*/0u);
+                    lod_context.syncReduce();
+                    occupied = lod_context.occupiedFromCuda(/*slot=*/0u);
+                }
+                else
+                {
+                    immediateSubmit([&](VkCommandBuffer c) {
+                        lod_context.recordReduction(c, lod_raster_pos_addr, particle_count, /*slot=*/0u);
+                    });
+                    occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
+                }
                 const char* mode_name = options.light_model == LightModel::None ? "none"
                     : (options.light_model == LightModel::Phong ? "phong" : "phong-mesh");
                 // none = flat 2D points (plain --size); phong/phong-mesh = world spheres (cell-fill radius).
@@ -301,6 +459,113 @@ void MimirInstance::prepare()
                 break;
             }
         }
+    }
+
+    // In-shader Voxels grid-coarsening LOD: for each ViewType::Voxels view draw M^3 coarse cubes whose
+    // per-cube state is max-pooled from the fine N^3 grid on the fly (voxel_lod.slang). No coarse buffers,
+    // no compute, no extra interop sync -- the shader reads the view's own fine int-state SSBO, so the
+    // existing sim->draw ordering applies. Ping/pong views are handled independently (each binds its own
+    // fine state). Runs regardless of RT/BDA support (unlike the point-cloud Markers LOD above).
+    if (options.pt_lod_cells > 0)
+    {
+        for (auto* view : views)
+        {
+            if (view->desc.type != ViewType::Voxels) { continue; }
+            const uint32_t M = options.pt_lod_cells;
+            const uint64_t fine_cells = view->element_count;
+            const uint32_t N = (uint32_t)llround(std::cbrt((double)fine_cells));
+            // LOD only for a true cubic N^3 grid; M must coarsen (0 < M < N), never upsample.
+            if (M == 0 || M >= N || (uint64_t)N * N * N != fine_cells) { continue; }
+
+            auto cit = view->desc.attributes.find(AttributeType::Color);
+            if (cit == view->desc.attributes.end() || !hasIndexing(cit->second)
+                || cit->second.indexing.index_size != (unsigned)sizeof(int)) { continue; }
+            if (view->vb_count == 0) { continue; } // need the fine-state (color-index) vertex buffer
+
+            if (voxel_lod_pipeline.pipeline == VK_NULL_HANDLE)
+            {
+                voxel_lod_pipeline = makeVoxelLodPipeline(view->desc.domain);
+            }
+
+            // The fine N^3 int-state SSBO is the color-index interop buffer -- the last vbo bound for a
+            // Voxels view (Position -> vbo[0], indexed Color -> vbo[last]). createView gave it STORAGE
+            // usage because pt_lod_cells > 0 (see the indexed-attribute path).
+            VkBuffer fine_state = view->vbo[view->vb_count - 1];
+
+            // Allocate set 1 (the fine-state SSBO) and point it at this view's buffer.
+            VkDescriptorSetAllocateInfo set_info{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                .pNext = nullptr,
+                .descriptorPool     = descriptor_pool,
+                .descriptorSetCount = 1,
+                .pSetLayouts        = &voxel_lod_pipeline.set_layout,
+            };
+            VkDescriptorSet set = VK_NULL_HANDLE;
+            validation::checkVulkan(vkAllocateDescriptorSets(device, &set_info, &set));
+            VkDescriptorBufferInfo buf_info{ .buffer = fine_state, .offset = 0, .range = VK_WHOLE_SIZE };
+            VkWriteDescriptorSet write{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext            = nullptr,
+                .dstSet           = set,
+                .dstBinding       = 0,
+                .dstArrayElement  = 0,
+                .descriptorCount  = 1,
+                .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pImageInfo       = nullptr,
+                .pBufferInfo      = &buf_info,
+                .pTexelBufferView = nullptr,
+            };
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+            // Push constants: the fine grid mapping, read from the structured-grid position buffer so
+            // the coarse cubes land in the same world box even when the grid is not at the origin (e.g.
+            // centered). makeStructuredGrid writes cell (x,y,z) at start + (x,y,z)*spacing into
+            // host-visible memory, so cell 0 is the origin and cell 1 - cell 0 is the (isotropic) spacing.
+            float3 grid_origin{ 0.f, 0.f, 0.f };
+            float  grid_spacing = 1.f;
+            {
+                VkDeviceMemory pos_mem =
+                    getMemoryVulkan(view->desc.attributes[AttributeType::Position].source);
+                float3* mapped = nullptr;
+                if (vkMapMemory(device, pos_mem, 0, sizeof(float3) * 2, 0, (void**)&mapped)
+                        == VK_SUCCESS)
+                {
+                    grid_origin = mapped[0];
+                    const float sx = mapped[1].x - mapped[0].x;
+                    if (sx > 0.f) { grid_spacing = sx; }
+                    vkUnmapMemory(device, pos_mem);
+                }
+            }
+
+            VoxelLodPush push{};
+            push.fineN = N;
+            push.coarseM = M;
+            push.gridOrigin[0]  = grid_origin.x; push.gridOrigin[1] = grid_origin.y;
+            push.gridOrigin[2]  = grid_origin.z; push.gridOrigin[3] = 0.f;
+            push.gridSpacing[0] = grid_spacing; push.gridSpacing[1] = grid_spacing;
+            push.gridSpacing[2] = grid_spacing; push.gridSpacing[3] = 0.f;
+
+            // Draw M^3 procedural points; drawElements routes this view to the LOD pipeline + custom draw.
+            const uint64_t coarse_cells = (uint64_t)M * M * M;
+            view->draw_count = (uint32_t)coarse_cells; // M^3 < 2^32 for M <= 1625
+
+            voxel_lod_views.push_back(VoxelLodView{ view, fine_state, set, push });
+            spdlog::info("Voxels LOD (in-shader): {}^3 -> {}^3 grid ({} -> {} cubes, {:.1f}x fewer), "
+                "max-pooled", N, M, fine_cells, coarse_cells,
+                (double)fine_cells / (double)coarse_cells);
+        }
+    }
+
+    // --lod was requested but nothing consumed it: LOD is a point-cloud reduction (positions -> N^3
+    // grid -> representative points), so it only applies to Markers (particle) views. The RT path and
+    // the no-BDA path warn for their own cases above; this covers Voxels/Image/Edges, where --lod would
+    // otherwise be a silent no-op with the full data still drawn.
+    if (options.pt_lod_cells > 0 && !rt_enabled && !lod_context.active()
+        && voxel_lod_views.empty() && supportsRayTracing(physical_device.handle))
+    {
+        spdlog::warn("--lod {} ignored: point-cloud LOD applies only to Markers (particle) views; the "
+                     "active view type does not support it -- rendering all elements",
+                     options.pt_lod_cells);
     }
 
     // Fly camera starts with the cursor captured for immediate mouse-look (TAB frees it for the
@@ -443,6 +708,13 @@ void MimirInstance::updateViews()
     if (options.present.enable_interop_sync && std::atomic_ref<bool>(running).load(std::memory_order_acquire))
     {
         compute_monitor.stopWatch();
+        // Path tracing: all per-frame CUDA work runs HERE, on the compute thread, after the sim kernel
+        // and BEFORE signalKernelFinish -- never on the render thread, where a pending interop semaphore
+        // wait stalls the GPU device-wide (deadlock). Voxel PT compacts the living cells; Markers PT+LOD
+        // runs the reduction. Both set the RT's per-frame primitive count + fill its positions buffer,
+        // ready before the render's AS build (gated by the interop signal below).
+        if (raytracing.voxel_boxes)                        { updateVoxelPtScene(); }
+        else if (rt_enabled && raytracing.lod != nullptr)  { raytracing.reduceLodCompute(); }
         signalKernelFinish();
     }
 }
@@ -873,7 +1145,9 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
 
-    VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    // TRANSFER_SRC lets an interop Image view use this buffer as the source of a per-frame
+    // buffer->image copy when it cannot be aliased directly (row-pitch mismatch); harmless otherwise.
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     // Path tracing reads the interop positions by buffer-device-address (in the AABB writer), and the
     // shared LOD reduction (any light model) reads them by BDA in its scatter pass, so the buffer needs
     // the SHADER_DEVICE_ADDRESS usage and its memory the DEVICE_ADDRESS alloc flag. bufferDeviceAddress
@@ -904,21 +1178,120 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
     };
     auto available = physical_device.memory.memoryProperties;
     auto memflags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    const void *alloc_chain = want_addr ? static_cast<const void*>(&addr_flags)
-                                        : static_cast<const void*>(&export_info);
-    auto vk_memory = allocateMemory(device, available, memreq, memflags, alloc_chain);
-    // The real allocated amount is determined by the memory requirements structure
-    spdlog::debug("Allocated {} bytes for interop ({} requested)", memreq.size, size);
+    VkDeviceMemory vk_memory = VK_NULL_HANDLE;
+    cudaExternalMemory_t cuda_extmem = nullptr;
 
-    // Export and map the external memory to CUDA
-    auto cuda_extmem = interop::importCudaExternalMemory(vk_memory, memreq.size, device);
+    // Interop allocation direction. The DEFAULT-of-old (Vulkan allocates -> CUDA imports via
+    // cudaExternalMemoryGetMappedBuffer) leaves the CUDA-side mapping WITHOUT large pages, thrashing the
+    // TLB and collapsing throughput on this buffer at huge N (measured 30->10 Gpart/s at 5e9 on an RTX
+    // PRO 6000 vs a flat 48 for native cudaMalloc; 10->165 on a B300 at 6e9). The VMM path reverses it:
+    // CUDA allocates via the driver VMM API at the recommended 2 MB large-page granularity (exportable)
+    // and Vulkan IMPORTS it, so the CUDA pointer is a first-class large-page allocation while the rest of
+    // the engine is unchanged (vk_mem binds render buffers; cuda_ptr feeds the LOD reduction).
+    //
+    // MIMIR_VMM_INTEROP: unset (default) = VMM for buffers >= kVmmMinBytes only (VMM rounds up to the
+    // 2 MB granularity, so applying it to the many small interop buffers would waste memory); "1" (or any
+    // non-"0" value) = VMM for ALL sizes; "0" = disable VMM entirely. If the VMM path fails for any reason
+    // (a driver that won't import the CUDA-VMM fd, OOM, ...), it falls back to the standard path -- so
+    // enabling it can never turn a working allocation into a failing one.
+    constexpr VkDeviceSize kVmmMinBytes = 256ull << 20; // 256 MB
+    static const char* vmm_env = std::getenv("MIMIR_VMM_INTEROP");
+    static const bool vmm_off  = (vmm_env != nullptr && std::strcmp(vmm_env, "0") == 0);
+    static const bool vmm_all  = (vmm_env != nullptr && std::strcmp(vmm_env, "0") != 0);
+    const bool want_vmm = !vmm_off && (vmm_all || memreq.size >= kVmmMinBytes);
 
-    // Add deletors to queue for later cleanup
-    deletors.views.add([=,this]{
-        spdlog::trace("Free interop memory");
-        validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
-        vkFreeMemory(device, vk_memory, nullptr);
-    });
+    bool vmm_ok = false;
+    if (want_vmm)
+    {
+        cuInit(0);
+        int cuda_dev = 0; cudaGetDevice(&cuda_dev);
+        CUmemAllocationProp prop{};
+        prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+        prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+        prop.location.id = cuda_dev;
+        prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+        size_t gran = 0;
+        cuMemGetAllocationGranularity(&gran, &prop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED);
+        const size_t aligned = gran ? ((memreq.size + gran - 1) / gran) * gran : 0;
+        CUmemGenericAllocationHandle h{};
+        CUdeviceptr dptr = 0;
+        int fd = -1;
+        bool created = false, reserved = false, mapped = false, built = false;
+        if (gran != 0 && cuMemCreate(&h, aligned, &prop, 0) == CUDA_SUCCESS)
+        {
+            created = true;
+            if (cuMemAddressReserve(&dptr, aligned, 0, 0, 0) == CUDA_SUCCESS)
+            {
+                reserved = true;
+                if (cuMemMap(dptr, aligned, 0, h, 0) == CUDA_SUCCESS)
+                {
+                    mapped = true;
+                    CUmemAccessDesc acc{};
+                    acc.location.type = CU_MEM_LOCATION_TYPE_DEVICE; acc.location.id = cuda_dev;
+                    acc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+                    if (cuMemSetAccess(dptr, aligned, &acc, 1) == CUDA_SUCCESS &&
+                        cuMemExportToShareableHandle(&fd, h,
+                            CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR, 0) == CUDA_SUCCESS && fd >= 0)
+                    {
+                        // Vulkan imports the CUDA fd. This NVIDIA driver's vkGetMemoryFdPropertiesKHR
+                        // rejects a CUDA-VMM export (INVALID_EXTERNAL_HANDLE), but vkAllocateMemory imports
+                        // it fine given a device-local type from the buffer's own requirements. Chain the
+                        // device-address flag for BDA reads. vkAllocateMemory takes the fd on success.
+                        const uint32_t mem_type = findMemoryType(available, memreq.memoryTypeBits, memflags);
+                        VkMemoryAllocateFlagsInfo iflags{
+                            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, .pNext = nullptr,
+                            .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, .deviceMask = 0 };
+                        VkImportMemoryFdInfoKHR ifd{
+                            .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+                            .pNext = want_addr ? static_cast<const void*>(&iflags) : nullptr,
+                            .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, .fd = fd };
+                        VkMemoryAllocateInfo iai{
+                            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .pNext = &ifd,
+                            .allocationSize = aligned, .memoryTypeIndex = mem_type };
+                        if (mem_type != ~0u &&
+                            vkAllocateMemory(device, &iai, nullptr, &vk_memory) == VK_SUCCESS)
+                        {
+                            built = true; // fd is now owned by Vulkan
+                        }
+                        else if (fd >= 0) { ::close(fd); } // Vulkan didn't take ownership
+                    }
+                }
+            }
+        }
+        if (built)
+        {
+            *dev_ptr = reinterpret_cast<void*>(dptr);
+            spdlog::info("VMM interop: {} MB via CUDA large pages ({} KB granularity), imported by Vulkan",
+                aligned / (1024 * 1024), gran / 1024);
+            deletors.views.add([=,this]{
+                cuMemUnmap(dptr, aligned); cuMemRelease(h); cuMemAddressFree(dptr, aligned);
+                vkFreeMemory(device, vk_memory, nullptr);
+            });
+            vmm_ok = true;
+        }
+        else
+        {
+            if (mapped)   { cuMemUnmap(dptr, aligned); }
+            if (reserved) { cuMemAddressFree(dptr, aligned); }
+            if (created)  { cuMemRelease(h); }
+            spdlog::warn("VMM interop unavailable for this {} MB buffer; using the standard interop path",
+                memreq.size / (1024 * 1024));
+        }
+    }
+
+    if (!vmm_ok)
+    {
+        const void *alloc_chain = want_addr ? static_cast<const void*>(&addr_flags)
+                                            : static_cast<const void*>(&export_info);
+        vk_memory = allocateMemory(device, available, memreq, memflags, alloc_chain);
+        spdlog::debug("Allocated {} bytes for interop ({} requested)", memreq.size, size);
+        cuda_extmem = interop::importCudaExternalMemory(vk_memory, memreq.size, device);
+        deletors.views.add([=,this]{
+            spdlog::trace("Free interop memory");
+            validation::checkCuda(cudaDestroyExternalMemory(cuda_extmem));
+            vkFreeMemory(device, vk_memory, nullptr);
+        });
+    }
     vkDestroyBuffer(device, query_buf, nullptr);
 
     LinearAlloc alloc{
@@ -926,14 +1299,20 @@ LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
         .vk_mem      = vk_memory,
         .cuda_extmem = cuda_extmem
     };
-    cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0,
+    if (!vmm_ok)
+    {
+        cudaExternalMemoryBufferDesc buffer_desc{ .offset = 0, .size = size, .flags = 0,
 #if CUDART_VERSION >= 13000
-        .reserved = {}
+            .reserved = {}
 #endif
-    };
-    validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
-        dev_ptr, alloc.cuda_extmem, &buffer_desc)
-    );
+        };
+        validation::checkCuda(cudaExternalMemoryGetMappedBuffer(
+            dev_ptr, alloc.cuda_extmem, &buffer_desc)
+        );
+    }
+    // Persist the CUDA device pointer (VMM native, or the imported mapping) so consumers (the LOD CUDA
+    // reduction) can read these interop positions as a native device pointer without re-mapping.
+    alloc.cuda_ptr = *dev_ptr;
     auto alloc_ptr = new LinearAlloc(alloc);
     deletors.context.add([=,this]{ delete alloc_ptr; });
     return alloc_ptr;
@@ -1057,9 +1436,13 @@ bool validateViewDescription(ViewDescription *desc)
     return has_elements && has_position_attr;
 }
 
-uint32_t getDrawCount(ViewDescription *desc)
+uint64_t getDrawCount(ViewDescription *desc)
 {
     auto& pos_attr = desc->attributes[AttributeType::Position];
+    // NOTE: indexed-position views (Edges / plain indexed mesh) return IndexDescription::size, which
+    // is an unsigned int by design and stays bound to UINT32_MAX elements. The 64-bit particle-count
+    // feature covers direct point clouds and instanced meshes (pos_attr.size, size_t); the indexed
+    // draw path is not chunked and is intentionally out of scope for >2^32 element counts.
     return hasIndexing(pos_attr)? pos_attr.indexing.size : pos_attr.size;
 }
 
@@ -1086,7 +1469,7 @@ View *MimirInstance::createView(ViewDescription *desc)
 
     View view{
         .pipeline    = VK_NULL_HANDLE,
-        .draw_count  = getDrawCount(desc),
+        .draw_count  = static_cast<uint32_t>(std::min<uint64_t>(getDrawCount(desc), UINT32_MAX)),
         .vb_count    = 0,
         .vbo         = {VK_NULL_HANDLE},
         .offsets     = {0},
@@ -1102,6 +1485,7 @@ View *MimirInstance::createView(ViewDescription *desc)
         .scale       = glm::mat4(1.f),
         .desc        = *desc,
     };
+    view.element_count = getDrawCount(desc);
 
     // If no option value is set (the variant is default-initialized to std::monostate)
     if (view.desc.options.index() == 0)
@@ -1151,48 +1535,75 @@ View *MimirInstance::createView(ViewDescription *desc)
         spdlog::trace("Processing {} attribute", getAttributeType(type));
         if (type == AttributeType::Color && desc->type == ViewType::Image)
         {
-            ImageParams params{
-                .type   = getImageType(desc->layout),
-                .format = getVulkanFormat(attr.format),
-                .extent = getVulkanExtent(desc->layout),
-                .tiling = getImageTiling(attr.source),
-                .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                .levels = 1,
-            };
-            VkExternalMemoryImageCreateInfo extmem_info{
-                .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-                .pNext       = nullptr,
-                .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-            };
-            auto teximg = createImage(device, physical_device.handle, params, &extmem_info);
-            vkBindImageMemory(device, teximg, getMemoryVulkan(attr.source), 0);
+            const VkImageType  itype = getImageType(desc->layout);
+            const VkFormat     vkfmt = getVulkanFormat(attr.format);
+            const VkExtent3D   extent = getVulkanExtent(desc->layout);
+            const VkDeviceSize tight  = (VkDeviceSize)extent.width * attr.format.getSize();
+            const bool src_linear = (getImageTiling(attr.source) == VK_IMAGE_TILING_LINEAR);
 
-            // The interop buffer is aliased directly to this image. A LINEAR image's row pitch is
-            // driver-aligned; if it exceeds the buffer's tight row stride the sampled result shears.
-            // Warn loudly -- silent visual corruption is worse than a log line.
-            if (params.tiling == VK_IMAGE_TILING_LINEAR)
+            Texture tex{};
+            tex.format = vkfmt;
+            tex.extent = extent;
+
+            // Prefer aliasing the interop buffer directly to the sampled image (zero-copy). For a
+            // LINEAR-tiled source this is only valid when the driver's row pitch equals the buffer's
+            // tight packing; a wider pitch would shear. When it would, we fall back to a device-local
+            // image refreshed from the shared buffer by a per-frame vkCmdCopyBufferToImage -- still no
+            // host round-trip, correct for any width. OPTIMAL sources (cudaArray textures) always alias.
+            bool can_alias = true;
+            if (src_linear)
             {
+                ImageParams lp{ .type = itype, .format = vkfmt, .extent = extent,
+                    .tiling = VK_IMAGE_TILING_LINEAR,
+                    .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, .levels = 1 };
+                VkExternalMemoryImageCreateInfo ext{
+                    .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+                    .pNext = nullptr, .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT };
+                VkImage lin = createImage(device, physical_device.handle, lp, &ext);
                 VkImageSubresource sub{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
                 VkSubresourceLayout lay{};
-                vkGetImageSubresourceLayout(device, teximg, &sub, &lay);
-                VkDeviceSize tight = (VkDeviceSize)params.extent.width * attr.format.getSize();
-                if (lay.rowPitch != tight)
+                vkGetImageSubresourceLayout(device, lin, &sub, &lay);
+                can_alias = (lay.rowPitch == tight);
+                if (can_alias)
                 {
-                    spdlog::warn("Image view width {} shears: device LINEAR row pitch is {} B but the "
-                        "interop buffer is tightly packed at {} B/row. Pad the presented width to a "
-                        "multiple of {} texels (see linearImageRowAlignment).",
-                        params.extent.width, lay.rowPitch, tight,
-                        lay.rowPitch / std::max<VkDeviceSize>(1, attr.format.getSize()));
+                    vkBindImageMemory(device, lin, getMemoryVulkan(attr.source), 0);
+                    tex.image = lin;
                 }
+                else { vkDestroyImage(device, lin, nullptr); }  // rebuilt device-local below
             }
 
-            Texture tex{
-                .image    = teximg,
-                .img_view = createImageView(device, tex.image, params, VK_IMAGE_ASPECT_COLOR_BIT),
-                .sampler  = createSampler(device, VK_FILTER_LINEAR, false),
-                .format   = params.format,
-                .extent   = params.extent,
-            };
+            // Params for the image view / final image. Alias keeps the source tiling; the copy
+            // fallback uses OPTIMAL (its own memory) for efficient sampling.
+            ImageParams params{ .type = itype, .format = vkfmt, .extent = extent,
+                .tiling = can_alias ? getImageTiling(attr.source) : VK_IMAGE_TILING_OPTIMAL,
+                .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, .levels = 1 };
+
+            if (can_alias && !src_linear)
+            {
+                // OPTIMAL interop source (cudaArray): alias directly, as before.
+                VkExternalMemoryImageCreateInfo ext{
+                    .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+                    .pNext = nullptr, .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT };
+                tex.image = createImage(device, physical_device.handle, params, &ext);
+                vkBindImageMemory(device, tex.image, getMemoryVulkan(attr.source), 0);
+            }
+            else if (!can_alias)
+            {
+                // Copy path: device-local image (own memory) refreshed each frame from a buffer over
+                // the shared interop memory.
+                tex.image = createImage(device, physical_device.handle, params);
+                VkMemoryRequirements mr{};
+                vkGetImageMemoryRequirements(device, tex.image, &mr);
+                tex.own_mem = allocateMemory(device, physical_device.memory.memoryProperties, mr,
+                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                validation::checkVulkan(vkBindImageMemory(device, tex.image, tex.own_mem, 0));
+                tex.copy_src = createAttributeBuffer(getSourceSize(attr.source),
+                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT, getMemoryVulkan(attr.source));
+            }
+            // (can_alias && src_linear) already set tex.image above.
+
+            tex.img_view = createImageView(device, tex.image, params, VK_IMAGE_ASPECT_COLOR_BIT);
+            tex.sampler  = createSampler(device, VK_FILTER_LINEAR, false);
 
             transitionImageLayout(tex.image,
                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
@@ -1203,6 +1614,8 @@ View *MimirInstance::createView(ViewDescription *desc)
                 vkDestroyImageView(device, tex.img_view, nullptr);
                 vkDestroyImage(device, tex.image, nullptr);
                 vkDestroySampler(device, tex.sampler, nullptr);
+                if (tex.own_mem) { vkFreeMemory(device, tex.own_mem, nullptr); }
+                // tex.copy_src is registered for destruction by createAttributeBuffer.
             });
 
             view.textures[view.tex_count++] = tex;
@@ -1214,6 +1627,8 @@ View *MimirInstance::createView(ViewDescription *desc)
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
+            view.vbo_stride[view.vb_count] = static_cast<VkDeviceSize>(sizeof(Vertex));
+            view.vbo_rate[view.vb_count]   = VK_VERTEX_INPUT_RATE_VERTEX;
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
             view.vb_count++;
         }
@@ -1230,17 +1645,23 @@ View *MimirInstance::createView(ViewDescription *desc)
                 vb_size, getSourceSize(attr.source)
             );
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            // Path tracing (AABB writer) AND the shared LOD reduction (scatter pass) read positions by
-            // buffer-device-address, so the position buffer needs the SHADER_DEVICE_ADDRESS usage (its
-            // interop memory already carries the DEVICE_ADDRESS alloc flag from allocLinear). Same gate
-            // as allocLinear: bufferDeviceAddress is only enabled on RT-capable devices.
-            if (rt_enabled
-                || (options.pt_lod_cells > 0 && supportsRayTracing(physical_device.handle)))
+            // Path tracing (AABB writer) AND the shared point-cloud LOD reduction (scatter pass) read
+            // positions by buffer-device-address, so the position buffer needs the SHADER_DEVICE_ADDRESS
+            // usage (its interop memory already carries the DEVICE_ADDRESS alloc flag from allocLinear).
+            // Same gate as allocLinear: bufferDeviceAddress is only enabled on RT-capable devices.
+            // Voxels are excluded: their structured-grid positions are host-allocated (no device-address
+            // alloc flag) and the in-shader grid-coarsening LOD never reads them by BDA -- requesting the
+            // usage here would trip VUID-vkBindBufferMemory-bufferDeviceAddress-03339.
+            if (desc->type != ViewType::Voxels
+                && (rt_enabled
+                    || (options.pt_lod_cells > 0 && supportsRayTracing(physical_device.handle))))
             {
                 vb_usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
             }
             VkDeviceMemory vb_mem = getMemoryVulkan(attr.source);
             // TODO: Get if there is still space remaining (or maybe do it in validation)
+            view.vbo_stride[view.vb_count] = static_cast<VkDeviceSize>(attr.format.getSize());
+            view.vbo_rate[view.vb_count]   = VK_VERTEX_INPUT_RATE_VERTEX;
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
             view.vb_count++;
         }
@@ -1274,6 +1695,16 @@ View *MimirInstance::createView(ViewDescription *desc)
         else
         {
             VkBufferUsageFlags vb_usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            // Voxels grid-coarsening LOD reads this index buffer (the fine per-voxel int state) as a
+            // storage buffer in the coarse vertex shader (voxel_lod.slang). Add STORAGE usage so the
+            // same interop buffer can be bound as an SSBO; harmless for the normal vertex-attribute draw.
+            if (desc->type == ViewType::Voxels && type == AttributeType::Color
+                && options.pt_lod_cells > 0)
+            {
+                vb_usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            }
+            view.vbo_stride[view.vb_count] = static_cast<VkDeviceSize>(attr.indexing.index_size);
+            view.vbo_rate[view.vb_count]   = VK_VERTEX_INPUT_RATE_VERTEX;
             view.vbo[view.vb_count++] = createAttributeBuffer(memsize, vb_usage, memory);
         }
     }
@@ -1291,17 +1722,21 @@ View *MimirInstance::createView(ViewDescription *desc)
     {
         ensureSphereMesh();
         VkBuffer instance_positions = view.vbo[0]; // interop particle centers (per-instance)
-        uint32_t particle_count     = view.draw_count;
+        uint64_t particle_count     = view.element_count;
         view.vbo[0]        = sphere_vbo;           // binding 0: unit icosphere vertices
         view.offsets[0]    = 0;
         view.vbo[1]        = instance_positions;   // binding 1: particle centers
         view.offsets[1]    = 0;
         view.vb_count      = 2;
+        // binding 0 = template (per-vertex, vec3); binding 1 = per-instance centers (vec3)
+        view.vbo_stride[0] = sizeof(glm::vec3); view.vbo_rate[0] = VK_VERTEX_INPUT_RATE_VERTEX;
+        view.vbo_stride[1] = sizeof(glm::vec3); view.vbo_rate[1] = VK_VERTEX_INPUT_RATE_INSTANCE;
         view.ibo           = sphere_ibo;
         view.index_type    = VK_INDEX_TYPE_UINT32;
         view.use_ibo       = true;
-        view.draw_count    = sphere_index_count;   // template icosphere indices
-        view.instance_count = particle_count;      // one instance per particle
+        view.draw_count     = sphere_index_count;  // icosphere index count (uint32, small)
+        view.instance_count = static_cast<uint32_t>(std::min<uint64_t>(particle_count, UINT32_MAX));
+        // element_count already holds the true particle total; the Task 3 chunk loop reads it.
     }
 
     auto handle = new View(view);
@@ -1865,6 +2300,50 @@ void MimirInstance::waitTimelineHost()
     validation::checkVulkan(vkWaitSemaphores(device, &wait_info, frame_timeout));
 }
 
+// Voxel path tracing: compact the currently-visible Voxels view's living cells into the interop
+// positions buffer and set the RT's per-frame primitive count. Runs on the interop CUDA stream and
+// blocks for the count (like the LOD CUDA reduction), so the count is on the host before the frame's
+// AS build reads it. No-op when voxel PT is inactive or no voxel view is visible.
+void MimirInstance::updateVoxelPtScene()
+{
+    if (!raytracing.voxel_boxes || voxel_pt_views.empty()) { return; }
+    void* state = nullptr;
+    for (auto& vp : voxel_pt_views)
+    {
+        if (vp.view->desc.visible && vp.state_cuda != nullptr) { state = vp.state_cuda; break; }
+    }
+    if (state == nullptr) { raytracing.voxel_prim_count = 0; return; }
+
+    // Runs on the compute thread (updateViews) or once at setup -- NEVER the render thread. On the
+    // interop stream (0) so it is ordered after the sim kernel's writes; the blocking sync is safe here
+    // because this thread is the one that later signals the interop semaphore (no self-deadlock).
+    // Under --lod, max-pool the fine state to M^3 first and compact THAT (living coarse cells).
+    if (voxel_pt_M > 0)
+    {
+        const uint32_t M = voxel_pt_M;
+        const uint64_t mc = (uint64_t)M * M * M;
+        float3 cspacing{ voxel_pt_coarse_spacing, voxel_pt_coarse_spacing, voxel_pt_coarse_spacing };
+        voxelPoolMax((const int*)state, voxel_pt_N, voxel_pt_coarse_state, M, interop.cuda_stream);
+        voxelCompactLiving(voxel_pt_coarse_state, M, voxel_pt_coarse_origin, cspacing,
+            (float*)voxel_pt_positions_cuda, (uint32_t)std::min<uint64_t>(mc, 0xFFFFFFFFu),
+            voxel_pt_count_dev, interop.cuda_stream);
+    }
+    else
+    {
+        const uint64_t n3 = (uint64_t)voxel_pt_N * voxel_pt_N * voxel_pt_N;
+        float3 spacing{ voxel_pt_spacing, voxel_pt_spacing, voxel_pt_spacing };
+        voxelCompactLiving((const int*)state, voxel_pt_N, voxel_pt_origin, spacing,
+            (float*)voxel_pt_positions_cuda, (uint32_t)std::min<uint64_t>(n3, 0xFFFFFFFFu),
+            voxel_pt_count_dev, interop.cuda_stream);
+    }
+    cudaStreamSynchronize(interop.cuda_stream);
+    uint32_t living = 0;
+    cudaMemcpy(&living, voxel_pt_count_dev, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    const uint32_t grid_res = voxel_pt_M ? voxel_pt_M : voxel_pt_N;
+    const uint64_t cells = (uint64_t)grid_res * grid_res * grid_res;
+    raytracing.voxel_prim_count = (uint32_t)std::min<uint64_t>(living, cells);
+}
+
 void MimirInstance::renderFrame(bool advance_interop)
 {
     // Get frame index from the inflight frames array
@@ -2038,7 +2517,11 @@ void MimirInstance::renderFrame(bool advance_interop)
         pc.aspect       = (float)swapchain.extent.width / (float)swapchain.extent.height;
         auto lp = options.light_pos;
         auto bg = options.background_color;
-        pc.sun_dir     = glm::vec4(lp.x, lp.y, lp.z, 0.f);
+        // sun_dir.w selects the procedural-AABB primitive in the intersection shader: 0 = sphere
+        // (particles), >= 0.5 = box (voxels), where the box lane also carries 1 + opacity so the
+        // integrator can spawn transmission rays for translucent voxels (--opacity < 1).
+        float shape_w = raytracing.voxel_boxes ? (1.f + raytracing.voxel_opacity) : 0.f;
+        pc.sun_dir     = glm::vec4(lp.x, lp.y, lp.z, shape_w);
         // Path-traced sky/environment = the instance background color (w = intensity), so a
         // simulation controls the backdrop (incl. black) with the same knob as the raster modes.
         pc.sky_color   = glm::vec4(bg.x, bg.y, bg.z, 1.0f);
@@ -2075,6 +2558,10 @@ void MimirInstance::renderFrame(bool advance_interop)
         // (Re)build/refit this frame's AS from the live interop positions (only when they changed),
         // then trace it. When denoising, the trace leaves the display image in GENERAL and
         // recordDenoise writes the filtered result.
+        // Voxel PT: the living-cell compaction runs on the COMPUTE thread (updateViews), NOT here --
+        // the render thread must never launch CUDA work while the compute thread has a pending interop
+        // semaphore wait (it stalls the GPU device-wide -> deadlock). voxel_prim_count / the positions
+        // buffer are already set by that compaction, ordered before the interop signal this frame waits on.
         raytracing.recordUpdateScene(cmd, frame_idx, /*rebuild=*/geo_changed);
         raytracing.recordTrace(cmd, frame_idx, pc, /*leave_image_general=*/options.pt_denoise);
         if (options.pt_denoise) { raytracing.recordDenoise(cmd, frame_idx); }
@@ -2084,6 +2571,10 @@ void MimirInstance::renderFrame(bool advance_interop)
     // the render pass (compute dispatches cannot run inside a render pass). No-op unless the raster
     // point-mode LOD path is active. drawElements then binds the reduced buffer + draws indirect.
     recordLodRaster(cmd, static_cast<uint32_t>(frame_idx));
+
+    // Refresh copy-path interop Image views from their shared buffers before the render pass samples
+    // them (no-op for zero-copy aliased views). Outside the render pass: copies can't run inside one.
+    recordImageCopies(cmd);
 
     // Set clear color and depth stencil value
     std::array<VkClearValue, 2> clear_values{};
@@ -2235,19 +2726,96 @@ void MimirInstance::renderFrame(bool advance_interop)
 // Records the per-frame LOD reduction + indirect-args build for the raster point modes (none/phong),
 // before the render pass. drawElements consumes the results (reduced vbo + indirect draw). No-op when
 // the raster point-mode LOD path is inactive (rt_enabled, or lod_context never inited for raster).
+void MimirInstance::recordImageCopies(VkCommandBuffer cmd)
+{
+    for (auto* view : views)
+    {
+        for (uint32_t t = 0; t < view->tex_count; ++t)
+        {
+            const Texture& tex = view->textures[t];
+            if (tex.copy_src == VK_NULL_HANDLE) { continue; }  // zero-copy aliased view: nothing to do
+
+            const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            VkImageMemoryBarrier barrier{
+                .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .pNext               = nullptr,
+                .srcAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+                .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image               = tex.image,
+                .subresourceRange    = range,
+            };
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            // bufferRowLength/Height 0 == tightly packed (== extent), which is exactly how the CUDA
+            // side wrote the shared buffer; the copy lays it into the image's own (padded) row pitch.
+            VkBufferImageCopy region{
+                .bufferOffset      = 0,
+                .bufferRowLength   = 0,
+                .bufferImageHeight = 0,
+                .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+                .imageOffset       = { 0, 0, 0 },
+                .imageExtent       = tex.extent,
+            };
+            vkCmdCopyBufferToImage(cmd, tex.copy_src, tex.image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        }
+    }
+}
+
 void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
 {
     if (rt_enabled || !lod_context.active()) { return; }
 
     // Reduce the live interop positions into the shared reduced-position buffer (clear -> scatter ->
-    // emit), recorded inline in the frame cmd (no host stall, unlike PT's one-shot submit). Outputs go
-    // to this frame-in-flight `slot`; drawElements(slot) reads the SAME slot this frame wrote, so an
-    // overlapping frame T+1's reduction (a different slot) can't clobber frame T's draw inputs.
-    lod_context.recordReduction(cmd, lod_raster_pos_addr, lod_raster_count, slot);
+    // emit). Outputs go to this frame-in-flight `slot`; drawElements(slot) reads the SAME slot this
+    // frame wrote, so an overlapping frame T+1's reduction (a different slot) can't clobber frame T's
+    // draw inputs.
+    if (lod_context.usesCuda())
+    {
+        // CUDA reduction path. reduceCuda + syncReduce block the render thread until the reduced
+        // positions + emit counter are ready for the graphics submit's indirect draw. In COUPLED
+        // (lockstep / windowed display) mode the reduction runs on the sim's default stream, so it is
+        // ordered after the sim's writes (tear-free). In DECOUPLED mode (the remote server's sovereign
+        // sim) reduceCuda runs on LodContext's dedicated stream instead, so syncReduce waits only for
+        // the reduction -- the render never blocks on the sim, honoring "the viewer never slows the
+        // run" and the torn-latest read contract (setDecoupledReduction, called by the server).
+        // recordReduction MUST NOT be called: the Vulkan N^3 accumulator is unallocated on this path.
+        // CPU wall-clock the reduce+sync into last_lod_raster_ms, mirroring RayTracingContext::last_lod_ms
+        // (raytracing.cpp ~1551) so the raster [stats] line can surface the same "lod X ms" split PT does.
+        const auto lod_t0 = std::chrono::steady_clock::now();
+        lod_context.reduceCuda(interop.cuda_stream, lod_raster_pos_cuda, lod_raster_count, slot);
+        lod_context.syncReduce();
+        last_lod_raster_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - lod_t0).count();
+    }
+    else
+    {
+        // Vulkan fallback: the reduction is recorded into `cmd` and runs async on the graphics/compute
+        // queue alongside the rest of the frame -- there is no host stall to CPU-time here (unlike the
+        // CUDA branch's blocking cudaStreamSynchronize), so a wall-clock wrapper would only measure
+        // command-buffer recording overhead, not GPU reduction cost. Left unmeasured (0.0); a real
+        // number would need GPU timestamp queries, which is out of scope for this fallback path.
+        lod_context.recordReduction(cmd, lod_raster_pos_addr, lod_raster_count, slot);
+        last_lod_raster_ms = 0.0;
+    }
 
     // Make the emit pass's writes visible to BOTH consumers: the finalize compute reads the emit
     // counter (SHADER_READ), and the indirect draw reads the reduced positions as vertex attributes
-    // (VERTEX_ATTRIBUTE_READ at the VERTEX_INPUT stage).
+    // (VERTEX_ATTRIBUTE_READ at the VERTEX_INPUT stage). Kept on the CUDA path too as a belt-and-
+    // suspenders barrier for the Vulkan-side reads of the CUDA-written buffers (mirrors Task 4's
+    // retained reduce_to_writer barrier).
     VkMemoryBarrier emit_vis{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .pNext = nullptr,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT };
@@ -2255,7 +2823,9 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
         0, 1, &emit_vis, 0, nullptr, 0, nullptr);
 
-    // Build the indirect command from the occupied count. Layout depends on the active LOD view:
+    // Build the indirect command from the occupied count. On the CUDA path recordIndirectArgs reads the
+    // emit COUNTER buffer, which the CUDA emit kernel wrote (same buffer as the Vulkan path), so it
+    // sees the CUDA-produced count. Layout depends on the active LOD view:
     //   - mesh (phong-mesh, VkDrawIndexedIndirectCommand): FIXED indexCount@0 = sphere_index_count;
     //     VARYING instanceCount@4 = occupied cells (one icosphere instance per cell).
     //   - point (none/phong, VkDrawIndirectCommand):        FIXED instanceCount@4 = 1;
@@ -2271,6 +2841,26 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
         lod_context.recordIndirectArgs(cmd, /*fixed_byte_offset=*/4u, /*fixed_value=*/1u,
             /*varying_byte_offset=*/0u, slot);
     }
+}
+
+static constexpr uint64_t kDrawChunkCap = UINT32_MAX; // Vulkan vertexCount/instanceCount hard max
+
+// Rebind every vertex binding at chunk_start (advancing only bindings whose rate == chunk_rate) and
+// issue one draw of `n` elements. chunk_rate = VK_VERTEX_INPUT_RATE_VERTEX for point clouds (chunk
+// vertices) or VK_VERTEX_INPUT_RATE_INSTANCE for meshes (chunk instances).
+static void drawChunk(VkCommandBuffer cmd, const View* view, uint64_t chunk_start, uint32_t n,
+                      VkVertexInputRate chunk_rate, bool indexed, uint32_t index_count)
+{
+    VkBuffer     vbos[max_attr_count];
+    VkDeviceSize offs[max_attr_count];
+    for (uint32_t b = 0; b < view->vb_count; ++b) {
+        vbos[b] = view->vbo[b];
+        offs[b] = view->offsets[b] +
+            (view->vbo_rate[b] == chunk_rate ? chunk_start * view->vbo_stride[b] : (VkDeviceSize)0);
+    }
+    vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
+    if (indexed) vkCmdDrawIndexed(cmd, index_count, n, 0, 0, 0);
+    else         vkCmdDraw(cmd, n, 1u, 0, 0);
 }
 
 void MimirInstance::drawElements(uint32_t image_idx)
@@ -2294,6 +2884,28 @@ void MimirInstance::drawElements(uint32_t image_idx)
             i * size_ubo + size_mvp + size_view,
             i * size_ubo + size_mvp
         };
+
+        // In-shader Voxels grid-coarsening LOD: this view draws M^3 procedural coarse cubes with the
+        // dedicated LOD pipeline (voxel_lod.slang) instead of its per-voxel geometry. Bind set 0 (the
+        // shared uniforms/colorbuf, dynamic offsets) + set 1 (the fine-state SSBO) with the LOD layout,
+        // push the grid mapping, and draw M^3 with NO vertex buffers. The LOD pipeline layout's set 0 is
+        // the same descriptor_layout, so the dynamic-offset UBOs bind identically.
+        const VoxelLodView* lod_rec = nullptr;
+        for (auto& rec : voxel_lod_views) { if (rec.view == view) { lod_rec = &rec; break; } }
+        if (lod_rec != nullptr)
+        {
+            VkDescriptorSet sets[2] = { descriptor_sets[image_idx], lod_rec->set };
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_lod_pipeline.pipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                voxel_lod_pipeline.layout, 0, 2, sets, offsets.size(), offsets.data()
+            );
+            vkCmdPushConstants(cmd, voxel_lod_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT,
+                0, sizeof(VoxelLodPush), &lod_rec->push
+            );
+            vkCmdDraw(cmd, view->draw_count, 1, 0, 0); // M^3 coarse cubes, procedural (no vbo)
+            continue;
+        }
+
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, 1, &descriptor_sets[image_idx], offsets.size(), offsets.data()
         );
@@ -2343,21 +2955,31 @@ void MimirInstance::drawElements(uint32_t image_idx)
             offs[1] = 0;
             vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
         }
-        else
-        {
-            vkCmdBindVertexBuffers(cmd, 0, view->vb_count, view->vbo, view->offsets);
-        }
+        // Non-LOD paths bind per-chunk inside drawChunk (below), so no standalone bind here.
 
-        if (view->use_ibo) // Index buffer exists, bind it and perform indexed draw
+        if (view->use_ibo) // Index buffer exists, bind it and perform an indexed draw
         {
-            // instance_count > 1 for SphereMesh markers (one icosphere instance per particle).
             vkCmdBindIndexBuffer(cmd, view->ibo, 0, view->index_type);
-            if (lod_mesh_draw) // Reduced icospheres: instanceCount comes from the GPU indirect-args buffer.
+            if (lod_mesh_draw) // Reduced icospheres: instanceCount from the GPU indirect-args buffer.
             {
                 vkCmdDrawIndexedIndirect(cmd, lod_context.indirectBuffer(image_idx), 0, 1, 0);
             }
-            else
+            else if (marker_mesh_mode) // instanced mesh (phong-mesh), no LOD: chunk the INSTANCE dim.
             {
+                // element_count is the true per-instance particle total; draw_count is the icosphere
+                // index count. Only the per-instance binding (rate == INSTANCE) advances per chunk.
+                for (uint64_t start = 0; start < view->element_count; start += kDrawChunkCap) {
+                    uint32_t n = (uint32_t)std::min<uint64_t>(kDrawChunkCap, view->element_count - start);
+                    drawChunk(cmd, view, start, n, VK_VERTEX_INPUT_RATE_INSTANCE, true, view->draw_count);
+                }
+            }
+            else // plain indexed view (e.g. Edges/mesh): NOT instanced -- unchanged single draw.
+            {
+                // Deliberately NOT chunked over element_count: here element_count is the index count
+                // and instance_count is 1, so chunking it as instances would draw N*N. The non-LOD
+                // bind that used to live in the first chain is reissued here (drawChunk handles the
+                // mesh/point paths' binds, not this one).
+                vkCmdBindVertexBuffers(cmd, 0, view->vb_count, view->vbo, view->offsets);
                 vkCmdDrawIndexed(cmd, view->draw_count, view->instance_count, 0, 0, 0);
             }
         }
@@ -2365,10 +2987,12 @@ void MimirInstance::drawElements(uint32_t image_idx)
         {
             vkCmdDrawIndirect(cmd, lod_context.indirectBuffer(image_idx), 0, 1, 0);
         }
-        else // Perform regular draw with bound vertex buffers (full particle count)
+        else // point cloud, no LOD: chunk the VERTEX dimension (full particle count)
         {
-            uint32_t first_vertex = 0;
-            vkCmdDraw(cmd, view->draw_count, view->instance_count, first_vertex, 0);
+            for (uint64_t start = 0; start < view->element_count; start += kDrawChunkCap) {
+                uint32_t n = (uint32_t)std::min<uint64_t>(kDrawChunkCap, view->element_count - start);
+                drawChunk(cmd, view, start, n, VK_VERTEX_INPUT_RATE_VERTEX, false, 0);
+            }
         }
     }
 }
@@ -2393,6 +3017,152 @@ void MimirInstance::createViewPipelines(/*std::span<std::shared_ptr<InteropView>
     auto end = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     spdlog::trace("Created {} pipeline object(s) in {} ms", pipelines.size(), elapsed);
+}
+
+// Build the dedicated in-shader Voxels-LOD pipeline (voxel_lod.slang). It draws M^3 procedural points
+// (no vertex buffers) whose vertex stage max-pools the fine grid; the geometry/fragment stages mirror
+// voxel.slang so coarse cubes render identically. Layout: set 0 = the shared uniforms/colorbuf
+// descriptor_layout (bound as usual with dynamic offsets), set 1 = the fine-state SSBO, plus a
+// vertex-stage push-constant range (grid mapping + N/M). Created once, lazily, in prepare().
+MimirInstance::VoxelLodPipeline MimirInstance::makeVoxelLodPipeline(DomainType domain)
+{
+    VoxelLodPipeline out{};
+
+    // Set 1: the fine N^3 int-state grid, read-only in the vertex stage.
+    std::vector<VkDescriptorSetLayoutBinding> set1_bindings{
+        descriptorLayoutBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT),
+    };
+    out.set_layout = createDescriptorSetLayout(device, set1_bindings);
+
+    // Pipeline layout: set 0 = shared descriptor_layout (uniforms/colorbuf), set 1 = fine-state SSBO;
+    // one vertex push-constant range for the grid mapping.
+    VkPushConstantRange push_range{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .offset     = 0,
+        .size       = sizeof(VoxelLodPush),
+    };
+    std::array<VkDescriptorSetLayout, 2> set_layouts{ descriptor_layout, out.set_layout };
+    VkPipelineLayoutCreateInfo layout_info{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .setLayoutCount         = (uint32_t)set_layouts.size(),
+        .pSetLayouts            = set_layouts.data(),
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges    = &push_range,
+    };
+    validation::checkVulkan(vkCreatePipelineLayout(device, &layout_info, nullptr, &out.layout));
+
+    // Compile the self-contained shader from the shader dir (so `import uniforms` resolves).
+    auto orig_path = std::filesystem::current_path();
+    std::filesystem::current_path(getDefaultShaderPath());
+    auto shader_builder = ShaderBuilder::make();
+    std::string geom_entry = fmt::format("geometryMain{}", getDomainType(domain));
+    ShaderCompileParams compile{
+        .module_path     = "shaders/voxel_lod.slang",
+        .entrypoints     = { "vertexLodMain", geom_entry, "fragmentMain" },
+        .specializations = {},
+    };
+    auto stages = shader_builder.compileModule(device, compile);
+    std::filesystem::current_path(orig_path);
+
+    // Fixed-function state: mirror the Voxels raster pipeline, but with an EMPTY vertex input (the draw
+    // is procedural, keyed off SV_VertexID).
+    ViewDescription vd{};
+    vd.type   = ViewType::Voxels;
+    vd.domain = domain;
+    VkPipelineVertexInputStateCreateInfo vertex_input{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .vertexBindingDescriptionCount   = 0,
+        .pVertexBindingDescriptions      = nullptr,
+        .vertexAttributeDescriptionCount = 0,
+        .pVertexAttributeDescriptions    = nullptr,
+    };
+    auto input_assembly = getInputAssemblyInfo(vd);
+    auto rasterizer     = getRasterizationInfo(vd);
+    auto depth          = getDepthInfo(vd);
+
+    // Same alpha blending as the normal Voxels pipeline (voxel colors carry alpha).
+    VkPipelineColorBlendAttachmentState blend_attachment{
+        .blendEnable         = VK_TRUE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .colorBlendOp        = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp        = VK_BLEND_OP_ADD,
+        .colorWriteMask      =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+    VkPipelineColorBlendStateCreateInfo color_blend{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .pNext           = nullptr,
+        .flags           = 0,
+        .logicOpEnable   = VK_FALSE,
+        .logicOp         = VK_LOGIC_OP_NO_OP,
+        .attachmentCount = 1,
+        .pAttachments    = &blend_attachment,
+        .blendConstants  = { 0.f, 0.f, 0.f, 0.f },
+    };
+    VkPipelineMultisampleStateCreateInfo multisampling{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .pNext                 = nullptr,
+        .flags                 = 0,
+        .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable   = VK_FALSE,
+        .minSampleShading      = 1.f,
+        .pSampleMask           = nullptr,
+        .alphaToCoverageEnable = VK_FALSE,
+        .alphaToOneEnable      = VK_FALSE,
+    };
+    VkViewport viewport{ 0.f, 0.f,
+        (float)swapchain.extent.width, (float)swapchain.extent.height, 0.f, 1.f };
+    VkRect2D scissor{ {0, 0}, swapchain.extent };
+    VkPipelineViewportStateCreateInfo viewport_state{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .pNext         = nullptr,
+        .flags         = 0,
+        .viewportCount = 1,
+        .pViewports    = &viewport,
+        .scissorCount  = 1,
+        .pScissors     = &scissor,
+    };
+
+    VkGraphicsPipelineCreateInfo create_info{
+        .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext               = nullptr,
+        .flags               = 0,
+        .stageCount          = (uint32_t)stages.size(),
+        .pStages             = stages.data(),
+        .pVertexInputState   = &vertex_input,
+        .pInputAssemblyState = &input_assembly,
+        .pTessellationState  = nullptr,
+        .pViewportState      = &viewport_state,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState   = &multisampling,
+        .pDepthStencilState  = &depth,
+        .pColorBlendState    = &color_blend,
+        .pDynamicState       = nullptr,
+        .layout              = out.layout,
+        .renderPass          = render_pass,
+        .subpass             = 0,
+        .basePipelineHandle  = VK_NULL_HANDLE,
+        .basePipelineIndex   = -1,
+    };
+    validation::checkVulkan(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE,
+        1, &create_info, nullptr, &out.pipeline));
+
+    for (auto& stage : stages) { vkDestroyShaderModule(device, stage.module, nullptr); }
+
+    deletors.graphics.add([=,this]{
+        vkDestroyPipeline(device, out.pipeline, nullptr);
+        vkDestroyPipelineLayout(device, out.layout, nullptr);
+        vkDestroyDescriptorSetLayout(device, out.set_layout, nullptr);
+    });
+    return out;
 }
 
 void MimirInstance::initUniformBuffers()
@@ -2486,6 +3256,9 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
             .size      = marker_size,
             .linewidth = view->desc.linewidth,
             .antialias = view->desc.antialias,
+            // Voxels read this to shade cube faces under --light-mode phong (LightModel::Phong). Other
+            // view shaders ignore it, so a global instance-wide flag is fine.
+            .shading   = (options.light_model == LightModel::Phong) ? 1.f : 0.f,
         };
 
         auto bg = options.background_color;

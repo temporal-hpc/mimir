@@ -32,6 +32,7 @@ MIMIR_DIR="$SCRIPT_DIR/build/lib/mimir"
 GCC_VERSION=""
 BUILD_DIR=""
 RR_CLIENT_ONLY=OFF
+CUDA_ARCH=""
 JOBS=$(nproc)
 
 usage() {
@@ -55,6 +56,8 @@ $samples_list
                        /usr/local/lib/cmake/mimir
   --gcc <version>    GCC version to use as CUDA host compiler (e.g. 14).
                      Pass the same version you used in mimir-build-from-zero.sh.
+  --cuda-arch <arch> CUDA architecture(s), overriding auto-detect (e.g. 103 for a B300, 120 for an
+                     RTX PRO 6000, or "90;100;103"). Pass the same value you built the library with.
   --rr-client-only   Build only rr-client from the remote-rendering sample: the thin
                      viewer that connects to a mimir server and displays its simulation.
                      Skips rr-server and the mimir library, so no CUDA toolkit, NVIDIA
@@ -83,6 +86,7 @@ while [[ $# -gt 0 ]]; do
         --sample)    SAMPLE="$2";    shift 2 ;;
         --mimir-dir) MIMIR_DIR="$2"; shift 2 ;;
         --gcc)       GCC_VERSION="$2"; shift 2 ;;
+        --cuda-arch) CUDA_ARCH="$2";  shift 2 ;;
         --rr-client-only) RR_CLIENT_ONLY=ON; shift ;;
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
         --jobs)      JOBS="$2";      shift 2 ;;
@@ -164,6 +168,10 @@ if [[ -n "$GCC_VERSION" ]]; then
     if [[ "$RR_CLIENT_ONLY" != ON ]]; then
         CMAKE_ARGS+=(-DCMAKE_CUDA_HOST_COMPILER="/usr/bin/g++-${GCC_VERSION}")
     fi
+fi
+
+if [[ -n "$CUDA_ARCH" && "$RR_CLIENT_ONLY" != ON ]]; then
+    CMAKE_ARGS+=(-DMIMIR_CUDA_ARCHITECTURES="$CUDA_ARCH")
 fi
 
 # ── Print what we're about to do ─────────────────────────────────────────────

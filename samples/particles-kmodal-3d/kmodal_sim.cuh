@@ -22,7 +22,7 @@
 // this keeps the cheese shape indefinitely while the points still jiggle.
 
 struct PointsParams {
-    unsigned int count   = 1'000'000;
+    uint64_t     count   = 1'000'000;
     uint32_t     seed    = 12345;
     unsigned int k       = 8;      // number of gaussian modes (clusters)
     float        epsilon = 0.05f;  // per-axis stddev of each mode, in domain units
@@ -66,3 +66,35 @@ void launchInitPositions(float* pos3, const PointsParams& params,
 // cluster center, clamped to the cube.
 void launchIntegrate3D(float* pos3, size_t point_count, const ClusterData& clusters,
                        RngStates& rng, cudaStream_t s = 0);
+
+// ---- Experimental: periodic spatial sort of the particles ---------------------------------------
+// Reorders pos3 (and the matching cluster ids) so particles in the same Morton cell become contiguous
+// in memory. Pure locality aid for the render-side LOD reduction: with same-cell particles adjacent,
+// the warp-aggregated centroid scatter collapses ~3.3x faster (measured). The kmodal walk is per-
+// particle independent, so permuting pos+ids together is exact. Cost is amortized by re-sorting only
+// every K steps (order drifts gradually and must be refreshed). Sorts (Morton key, particle index)
+// with a hand-made onesweep LSB radix (no global atomics in the scatter; resolution-independent,
+// fixed 256-bucket histogram; ~1.5-1.8x CUB), then gathers pos+ids. Scratch is allocated once.
+struct SortScratch {
+    void*    keysA      = nullptr;  // uint32[count]   Morton keys (ping-pong with keysB)
+    void*    keysB      = nullptr;
+    void*    valsA      = nullptr;  // uint32[count]   particle indices (ping-pong with valsB)
+    void*    valsB      = nullptr;
+    void*    status     = nullptr;  // uint64[numTiles*256]  decoupled look-back status
+    void*    gHist      = nullptr;  // uint64[4*256]   global digit histograms (all passes)
+    void*    gOff       = nullptr;  // uint64[4*256]   global digit base offsets
+    void*    tileCtr    = nullptr;  // uint32          monotonic tile-id counter
+    void*    pos_sorted = nullptr;  // float[3*count]  gather target, copied back into pos3
+    void*    ids_sorted = nullptr;  // uint32[count]   gather target, copied back into ids
+    uint32_t sortN      = 0;
+    int      keyBits    = 0;        // significant Morton bits = 3*log2(next-pow2(sortN))
+    uint64_t numTiles   = 0;
+    size_t   dynSmem    = 0;        // dynamic shared bytes for the radix scatter
+    size_t   count      = 0;
+};
+SortScratch createSortScratch(size_t count, uint32_t sortN);
+void destroySortScratch(SortScratch& s);
+size_t sortScratchBytes(const SortScratch& s);
+// Reorder pos3 + ids in place (via the scratch shadow) so same-cell particles are contiguous.
+void launchSpatialSort(float* pos3, unsigned int* ids, size_t count, SortScratch& s,
+                       cudaStream_t stream = 0);
