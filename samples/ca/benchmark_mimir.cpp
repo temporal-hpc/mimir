@@ -76,6 +76,7 @@ struct BenchmarkResult {
     // Grid->display downsample time (seconds), mimir's on-GPU analog of datoviz's pack step.
     // 0 when the grid fits within maxImageDimension2D and is presented zero-copy.
     float              pack_time = 0.f;
+    int                iters = 0;  // iterations executed; divide the time TOTALS by this for per-frame averages
 };
 
 // ---------------------------------------------------------------------------
@@ -149,33 +150,37 @@ void formatResults(CAInput input, BenchmarkResult result)
     // pack_time is the grid->display downsample (0 for grids that fit and are presented zero-copy);
     // d2h_time/h2h_time are always 0 for mimir (no host round-trip). graphics_time = mimir's
     // internal render time. Column layout matches benchmark_datoviz for direct CSV comparison.
+    // Column names carry units; time columns are TOTALS over the run in seconds (including
+    // pipeline_time_s, summed in runExperiment), memory in GB, power in W, energy in J. iters is
+    // placed with the experiment settings, right after the grid size (grid_w x grid_h = N).
     printAligned({
-        {"mode",          mode},
-        {"windowres",     resolution},
-        {"grid_w",        sd(input.ca.width)},
-        {"grid_h",        sd(input.ca.height)},
-        {"seed",          su(input.ca.seed)},
-        {"density",       sf(input.ca.density)},
-        {"framerate",     sf(lib.frame_rate)},
-        {"compute_time",  sf(lib.times.compute)},
-        {"pipeline_time", sf(lib.times.pipeline)},
-        {"graphics_time", sf(lib.times.graphics)},
-        {"vk_usage",      sf(lib.devmem.usage)},
-        {"vk_budget",     sf(lib.devmem.budget)},
-        {"gpu_power",     sf(gpu.average_power)},
-        {"gpu_energy",    sf(gpu.total_energy)},
-        {"gpu_time",      sf(gpu.total_time)},
-        {"nvml_free",     sf((float)nvml.free)},
-        {"nvml_reserved", sf((float)nvml.reserved)},
-        {"nvml_total",    sf((float)nvml.total)},
-        {"nvml_used",     sf((float)nvml.used)},
-        {"pack_time",     sf(result.pack_time)},
-        {"d2h_time",      sf(0.f)},
-        {"h2h_time",      sf(0.f)},
+        {"mode",            mode},
+        {"windowres",       resolution},
+        {"grid_w",          sd(input.ca.width)},
+        {"grid_h",          sd(input.ca.height)},
+        {"iters",           sd(result.iters)},
+        {"seed",            su(input.ca.seed)},
+        {"density",         sf(input.ca.density)},
+        {"framerate_fps",   sf(lib.frame_rate)},
+        {"compute_time_s",  sf(lib.times.compute)},
+        {"pipeline_time_s", sf(lib.times.pipeline)},
+        {"graphics_time_s", sf(lib.times.graphics)},
+        {"vk_usage_gb",     sf(lib.devmem.usage)},
+        {"vk_budget_gb",    sf(lib.devmem.budget)},
+        {"gpu_power_w",     sf(gpu.average_power)},
+        {"gpu_energy_j",    sf(gpu.total_energy)},
+        {"gpu_time_s",      sf(gpu.total_time)},
+        {"nvml_free_gb",    sf((float)nvml.free)},
+        {"nvml_reserved_gb",sf((float)nvml.reserved)},
+        {"nvml_total_gb",   sf((float)nvml.total)},
+        {"nvml_used_gb",    sf((float)nvml.used)},
+        {"pack_time_s",     sf(result.pack_time)},
+        {"d2h_time_s",      sf(0.f)},
+        {"h2h_time_s",      sf(0.f)},
     });
-    printf("%s,%s,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        input.ca.width, input.ca.height, input.ca.seed, input.ca.density,
+        input.ca.width, input.ca.height, result.iters, input.ca.seed, input.ca.density,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -596,9 +601,14 @@ BenchmarkResult runExperiment(CAInput input)
     // into the returned metrics below, matching benchmark_datoviz's compute semantics.
     double total_compute_ms = 0.0;
     double total_pack_ms    = 0.0;
+    // Sum the per-frame render-pass GPU time into a TOTAL (seconds); getMetrics().times.pipeline is
+    // the LAST frame's value, so summing it keeps pipeline_time consistent with compute/graphics.
+    double total_pipeline_s = 0.0;
+    int    iters_run        = 0;
 
     for (int i = 0; i < input.iter_count && (!input.display || (isRunning(instance) && !quit_flag)); ++i)
     {
+        iters_run = i + 1;
         if (input.display) prepareViews(instance);
 
         if (input.display) checkCuda(cudaEventRecord(cstart));
@@ -674,6 +684,7 @@ BenchmarkResult runExperiment(CAInput input)
             // Render sub-costs from the engine (GPU frame latency + CPU phases), same EMA
             // smoothing as the rest of the HUD.
             auto gt = getMetrics(instance).times;
+            total_pipeline_s += gt.pipeline; // per-frame render-pass seconds -> accumulate to a total
             hud.wait_ms    = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
             hud.record_ms  = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
             hud.submit_ms  = (i == 0) ? gt.submit : 0.9f * hud.submit_ms + 0.1f * gt.submit;
@@ -741,9 +752,13 @@ BenchmarkResult runExperiment(CAInput input)
     // Override compute with the benchmark's measured total (seconds); the engine only populates
     // times.compute in interop-sync mode, so this makes async runs report correctly too.
     if (input.display) metrics.times.compute = (float)(total_compute_ms / 1000.0);
+    // Pipeline: whole-run total render-pass GPU time in seconds (see total_pipeline_s), consistent
+    // with compute/graphics. 0 in no-display mode (no render pass ran).
+    metrics.times.pipeline = (float)total_pipeline_s;
     return BenchmarkResult{
         .perf = metrics, .power = gpu_power, .memory = nvml,
         .pack_time = (float)(total_pack_ms / 1000.0),
+        .iters = iters_run,
     };
 }
 
