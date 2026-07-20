@@ -125,6 +125,7 @@ struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics power;
     GPUMemoryMetrics memory;
+    int iters;  // iterations actually executed (divide the time TOTALS by this for per-frame averages)
 };
 
 void formatResults(BenchmarkInput input, BenchmarkResult result)
@@ -166,8 +167,9 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"pack_time_s",      sf(library.transfer.pack)},
         {"d2h_time_s",       sf(library.transfer.d2h)},
         {"h2h_time_s",       sf(library.transfer.h2h)},
+        {"iters",            sd(result.iters)},
     });
-    printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
@@ -186,7 +188,8 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         nvml.used,
         library.transfer.pack,
         library.transfer.d2h,
-        library.transfer.h2h
+        library.transfer.h2h,
+        result.iters
     );
 }
 
@@ -570,6 +573,9 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     float total_compute = 0.f, total_pack = 0.f, total_d2h = 0.f,
           total_h2h = 0.f, total_graphics = 0.f;
     size_t frame_count = 0;
+    // Iterations actually executed; the number of frames the time TOTALS accumulate over, so
+    // totals / iters_run = per-frame average.
+    int iters_run = 0;
 
     GPUPowerBegin("gpu", 100);
     printSystemInfo(nbody_memsize, vec3_memsize);
@@ -607,6 +613,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
 
         for (int i = 0; i < input.iter_count; ++i)
         {
+            iters_run = i + 1;
             auto c0 = clk::now();
             integrateNBodySystemCpu(host, params.time_step,
                 params.damping, params.softening, n
@@ -664,6 +671,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     {
         for (int i = 0; i < input.iter_count; ++i)
         {
+            iters_run = i + 1;
             // --- Compute (physics kernel only, same as mimir's compute metric) ---
             checkCuda(cudaEventRecord(cstart));
             integrateNbodySystem(device, current_read, params.time_step,
@@ -779,7 +787,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     delete[] host.pos;
     delete[] host.vel;
 
-    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml, .iters = iters_run };
 }
 
 static void usage(const char *prog)

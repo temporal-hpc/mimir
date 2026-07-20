@@ -20,7 +20,7 @@ sizes=(1000000)
 widths=(1920)
 heights=(1080)
 syncs=(1)   # datoviz --vsync sweep (real display vsync)
-echo "mode,windowres,N,framerate_fps,compute_time_s,pipeline_time_s,graphics_time_s,vk_usage_gb,vk_budget_gb,gpu_power_w,gpu_energy_j,gpu_time_s,nvml_free_gb,nvml_reserved_gb,nvml_total_gb,nvml_used_gb,pack_time_s,d2h_time_s,h2h_time_s" >> $1
+echo "mode,windowres,N,framerate_fps,compute_time_s,pipeline_time_s,graphics_time_s,vk_usage_gb,vk_budget_gb,gpu_power_w,gpu_energy_j,gpu_time_s,nvml_free_gb,nvml_reserved_gb,nvml_total_gb,nvml_used_gb,pack_time_s,d2h_time_s,h2h_time_s,iters" >> $1
 for i in ${!widths[@]}; do
     w=${widths[$i]}
     h=${heights[$i]}

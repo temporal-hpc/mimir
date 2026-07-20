@@ -51,6 +51,7 @@ struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics power;
     GPUMemoryMetrics memory;
+    int iters;  // iterations actually executed (divide the time TOTALS by this for per-frame averages)
 };
 
 static std::string sf(float v)  { char b[32]; snprintf(b, sizeof(b), "%f", v); return b; }
@@ -135,8 +136,9 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"pack_time_s",      sf(0.f)},
         {"d2h_time_s",       sf(0.f)},
         {"h2h_time_s",       sf(0.f)},
+        {"iters",            sd(result.iters)},
     });
-    printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
@@ -153,7 +155,8 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         nvml.reserved,
         nvml.total,
         nvml.used,
-        0.f, 0.f, 0.f
+        0.f, 0.f, 0.f,
+        result.iters
     );
 }
 
@@ -630,6 +633,9 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     // seconds, consistent with compute_time and graphics_time (both totals); reading the raw last-frame
     // value gave an effectively-zero, per-frame number that did not match the other columns.
     double total_pipeline_s = 0.0;
+    // Iterations actually executed (the GPU loop may stop early if the window is closed). This is
+    // the number of frames the totals above accumulate over, so totals / iters_run = per-frame average.
+    int iters_run = 0;
     if (input.use_cpu)
     {
         host.force = new float[input.body_count * 3];
@@ -638,6 +644,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         auto frame_start = Clock::now();
         for (int i = 0; i < input.iter_count; ++i)
         {
+            iters_run = i + 1;
             auto t0 = Clock::now();
             integrateNBodySystemCpu(host, params.time_step,
                 params.damping, params.softening, input.body_count
@@ -680,6 +687,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         auto frame_start = Clock::now();
         for (int i = 0; i < input.iter_count && isRunning(instance); ++i)
         {
+            iters_run = i + 1;
             if (input.display) { prepareViews(instance); }
 
             if (input.display) { checkCuda(cudaEventRecord(cstart)); }
@@ -778,7 +786,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     delete[] host.pos;
     delete[] host.vel;
 
-    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml, .iters = iters_run };
 }
 
 static void usage(const char *prog)
