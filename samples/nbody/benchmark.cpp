@@ -636,6 +636,10 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     // Iterations actually executed (the GPU loop may stop early if the window is closed). This is
     // the number of frames the totals above accumulate over, so totals / iters_run = per-frame average.
     int iters_run = 0;
+    // Wall-clock span of the whole simulate+render loop, used for a whole-run average framerate that
+    // matches samples/nbody-datoviz (frames / loop_wall). The engine's getFramerate() is only a
+    // trailing 240-frame window, so it would report a different number for runs where FPS drifts.
+    auto loop_start = Clock::now();
     if (input.use_cpu)
     {
         host.force = new float[input.body_count * 3];
@@ -742,12 +746,18 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         }
     }
 
+    auto loop_wall = std::chrono::duration<double>(Clock::now() - loop_start).count();
+
     if (cstart)     { cudaEventDestroy(cstart); }
     if (cstop)      { cudaEventDestroy(cstop); }
     if (cstop_prev) { cudaEventDestroy(cstop_prev); }
 
     // Retrieve metrics
     auto metrics = getMetrics(instance);
+    // Override framerate with a whole-run average (frames / loop_wall), matching samples/nbody-datoviz.
+    // The engine's getFramerate() averages only the last 240 frames; for a run-summary CSV we want the
+    // throughput over the entire loop. iters_run == frames rendered in display mode, sim steps otherwise.
+    if (loop_wall > 0.0) { metrics.frame_rate = (float)(iters_run / loop_wall); }
     // Override compute with the benchmark's own measured total (seconds). The engine only
     // populates times.compute in interop-sync mode; this makes async runs report correctly too
     // and keeps the semantics identical to samples/nbody-datoviz.
