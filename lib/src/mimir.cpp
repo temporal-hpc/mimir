@@ -198,6 +198,26 @@ void display(InstanceHandle engine, std::function<void(void)> func, size_t iter_
     engine->display(func, iter_count);
 }
 
+void setPaused(InstanceHandle engine, bool paused)
+{
+    std::atomic_ref<bool>(engine->paused).store(paused, std::memory_order_release);
+}
+
+bool isPaused(InstanceHandle engine)
+{
+    return std::atomic_ref<bool>(engine->paused).load(std::memory_order_acquire);
+}
+
+void requestStep(InstanceHandle engine)
+{
+    std::atomic_ref<uint64_t>(engine->pending_steps).fetch_add(1, std::memory_order_acq_rel);
+}
+
+bool shouldStep(InstanceHandle engine)
+{
+    return engine->consumeStep();
+}
+
 void displayAsync(InstanceHandle engine)
 {
     engine->displayAsync();

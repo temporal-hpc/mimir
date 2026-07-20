@@ -235,6 +235,17 @@ void setCameraLookAt(InstanceHandle handle, float3 eye, float3 center, float3 up
 // The callback function can be used to call ImGUI functions to display additional GUI elements.
 void setGuiCallback(InstanceHandle engine, std::function<void(void)> callback);
 
+// Built-in pause / single-step of the simulation. While paused the viewport keeps rendering (camera,
+// HUD, etc. stay live) but the simulation is held. Space toggles pause and '.' queues one step at
+// runtime; these functions are the programmatic equivalents. display() applies them automatically.
+// For samples that run their own compute loop after displayAsync(), gate the sim advance on
+// shouldStep(): `if (shouldStep(engine)) { launchKernel(); }` -- it returns true when not paused and
+// otherwise consumes one queued step. isPaused() is a side-effect-free query.
+void setPaused(InstanceHandle engine, bool paused);
+bool isPaused(InstanceHandle engine);
+void requestStep(InstanceHandle engine);
+bool shouldStep(InstanceHandle engine);
+
 // Helper function to generate a regular grid
 // The returned attribute description contains all values needed to use the generated data
 // inside a view description.

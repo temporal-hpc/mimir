@@ -8,6 +8,7 @@
 
 #include <algorithm> // std::clamp
 #include <cstdlib>   // std::exit, EXIT_FAILURE
+#include <atomic>    // std::atomic_ref (pause/step state shared with the compute thread)
 
 namespace mimir::validation
 {
@@ -164,6 +165,17 @@ void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int 
     if (key == GLFW_KEY_F2 && action == GLFW_PRESS)
     {
         app->options.show_hud = !app->options.show_hud;
+    }
+    // Pause / single-step the simulation. Space toggles pause; '.' queues one step (held-repeat OK).
+    // State is shared with the compute thread via atomic_ref (see MimirInstance::consumeStep).
+    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
+    {
+        auto p = std::atomic_ref<bool>(app->paused);
+        p.store(!p.load(std::memory_order_acquire), std::memory_order_release);
+    }
+    if (key == GLFW_KEY_PERIOD && (action == GLFW_PRESS || action == GLFW_REPEAT))
+    {
+        std::atomic_ref<uint64_t>(app->pending_steps).fetch_add(1, std::memory_order_acq_rel);
     }
     // Toggle info panel
     if (key == GLFW_KEY_G && action == GLFW_PRESS && mods == GLFW_MOD_CONTROL)

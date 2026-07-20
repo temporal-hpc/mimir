@@ -127,6 +127,11 @@ struct MimirInstance
     // Accessed cross-thread via std::atomic_ref (kept a plain member so MimirInstance stays
     // movable, since it is returned by value from make()).
     uint64_t render_request;
+    // Built-in pause / single-step, accessed cross-thread via std::atomic_ref (default-initialized
+    // so make()'s designated-initializer list need not mention them, like graphics_epoch). When
+    // paused the sim is held (frames keep rendering); each queued step advances it exactly once.
+    bool paused = false;
+    uint64_t pending_steps = 0;
     std::thread rendering_thread;
 
     std::vector<AllocatedBuffer> uniform_buffers;
@@ -286,6 +291,10 @@ struct MimirInstance
 
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
+    // Returns whether the simulation should advance this iteration: true if not paused, otherwise
+    // consumes one queued single-step (if any). Drives both display()'s loop and the public
+    // shouldStep() used by samples that run their own compute loop after displayAsync().
+    bool consumeStep();
     void prepareViews();
     void updateViews();
     void deinit();
