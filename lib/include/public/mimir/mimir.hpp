@@ -220,6 +220,17 @@ void setCameraPosition(InstanceHandle handle, float3 pos);
 // Rotates camera to the specified angle.
 void setCameraRotation(InstanceHandle handle, float3 rot);
 
+// Places the camera at `eye` looking toward `center`, with `up` the world up direction
+// (usually {0,1,0}). This is the unambiguous way to aim the camera: no sign conventions to
+// reverse-engineer -- the camera ends up at `eye` and looks straight at `center`.
+//
+// Convention (right-handed): at zero position/rotation the camera sits at the origin looking
+// down +z, with +x to the right and +y up. setCameraPosition/setCameraRotation operate in that
+// Euler frame; setCameraLookAt is the direct alternative when you know where the camera should be
+// and what it should look at (e.g. framing a grid centered at the origin: eye behind it on -z,
+// center = {0,0,0}).
+void setCameraLookAt(InstanceHandle handle, float3 eye, float3 center, float3 up);
+
 // Adds a GUI callback function that gets called after the engine GUI function (if enabled).
 // The callback function can be used to call ImGUI functions to display additional GUI elements.
 void setGuiCallback(InstanceHandle engine, std::function<void(void)> callback);

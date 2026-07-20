@@ -184,6 +184,15 @@ void setCameraRotation(InstanceHandle handle, float3 rot)
     handle->camera.setRotation(glm::vec3(rot.x, rot.y, rot.z));
 }
 
+void setCameraLookAt(InstanceHandle handle, float3 eye, float3 center, float3 up)
+{
+    handle->camera.setLookAt(
+        glm::vec3(eye.x, eye.y, eye.z),
+        glm::vec3(center.x, center.y, center.z),
+        glm::vec3(up.x, up.y, up.z)
+    );
+}
+
 void display(InstanceHandle engine, std::function<void(void)> func, size_t iter_count)
 {
     engine->display(func, iter_count);
