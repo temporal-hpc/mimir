@@ -169,6 +169,12 @@ struct MimirInstance
     float3          voxel_pt_origin{0.f, 0.f, 0.f};
     float           voxel_pt_spacing = 1.f;
     float           voxel_pt_radius = 0.5f;             // box half-extent (world)
+    // --lod M for voxel PT: max-pool the fine N^3 state to M^3 and trace the living COARSE cells as
+    // bigger boxes (O(living coarse)). voxel_pt_M = 0 traces the fine living cells.
+    uint32_t        voxel_pt_M = 0;
+    int*            voxel_pt_coarse_state = nullptr;    // M^3 max-pooled state (device)
+    float3          voxel_pt_coarse_origin{0.f, 0.f, 0.f};
+    float           voxel_pt_coarse_spacing = 1.f;
     // Compact the visible Voxels view's living cells and set raytracing.voxel_prim_count. Called each
     // frame before recordUpdateScene when voxel PT is active. No-op if no PT voxel view is visible.
     void updateVoxelPtScene();

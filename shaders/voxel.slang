@@ -120,7 +120,7 @@ float4 shadeVoxel(float4 color, float3 normal)
 {
     if (view.shading < 0.5) { return color; }
     float3 N = normalize(normal);
-    float3 L = normalize(-scene.light_pos); // light_pos as a direction; -pos points surfaces toward it
+    float3 L = normalize(scene.light_pos); // direction TO the light (matches the path tracer's sun)
     float  diffuse = max(dot(N, L), 0.0);
     const float ambient = 0.4;
     float3 lit = color.rgb * (ambient + (1.0 - ambient) * diffuse);

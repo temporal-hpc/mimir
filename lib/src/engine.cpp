@@ -296,6 +296,25 @@ void MimirInstance::prepare()
                 }
                 voxel_pt_radius = view->desc.default_size * voxel_pt_spacing;
 
+                // --lod M: trace the living cells of an M^3 max-pooled grid as bigger boxes. Coarse cell
+                // c spans fine [c*N/M,(c+1)*N/M); for divisible N/M this is exact (mirrors voxel_lod.slang):
+                // coarse spacing = K*fine spacing, coarse origin = fine origin + (K-1)/2*fine spacing.
+                const uint32_t M = options.pt_lod_cells;
+                voxel_pt_M = (M > 0 && M < N) ? M : 0;
+                uint32_t grid_res = voxel_pt_M ? voxel_pt_M : N; // effective grid the boxes come from
+                if (voxel_pt_M)
+                {
+                    const float K = (float)N / (float)voxel_pt_M;
+                    voxel_pt_coarse_spacing = voxel_pt_spacing * K;
+                    voxel_pt_coarse_origin  = float3{
+                        voxel_pt_origin.x + voxel_pt_spacing * (K - 1.f) * 0.5f,
+                        voxel_pt_origin.y + voxel_pt_spacing * (K - 1.f) * 0.5f,
+                        voxel_pt_origin.z + voxel_pt_spacing * (K - 1.f) * 0.5f };
+                    voxel_pt_radius = view->desc.default_size * K * voxel_pt_spacing; // coarse cube half-size
+                    cudaMalloc(&voxel_pt_coarse_state,
+                        (size_t)voxel_pt_M * voxel_pt_M * voxel_pt_M * sizeof(int));
+                }
+
                 // Record every Voxels view's fine-state CUDA pointer (ping/pong); the per-frame update
                 // compacts whichever one is currently visible.
                 for (auto* vv : views)
@@ -307,10 +326,11 @@ void MimirInstance::prepare()
                         vv, getDevicePtrCuda(vc->second.indexing.source) });
                 }
 
-                // Compacted living-cell positions: interop (CUDA-written, Vulkan BDA-read), sized N^3.
-                const uint64_t n3 = (uint64_t)N * N * N;
-                LinearAlloc* pos_alloc = allocLinear(&voxel_pt_positions_cuda, n3 * sizeof(float3));
-                VkBuffer pos_buf = createAttributeBuffer(n3 * sizeof(float3),
+                // Compacted living-cell positions: interop (CUDA-written, Vulkan BDA-read), sized to the
+                // effective grid (M^3 under LOD, else N^3 -- the max living-cell count).
+                const uint64_t cells = (uint64_t)grid_res * grid_res * grid_res;
+                LinearAlloc* pos_alloc = allocLinear(&voxel_pt_positions_cuda, cells * sizeof(float3));
+                VkBuffer pos_buf = createAttributeBuffer(cells * sizeof(float3),
                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                     getMemoryVulkan(AllocHandle{pos_alloc}));
                 VkBufferDeviceAddressInfo pos_ai{
@@ -326,10 +346,11 @@ void MimirInstance::prepare()
                 raytracing.voxel_boxes   = true;
                 raytracing.voxel_opacity = c.w;
                 updateVoxelPtScene(); // seed the initial compaction so bindScene's first build has geometry
-                raytracing.bindScene(voxel_pt_positions_addr, n3, voxel_pt_radius,
+                raytracing.bindScene(voxel_pt_positions_addr, cells, voxel_pt_radius,
                     glm::vec4(c.x, c.y, c.z, c.w));
-                spdlog::info("Voxel path tracing: {}^3 grid, up to {} living-cell boxes, radius {:.4f}, "
-                    "opacity {:.2f}", N, (unsigned long long)n3, voxel_pt_radius, c.w);
+                spdlog::info("Voxel path tracing: {}^3 grid -> {}^3 boxes, up to {} living boxes, "
+                    "radius {:.4f}, opacity {:.2f}", N, grid_res, (unsigned long long)cells,
+                    voxel_pt_radius, c.w);
                 break;
             }
         }
@@ -2284,19 +2305,34 @@ void MimirInstance::updateVoxelPtScene()
     }
     if (state == nullptr) { raytracing.voxel_prim_count = 0; return; }
 
-    const uint32_t N = voxel_pt_N;
-    const uint64_t n3 = (uint64_t)N * N * N;
-    float3 spacing{ voxel_pt_spacing, voxel_pt_spacing, voxel_pt_spacing };
     // Runs on the compute thread (updateViews) or once at setup -- NEVER the render thread. On the
     // interop stream (0) so it is ordered after the sim kernel's writes; the blocking sync is safe here
     // because this thread is the one that later signals the interop semaphore (no self-deadlock).
-    voxelCompactLiving((const int*)state, N, voxel_pt_origin, spacing,
-        (float*)voxel_pt_positions_cuda, (uint32_t)std::min<uint64_t>(n3, 0xFFFFFFFFu),
-        voxel_pt_count_dev, interop.cuda_stream);
+    // Under --lod, max-pool the fine state to M^3 first and compact THAT (living coarse cells).
+    if (voxel_pt_M > 0)
+    {
+        const uint32_t M = voxel_pt_M;
+        const uint64_t mc = (uint64_t)M * M * M;
+        float3 cspacing{ voxel_pt_coarse_spacing, voxel_pt_coarse_spacing, voxel_pt_coarse_spacing };
+        voxelPoolMax((const int*)state, voxel_pt_N, voxel_pt_coarse_state, M, interop.cuda_stream);
+        voxelCompactLiving(voxel_pt_coarse_state, M, voxel_pt_coarse_origin, cspacing,
+            (float*)voxel_pt_positions_cuda, (uint32_t)std::min<uint64_t>(mc, 0xFFFFFFFFu),
+            voxel_pt_count_dev, interop.cuda_stream);
+    }
+    else
+    {
+        const uint64_t n3 = (uint64_t)voxel_pt_N * voxel_pt_N * voxel_pt_N;
+        float3 spacing{ voxel_pt_spacing, voxel_pt_spacing, voxel_pt_spacing };
+        voxelCompactLiving((const int*)state, voxel_pt_N, voxel_pt_origin, spacing,
+            (float*)voxel_pt_positions_cuda, (uint32_t)std::min<uint64_t>(n3, 0xFFFFFFFFu),
+            voxel_pt_count_dev, interop.cuda_stream);
+    }
     cudaStreamSynchronize(interop.cuda_stream);
     uint32_t living = 0;
     cudaMemcpy(&living, voxel_pt_count_dev, sizeof(uint32_t), cudaMemcpyDeviceToHost);
-    raytracing.voxel_prim_count = (uint32_t)std::min<uint64_t>(living, n3);
+    const uint32_t grid_res = voxel_pt_M ? voxel_pt_M : voxel_pt_N;
+    const uint64_t cells = (uint64_t)grid_res * grid_res * grid_res;
+    raytracing.voxel_prim_count = (uint32_t)std::min<uint64_t>(living, cells);
 }
 
 void MimirInstance::renderFrame(bool advance_interop)

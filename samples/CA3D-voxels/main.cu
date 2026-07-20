@@ -207,12 +207,15 @@ int main(int argc, char **argv){
     // with --fly. The fly move speed defaults to 3 world units/s, which is glacial across an N-unit
     // grid, so scale it to the grid size (TAB releases the captured cursor for the HUD).
     opts.camera_control = fly ? CameraControl::Fly : CameraControl::Orbit;
-    if (fly) { opts.camera_move_speed = 0.6f * n; }
+    if (fly) { opts.camera_move_speed = 1.5f * n; } // scale WASD speed to the grid (was too slow)
     // Living-voxel shading. flat = unlit, phong = lit cubes, path-tracing = ray-traced boxes (RT GPU).
     opts.light_model = (light == VoxLight::Phong)       ? LightModel::Phong
                      : (light == VoxLight::PathTracing) ? LightModel::PathTracing
                                                         : LightModel::None;
     opts.background_color = { bg_color.x, bg_color.y, bg_color.z, 1.f };
+    // Diagonal key light from behind-upper-left of the camera (both cameras view the +z faces, see
+    // below), so those faces are front-lit -- clear directional shading in phong and path tracing.
+    opts.light_pos = { -0.4f, 0.6f, 0.7f };
     // Frame-rate cap: --fps K limits rendering to K fps (default 60); K <= 0 uncaps it.
     if (fps_cap > 0) { opts.present.enable_fps_limit = true;  opts.present.target_fps = fps_cap; }
     else             { opts.present.enable_fps_limit = false; }
@@ -228,10 +231,21 @@ int main(int argc, char **argv){
     const char* shot_path = std::getenv("CA_SHOT");
     if (shot_path) { opts.render_mode = RenderMode::Headless; }
     createInstance(opts, &instance);
-    // Center the N^3 grid on the world origin so the orbit camera frames it: the camera sits back along
-    // -z looking toward +z (through the origin), and the distance scales with n so the whole cube fits.
+    // Center the N^3 grid on the world origin so both cameras frame it. Camera-convention gotcha:
+    // Orbit builds a world-to-view translate(pos) (eye = -pos), while Fly's setCameraPosition places the
+    // eye AT pos (setLookAt) looking +z by default. Left as-is they'd view OPPOSITE faces of the cube,
+    // so one directional light can't front-light both. Put BOTH eyes on the +z side looking -z (toward
+    // the grid): Orbit at pos = -2.2n (eye = +2.2n), Fly at pos = +2.2n with yaw 180 (look -z).
     const float3 grid_start = { -0.5f*n, -0.5f*n, -0.5f*n };
-    setCameraPosition(instance, {0.f, 0.f, -2.2f*n});
+    if (fly)
+    {
+        setCameraPosition(instance, {0.f, 0.f, 2.2f*n});
+        setCameraRotation(instance, {0.f, 180.f, 0.f}); // yaw 180 -> look toward -z (the grid)
+    }
+    else
+    {
+        setCameraPosition(instance, {0.f, 0.f, -2.2f*n}); // orbit: eye ends at +2.2n, looking -z
+    }
 
     AllocHandle ping, pong, colormap;
     allocLinear(instance, (void**)&d1, sizeof(int) * n*n*n, &ping);
