@@ -164,6 +164,17 @@ void drawHudOverlay(MimirInstance& engine)
             ImGui::Text("tlas     %.2f ms", m.times.tlas_build);
             ImGui::Text("trace    %.2f ms", m.times.trace);
         }
+        // Sample-supplied lines (setHudText): the sample's own metrics/labels, so benchmarks can
+        // surface HPC numbers without linking ImGui or writing any GUI code.
+        if (engine.hud_panel != nullptr)
+        {
+            std::lock_guard<std::mutex> lock(engine.hud_panel->mutex);
+            if (!engine.hud_panel->text.empty())
+            {
+                ImGui::Separator();
+                ImGui::TextUnformatted(engine.hud_panel->text.c_str());
+            }
+        }
     }
     ImGui::End();
 }

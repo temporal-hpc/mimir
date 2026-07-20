@@ -235,6 +235,13 @@ bool shouldStep(InstanceHandle engine)
     return engine->consumeStep();
 }
 
+void setHudText(InstanceHandle engine, const char *text)
+{
+    if (engine->hud_panel == nullptr) { return; }
+    std::lock_guard<std::mutex> lock(engine->hud_panel->mutex);
+    engine->hud_panel->text = (text != nullptr) ? text : "";
+}
+
 void displayAsync(InstanceHandle engine)
 {
     engine->displayAsync();

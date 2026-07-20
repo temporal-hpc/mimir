@@ -5,6 +5,7 @@
 
 #include <functional> // std::function
 #include <string> // std::string
+#include <mutex> // std::mutex (HUD text guard)
 #include <thread> // std::thread
 #include <chrono> // std::chrono (camera frame timing)
 #include <vector> // std::vector
@@ -127,6 +128,12 @@ struct MimirInstance
     // Accessed cross-thread via std::atomic_ref (kept a plain member so MimirInstance stays
     // movable, since it is returned by value from make()).
     uint64_t render_request;
+    // Optional sample-supplied HUD text (setHudText), rendered in the built-in overlay so a sample
+    // can show its own metrics without touching ImGui. Heap-held behind a pointer so MimirInstance
+    // stays movable (std::mutex is not movable); written by the compute thread, read by the render
+    // thread under the mutex. Default-initialized so make()'s aggregate need not list it.
+    struct HudPanel { std::mutex mutex; std::string text; };
+    HudPanel* hud_panel = nullptr;
     // Built-in pause / single-step, accessed cross-thread via std::atomic_ref (default-initialized
     // so make()'s designated-initializer list need not mention them, like graphics_epoch). When
     // paused the sim is held (frames keep rendering); each queued step advances it exactly once.

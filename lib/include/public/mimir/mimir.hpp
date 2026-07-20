@@ -235,6 +235,14 @@ void setCameraLookAt(InstanceHandle handle, float3 eye, float3 center, float3 up
 // The callback function can be used to call ImGUI functions to display additional GUI elements.
 void setGuiCallback(InstanceHandle engine, std::function<void(void)> callback);
 
+// Sets a block of text shown in the built-in HUD overlay (requires ViewerOptions::show_hud). Use it
+// to surface a sample's own metrics -- e.g. a benchmark's compute/transfer/energy numbers -- straight
+// from plain C++/CUDA/NVML code, with NO ImGui dependency or GUI code in the sample. Typically called
+// once per frame with a freshly formatted, possibly multi-line string; it appears below the built-in
+// FPS/render lines. Thread-safe: the engine copies the text under a lock, so the compute thread may
+// call it while the render thread draws.
+void setHudText(InstanceHandle engine, const char *text);
+
 // Built-in pause / single-step of the simulation. While paused the viewport keeps rendering (camera,
 // HUD, etc. stay live) but the simulation is held. Space toggles pause and '.' queues one step at
 // runtime; these functions are the programmatic equivalents. display() applies them automatically.

@@ -158,6 +158,9 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
         engine.window_context = GlfwContext::make(engine.options.window, &engine);
         engine.deletors.context.add([&] { engine.window_context.clean(); });
     }
+    // Heap-allocate the HUD text holder (a std::mutex is not movable, so it can't be an inline
+    // member; the pointer is). Freed in deinit().
+    engine.hud_panel = new HudPanel();
     engine.camera = defaultCamera(width, height, engine.options.camera_fov);
 
     engine.initVulkan();
@@ -178,6 +181,9 @@ void MimirInstance::deinit()
     {
         rendering_thread.join();
     }
+    // Render thread is joined; safe to free the HUD text holder.
+    delete hud_panel;
+    hud_panel = nullptr;
     if (interop.cuda_stream != nullptr)
     {
         validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
