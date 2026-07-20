@@ -31,6 +31,7 @@ struct CAInput {
     PresentMode present      = PresentMode::Immediate;
     bool        enable_interop_sync  = true;
     bool        display      = true;
+    float       timeout_s    = 0.f;  // --timeout SECS: wall-clock cap (0 = run all iters)
 };
 
 struct HudData {
@@ -494,6 +495,10 @@ BenchmarkResult runExperiment(CAInput input)
     for (int i = 0; i < input.iter_count && (!input.display || isRunning(instance)); ++i) // Ctrl+W quits
     {
         iters_run = i + 1;
+        // --timeout: stop the run early (still falls through to finalize + CSV below).
+        if (input.timeout_s > 0.f &&
+            std::chrono::duration<double>(Clock::now() - loop_start).count() >= input.timeout_s)
+        { iters_run = i; break; }
         // Clipmap pan/reset, polled from the input API (no ImGui): arrows/WASD pan, R resets to the
         // whole grid. Wheel-zoom is handled by the scroll callback above.
         if (input.display && reduce)
@@ -692,6 +697,8 @@ static void usage(const char* prog)
         "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
         "                     NOT vsync; gates compute/render on the shared buffer.\n"
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
+        "  --timeout SECS     stop after SECS wall-clock even if iters remain; the run still\n"
+        "                     finalizes and writes its CSV row     (default: 0 = no timeout)\n"
         "\n"
         "Keys: F1 toggles the HUD (and every other GUI window) for clean screenshots;\n"
         "      Ctrl+G shows the engine scene-parameters panel; Ctrl+W/Ctrl+Q quit.\n"
@@ -726,6 +733,7 @@ int main(int argc, char* argv[])
             if      (a == "--present")      input.present = static_cast<PresentMode>(std::stoi(v));
             else if (a == "--interop-sync") input.enable_interop_sync = (bool)std::stoi(v);
             else if (a == "--display")      input.display = (bool)std::stoi(v);
+            else if (a == "--timeout")      input.timeout_s = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

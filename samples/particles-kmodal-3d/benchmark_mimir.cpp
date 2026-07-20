@@ -50,6 +50,7 @@ struct PointsInput {
     float        orbit_speed = 0.f;          // --orbit-speed DEG/S: scripted auto-orbit (0=off)
     float        cam_speed   = 3.f;          // --cam-speed U/S: WASD move speed
     float        sensitivity = 0.1f;         // --sensitivity DEG/PX: mouse-look sensitivity
+    float        timeout_s   = 0.f;          // --timeout SECS: wall-clock cap (0 = run all iters)
 };
 
 // Parse --background as "G" (grey level) or "R,G,B" in [0,1].
@@ -616,6 +617,10 @@ BenchmarkResult runExperiment(PointsInput input)
     for (int i = 0; i < input.iter_count && (!input.display || isRunning(instance)); ++i) // Ctrl+W quits
     {
         iters_run = i + 1;
+        // --timeout: stop the run early (still falls through to finalize + CSV below).
+        if (input.timeout_s > 0.f &&
+            std::chrono::duration<double>(Clock::now() - loop_start).count() >= input.timeout_s)
+        { iters_run = i; break; }
         if (input.display) prepareViews(instance);
 
         if (input.display) checkCuda(cudaEventRecord(cstart));
@@ -794,6 +799,8 @@ static void usage(const char* prog)
         "                     orbit drag (left=rotate, right=zoom, middle=pan).\n"
         "  --cam-speed U/S    WASD move speed in world units/second     (default: 3)\n"
         "  --sensitivity D/PX Mouse-look degrees per pixel              (default: 0.1)\n"
+        "  --timeout SECS     stop after SECS wall-clock even if iters remain; the run still\n"
+        "                     finalizes and writes its CSV row          (default: 0 = no timeout)\n"
         "  --orbit-speed D/S  Scripted auto-orbit around the scene at D deg/s for input-free\n"
         "                     reproducible runs; overrides manual control (default: 0 = off)\n"
         "  Path-tracing only (--light-model path-tracing):\n"
@@ -848,6 +855,7 @@ int main(int argc, char* argv[])
             else if (a == "--orbit-speed")  input.orbit_speed = std::stof(v);
             else if (a == "--cam-speed")    input.cam_speed = std::stof(v);
             else if (a == "--sensitivity")  input.sensitivity = std::stof(v);
+            else if (a == "--timeout")      input.timeout_s = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

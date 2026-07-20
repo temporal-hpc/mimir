@@ -614,6 +614,10 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         for (int i = 0; i < input.iter_count; ++i)
         {
             iters_run = i + 1;
+            // --timeout: stop the run early (still falls through to finalize + CSV below).
+            if (input.timeout_s > 0.f &&
+                std::chrono::duration<double>(clk::now() - loop_start).count() >= input.timeout_s)
+            { iters_run = i; break; }
             auto c0 = clk::now();
             integrateNBodySystemCpu(host, params.time_step,
                 params.damping, params.softening, n
@@ -672,6 +676,10 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         for (int i = 0; i < input.iter_count; ++i)
         {
             iters_run = i + 1;
+            // --timeout: stop the run early (still falls through to finalize + CSV below).
+            if (input.timeout_s > 0.f &&
+                std::chrono::duration<double>(clk::now() - loop_start).count() >= input.timeout_s)
+            { iters_run = i; break; }
             // --- Compute (physics kernel only, same as mimir's compute metric) ---
             checkCuda(cudaEventRecord(cstart));
             integrateNbodySystem(device, current_read, params.time_step,
@@ -804,6 +812,8 @@ static void usage(const char *prog)
         "  --vsync N          display vsync: 1=on 0=off             (default: 1)\n"
         "  --display N        1 = open window, 0 = simulate only    (default: 1)\n"
         "  --use-cpu N        1 = CPU integrator, 0 = GPU kernel     (default: 0)\n"
+        "  --timeout SECS     stop after SECS wall-clock even if iters remain; the run still\n"
+        "                     finalizes and writes its CSV row     (default: 0 = no timeout)\n"
         "\n"
         "(datoviz has no present-mode selection; the mimir --present flag has no\n"
         " datoviz equivalent, so it is intentionally absent here.)\n"
@@ -844,6 +854,7 @@ int main(int argc, char *argv[])
             if      (a == "--vsync")   input.vsync   = static_cast<bool>(std::stoi(v));
             else if (a == "--display") input.display = static_cast<bool>(std::stoi(v));
             else if (a == "--use-cpu") input.use_cpu = static_cast<bool>(std::stoi(v));
+            else if (a == "--timeout") input.timeout_s = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

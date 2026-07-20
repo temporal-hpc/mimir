@@ -71,6 +71,7 @@ struct PointsInput {
     float3       pcolor     = { 1.f, 1.f, 1.f };       // particle color (--pcolor)
     bool         fly        = false;                   // --fly: FPS fly camera instead of arcball
     bool         axes       = false;                   // --axes: draw the XYZ orientation triad
+    float        timeout_s  = 0.f;                     // --timeout SECS: wall-clock cap (0 = all iters)
 };
 
 // Parse --background/--pcolor as "G" (grey level) or "R,G,B" in [0,1]. Mirrors benchmark_mimir.
@@ -740,6 +741,10 @@ BenchmarkResult runExperiment(PointsInput input)
     for (int i = 0; i < input.iter_count; ++i)
     {
         iters_run = i + 1;
+        // --timeout: stop the run early (still falls through to finalize + CSV below).
+        if (input.timeout_s > 0.f &&
+            std::chrono::duration<double>(clk::now() - loop_start).count() >= input.timeout_s)
+        { iters_run = i; break; }
         // --- Compute (random-walk step only) ---
         // NOTE: windowed, this reads ~0.1 ms higher than mimir's ~0.02 ms for the SAME
         // kernel. The kernel really is ~0.02 ms (see --display 0, which drops it to that);
@@ -937,6 +942,8 @@ static void usage(const char* prog)
         "  --fly              FPS fly camera (dvz_panel_fly, fixed up-vector) instead\n"
         "                     of the default arcball; matches benchmark_mimir --fly.\n"
         "  --axes             Draw the world +XYZ orientation triad at the origin\n"
+        "  --timeout SECS     Stop after SECS wall-clock even if iters remain; the run still\n"
+        "                     finalizes and writes its CSV row         (default: 0 = no timeout)\n"
         "                     (X=red, Y=green, Z=blue; letter labels at the tips) as an\n"
         "                     unlit depth-free overlay. Same triad as benchmark_mimir.\n"
         "\n"
@@ -981,6 +988,7 @@ int main(int argc, char* argv[])
             else if (a == "--epsilon")     input.pts.epsilon = std::stof(v);
             else if (a == "--background")  input.background = parseColor(v);
             else if (a == "--pcolor")      input.pcolor = parseColor(v);
+            else if (a == "--timeout")     input.timeout_s = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

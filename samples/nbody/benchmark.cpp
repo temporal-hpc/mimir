@@ -579,6 +579,10 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         for (int i = 0; i < input.iter_count; ++i)
         {
             iters_run = i + 1;
+            // --timeout: stop the run early (still falls through to finalize + CSV below).
+            if (input.timeout_s > 0.f &&
+                std::chrono::duration<double>(Clock::now() - loop_start).count() >= input.timeout_s)
+            { iters_run = i; break; }
             auto t0 = Clock::now();
             integrateNBodySystemCpu(host, params.time_step,
                 params.damping, params.softening, input.body_count
@@ -623,6 +627,10 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
         for (int i = 0; i < input.iter_count && isRunning(instance); ++i)
         {
             iters_run = i + 1;
+            // --timeout: stop the run early (still falls through to finalize + CSV below).
+            if (input.timeout_s > 0.f &&
+                std::chrono::duration<double>(Clock::now() - loop_start).count() >= input.timeout_s)
+            { iters_run = i; break; }
             if (input.display) { prepareViews(instance); }
 
             if (input.display) { checkCuda(cudaEventRecord(cstart)); }
@@ -747,6 +755,8 @@ static void usage(const char *prog)
         "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
         "                     NOT vsync; gates compute/render on the shared buffer.\n"
         "  --display N        1 = open window, 0 = simulate only    (default: 1)\n"
+        "  --timeout SECS     stop after SECS wall-clock even if iters remain; the run still\n"
+        "                     finalizes and writes its CSV row     (default: 0 = no timeout)\n"
         "  --use-cpu N        1 = CPU integrator, 0 = GPU kernel     (default: 0)\n"
         "\n"
         "Keys: F1 toggles the HUD (and every other GUI window) for clean screenshots;\n"
@@ -789,6 +799,7 @@ int main(int argc, char *argv[])
             else if (a == "--interop-sync") input.enable_interop_sync = static_cast<bool>(std::stoi(v));
             else if (a == "--display")      input.display = static_cast<bool>(std::stoi(v));
             else if (a == "--use-cpu")      input.use_cpu = static_cast<bool>(std::stoi(v));
+            else if (a == "--timeout")      input.timeout_s = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }
