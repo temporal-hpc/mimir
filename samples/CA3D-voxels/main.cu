@@ -12,7 +12,6 @@
 #include <algorithm> // std::max (CA_LOD_CHECK reference)
 #include <fstream>   // /proc/cpuinfo (system info)
 #include <thread>    // std::thread::hardware_concurrency (system info)
-#include <atomic>    // std::atomic (quit/pause flags shared with the GUI callback)
 #include <sys/sysinfo.h> // sysinfo (total RAM)
 
 #include "tools.h"
@@ -20,7 +19,6 @@
 #include "openmp3D.h"
 
 #include <mimir/mimir.hpp>
-#include <imgui.h> // Performance HUD (setGuiCallback)
 #include "validation.hpp" // checkCuda
 using namespace mimir;
 
@@ -219,6 +217,8 @@ int main(int argc, char **argv){
     // Frame-rate cap: --fps K limits rendering to K fps (default 60); K <= 0 uncaps it.
     if (fps_cap > 0) { opts.present.enable_fps_limit = true;  opts.present.target_fps = fps_cap; }
     else             { opts.present.enable_fps_limit = false; }
+    // Built-in FPS/frame-time overlay (F2 toggles it). No ImGui code in this sample.
+    opts.show_hud = true;
     if (light == VoxLight::PathTracing)
     {
         // A few samples/bounces per frame keep the live path-traced volume readable (it also keeps
@@ -231,21 +231,11 @@ int main(int argc, char **argv){
     const char* shot_path = std::getenv("CA_SHOT");
     if (shot_path) { opts.render_mode = RenderMode::Headless; }
     createInstance(opts, &instance);
-    // Center the N^3 grid on the world origin so both cameras frame it. Camera-convention gotcha:
-    // Orbit builds a world-to-view translate(pos) (eye = -pos), while Fly's setCameraPosition places the
-    // eye AT pos (setLookAt) looking +z by default. Left as-is they'd view OPPOSITE faces of the cube,
-    // so one directional light can't front-light both. Put BOTH eyes on the +z side looking -z (toward
-    // the grid): Orbit at pos = -2.2n (eye = +2.2n), Fly at pos = +2.2n with yaw 180 (look -z).
+    // Center the N^3 grid on the world origin and aim the camera at it from the +z side (looking -z),
+    // so both orbit and fly see the +z faces the diagonal light front-lights. setCameraLookAt takes
+    // eye/target/up directly -- no per-control-mode sign juggling to reverse-engineer.
     const float3 grid_start = { -0.5f*n, -0.5f*n, -0.5f*n };
-    if (fly)
-    {
-        setCameraPosition(instance, {0.f, 0.f, 2.2f*n});
-        setCameraRotation(instance, {0.f, 180.f, 0.f}); // yaw 180 -> look toward -z (the grid)
-    }
-    else
-    {
-        setCameraPosition(instance, {0.f, 0.f, -2.2f*n}); // orbit: eye ends at +2.2n, looking -z
-    }
+    setCameraLookAt(instance, { 0.f, 0.f, 2.2f*n }, { 0.f, 0.f, 0.f }, { 0.f, 1.f, 0.f });
 
     AllocHandle ping, pong, colormap;
     allocLinear(instance, (void**)&d1, sizeof(int) * n*n*n, &ping);
@@ -311,128 +301,19 @@ int main(int argc, char **argv){
         return EXIT_SUCCESS;
     }
 
-    // ---- Performance HUD (top-right overlay), in the style of the particles-kmodal-3d sample ----
-    // Proportional port: reads live metrics via the public getMetrics() and static device info via the
-    // CUDA runtime (no NVML/powermon plumbing). Captured by value; getMetrics is read live each frame.
-    struct CaHud {
-        InstanceHandle instance;
-        long     N;                 // fine grid resolution per axis
-        unsigned M;                 // LOD coarsening factor (0 = off)
-        unsigned long long fine;    // N^3 fine voxels
-        unsigned long long coarse;  // M^3 coarse cubes drawn under LOD (== fine when off)
-        int      seed;   float prob;   int block;   const char* mode;
-        bool     fly;               // camera mode (for the controls hint)
-        const char* light;          // --light-model name
-        float    opacity;
-        char     gpu_name[256];   char gpu_cc[64];   float gpu_total_gb;
-    } cahud{};
-    cahud.instance = instance;
-    cahud.N = n;  cahud.M = lod_cells;
-    cahud.fine   = (unsigned long long)n * n * n;
-    cahud.coarse = lod_cells ? (unsigned long long)lod_cells * lod_cells * lod_cells : cahud.fine;
-    cahud.seed = seed;  cahud.prob = prob;  cahud.block = B;  cahud.mode = map[modo];
-    cahud.fly = fly;
-    cahud.light = (light == VoxLight::Phong) ? "phong"
-                : (light == VoxLight::PathTracing) ? "path-tracing" : "flat";
-    cahud.opacity = opacity;
+    // Scene summary + controls to the console. The live FPS/frame-time overlay is drawn by mimir
+    // itself (opts.show_hud, F2 toggles it) -- this sample links no ImGui and writes no GUI code.
     {
-        int dev = 0; cudaGetDevice(&dev);
-        cudaDeviceProp prop{}; cudaGetDeviceProperties(&prop, dev);
-        snprintf(cahud.gpu_name, sizeof(cahud.gpu_name), "%s", prop.name);
-        snprintf(cahud.gpu_cc, sizeof(cahud.gpu_cc), "%d (CC %d.%d)", dev, prop.major, prop.minor);
-        cahud.gpu_total_gb = (float)((double)prop.totalGlobalMem / (1024.0 * 1024.0 * 1024.0));
+        unsigned long long fine = (unsigned long long)n * n * n;
+        const char* light_name = (light == VoxLight::Phong) ? "phong"
+            : (light == VoxLight::PathTracing) ? "path-tracing" : "flat";
+        printf("Scene : grid %ld^3 (%llu voxels), light=%s, opacity=%.2f", n, fine, light_name, opacity);
+        if (lod_cells) { printf(", LOD %u^3 (%.1fx fewer cubes)", lod_cells,
+            (double)fine / ((double)lod_cells * lod_cells * lod_cells)); }
+        printf("\nControls: %s | Space=pause  .=step  F2=HUD  Ctrl+W=quit\n",
+            fly ? "WASD/QE move, mouse look, TAB frees cursor"
+                : "left-drag rotate, right-drag zoom, middle-drag pan");
     }
-    // Window controls shared with the render-thread GUI callback: Ctrl+W quits, Space / the HUD button
-    // toggle pause. The sim loop below polls these (paused = keep rendering, stop advancing the CA).
-    std::atomic<bool> quit{false};
-    std::atomic<bool> paused{false};
-    std::atomic<bool> step_once{false}; // advance exactly one CA step while paused
-    setGuiCallback(instance, [cahud, &quit, &paused, &step_once]() {
-        auto& io = ImGui::GetIO();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_W, /*repeat=*/false)) quit.store(true);
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, /*repeat=*/false))
-            paused.store(!paused.load());
-        // Right arrow steps one frame while paused (for inspecting a specific state).
-        if (paused.load() && ImGui::IsKeyPressed(ImGuiKey_RightArrow, /*repeat=*/true))
-            step_once.store(true);
-        ImVec2 disp = io.DisplaySize;
-        ImGui::SetNextWindowPos(ImVec2(disp.x - 10.f, 10.f), ImGuiCond_Always, ImVec2(1.f, 0.f));
-        ImGui::Begin("Performance", nullptr,
-            ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_AlwaysAutoResize);
-        PerformanceMetrics m = getMetrics(cahud.instance);
-        #define HUD_ROW(label, ...) ImGui::TableNextRow(); \
-            ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(label); \
-            ImGui::TableSetColumnIndex(1); ImGui::Text(__VA_ARGS__)
-        if (ImGui::BeginTable("scene", 2)) {
-            HUD_ROW("GPU", "%s", cahud.gpu_name);
-            HUD_ROW("Device", "%s", cahud.gpu_cc);
-            HUD_ROW("VRAM", "%.1f GB", cahud.gpu_total_gb);
-            HUD_ROW("VRAM used", "%.2f / %.2f GB", m.devmem.usage, m.devmem.budget);
-            HUD_ROW("Grid", "%ld^3 (%llu voxels)", cahud.N, cahud.fine);
-            if (cahud.M) {
-                HUD_ROW("LOD", "%u^3 (%llu cubes, %.1fx fewer)",
-                    cahud.M, cahud.coarse, (double)cahud.fine / (double)cahud.coarse);
-            } else {
-                HUD_ROW("LOD", "off");
-            }
-            HUD_ROW("Mode", "%s (B=%d)", cahud.mode, cahud.block);
-            HUD_ROW("Light", "%s", cahud.light);
-            HUD_ROW("Opacity", "%.2f", cahud.opacity);
-            HUD_ROW("Seed", "%d", cahud.seed);
-            HUD_ROW("Prob", "%.3f", cahud.prob);
-            HUD_ROW("Camera", "%s", cahud.fly ? "Fly: WASD/QE, TAB=cursor" : "Orbit: drag/zoom/pan");
-            ImGui::EndTable();
-        }
-        ImGui::Separator();
-        if (ImGui::BeginTable("perf", 2)) {
-            HUD_ROW("FPS", "%.1f", m.frame_rate);
-            HUD_ROW("Compute", "%.2f ms", m.times.compute);
-            HUD_ROW("Render", "%.2f ms", m.times.graphics);
-            HUD_ROW("  Pipeline", "%.2f ms", m.times.pipeline);
-            HUD_ROW("  GPU frame", "%.2f ms", m.times.gpu);
-            ImGui::EndTable();
-        }
-        #undef HUD_ROW
-        ImGui::Separator();
-        if (ImGui::Button(paused.load() ? "Resume (Space)" : "Pause (Space)"))
-            paused.store(!paused.load());
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!paused.load());
-        if (ImGui::Button("Step (Right)")) step_once.store(true); // one step while paused
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Quit (Ctrl+W)")) quit.store(true);
-        ImGui::End();
-
-        // Top-left panel: how to interact.
-        ImGui::SetNextWindowPos(ImVec2(10.f, 10.f), ImGuiCond_Always, ImVec2(0.f, 0.f));
-        ImGui::Begin("Controls", nullptr,
-            ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::TextUnformatted("Controls");
-        ImGui::Separator();
-        if (cahud.fly)
-        {
-            ImGui::TextUnformatted("Move        : W A S D");
-            ImGui::TextUnformatted("Up / Down   : Q E");
-            ImGui::TextUnformatted("Look        : mouse");
-            ImGui::TextUnformatted("Free cursor : TAB");
-        }
-        else
-        {
-            ImGui::TextUnformatted("Rotate : left-drag");
-            ImGui::TextUnformatted("Zoom   : right-drag");
-            ImGui::TextUnformatted("Pan    : middle-drag");
-        }
-        ImGui::Separator();
-        ImGui::Text("Pause/Resume : Space  (%s)", paused.load() ? "paused" : "running");
-        ImGui::TextUnformatted("Step (paused): Right arrow");
-        ImGui::TextUnformatted("Quit         : Ctrl+W");
-        ImGui::End();
-    });
 
     dim3 block(B, B, B);
     dim3 grid((n+block.x-1)/block.x, (n+block.y-1)/block.y, (n+block.z-1)/block.z);
@@ -441,18 +322,19 @@ int main(int argc, char **argv){
     {
         // GPU: async render thread + this driver loop (same structure as particles-kmodal-3d). The CA
         // advances one step per frame with no Enter prompts; after `steps` the loop keeps rendering the
-        // final state until Ctrl+W or the window closes. Space / the HUD button pause (keep rendering,
-        // stop advancing). prepareViews/updateViews are the CUDA<->Vulkan interop handshake; calling them
-        // with no kernel between (paused or finished) simply re-presents the current state, frame-paced.
-        printf("Running %d GPU steps (Space=pause, Ctrl+W=quit)...\n", steps); fflush(stdout);
+        // final state until Ctrl+W or the window closes. Pause/step/quit are handled by mimir itself
+        // (Space pauses, '.' steps, Ctrl+W quits) -- this loop just reads isPaused()/shouldStep() to
+        // decide how many CA steps to advance. prepareViews/updateViews are the CUDA<->Vulkan interop
+        // handshake; calling them with no kernel between simply re-presents the current state.
+        printf("Running %d GPU steps (Space=pause, .=step, Ctrl+W=quit)...\n", steps); fflush(stdout);
         displayAsync(instance);
         int step_i = 0;
-        while (isRunning(instance) && !quit.load())
+        while (isRunning(instance))
         {
             prepareViews(instance);
             // Advance up to steps_per_frame CA steps this frame while running; when paused, exactly one
-            // step per Step request. All steps run inside a single interop section (one render per frame).
-            int budget = paused.load() ? (step_once.exchange(false) ? 1 : 0) : steps_per_frame;
+            // step per queued step request. All steps run in one interop section (one render per frame).
+            int budget = isPaused(instance) ? (shouldStep(instance) ? 1 : 0) : steps_per_frame;
             for (int s = 0; s < budget && step_i < steps; ++s)
             {
                 kernel_CA3D<<<grid, block>>>(n, d1, d2);
