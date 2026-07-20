@@ -151,6 +151,7 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"mode",             mode},
         {"windowres",        resolution},
         {"N",                sd(input.body_count)},
+        {"iters",            sd(result.iters)},
         {"framerate_fps",    sf(library.frame_rate)},
         {"compute_time_s",   sf(library.times.compute)},
         {"pipeline_time_s",  sf(library.times.pipeline)},
@@ -167,12 +168,12 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"pack_time_s",      sf(library.transfer.pack)},
         {"d2h_time_s",       sf(library.transfer.d2h)},
         {"h2h_time_s",       sf(library.transfer.h2h)},
-        {"iters",            sd(result.iters)},
     });
-    printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
+    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
+        result.iters,
         library.frame_rate,
         library.times.compute,
         library.times.pipeline,
@@ -188,8 +189,7 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         nvml.used,
         library.transfer.pack,
         library.transfer.d2h,
-        library.transfer.h2h,
-        result.iters
+        library.transfer.h2h
     );
 }
 
