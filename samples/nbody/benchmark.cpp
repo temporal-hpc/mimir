@@ -113,26 +113,28 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
 
     // pack_time/d2h_time/h2h_time are 0 for mimir (zero-copy, no pack step).
     // Column layout matches nbody-datoviz for direct CSV comparison.
+    // Column names carry units; time columns are TOTALS over the run in seconds (matching
+    // nbody-datoviz), memory in GB, power in W, energy in J.
     printAligned({
-        {"mode",          mode},
-        {"windowres",     resolution},
-        {"N",             sd(input.body_count)},
-        {"framerate",     sf(library.frame_rate)},
-        {"compute_time",  sf(library.times.compute)},
-        {"pipeline_time", sf(library.times.pipeline)},
-        {"graphics_time", sf(library.times.graphics)},
-        {"vk_usage",      sf(library.devmem.usage)},
-        {"vk_budget",     sf(library.devmem.budget)},
-        {"gpu_power",     sf(gpu.average_power)},
-        {"gpu_energy",    sf(gpu.total_energy)},
-        {"gpu_time",      sf(gpu.total_time)},
-        {"nvml_free",     sf(nvml.free)},
-        {"nvml_reserved", sf(nvml.reserved)},
-        {"nvml_total",    sf(nvml.total)},
-        {"nvml_used",     sf(nvml.used)},
-        {"pack_time",     sf(0.f)},
-        {"d2h_time",      sf(0.f)},
-        {"h2h_time",      sf(0.f)},
+        {"mode",             mode},
+        {"windowres",        resolution},
+        {"N",                sd(input.body_count)},
+        {"framerate_fps",    sf(library.frame_rate)},
+        {"compute_time_s",   sf(library.times.compute)},
+        {"pipeline_time_s",  sf(library.times.pipeline)},
+        {"graphics_time_s",  sf(library.times.graphics)},
+        {"vk_usage_gb",      sf(library.devmem.usage)},
+        {"vk_budget_gb",     sf(library.devmem.budget)},
+        {"gpu_power_w",      sf(gpu.average_power)},
+        {"gpu_energy_j",     sf(gpu.total_energy)},
+        {"gpu_time_s",       sf(gpu.total_time)},
+        {"nvml_free_gb",     sf(nvml.free)},
+        {"nvml_reserved_gb", sf(nvml.reserved)},
+        {"nvml_total_gb",    sf(nvml.total)},
+        {"nvml_used_gb",     sf(nvml.used)},
+        {"pack_time_s",      sf(0.f)},
+        {"d2h_time_s",       sf(0.f)},
+        {"h2h_time_s",       sf(0.f)},
     });
     printf("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(),
@@ -623,6 +625,11 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     // into the returned metrics below, matching samples/nbody-datoviz (compute = sum over frames,
     // in seconds) for both sync and async runs.
     double total_compute_ms = 0.0;
+    // Accumulate the per-frame render-pass GPU time (getMetrics().times.pipeline is the LAST frame's
+    // value -- assigned, not accumulated, by the engine). Summing it here makes pipeline_time a TOTAL in
+    // seconds, consistent with compute_time and graphics_time (both totals); reading the raw last-frame
+    // value gave an effectively-zero, per-frame number that did not match the other columns.
+    double total_pipeline_s = 0.0;
     if (input.use_cpu)
     {
         host.force = new float[input.body_count * 3];
@@ -653,6 +660,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 hud.compute_ms = ms(t1 - t0).count();
                 hud.fps        = (i == 0) ? new_fps : 0.9f * hud.fps + 0.1f * new_fps;
                 auto gt = getMetrics(instance).times;
+                total_pipeline_s += gt.pipeline; // per-frame render-pass seconds -> accumulate to a total
                 hud.wait_ms   = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
                 hud.record_ms = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
                 hud.submit_ms = (i == 0) ? gt.submit : 0.9f * hud.submit_ms + 0.1f * gt.submit;
@@ -713,6 +721,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 // Render sub-costs from the engine (GPU frame latency + CPU phases), same EMA
                 // smoothing as the rest of the HUD.
                 auto gt = getMetrics(instance).times;
+                total_pipeline_s += gt.pipeline; // per-frame render-pass seconds -> accumulate to a total
                 hud.wait_ms   = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
                 hud.record_ms = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
                 hud.submit_ms = (i == 0) ? gt.submit : 0.9f * hud.submit_ms + 0.1f * gt.submit;
@@ -735,6 +744,9 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     // populates times.compute in interop-sync mode; this makes async runs report correctly too
     // and keeps the semantics identical to samples/nbody-datoviz.
     metrics.times.compute = (float)(total_compute_ms / 1000.0);
+    // Pipeline: total render-pass GPU time in seconds (see total_pipeline_s above), consistent with
+    // compute/graphics. 0 in no-display mode (no render pass ran).
+    metrics.times.pipeline = (float)total_pipeline_s;
 
     // Nvml memory report
     nvmlMemory_v2_t meminfo;
