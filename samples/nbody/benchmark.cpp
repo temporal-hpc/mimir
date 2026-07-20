@@ -1,9 +1,7 @@
 #include <chrono>
 #include <random>
-#include <string> // std::stoul
+#include <string> // std::stoul, std::string (HUD text)
 #include <vector>
-
-#include <imgui.h>
 
 #include "benchmark.hpp"
 #include "nbody_gpu.cuh"
@@ -362,6 +360,39 @@ struct HudData {
     float        vulkan_mb        = 0.f;  // computed: Vulkan render targets (swapchain + depth)
 };
 
+// Format the live HUD as plain text for mimir's built-in overlay (setHudText). All numbers are
+// collected in plain C++/CUDA/NVML above; this is pure string formatting -- no ImGui, no GUI code.
+static std::string formatHud(const HudData& h)
+{
+    const float mimir_mb = h.vram_used_mb - h.vram_external_mb - h.cuda_ctx_mb
+        - h.buf_total_mb - h.render_mb - h.vulkan_mb;
+    char b[1024];
+    snprintf(b, sizeof(b),
+        "GPU       %s\n"
+        "Device    %s\n"
+        "VRAM      %.1f GB\n"
+        "VRAM used %.0f MB\n"
+        "  External   %.0f MB\n"
+        "  CUDA ctx   %.0f MB\n"
+        "  CUDA bufs  %.1f MB\n"
+        "  Render geo %.3f MB\n"
+        "  Vulkan tgt %.0f MB\n"
+        "  Mimir      %.0f MB\n"
+        "\n"
+        "Bodies    %u\n"
+        "Frame     %d\n"
+        "Compute   %.2f ms\n"
+        "GPU frame %.2f ms\n"
+        "  Wait     %.2f ms\n"
+        "  Record   %.2f ms\n"
+        "  Submit   %.2f ms\n"
+        "Power     %.1f W",
+        h.gpu_name, h.gpu_device, h.gpu_total_gb, h.vram_used_mb,
+        h.vram_external_mb, h.cuda_ctx_mb, h.buf_total_mb, h.render_mb, h.vulkan_mb, mimir_mb,
+        h.n, h.frame, h.compute_ms, h.gpu_ms, h.wait_ms, h.record_ms, h.submit_ms, h.gpu_watts);
+    return b;
+}
+
 // Whole-GPU VRAM in use right now (NVML "used"), in MB. Lazily nvmlInit()s its own device handle
 // so it can be sampled at startup checkpoints -- BEFORE GPUPowerBegin(), which starts the energy
 // measurement window later and must not be moved. NVML refcounts init(), so this coexists with it.
@@ -409,9 +440,10 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     options.present.mode = input.present;
     options.present.enable_interop_sync = input.enable_interop_sync;
     options.present.enable_fps_limit = false;  // always uncapped
-    // The Performance HUD (setGuiCallback) draws regardless of show_panel; keep the engine's
-    // scene-parameters panel hidden by default (Ctrl+G shows it, F1 toggles ALL GUI windows).
-    options.show_panel = false;
+    options.show_panel = false;  // Ctrl+G shows the scene panel; F1 toggles ALL GUI windows.
+    // Built-in HUD overlay (F2). The benchmark pushes its metrics into it via setHudText each frame,
+    // so this file links no ImGui and writes no GUI code -- measurement stays pure C++/CUDA/NVML.
+    options.show_hud = true;
 
     InstanceHandle instance = nullptr;
     createInstance(options, &instance);
@@ -480,108 +512,6 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     // Start display and measurements
     //setCameraPosition(instance, {0.f, 0.f, -3.f});
     HudData hud{ .n = (unsigned)input.body_count };
-    if (input.display)
-    {
-        setGuiCallback(instance, [&hud]() {
-            ImVec2 disp = ImGui::GetIO().DisplaySize;
-            // Pivot (1,0) anchors the window's top-right corner to this position,
-            // so the window auto-sizes leftward without clipping at the right edge.
-            ImGui::SetNextWindowPos(ImVec2(disp.x - 10.f, 10.f), ImGuiCond_Always, ImVec2(1.f, 0.f));
-            ImGui::Begin("Performance", nullptr,
-                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
-                ImGuiWindowFlags_AlwaysAutoResize);
-            if (ImGui::BeginTable("hw", 2)) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("GPU");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_name);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Device");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_device);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f GB", hud.gpu_total_gb);
-                ImGui::TableNextRow();
-                // VRAM used (NVML, whole GPU) fully dismembered; the six sub-lines sum to it by
-                // construction. External + CUDA ctx are anchored on measured NVML checkpoints;
-                // CUDA buf + Render + Vulkan are computed; Mimir is the remainder (mimir's own
-                // device structures: uniforms, pipelines, descriptor/vertex buffers).
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM used");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vram_used_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  External procs");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vram_external_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  CUDA context");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.cuda_ctx_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  CUDA buffers");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f MB", hud.buf_total_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Render geometry");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.3f MB", hud.render_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Vulkan targets");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vulkan_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Mimir structs");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB",
-                    hud.vram_used_mb - hud.vram_external_mb - hud.cuda_ctx_mb
-                    - hud.buf_total_mb - hud.render_mb - hud.vulkan_mb);
-                ImGui::EndTable();
-            }
-            ImGui::Separator();
-            if (ImGui::BeginTable("perf", 2)) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Bodies");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.n);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Frame");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%d", hud.frame);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("FPS");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f", hud.fps);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Compute");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.compute_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Transfer");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Pack");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    D2H");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    H2H");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
-                // Render sub-costs (same breakdown as particles-kmodal-3d): "GPU frame" is the
-                // true end-to-end GPU latency (submit -> fence signalled); Wait/Record/Submit are
-                // the render thread's CPU phases, showing the CPU does not bottleneck the frame.
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    GPU frame");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.gpu_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Wait (cpu)");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.wait_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Record (cpu)");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.record_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Submit (cpu)");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.submit_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Power");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
-                ImGui::EndTable();
-            }
-            ImGui::End();
-        });
-    }
     GPUPowerBegin("gpu", 100);
     printSystemInfo(nbody_memsize, input.display);
     {
@@ -679,6 +609,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 float watts    = (float)getGPUCurrentPower();
                 hud.gpu_watts  = (i == 0) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
                 if (i == 0 || (i % 30) == 0) hud.vram_used_mb = (float)sampleVramUsedMB();
+                setHudText(instance, formatHud(hud).c_str()); // push metrics to the built-in overlay
                 frame_start    = now;
             }
         }
@@ -741,6 +672,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
                 float watts    = (float)getGPUCurrentPower();
                 hud.gpu_watts  = (i == 0) ? watts : 0.9f * hud.gpu_watts + 0.1f * watts;
                 if (i == 0 || (i % 30) == 0) hud.vram_used_mb = (float)sampleVramUsedMB();
+                setHudText(instance, formatHud(hud).c_str()); // push metrics to the built-in overlay
                 frame_start    = now;
             }
         }
