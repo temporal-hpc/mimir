@@ -17,6 +17,7 @@ echo "Warming up..."
 ./samples/nbody/build/bin/benchmark 1920 1080 65536 300
 
 echo "Starting benchmark with window size (${2}x${3}) and ${4} iterations"
-./benchmark_mimir_alt.sh $1 $2 $3 $4
-#./benchmark_mimir.sh $1 $2 $3 $4
-#./benchmark_datoviz.sh $1 $2 $3 $4
+./benchmark_mimir.sh $1 $2 $3 $4 1 # Sync
+./benchmark_datoviz.sh $1 $2 $3 $4
+./benchmark_mimir.sh $1 $2 $3 $4 0 # Desync
+#./benchmark_mimir_alt.sh $1 $2 $3 $4
