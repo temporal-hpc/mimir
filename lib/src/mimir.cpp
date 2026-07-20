@@ -186,11 +186,28 @@ void setCameraRotation(InstanceHandle handle, float3 rot)
 
 void setCameraLookAt(InstanceHandle handle, float3 eye, float3 center, float3 up)
 {
-    handle->camera.setLookAt(
-        glm::vec3(eye.x, eye.y, eye.z),
-        glm::vec3(center.x, center.y, center.z),
-        glm::vec3(up.x, up.y, up.z)
-    );
+    const glm::vec3 e(eye.x, eye.y, eye.z);
+    const glm::vec3 c(center.x, center.y, center.z);
+    const glm::vec3 u(up.x, up.y, up.z);
+    auto& cam = handle->camera;
+
+    // matrices.view is interpreted differently per camera mode (see renderFrame): the fly camera and
+    // the scripted auto-orbit read it as camera-to-world (eye/forward in the columns), while the
+    // manual orbit trackball consumes it directly as a world-to-view matrix. Write whichever the
+    // active mode expects so the framing is correct either way.
+    if (handle->options.camera_control == CameraControl::Fly || handle->options.orbit_speed > 0.f)
+    {
+        cam.setLookAt(e, c, u); // camera-to-world; the render inverts / decodes the columns
+    }
+    else
+    {
+        // World-to-view for the trackball raster path (and the orbit PT eye decode = -R^T*pos).
+        cam.matrices.view = glm::lookAt(e, c, u);
+        // Keep the euler position roughly consistent so a later trackball drag (which rebuilds
+        // matrices.view from position/rotation) starts from an equivalent view. Exact when framing
+        // the world origin down an axis -- the trackball's natural pivot -- e.g. CA3D-voxels.
+        cam.position = glm::vec3(cam.matrices.view[3]);
+    }
 }
 
 void display(InstanceHandle engine, std::function<void(void)> func, size_t iter_count)
