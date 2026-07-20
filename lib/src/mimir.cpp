@@ -242,6 +242,26 @@ void setHudText(InstanceHandle engine, const char *text)
     engine->hud_panel->text = (text != nullptr) ? text : "";
 }
 
+void setScrollCallback(InstanceHandle engine, std::function<void(double, double)> callback)
+{
+    engine->setScrollCallback(std::move(callback));
+}
+
+bool isKeyDown(InstanceHandle engine, Key key)
+{
+    auto idx = static_cast<size_t>(key);
+    if (idx >= static_cast<size_t>(Key::Count)) { return false; }
+    return std::atomic_ref<uint8_t>(engine->key_down[idx]).load(std::memory_order_acquire) != 0;
+}
+
+bool isKeyPressed(InstanceHandle engine, Key key)
+{
+    auto idx = static_cast<size_t>(key);
+    if (idx >= static_cast<size_t>(Key::Count)) { return false; }
+    // Consume the latch so a press reports true exactly once.
+    return std::atomic_ref<uint8_t>(engine->key_pressed[idx]).exchange(0, std::memory_order_acq_rel) != 0;
+}
+
 void displayAsync(InstanceHandle engine)
 {
     engine->displayAsync();

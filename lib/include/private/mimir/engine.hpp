@@ -7,6 +7,8 @@
 #include <string> // std::string
 #include <mutex> // std::mutex (HUD text guard)
 #include <thread> // std::thread
+#include <array> // std::array (keyboard state)
+#include <cstdint> // uint8_t
 #include <chrono> // std::chrono (camera frame timing)
 #include <vector> // std::vector
 
@@ -82,6 +84,13 @@ struct MimirInstance
     std::vector<VkCommandBuffer> command_buffers;
     std::vector<VkDescriptorSet> descriptor_sets;
     std::function<void(void)> gui_callback;
+    // Input API (setScrollCallback / isKeyDown / isKeyPressed). scroll_callback is invoked on the
+    // render thread during event processing. The key arrays are indexed by (int)Key: key_down is 1
+    // while held; key_pressed latches on press and is cleared by isKeyPressed(). Plain byte arrays
+    // (not std::atomic) so MimirInstance stays movable; accessed cross-thread via std::atomic_ref.
+    std::function<void(double, double)> scroll_callback = {};
+    std::array<uint8_t, static_cast<size_t>(Key::Count)> key_down{};
+    std::array<uint8_t, static_cast<size_t>(Key::Count)> key_pressed{};
 
     // Depth buffer
     VkImage depth_image;
@@ -335,6 +344,7 @@ struct MimirInstance
         int target_fps = 0, int steps_per_frame = 0);
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
+    void setScrollCallback(std::function<void(double, double)> cb) { scroll_callback = cb; };
 
     void initVulkan();
     void prepare();

@@ -152,9 +152,54 @@ void framebufferResizeCallback(GLFWwindow *window,[[maybe_unused]] int width,[[m
     app->window_context.resize_requested = true;
 }
 
+// Map a GLFW key code to a mimir::Key index for the public input API (isKeyDown/isKeyPressed), or
+// -1 if the key is not one mimir exposes. Keeps GLFW codes out of the public API.
+static int keyIndex(int glfw_key)
+{
+    if (glfw_key >= GLFW_KEY_A && glfw_key <= GLFW_KEY_Z)
+        return static_cast<int>(Key::A) + (glfw_key - GLFW_KEY_A);
+    if (glfw_key >= GLFW_KEY_0 && glfw_key <= GLFW_KEY_9)
+        return static_cast<int>(Key::Num0) + (glfw_key - GLFW_KEY_0);
+    switch (glfw_key)
+    {
+        case GLFW_KEY_LEFT:   return static_cast<int>(Key::Left);
+        case GLFW_KEY_RIGHT:  return static_cast<int>(Key::Right);
+        case GLFW_KEY_UP:     return static_cast<int>(Key::Up);
+        case GLFW_KEY_DOWN:   return static_cast<int>(Key::Down);
+        case GLFW_KEY_SPACE:  return static_cast<int>(Key::Space);
+        case GLFW_KEY_ENTER:  return static_cast<int>(Key::Enter);
+        case GLFW_KEY_ESCAPE: return static_cast<int>(Key::Escape);
+        case GLFW_KEY_TAB:    return static_cast<int>(Key::Tab);
+        case GLFW_KEY_COMMA:  return static_cast<int>(Key::Comma);
+        case GLFW_KEY_PERIOD: return static_cast<int>(Key::Period);
+        default:              return -1;
+    }
+}
+
+// Forwards mouse-wheel scrolling to a sample's setScrollCallback (if any).
+void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+{
+    auto app = getHandler(window);
+    if (app->scroll_callback) { app->scroll_callback(xoffset, yoffset); }
+}
+
 void keyCallback(GLFWwindow *window, int key,[[maybe_unused]] int scancode, int action, int mods)
 {
     auto app = getHandler(window);
+    // Record key state for the public input API (isKeyDown/isKeyPressed); cross-thread via atomic_ref.
+    if (int ki = keyIndex(key); ki >= 0)
+    {
+        auto idx = static_cast<size_t>(ki);
+        if (action == GLFW_PRESS)
+        {
+            std::atomic_ref<uint8_t>(app->key_down[idx]).store(1, std::memory_order_release);
+            std::atomic_ref<uint8_t>(app->key_pressed[idx]).store(1, std::memory_order_release);
+        }
+        else if (action == GLFW_RELEASE)
+        {
+            std::atomic_ref<uint8_t>(app->key_down[idx]).store(0, std::memory_order_release);
+        }
+    }
     // Master GUI toggle: F1 shows/hides EVERY ImGui window (engine panel + sample HUD overlay),
     // leaving a clean viewport for screenshots.
     if (key == GLFW_KEY_F1 && action == GLFW_PRESS)
@@ -255,6 +300,7 @@ GlfwContext GlfwContext::make(WindowOptions options, void *engine)
     glfwSetCursorPosCallback(window, cursorPositionCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetKeyCallback(window, keyCallback);
+    glfwSetScrollCallback(window, scrollCallback);
     glfwSetWindowCloseCallback(window, windowCloseCallback);
 
     return {

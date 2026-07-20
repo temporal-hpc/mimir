@@ -243,6 +243,14 @@ void setGuiCallback(InstanceHandle engine, std::function<void(void)> callback);
 // call it while the render thread draws.
 void setHudText(InstanceHandle engine, const char *text);
 
+// Input API -- lets a sample handle scroll/keyboard without depending on GLFW or ImGui.
+// setScrollCallback registers a function called (on the render thread, during event processing) with
+// the mouse-wheel delta (dx, dy). isKeyDown returns whether a key is currently held; isKeyPressed
+// returns true once per physical press (it consumes the latched press), for edge-triggered actions.
+void setScrollCallback(InstanceHandle engine, std::function<void(double dx, double dy)> callback);
+bool isKeyDown(InstanceHandle engine, Key key);
+bool isKeyPressed(InstanceHandle engine, Key key);
+
 // Built-in pause / single-step of the simulation. While paused the viewport keeps rendering (camera,
 // HUD, etc. stay live) but the simulation is held. Space toggles pause and '.' queues one step at
 // runtime; these functions are the programmatic equivalents. display() applies them automatically.

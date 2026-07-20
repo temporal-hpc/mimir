@@ -93,6 +93,17 @@ enum class PresentMode { Immediate, TripleBuffering, VSync };
 // the ImGui HUD. Ignored in headless/scripted auto-orbit runs.
 enum class CameraControl { Orbit, Fly };
 
+// Keys reportable through the input API (isKeyDown/isKeyPressed). Mimir's own enum, so samples do
+// keyboard input without depending on GLFW or ImGui. `Count` bounds the internal state arrays.
+enum class Key : int {
+    A, B, C, D, E, F, G, H, I, J, K, L, M,
+    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
+    Left, Right, Up, Down,
+    Space, Enter, Escape, Tab, Comma, Period,
+    Count
+};
+
 struct PresentOptions
 {
     // Sets frame presentation scheme used by the engine instance.
