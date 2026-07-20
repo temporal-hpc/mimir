@@ -30,6 +30,7 @@
 // for avcodec_find_decoder_by_name("h264_cuvid") below.
 
 #include <mimir/remote_protocol.hpp>
+#include "rr_input.hpp" // shared GLFW -> ControlKind input capture
 using namespace mimir::remote;
 
 // QUIC transport is optional: the whole ngtcp2/OpenSSL stack compiles in only when the build
@@ -1386,43 +1387,9 @@ void session_thread(std::string host, std::string port, std::string token, std::
 // ============================================================================================
 // Window (interactive) and headless (test) front-ends.
 // ============================================================================================
-struct Input { double last_x = 0, last_y = 0; bool left = false, right = false, middle = false; };
-Input g_input;
-
-void cursor_cb(GLFWwindow*, double x, double y)
-{
-    float dx = static_cast<float>(g_input.last_x - x);
-    float dy = static_cast<float>(g_input.last_y - y);
-    g_input.last_x = x; g_input.last_y = y;
-    if (g_fly.load(std::memory_order_relaxed))
-    {
-        // Fly camera: left-drag turns the gaze (mouse-look); WASD movement is polled per frame.
-        if (g_input.left) { ui_control(ControlKind::CameraLook, dx, dy); }
-        return;
-    }
-    if (g_input.left)   { ui_control(ControlKind::CameraRotate, dx, dy); }
-    if (g_input.right)  { ui_control(ControlKind::CameraZoom, dy); }
-    if (g_input.middle) { ui_control(ControlKind::CameraPan, dx, dy); }
-}
-void button_cb(GLFWwindow*, int button, int action, int)
-{
-    bool pressed = (action == GLFW_PRESS);
-    if (button == GLFW_MOUSE_BUTTON_LEFT)   { g_input.left = pressed; }
-    if (button == GLFW_MOUSE_BUTTON_RIGHT)  { g_input.right = pressed; }
-    if (button == GLFW_MOUSE_BUTTON_MIDDLE) { g_input.middle = pressed; }
-}
-void key_cb(GLFWwindow *win, int key, int, int action, int mods)
-{
-    if (action != GLFW_PRESS) { return; }
-    if (key == GLFW_KEY_P) { ui_control(ControlKind::TogglePause); }
-    if (key == GLFW_KEY_H) { g_hud.visible.store(!g_hud.visible.load()); }
-    // Close on Q / Esc, or the conventional Ctrl+W.
-    const bool ctrl_w = (key == GLFW_KEY_W) && (mods & GLFW_MOD_CONTROL);
-    if (key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE || ctrl_w)
-    {
-        glfwSetWindowShouldClose(win, GLFW_TRUE);
-    }
-}
+// Mouse/keyboard capture lives in the shared rr_input.hpp helper; `g_client_input` is wired to the
+// transport (emit) and the client-UI hooks in main().
+mimir::rr::InputCapture g_client_input;
 
 // Waits (up to g_first_frame_timeout_sec) for the session to deliver the first frame so we know the
 // stream geometry. Generous on purpose: at huge particle counts the server's first path-traced frame
@@ -1454,9 +1421,12 @@ int run_window()
     if (!window) { fprintf(stderr, "window creation failed\n"); glfwTerminate(); return EXIT_FAILURE; }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
-    glfwSetCursorPosCallback(window, cursor_cb);
-    glfwSetMouseButtonCallback(window, button_cb);
-    glfwSetKeyCallback(window, key_cb);
+    // Wire the shared input capture to this client's transport (emit) and UI, then install it.
+    g_client_input.emit          = [](ControlKind k, float a, float b) { ui_control(k, a, b); };
+    g_client_input.is_fly        = [] { return g_fly.load(std::memory_order_relaxed); };
+    g_client_input.on_toggle_hud = [] { g_hud.visible.store(!g_hud.visible.load()); };
+    g_client_input.on_quit       = [window] { glfwSetWindowShouldClose(window, GLFW_TRUE); };
+    g_client_input.install(window);
     hud_font_init(); // load the anti-aliased HUD font (bitmap fallback if none found)
 
     std::vector<unsigned char> display;
@@ -1467,19 +1437,8 @@ int run_window()
     while (!glfwWindowShouldClose(window) && g.running.load())
     {
         glfwPollEvents();
-        // Fly camera: send WASD movement each frame (held keys -> continuous CameraMove). Forward
-        // follows the gaze, so look up + W climbs. Trackball servers ignore CameraMove.
-        if (g_fly.load(std::memory_order_relaxed))
-        {
-            float strafe  = (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.f : 0.f)
-                          - (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.f : 0.f);
-            float forward = (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ? 1.f : 0.f)
-                          - (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ? 1.f : 0.f);
-            if (strafe != 0.f || forward != 0.f)
-            {
-                ui_control(ControlKind::CameraMove, strafe, forward);
-            }
-        }
+        // Held WASD -> continuous CameraMove (fly only; the helper no-ops for trackball servers).
+        g_client_input.pollMovement(window);
         {
             std::lock_guard<std::mutex> lock(g.frame_mtx);
             if (g.frame_seq != shown_seq)

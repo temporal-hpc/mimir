@@ -10,6 +10,7 @@ struct BenchmarkInput
     bool enable_interop_sync;
     bool display;
     bool use_cpu;
+    float timeout_s; // wall-clock cap for the sim loop (0 = no cap; stop after iter_count)
 
     // Default experiment parameters
     static BenchmarkInput defaultValues()
@@ -23,6 +24,7 @@ struct BenchmarkInput
             .enable_interop_sync = true,
             .display     = true,
             .use_cpu     = false,
+            .timeout_s   = 0.f,
         };
     }
 };

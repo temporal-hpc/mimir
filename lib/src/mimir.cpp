@@ -184,9 +184,82 @@ void setCameraRotation(InstanceHandle handle, float3 rot)
     handle->camera.setRotation(glm::vec3(rot.x, rot.y, rot.z));
 }
 
+void setCameraLookAt(InstanceHandle handle, float3 eye, float3 center, float3 up)
+{
+    const glm::vec3 e(eye.x, eye.y, eye.z);
+    const glm::vec3 c(center.x, center.y, center.z);
+    const glm::vec3 u(up.x, up.y, up.z);
+    auto& cam = handle->camera;
+
+    // matrices.view is interpreted differently per camera mode (see renderFrame): the fly camera and
+    // the scripted auto-orbit read it as camera-to-world (eye/forward in the columns), while the
+    // manual orbit trackball consumes it directly as a world-to-view matrix. Write whichever the
+    // active mode expects so the framing is correct either way.
+    if (handle->options.camera_control == CameraControl::Fly || handle->options.orbit_speed > 0.f)
+    {
+        cam.setLookAt(e, c, u); // camera-to-world; the render inverts / decodes the columns
+    }
+    else
+    {
+        // World-to-view for the trackball raster path (and the orbit PT eye decode = -R^T*pos).
+        cam.matrices.view = glm::lookAt(e, c, u);
+        // Keep the euler position roughly consistent so a later trackball drag (which rebuilds
+        // matrices.view from position/rotation) starts from an equivalent view. Exact when framing
+        // the world origin down an axis -- the trackball's natural pivot -- e.g. CA3D-voxels.
+        cam.position = glm::vec3(cam.matrices.view[3]);
+    }
+}
+
 void display(InstanceHandle engine, std::function<void(void)> func, size_t iter_count)
 {
     engine->display(func, iter_count);
+}
+
+void setPaused(InstanceHandle engine, bool paused)
+{
+    std::atomic_ref<bool>(engine->paused).store(paused, std::memory_order_release);
+}
+
+bool isPaused(InstanceHandle engine)
+{
+    return std::atomic_ref<bool>(engine->paused).load(std::memory_order_acquire);
+}
+
+void requestStep(InstanceHandle engine)
+{
+    std::atomic_ref<uint64_t>(engine->pending_steps).fetch_add(1, std::memory_order_acq_rel);
+}
+
+bool shouldStep(InstanceHandle engine)
+{
+    return engine->consumeStep();
+}
+
+void setHudText(InstanceHandle engine, const char *text)
+{
+    if (engine->hud_panel == nullptr) { return; }
+    std::lock_guard<std::mutex> lock(engine->hud_panel->mutex);
+    engine->hud_panel->text = (text != nullptr) ? text : "";
+}
+
+void setScrollCallback(InstanceHandle engine, std::function<void(double, double)> callback)
+{
+    engine->setScrollCallback(std::move(callback));
+}
+
+bool isKeyDown(InstanceHandle engine, Key key)
+{
+    auto idx = static_cast<size_t>(key);
+    if (idx >= static_cast<size_t>(Key::Count)) { return false; }
+    return std::atomic_ref<uint8_t>(engine->key_down[idx]).load(std::memory_order_acquire) != 0;
+}
+
+bool isKeyPressed(InstanceHandle engine, Key key)
+{
+    auto idx = static_cast<size_t>(key);
+    if (idx >= static_cast<size_t>(Key::Count)) { return false; }
+    // Consume the latch so a press reports true exactly once.
+    return std::atomic_ref<uint8_t>(engine->key_pressed[idx]).exchange(0, std::memory_order_acq_rel) != 0;
 }
 
 void displayAsync(InstanceHandle engine)

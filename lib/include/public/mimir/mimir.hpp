@@ -220,9 +220,47 @@ void setCameraPosition(InstanceHandle handle, float3 pos);
 // Rotates camera to the specified angle.
 void setCameraRotation(InstanceHandle handle, float3 rot);
 
+// Places the camera at `eye` looking toward `center`, with `up` the world up direction
+// (usually {0,1,0}). This is the unambiguous way to aim the camera: no sign conventions to
+// reverse-engineer -- the camera ends up at `eye` and looks straight at `center`.
+//
+// Convention (right-handed): at zero position/rotation the camera sits at the origin looking
+// down +z, with +x to the right and +y up. setCameraPosition/setCameraRotation operate in that
+// Euler frame; setCameraLookAt is the direct alternative when you know where the camera should be
+// and what it should look at (e.g. framing a grid centered at the origin: eye behind it on -z,
+// center = {0,0,0}).
+void setCameraLookAt(InstanceHandle handle, float3 eye, float3 center, float3 up);
+
 // Adds a GUI callback function that gets called after the engine GUI function (if enabled).
 // The callback function can be used to call ImGUI functions to display additional GUI elements.
 void setGuiCallback(InstanceHandle engine, std::function<void(void)> callback);
+
+// Sets a block of text shown in the built-in HUD overlay (requires ViewerOptions::show_hud). Use it
+// to surface a sample's own metrics -- e.g. a benchmark's compute/transfer/energy numbers -- straight
+// from plain C++/CUDA/NVML code, with NO ImGui dependency or GUI code in the sample. Typically called
+// once per frame with a freshly formatted, possibly multi-line string; it appears below the built-in
+// FPS/render lines. Thread-safe: the engine copies the text under a lock, so the compute thread may
+// call it while the render thread draws.
+void setHudText(InstanceHandle engine, const char *text);
+
+// Input API -- lets a sample handle scroll/keyboard without depending on GLFW or ImGui.
+// setScrollCallback registers a function called (on the render thread, during event processing) with
+// the mouse-wheel delta (dx, dy). isKeyDown returns whether a key is currently held; isKeyPressed
+// returns true once per physical press (it consumes the latched press), for edge-triggered actions.
+void setScrollCallback(InstanceHandle engine, std::function<void(double dx, double dy)> callback);
+bool isKeyDown(InstanceHandle engine, Key key);
+bool isKeyPressed(InstanceHandle engine, Key key);
+
+// Built-in pause / single-step of the simulation. While paused the viewport keeps rendering (camera,
+// HUD, etc. stay live) but the simulation is held. Space toggles pause and '.' queues one step at
+// runtime; these functions are the programmatic equivalents. display() applies them automatically.
+// For samples that run their own compute loop after displayAsync(), gate the sim advance on
+// shouldStep(): `if (shouldStep(engine)) { launchKernel(); }` -- it returns true when not paused and
+// otherwise consumes one queued step. isPaused() is a side-effect-free query.
+void setPaused(InstanceHandle engine, bool paused);
+bool isPaused(InstanceHandle engine);
+void requestStep(InstanceHandle engine);
+bool shouldStep(InstanceHandle engine);
 
 // Helper function to generate a regular grid
 // The returned attribute description contains all values needed to use the generated data

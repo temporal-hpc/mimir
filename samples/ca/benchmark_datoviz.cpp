@@ -53,6 +53,7 @@ struct CAInput {
     int      iter_count  = 1000000;
     bool     vsync       = true;  // real display vsync (DVZ_CANVAS_FLAGS_VSYNC)
     bool     display     = true;
+    float    timeout_s   = 0.f;   // --timeout SECS: wall-clock cap (0 = run all iters)
 };
 
 struct HudData {
@@ -438,6 +439,10 @@ BenchmarkResult runExperiment(CAInput input)
     for (int i = 0; i < input.iter_count; ++i)
     {
         iters_run = i + 1;
+        // --timeout: stop the run early (still falls through to finalize + CSV below).
+        if (input.timeout_s > 0.f &&
+            std::chrono::duration<double>(clk::now() - loop_start).count() >= input.timeout_s)
+        { iters_run = i; break; }
         // --- Compute (GoL step only) ---
         checkCuda(cudaEventRecord(cstart));
         launchStepGoL(d_grid[r], d_grid[w], W, H);
@@ -558,6 +563,8 @@ static void usage(const char* prog)
         "Options (named, order-independent; omitted ones use their default):\n"
         "  --vsync N          display vsync: 1=on 0=off            (default: 1)\n"
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
+        "  --timeout SECS     stop after SECS wall-clock even if iters remain; the run still\n"
+        "                     finalizes and writes its CSV row     (default: 0 = no timeout)\n"
         "\n"
         "(datoviz has no present-mode selection; the mimir --present flag has no\n"
         " datoviz equivalent, so it is intentionally absent here.)\n"
@@ -587,6 +594,7 @@ int main(int argc, char* argv[])
             std::string v = argv[++i];
             if      (a == "--vsync")   input.vsync   = (bool)std::stoi(v);
             else if (a == "--display") input.display = (bool)std::stoi(v);
+            else if (a == "--timeout") input.timeout_s = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

@@ -16,7 +16,7 @@ find_package(OpenMP)
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/MimirSample.cmake")
 
 add_executable(benchmark_mimir benchmark_mimir.cpp kmodal_sim.cu)
-target_link_libraries(benchmark_mimir PRIVATE samples_common powermon imgui)
+target_link_libraries(benchmark_mimir PRIVATE samples_common powermon)
 target_compile_options(benchmark_mimir PRIVATE -Wall -Wextra -O3)
 set_target_properties(benchmark_mimir PROPERTIES
     CXX_STANDARD             20
@@ -41,7 +41,7 @@ add_custom_target(benchmark-mimir-shaders ALL DEPENDS "${CMAKE_CURRENT_BINARY_DI
 # Headless acceptance check for LightModel::PathTracing (renders the scene to a PPM).
 # EXCLUDE_FROM_ALL so normal builds skip it; build explicitly with: --target pt_check.
 add_executable(pt_check EXCLUDE_FROM_ALL pt_check.cpp)
-target_link_libraries(pt_check PRIVATE samples_common imgui)
+target_link_libraries(pt_check PRIVATE samples_common)
 target_compile_options(pt_check PRIVATE -Wall -Wextra -O3)
 set_target_properties(pt_check PROPERTIES
     CXX_STANDARD             20

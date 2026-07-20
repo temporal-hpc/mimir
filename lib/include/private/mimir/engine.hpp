@@ -5,7 +5,10 @@
 
 #include <functional> // std::function
 #include <string> // std::string
+#include <mutex> // std::mutex (HUD text guard)
 #include <thread> // std::thread
+#include <array> // std::array (keyboard state)
+#include <cstdint> // uint8_t
 #include <chrono> // std::chrono (camera frame timing)
 #include <vector> // std::vector
 
@@ -81,6 +84,13 @@ struct MimirInstance
     std::vector<VkCommandBuffer> command_buffers;
     std::vector<VkDescriptorSet> descriptor_sets;
     std::function<void(void)> gui_callback;
+    // Input API (setScrollCallback / isKeyDown / isKeyPressed). scroll_callback is invoked on the
+    // render thread during event processing. The key arrays are indexed by (int)Key: key_down is 1
+    // while held; key_pressed latches on press and is cleared by isKeyPressed(). Plain byte arrays
+    // (not std::atomic) so MimirInstance stays movable; accessed cross-thread via std::atomic_ref.
+    std::function<void(double, double)> scroll_callback = {};
+    std::array<uint8_t, static_cast<size_t>(Key::Count)> key_down{};
+    std::array<uint8_t, static_cast<size_t>(Key::Count)> key_pressed{};
 
     // Depth buffer
     VkImage depth_image;
@@ -127,6 +137,17 @@ struct MimirInstance
     // Accessed cross-thread via std::atomic_ref (kept a plain member so MimirInstance stays
     // movable, since it is returned by value from make()).
     uint64_t render_request;
+    // Optional sample-supplied HUD text (setHudText), rendered in the built-in overlay so a sample
+    // can show its own metrics without touching ImGui. Heap-held behind a pointer so MimirInstance
+    // stays movable (std::mutex is not movable); written by the compute thread, read by the render
+    // thread under the mutex. Default-initialized so make()'s aggregate need not list it.
+    struct HudPanel { std::mutex mutex; std::string text; };
+    HudPanel* hud_panel = nullptr;
+    // Built-in pause / single-step, accessed cross-thread via std::atomic_ref (default-initialized
+    // so make()'s designated-initializer list need not mention them, like graphics_epoch). When
+    // paused the sim is held (frames keep rendering); each queued step advances it exactly once.
+    bool paused = false;
+    uint64_t pending_steps = 0;
     std::thread rendering_thread;
 
     std::vector<AllocatedBuffer> uniform_buffers;
@@ -286,6 +307,10 @@ struct MimirInstance
 
     void display(std::function<void(void)> func, size_t iter_count);
     void displayAsync();
+    // Returns whether the simulation should advance this iteration: true if not paused, otherwise
+    // consumes one queued single-step (if any). Drives both display()'s loop and the public
+    // shouldStep() used by samples that run their own compute loop after displayAsync().
+    bool consumeStep();
     void prepareViews();
     void updateViews();
     void deinit();
@@ -319,6 +344,7 @@ struct MimirInstance
         int target_fps = 0, int steps_per_frame = 0);
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
+    void setScrollCallback(std::function<void(double, double)> cb) { scroll_callback = cb; };
 
     void initVulkan();
     void prepare();

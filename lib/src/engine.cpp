@@ -158,6 +158,9 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
         engine.window_context = GlfwContext::make(engine.options.window, &engine);
         engine.deletors.context.add([&] { engine.window_context.clean(); });
     }
+    // Heap-allocate the HUD text holder (a std::mutex is not movable, so it can't be an inline
+    // member; the pointer is). Freed in deinit().
+    engine.hud_panel = new HudPanel();
     engine.camera = defaultCamera(width, height, engine.options.camera_fov);
 
     engine.initVulkan();
@@ -178,6 +181,9 @@ void MimirInstance::deinit()
     {
         rendering_thread.join();
     }
+    // Render thread is joined; safe to free the HUD text holder.
+    delete hud_panel;
+    hud_panel = nullptr;
     if (interop.cuda_stream != nullptr)
     {
         validation::checkCuda(cudaStreamSynchronize(interop.cuda_stream));
@@ -597,7 +603,7 @@ void MimirInstance::displayAsync()
                 auto requested = std::atomic_ref<uint64_t>(render_request).load(std::memory_order_acquire);
                 if (requested > served)
                 {
-                    gui::draw(camera, options, views, gui_callback);
+                    gui::draw(*this, camera, options, views, gui_callback);
                     renderFrame(/*advance_interop=*/true);
                     served++;
                 }
@@ -611,7 +617,7 @@ void MimirInstance::displayAsync()
             else
             {
                 // Unsynchronized: free-run plain frames (no interop timeline participation).
-                gui::draw(camera, options, views, gui_callback);
+                gui::draw(*this, camera, options, views, gui_callback);
                 renderFrame(/*advance_interop=*/false);
             }
         }
@@ -732,6 +738,20 @@ void MimirInstance::signalKernelFinish()
     signal_value += 2;
 }
 
+bool MimirInstance::consumeStep()
+{
+    if (!std::atomic_ref<bool>(paused).load(std::memory_order_acquire)) { return true; }
+    // Paused: advance only if a single-step is queued, consuming exactly one.
+    auto steps = std::atomic_ref<uint64_t>(pending_steps);
+    uint64_t cur = steps.load(std::memory_order_acquire);
+    while (cur > 0)
+    {
+        if (steps.compare_exchange_weak(cur, cur - 1,
+            std::memory_order_acq_rel, std::memory_order_acquire)) { return true; }
+    }
+    return false;
+}
+
 void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
 {
     prepare();
@@ -744,11 +764,13 @@ void MimirInstance::display(std::function<void(void)> func, size_t iter_count)
     {
         window_context.processEvents();
         updateCamera();
-        gui::draw(camera, options, views, gui_callback);
+        gui::draw(*this, camera, options, views, gui_callback);
         renderFrame(/*advance_interop=*/interop);
 
         if (std::atomic_ref<bool>(running).load(std::memory_order_acquire)) waitKernelStart();
-        if (iter_idx < iter_count)
+        // Skip the sim advance while paused (unless a step is queued); keep the interop handshake
+        // cycling so the render thread still gets its frame and the window stays live.
+        if (iter_idx < iter_count && consumeStep())
         {
             func(); // Advance the simulation
             iter_idx++;

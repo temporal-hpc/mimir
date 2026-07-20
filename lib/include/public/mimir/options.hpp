@@ -93,6 +93,17 @@ enum class PresentMode { Immediate, TripleBuffering, VSync };
 // the ImGui HUD. Ignored in headless/scripted auto-orbit runs.
 enum class CameraControl { Orbit, Fly };
 
+// Keys reportable through the input API (isKeyDown/isKeyPressed). Mimir's own enum, so samples do
+// keyboard input without depending on GLFW or ImGui. `Count` bounds the internal state arrays.
+enum class Key : int {
+    A, B, C, D, E, F, G, H, I, J, K, L, M,
+    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
+    Left, Right, Up, Down,
+    Space, Enter, Escape, Tab, Comma, Period,
+    Count
+};
+
 struct PresentOptions
 {
     // Sets frame presentation scheme used by the engine instance.
@@ -147,6 +158,12 @@ struct ViewerOptions
 
     // Show/hide the ImGUI demo window.
     bool show_demo_window   = false;
+
+    // Built-in performance overlay: a small always-on-top corner readout of FPS, frame time and
+    // GPU render-pass time, drawn by the engine itself. Lets interactive samples show a HUD without
+    // depending on ImGui or writing any GUI code. Toggled at runtime with F2; hidden with F1 (the
+    // master show_gui switch) like every other window.
+    bool show_hud           = false;
 
     // Background color for the current engine instance.
     float4 background_color = {.5f, .5f, .5f, 1.f};

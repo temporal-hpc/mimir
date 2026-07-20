@@ -12,8 +12,6 @@
 #include <vector>
 #include <string>
 
-#include <imgui.h>
-
 #include "ca_sim.cuh"
 #include "nvmlPower.hpp"
 #include "validation.hpp"
@@ -33,6 +31,7 @@ struct CAInput {
     PresentMode present      = PresentMode::Immediate;
     bool        enable_interop_sync  = true;
     bool        display      = true;
+    float       timeout_s    = 0.f;  // --timeout SECS: wall-clock cap (0 = run all iters)
 };
 
 struct HudData {
@@ -66,6 +65,47 @@ struct HudData {
     int          view_vw, view_vh; // visible window size in cells (zoom)
     float        pack_ms;       // resample (grid -> display buffer) kernel time
 };
+
+// Format the live HUD as plain text for mimir's built-in overlay (setHudText). All numbers are
+// collected in plain CUDA/NVML above; this is pure string formatting -- no ImGui, no GUI code.
+// (FPS / render already appear in the built-in overlay, so they are omitted here.)
+static std::string formatHud(const HudData& h)
+{
+    const float mimir_mb = h.vram_used_mb - h.vram_external_mb - h.cuda_ctx_mb
+        - h.buf_mb - h.render_mb - h.vulkan_mb;
+    char b[1200];
+    int n = snprintf(b, sizeof(b),
+        "GPU       %s\n"
+        "Device    %s\n"
+        "VRAM      %.1f GB\n"
+        "VRAM used %.0f MB\n"
+        "  External   %.0f MB\n"
+        "  CUDA ctx   %.0f MB\n"
+        "  CUDA bufs  %.1f MB\n"
+        "  Render geo %.3f MB\n"
+        "  Vulkan tgt %.0f MB\n"
+        "  Mimir      %.0f MB\n"
+        "\n"
+        "Grid      %dx%d\n"
+        "Seed %u  density %.3f\n"
+        "Frame     %d\n"
+        "Compute   %.2f ms\n"
+        "  Wait     %.2f ms\n"
+        "  Record   %.2f ms\n"
+        "  Submit   %.2f ms\n"
+        "Power     %.1f W",
+        h.gpu_name, h.gpu_device, h.gpu_total_gb, h.vram_used_mb,
+        h.vram_external_mb, h.cuda_ctx_mb, h.buf_mb, h.render_mb, h.vulkan_mb, mimir_mb,
+        h.grid_w, h.grid_h, h.seed, h.density,
+        h.frame, h.compute_ms, h.wait_ms, h.record_ms, h.submit_ms, h.gpu_watts);
+    if (h.reduce && n > 0 && n < (int)sizeof(b))
+    {
+        snprintf(b + n, sizeof(b) - (size_t)n,
+            "\nView      %dx%d @ (%d,%d)\nResample  %.2f ms\n[wheel zoom, WASD/arrows pan, R reset]",
+            h.view_vw, h.view_vh, h.view_ox, h.view_oy, h.pack_ms);
+    }
+    return b;
+}
 
 struct GPUMemoryMetrics { double free, reserved, total, used; };
 
@@ -233,6 +273,7 @@ BenchmarkResult runExperiment(CAInput input)
     opts.present.mode              = input.present;
     opts.present.enable_interop_sync       = input.enable_interop_sync;
     opts.present.enable_fps_limit  = false;  // always uncapped
+    opts.show_hud = true; // built-in overlay (F2); metrics pushed via setHudText below (no ImGui here)
     // The Performance HUD (setGuiCallback) draws regardless of show_panel; keep the engine's
     // scene-parameters panel hidden by default (Ctrl+G shows it, F1 toggles ALL GUI windows).
     opts.show_panel          = false;
@@ -335,18 +376,17 @@ BenchmarkResult runExperiment(CAInput input)
     }
 
     // Ctrl+W closes the window; set by the GUI callback, polled by the main loop.
-    std::atomic<bool> quit_flag{false};
 
     // Clipmap view state for panning/zooming a grid too large to present at native resolution.
-    // Shared between the ImGui callback (writes from input) and the loop (reads to place the sample
-    // window). (ox,oy) = top-left cell; vw = visible width in cells (vh derived to match the display
+    // Written by the scroll callback (zoom) and the loop's key polling (pan), read by the loop to
+    // place the sample window. (ox,oy) = top-left cell; vw = visible width in cells (vh derived to match the display
     // aspect). Smaller vw = deeper zoom (down to a few cells, magnified); vw == W shows the grid.
     struct ClipView { std::atomic<int> ox{0}, oy{0}, vw{1}; };
     ClipView clip;
     clip.vw.store(W);
     const int VW_MIN = std::min(W, 8);  // deepest zoom: as few as 8 cells across the display
 
-    // HUD data shared between the simulation loop and the ImGui callback.
+    // HUD data collected each frame and pushed to the built-in overlay via setHudText.
     HudData hud{};
     hud.cells     = (unsigned int)N;
     hud.grid_w    = W;
@@ -381,179 +421,25 @@ BenchmarkResult runExperiment(CAInput input)
         snprintf(hud.gpu_device, sizeof(hud.gpu_device), "%d (CC %d.%d)",
             device_id, prop.major, prop.minor);
 
-        setGuiCallback(instance, [&hud, &quit_flag, &clip, W, H, DW, DH, reduce, VW_MIN]() {
-            auto& io = ImGui::GetIO();
-            if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_W, /*repeat=*/false))
-                quit_flag.store(true);
-
-            // Clipmap navigation (only meaningful when the grid is larger than the display image):
-            // mouse wheel zooms, arrow keys / WASD pan, R resets to the whole grid.
-            if (reduce)
-            {
-                // Visible height derived from width to keep the display's aspect ratio.
+        // Mouse-wheel zoom of the clipmap window. No ImGui: setScrollCallback delivers the wheel
+        // delta directly (pan/reset are polled in the loop below via isKeyDown/isKeyPressed).
+        if (reduce)
+        {
+            setScrollCallback(instance, [&clip, W, H, DW, DH, VW_MIN](double, double dy) {
+                if (dy == 0.0) { return; }
                 auto vh_of = [&](int vw) { int v = (int)((long)vw * DH / DW); return v < 1 ? 1 : v; };
-
-                if (io.MouseWheel != 0.f && !io.WantCaptureMouse)
-                {
-                    int cvw = clip.vw.load();
-                    int nvw = io.MouseWheel > 0.f ? cvw - std::max(1, cvw / 8)   // zoom in (shrink window)
-                                                  : cvw + std::max(1, cvw / 8);  // zoom out (grow window)
-                    nvw = std::clamp(nvw, VW_MIN, W);
-                    if (nvw != cvw)
-                    {
-                        // Keep the view center fixed across the zoom.
-                        int cvh = vh_of(cvw), nvh = vh_of(nvw);
-                        long cx = clip.ox.load() + (long)cvw / 2, cy = clip.oy.load() + (long)cvh / 2;
-                        clip.vw.store(nvw);
-                        clip.ox.store((int)std::clamp(cx - nvw / 2, 0L, (long)std::max(0, W - nvw)));
-                        clip.oy.store((int)std::clamp(cy - nvh / 2, 0L, (long)std::max(0, H - nvh)));
-                    }
-                }
-                if (!io.WantCaptureKeyboard && !io.KeyCtrl)
-                {
-                    if (ImGui::IsKeyPressed(ImGuiKey_R, /*repeat=*/false))
-                    {
-                        clip.vw.store(W); clip.ox.store(0); clip.oy.store(0);
-                    }
-                    else
-                    {
-                        int vw = clip.vw.load(), vh = vh_of(vw);
-                        int stepx = std::max(1, vw / 20), stepy = std::max(1, vh / 20);
-                        int nox = clip.ox.load(), noy = clip.oy.load();
-                        if (ImGui::IsKeyDown(ImGuiKey_RightArrow) || ImGui::IsKeyDown(ImGuiKey_D)) nox += stepx;
-                        if (ImGui::IsKeyDown(ImGuiKey_LeftArrow)  || ImGui::IsKeyDown(ImGuiKey_A)) nox -= stepx;
-                        if (ImGui::IsKeyDown(ImGuiKey_DownArrow)  || ImGui::IsKeyDown(ImGuiKey_S)) noy += stepy;
-                        if (ImGui::IsKeyDown(ImGuiKey_UpArrow)    || ImGui::IsKeyDown(ImGuiKey_W)) noy -= stepy;
-                        clip.ox.store(std::clamp(nox, 0, std::max(0, W - vw)));
-                        clip.oy.store(std::clamp(noy, 0, std::max(0, H - vh)));
-                    }
-                }
-            }
-
-            ImVec2 disp = io.DisplaySize;
-            ImGui::SetNextWindowPos(ImVec2(disp.x - 10.f, 10.f),
-                ImGuiCond_Always, ImVec2(1.f, 0.f));
-            ImGui::Begin("Performance", nullptr,
-                ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove |
-                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
-                ImGuiWindowFlags_AlwaysAutoResize);
-            if (ImGui::BeginTable("hw", 2)) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("GPU");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_name);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Device");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", hud.gpu_device);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f GB", hud.gpu_total_gb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Grid");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%d x %d", hud.grid_w, hud.grid_h);
-                if (hud.reduce) {
-                    // Grid exceeds maxImageDimension2D: presented via a resampled clipmap window.
-                    float cpt = (float)hud.view_vw / hud.disp_w;  // cells per display texel
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Display");
-                    ImGui::TableSetColumnIndex(1);
-                    if (cpt >= 1.f) ImGui::Text("%d x %d  (1/%.0f)", hud.disp_w, hud.disp_h, cpt);
-                    else            ImGui::Text("%d x %d  (%.0fx zoom)", hud.disp_w, hud.disp_h, 1.f / cpt);
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("View");
-                    ImGui::TableSetColumnIndex(1); ImGui::Text("(%d, %d) %dx%d",
-                        hud.view_ox, hud.view_oy, hud.view_vw, hud.view_vh);
-                }
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Seed");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", hud.seed);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Density");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f", hud.density);
-                ImGui::TableNextRow();
-                // VRAM used (NVML, whole GPU) fully dismembered; the six sub-lines sum to it by
-                // construction. External + CUDA ctx are anchored on measured NVML checkpoints;
-                // CUDA buf + Render + Vulkan are computed; Mimir is the remainder (mimir's own
-                // device structures: uniforms, pipelines, descriptor/vertex buffers).
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("VRAM used");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vram_used_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  External procs");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vram_external_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  CUDA context");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.cuda_ctx_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  CUDA buffers");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f MB", hud.buf_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Render geometry");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.3f MB", hud.render_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Vulkan targets");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB", hud.vulkan_mb);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("  Mimir structs");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.0f MB",
-                    hud.vram_used_mb - hud.vram_external_mb - hud.cuda_ctx_mb
-                    - hud.buf_mb - hud.render_mb - hud.vulkan_mb);
-                ImGui::EndTable();
-            }
-            ImGui::Separator();
-            if (ImGui::BeginTable("perf", 2)) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Frame");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%d", hud.frame);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("FPS");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f", hud.fps);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Compute");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.compute_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Transfer");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
-                ImGui::TableNextRow();
-                // "Pack" is the grid->display resample (mimir's on-GPU analog of datoviz's pack
-                // step). N/A when the grid fits and is presented zero-copy.
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Pack");
-                ImGui::TableSetColumnIndex(1);
-                if (hud.reduce) ImGui::Text("%.2f ms", hud.pack_ms);
-                else            ImGui::TextUnformatted("N/A");
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    D2H");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    H2H");
-                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted("N/A");
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Render");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.render_ms);
-                // Render sub-costs (same breakdown as particles-kmodal-3d): "GPU frame" is the
-                // true end-to-end GPU latency (submit -> fence signalled); Wait/Record/Submit are
-                // the render thread's CPU phases, showing the CPU does not bottleneck the frame.
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    GPU frame");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.gpu_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Wait (cpu)");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.wait_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Record (cpu)");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.record_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("    Submit (cpu)");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.2f ms", hud.submit_ms);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Power");
-                ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f W", hud.gpu_watts);
-                ImGui::EndTable();
-            }
-            if (hud.reduce) {
-                ImGui::Separator();
-                ImGui::TextDisabled("Wheel: zoom   Arrows/WASD: pan   R: reset view");
-            }
-            ImGui::End();
-        });
+                int cvw = clip.vw.load();
+                int nvw = dy > 0.0 ? cvw - std::max(1, cvw / 8)   // zoom in (shrink window)
+                                   : cvw + std::max(1, cvw / 8);  // zoom out (grow window)
+                nvw = std::clamp(nvw, VW_MIN, W);
+                if (nvw == cvw) { return; }
+                int cvh = vh_of(cvw), nvh = vh_of(nvw);
+                long cx = clip.ox.load() + (long)cvw / 2, cy = clip.oy.load() + (long)cvh / 2;
+                clip.vw.store(nvw);
+                clip.ox.store((int)std::clamp(cx - nvw / 2, 0L, (long)std::max(0, W - nvw)));
+                clip.oy.store((int)std::clamp(cy - nvh / 2, 0L, (long)std::max(0, H - nvh)));
+            });
+        }
     }
 
     // CUDA timing events. pstart/pstop bracket the downsample ("pack") kernel when reducing.
@@ -606,9 +492,35 @@ BenchmarkResult runExperiment(CAInput input)
     double total_pipeline_s = 0.0;
     int    iters_run        = 0;
 
-    for (int i = 0; i < input.iter_count && (!input.display || (isRunning(instance) && !quit_flag)); ++i)
+    for (int i = 0; i < input.iter_count && (!input.display || isRunning(instance)); ++i) // Ctrl+W quits
     {
         iters_run = i + 1;
+        // --timeout: stop the run early (still falls through to finalize + CSV below).
+        if (input.timeout_s > 0.f &&
+            std::chrono::duration<double>(Clock::now() - loop_start).count() >= input.timeout_s)
+        { iters_run = i; break; }
+        // Clipmap pan/reset, polled from the input API (no ImGui): arrows/WASD pan, R resets to the
+        // whole grid. Wheel-zoom is handled by the scroll callback above.
+        if (input.display && reduce)
+        {
+            auto vh_of = [&](int vw) { int v = (int)((long)vw * DH / DW); return v < 1 ? 1 : v; };
+            if (isKeyPressed(instance, Key::R))
+            {
+                clip.vw.store(W); clip.ox.store(0); clip.oy.store(0);
+            }
+            else
+            {
+                int vw = clip.vw.load(), vh = vh_of(vw);
+                int stepx = std::max(1, vw / 20), stepy = std::max(1, vh / 20);
+                int nox = clip.ox.load(), noy = clip.oy.load();
+                if (isKeyDown(instance, Key::Right) || isKeyDown(instance, Key::D)) { nox += stepx; }
+                if (isKeyDown(instance, Key::Left)  || isKeyDown(instance, Key::A)) { nox -= stepx; }
+                if (isKeyDown(instance, Key::Down)  || isKeyDown(instance, Key::S)) { noy += stepy; }
+                if (isKeyDown(instance, Key::Up)    || isKeyDown(instance, Key::W)) { noy -= stepy; }
+                clip.ox.store(std::clamp(nox, 0, std::max(0, W - vw)));
+                clip.oy.store(std::clamp(noy, 0, std::max(0, H - vh)));
+            }
+        }
         if (input.display) prepareViews(instance);
 
         if (input.display) checkCuda(cudaEventRecord(cstart));
@@ -697,6 +609,7 @@ BenchmarkResult runExperiment(CAInput input)
                 hud.vram_used_mb = (float)sampleVramUsedMB();
             frame_start    = now;
             ++frame_count;
+            setHudText(instance, formatHud(hud).c_str()); // push metrics to the built-in overlay
         }
     }
 
@@ -784,6 +697,8 @@ static void usage(const char* prog)
         "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
         "                     NOT vsync; gates compute/render on the shared buffer.\n"
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
+        "  --timeout SECS     stop after SECS wall-clock even if iters remain; the run still\n"
+        "                     finalizes and writes its CSV row     (default: 0 = no timeout)\n"
         "\n"
         "Keys: F1 toggles the HUD (and every other GUI window) for clean screenshots;\n"
         "      Ctrl+G shows the engine scene-parameters panel; Ctrl+W/Ctrl+Q quit.\n"
@@ -818,6 +733,7 @@ int main(int argc, char* argv[])
             if      (a == "--present")      input.present = static_cast<PresentMode>(std::stoi(v));
             else if (a == "--interop-sync") input.enable_interop_sync = (bool)std::stoi(v);
             else if (a == "--display")      input.display = (bool)std::stoi(v);
+            else if (a == "--timeout")      input.timeout_s = std::stof(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { pos.push_back(a); }

@@ -14,7 +14,7 @@ void init(VkInstance instance, VkPhysicalDevice ph_dev, VkDevice device, VkDescr
 void shutdown();
 void render(VkCommandBuffer cmd);
 
-void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
+void draw(MimirInstance& engine, Camera& cam, ViewerOptions& opts, std::span<View*> views,
     const std::function<void(void)>& callback
 );
 void handleResize(uint32_t image_count);

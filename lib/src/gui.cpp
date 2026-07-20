@@ -133,7 +133,53 @@ void addViewGUI(View *handle, int uid)
     ImGui::PopID();
 }
 
-void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
+// Built-in performance overlay: a compact, always-on-top, click-through readout the engine draws
+// itself so interactive samples get a HUD without touching ImGui. Positioned in the top-right with a
+// small margin; content is FPS + frame time and the GPU render-pass time (plus the ray-tracing
+// passes when path tracing is active).
+void drawHudOverlay(MimirInstance& engine)
+{
+    const PerformanceMetrics m = engine.getMetrics();
+    const float fps      = m.frame_rate;
+    const float frame_ms = fps > 0.f ? 1000.f / fps : 0.f;
+
+    const float pad = 10.f;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(vp->WorkPos.x + vp->WorkSize.x - pad, vp->WorkPos.y + pad),
+        ImGuiCond_Always, ImVec2(1.f, 0.f) // pivot: top-right corner
+    );
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
+        | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
+        | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize;
+    if (ImGui::Begin("##mimir_hud", nullptr, flags))
+    {
+        ImGui::Text("%.1f FPS  (%.2f ms)", fps, frame_ms);
+        ImGui::Separator();
+        ImGui::Text("render   %.2f ms", m.times.pipeline * 1000.f); // GPU render-pass, last frame
+        if (m.times.gpu > 0.f) { ImGui::Text("gpu      %.2f ms", m.times.gpu); }
+        if (m.times.tlas_build > 0.f || m.times.trace > 0.f)
+        {
+            ImGui::Text("tlas     %.2f ms", m.times.tlas_build);
+            ImGui::Text("trace    %.2f ms", m.times.trace);
+        }
+        // Sample-supplied lines (setHudText): the sample's own metrics/labels, so benchmarks can
+        // surface HPC numbers without linking ImGui or writing any GUI code.
+        if (engine.hud_panel != nullptr)
+        {
+            std::lock_guard<std::mutex> lock(engine.hud_panel->mutex);
+            if (!engine.hud_panel->text.empty())
+            {
+                ImGui::Separator();
+                ImGui::TextUnformatted(engine.hud_panel->text.c_str());
+            }
+        }
+    }
+    ImGui::End();
+}
+
+void draw(MimirInstance& engine, Camera& cam, ViewerOptions& opts, std::span<View*> views,
     const std::function<void(void)>& callback)
 {
     ImGui_ImplVulkan_NewFrame();
@@ -205,6 +251,9 @@ void draw(Camera& cam, ViewerOptions& opts, std::span<View*> views,
         for (size_t i = 0; i < views.size(); ++i) { addViewGUI(views[i], i); }
         ImGui::End();
     }
+
+    // Built-in performance overlay (F2). Drawn by the engine so samples don't hand-roll a HUD.
+    if (opts.show_hud) { drawHudOverlay(engine); }
 
     // User-provided GUI (e.g. the benchmarks' Performance HUD), independent of the engine's
     // scene-parameters panel: Ctrl+G toggles the panel alone, F1 hides everything.

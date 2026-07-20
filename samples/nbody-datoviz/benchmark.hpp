@@ -15,6 +15,7 @@ struct BenchmarkInput
     bool vsync;    // real display vsync (DVZ_CANVAS_FLAGS_VSYNC)
     bool display;
     bool use_cpu;
+    float timeout_s; // wall-clock cap for the sim loop (0 = no cap; stop after iter_count)
 
     // Default experiment parameters (same as samples/nbody).
     static BenchmarkInput defaultValues()
@@ -27,6 +28,7 @@ struct BenchmarkInput
             .vsync       = true,
             .display     = true,
             .use_cpu     = false,
+            .timeout_s   = 0.f,
         };
     }
 };
