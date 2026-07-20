@@ -217,6 +217,7 @@ struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics    power;
     GPUMemoryMetrics   memory;
+    int                iters;  // iterations executed; divide the time TOTALS by this for per-frame averages
 };
 
 struct DatovizContext {
@@ -303,33 +304,37 @@ void formatResults(PointsInput input, BenchmarkResult result)
     // Same column order as benchmark_mimir.
     // graphics_time = dvz_scene_step (H2D staging write + D2D upload + draw, inseparable).
     // pack_time is 0 (positions already packed); d2h_time/h2h_time are the transfer stages.
+    // Column names carry units; time columns are TOTALS over the run in seconds, memory in GB, power
+    // in W, energy in J. pipeline_time_s is 0 (datoviz has no render-pass timing API). iters is placed
+    // with the experiment settings (next to N). Leading columns match benchmark_mimir for comparison.
     printAligned({
-        {"mode",          mode},
-        {"windowres",     resolution},
-        {"N",             sd((int)input.pts.count)},
-        {"seed",          su(input.pts.seed)},
-        {"k",             su(input.pts.k)},
-        {"epsilon",       sf(input.pts.epsilon)},
-        {"framerate",     sf(lib.frame_rate)},
-        {"compute_time",  sf(lib.times.compute)},
-        {"pipeline_time", sf(lib.times.pipeline)},
-        {"graphics_time", sf(lib.times.graphics)},
-        {"vk_usage",      sf(lib.devmem.usage)},
-        {"vk_budget",     sf(lib.devmem.budget)},
-        {"gpu_power",     sf(gpu.average_power)},
-        {"gpu_energy",    sf(gpu.total_energy)},
-        {"gpu_time",      sf(gpu.total_time)},
-        {"nvml_free",     sf((float)nvml.free)},
-        {"nvml_reserved", sf((float)nvml.reserved)},
-        {"nvml_total",    sf((float)nvml.total)},
-        {"nvml_used",     sf((float)nvml.used)},
-        {"pack_time",     sf(lib.transfer.pack)},
-        {"d2h_time",      sf(lib.transfer.d2h)},
-        {"h2h_time",      sf(lib.transfer.h2h)},
+        {"mode",            mode},
+        {"windowres",       resolution},
+        {"N",               sd((int)input.pts.count)},
+        {"iters",           sd(result.iters)},
+        {"seed",            su(input.pts.seed)},
+        {"k",               su(input.pts.k)},
+        {"epsilon",         sf(input.pts.epsilon)},
+        {"framerate_fps",   sf(lib.frame_rate)},
+        {"compute_time_s",  sf(lib.times.compute)},
+        {"pipeline_time_s", sf(lib.times.pipeline)},
+        {"graphics_time_s", sf(lib.times.graphics)},
+        {"vk_usage_gb",     sf(lib.devmem.usage)},
+        {"vk_budget_gb",    sf(lib.devmem.budget)},
+        {"gpu_power_w",     sf(gpu.average_power)},
+        {"gpu_energy_j",    sf(gpu.total_energy)},
+        {"gpu_time_s",      sf(gpu.total_time)},
+        {"nvml_free_gb",    sf((float)nvml.free)},
+        {"nvml_reserved_gb",sf((float)nvml.reserved)},
+        {"nvml_total_gb",   sf((float)nvml.total)},
+        {"nvml_used_gb",    sf((float)nvml.used)},
+        {"pack_time_s",     sf(lib.transfer.pack)},
+        {"d2h_time_s",      sf(lib.transfer.d2h)},
+        {"h2h_time_s",      sf(lib.transfer.h2h)},
     });
-    printf("%s,%s,%u,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%u,%d,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        input.pts.count, input.pts.seed, input.pts.k, input.pts.epsilon,
+        input.pts.count, result.iters, input.pts.seed, input.pts.k, input.pts.epsilon,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -709,6 +714,7 @@ BenchmarkResult runExperiment(PointsInput input)
     float total_h2h      = 0.f;
     float total_graphics = 0.f;
     size_t frame_count   = 0;
+    int    iters_run     = 0;  // iterations the totals above accumulate over (totals / iters = per-frame avg)
 
     // phong-mesh reuses this buffer each frame for the expanded (N*V) vertex positions.
     std::vector<Vec3> mesh_expanded;
@@ -733,6 +739,7 @@ BenchmarkResult runExperiment(PointsInput input)
 
     for (int i = 0; i < input.iter_count; ++i)
     {
+        iters_run = i + 1;
         // --- Compute (random-walk step only) ---
         // NOTE: windowed, this reads ~0.1 ms higher than mimir's ~0.02 ms for the SAME
         // kernel. The kernel really is ~0.02 ms (see --display 0, which drops it to that);
@@ -882,7 +889,7 @@ BenchmarkResult runExperiment(PointsInput input)
     checkCuda(cudaFree(d_pos));
     checkCuda(cudaFreeHost(h_pos));
 
-    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml, .iters = iters_run };
 }
 
 // ---------------------------------------------------------------------------

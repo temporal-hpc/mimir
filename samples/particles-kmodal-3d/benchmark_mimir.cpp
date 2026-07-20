@@ -117,6 +117,7 @@ struct BenchmarkResult {
     PerformanceMetrics perf;
     GPUPowerMetrics    power;
     GPUMemoryMetrics   memory;
+    int                iters;  // iterations executed; divide the time TOTALS by this for per-frame averages
 };
 
 // ---------------------------------------------------------------------------
@@ -185,40 +186,44 @@ void formatResults(PointsInput input, BenchmarkResult result)
     // pack_time/d2h_time/h2h_time are 0 for mimir (zero-copy, no pack step).
     // graphics_time = mimir's internal render time.
     // Column layout matches benchmark_datoviz for direct CSV comparison.
+    // Column names carry units. Time columns are TOTALS over the run in seconds (including
+    // pipeline_time_s, tlas_time_s and trace_time_s -- summed and ms-converted in runExperiment),
+    // memory in GB, power in W, energy in J. iters is placed with the experiment settings (next to N).
     printAligned({
-        {"mode",          mode},
-        {"windowres",     resolution},
-        {"N",             std::to_string(input.pts.count)},
-        {"seed",          su(input.pts.seed)},
-        {"k",             su(input.pts.k)},
-        {"epsilon",       sf(input.pts.epsilon)},
-        {"framerate",     sf(lib.frame_rate)},
-        {"compute_time",  sf(lib.times.compute)},
-        {"pipeline_time", sf(lib.times.pipeline)},
-        {"graphics_time", sf(lib.times.graphics)},
-        {"vk_usage",      sf(lib.devmem.usage)},
-        {"vk_budget",     sf(lib.devmem.budget)},
-        {"gpu_power",     sf(gpu.average_power)},
-        {"gpu_energy",    sf(gpu.total_energy)},
-        {"gpu_time",      sf(gpu.total_time)},
-        {"nvml_free",     sf((float)nvml.free)},
-        {"nvml_reserved", sf((float)nvml.reserved)},
-        {"nvml_total",    sf((float)nvml.total)},
-        {"nvml_used",     sf((float)nvml.used)},
-        {"pack_time",     sf(0.f)},
-        {"d2h_time",      sf(0.f)},
-        {"h2h_time",      sf(0.f)},
+        {"mode",            mode},
+        {"windowres",       resolution},
+        {"N",               std::to_string(input.pts.count)},
+        {"iters",           std::to_string(result.iters)},
+        {"seed",            su(input.pts.seed)},
+        {"k",               su(input.pts.k)},
+        {"epsilon",         sf(input.pts.epsilon)},
+        {"framerate_fps",   sf(lib.frame_rate)},
+        {"compute_time_s",  sf(lib.times.compute)},
+        {"pipeline_time_s", sf(lib.times.pipeline)},
+        {"graphics_time_s", sf(lib.times.graphics)},
+        {"vk_usage_gb",     sf(lib.devmem.usage)},
+        {"vk_budget_gb",    sf(lib.devmem.budget)},
+        {"gpu_power_w",     sf(gpu.average_power)},
+        {"gpu_energy_j",    sf(gpu.total_energy)},
+        {"gpu_time_s",      sf(gpu.total_time)},
+        {"nvml_free_gb",    sf((float)nvml.free)},
+        {"nvml_reserved_gb",sf((float)nvml.reserved)},
+        {"nvml_total_gb",   sf((float)nvml.total)},
+        {"nvml_used_gb",    sf((float)nvml.used)},
+        {"pack_time_s",     sf(0.f)},
+        {"d2h_time_s",      sf(0.f)},
+        {"h2h_time_s",      sf(0.f)},
         // Path-tracing columns (appended so the leading columns stay datoviz-comparable). For
         // non-path-tracing modes spp/bounces/subdiv carry their defaults and the times are 0.
-        {"spp",           su(input.pt_spp)},
-        {"bounces",       su(input.pt_bounces)},
-        {"subdiv",        su(input.pt_subdiv)},
-        {"tlas_time",     sf(lib.times.tlas_build)},
-        {"trace_time",    sf(lib.times.trace)},
+        {"spp",             su(input.pt_spp)},
+        {"bounces",         su(input.pt_bounces)},
+        {"subdiv",          su(input.pt_subdiv)},
+        {"tlas_time_s",     sf(lib.times.tlas_build)},
+        {"trace_time_s",    sf(lib.times.trace)},
     });
-    printf("%s,%s,%llu,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f\n",
+    printf("%s,%s,%llu,%d,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f\n",
         mode.c_str(), resolution.c_str(),
-        (unsigned long long)input.pts.count, input.pts.seed, input.pts.k, input.pts.epsilon,
+        (unsigned long long)input.pts.count, result.iters, input.pts.seed, input.pts.k, input.pts.epsilon,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
@@ -699,9 +704,16 @@ BenchmarkResult runExperiment(PointsInput input)
     auto frame_start = Clock::now();
     auto loop_start  = Clock::now();
     size_t frame_count = 0;
+    int iters_run = 0;
+    // Accumulate the per-frame GPU render times into TOTALS (seconds), consistent with compute/graphics
+    // which the engine already totals. getMetrics().times.pipeline/tlas_build/trace are LAST-FRAME
+    // values (pipeline in seconds; tlas/trace in ms), so summing them here -- converting ms to s --
+    // makes every time column in the CSV a comparable total.
+    double total_pipeline_s = 0.0, total_tlas_s = 0.0, total_trace_s = 0.0;
 
     for (int i = 0; i < input.iter_count && (!input.display || (isRunning(instance) && !quit_flag)); ++i)
     {
+        iters_run = i + 1;
         if (input.display) prepareViews(instance);
 
         if (input.display) checkCuda(cudaEventRecord(cstart));
@@ -738,6 +750,9 @@ BenchmarkResult runExperiment(PointsInput input)
             // pipeline is the render-pass GPU time for every light model; tlas/trace are the extra
             // ray-tracing passes under path tracing.
             auto gt = getMetrics(instance).times;
+            total_pipeline_s += gt.pipeline;             // already seconds
+            total_tlas_s     += gt.tlas_build / 1000.0;  // ms -> s (0 when not path tracing)
+            total_trace_s    += gt.trace      / 1000.0;  // ms -> s (0 when not path tracing)
             hud.pipeline_ms = (i == 0) ? gt.pipeline : 0.9f * hud.pipeline_ms + 0.1f * gt.pipeline;
             hud.wait_ms     = (i == 0) ? gt.wait   : 0.9f * hud.wait_ms   + 0.1f * gt.wait;
             hud.record_ms   = (i == 0) ? gt.record : 0.9f * hud.record_ms + 0.1f * gt.record;
@@ -808,7 +823,12 @@ BenchmarkResult runExperiment(PointsInput input)
     }
 
     metrics.frame_rate = frame_rate;
-    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml };
+    // Replace the last-frame render times with whole-run totals (seconds), consistent with
+    // compute_time/graphics_time. 0 in no-display mode (no render pass ran).
+    metrics.times.pipeline   = (float)total_pipeline_s;
+    metrics.times.tlas_build = (float)total_tlas_s;
+    metrics.times.trace      = (float)total_trace_s;
+    return BenchmarkResult{ .perf = metrics, .power = gpu_power, .memory = nvml, .iters = iters_run };
 }
 
 // ---------------------------------------------------------------------------

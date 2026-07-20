@@ -34,7 +34,7 @@ if [[ ! -x "$BIN" ]]; then
     exit 1
 fi
 
-HEADER="mode,windowres,N,seed,k,epsilon,framerate,compute_time,pipeline_time,graphics_time,vk_usage,vk_budget,gpu_power,gpu_energy,gpu_time,nvml_free,nvml_reserved,nvml_total,nvml_used,pack_time,d2h_time,h2h_time,spp,bounces,subdiv,tlas_time,trace_time"
+HEADER="mode,windowres,N,iters,seed,k,epsilon,framerate_fps,compute_time_s,pipeline_time_s,graphics_time_s,vk_usage_gb,vk_budget_gb,gpu_power_w,gpu_energy_j,gpu_time_s,nvml_free_gb,nvml_reserved_gb,nvml_total_gb,nvml_used_gb,pack_time_s,d2h_time_s,h2h_time_s,spp,bounces,subdiv,tlas_time_s,trace_time_s"
 echo "$HEADER" > "$OUT"
 
 total=0
