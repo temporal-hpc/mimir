@@ -9,7 +9,7 @@ seed=$RANDOM
 echo "Running datoviz CA benchmark"
 file=${folder}/ca_datoviz.csv
 echo "mode,windowres,grid_w,grid_h,iters,seed,density,framerate_fps,compute_time_s,pipeline_time_s,graphics_time_s,vk_usage_gb,vk_budget_gb,gpu_power_w,gpu_energy_j,gpu_time_s,nvml_free_gb,nvml_reserved_gb,nvml_total_gb,nvml_used_gb,pack_time_s,d2h_time_s,h2h_time_s" >> ${file}
-for exp in {6..15}; do
+for exp in {6..16}; do
     size=$((2**${exp}))
     echo "    size: ${size}"
     ./samples/ca/build/bin/benchmark_datoviz ${height} ${height} ${size} ${size} ${seed} 0.07 ${niter} --timeout 60 >> ${file}
@@ -33,7 +33,7 @@ for i in {0..1}; do
     opts=${options[${i}]}
     file=${folder}/kmodal_datoviz_${mode}.csv
     echo "mode,windowres,N,iters,seed,k,epsilon,framerate_fps,compute_time_s,pipeline_time_s,graphics_time_s,vk_usage_gb,vk_budget_gb,gpu_power_w,gpu_energy_j,gpu_time_s,nvml_free_gb,nvml_reserved_gb,nvml_total_gb,nvml_used_gb,pack_time_s,d2h_time_s,h2h_time_s" >> ${file}
-    for exp in {4..8}; do
+    for exp in {4..9}; do
         size=$((10**${exp}))
         echo "    mode: ${mode}; size: ${size}"
         ./samples/particles-kmodal-3d/build/bin/benchmark_datoviz ${width} ${height} ${size} ${seed} ${niter} ${kmodal_common} ${opts} --timeout 60 >> ${file}
