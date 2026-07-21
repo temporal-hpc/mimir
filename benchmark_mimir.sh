@@ -20,7 +20,7 @@ echo "mode,windowres,grid_w,grid_h,iters,seed,density,framerate_fps,compute_time
 for exp in {6..16}; do
     size=$((2**${exp}))
     echo "    mode: ${mode}; size: ${size}"
-    ./samples/ca/build/bin/benchmark_mimir ${height} ${height} ${size} ${size} ${seed} ${density} ${niter} --timeout 60 --interop-sync ${sync} >> ${file}
+    ./samples/ca/build/bin/benchmark_mimir ${width} ${height} ${size} ${size} ${seed} ${density} ${niter} --timeout 60 --interop-sync ${sync} >> ${file}
 done
 
 echo "Running mimir nbody benchmark"
