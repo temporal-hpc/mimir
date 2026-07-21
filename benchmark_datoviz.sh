@@ -12,7 +12,7 @@ echo "mode,windowres,grid_w,grid_h,iters,seed,density,framerate_fps,compute_time
 for exp in {6..16}; do
     size=$((2**${exp}))
     echo "    size: ${size}"
-    ./samples/ca/build/bin/benchmark_datoviz ${width} ${height} ${size} ${size} ${seed} 0.07 ${niter} --timeout 60 >> ${file}
+    ./samples/ca/build/bin/benchmark_datoviz ${width} ${height} ${size} ${size} ${seed} 0.7 ${niter} --timeout 60 >> ${file}
 done
 
 sizes=(100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000)

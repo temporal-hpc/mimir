@@ -6,9 +6,9 @@ height=$3
 niter=$4
 sync=$5
 seed=$RANDOM
-density=0.07
+density=0.7
 
-if [${sync} = 1]; then
+if ((${sync} == 1)); then
     mode="sync"
 else
     mode="desync"
@@ -39,7 +39,7 @@ options=("--light-model none" "--light-model phong" "--light-model path-tracing"
 for i in {0..2}; do
     rend=${renders[${i}]}
     opts=${options[${i}]}
-    file=${folder}/kmodal_mimir_${mode}_${render}.csv
+    file=${folder}/kmodal_mimir_${rend}_${mode}.csv
     echo "mode,windowres,N,iters,seed,k,epsilon,framerate_fps,compute_time_s,pipeline_time_s,graphics_time_s,vk_usage_gb,vk_budget_gb,gpu_power_w,gpu_energy_j,gpu_time_s,nvml_free_gb,nvml_reserved_gb,nvml_total_gb,nvml_used_gb,pack_time_s,d2h_time_s,h2h_time_s,spp,bounces,subdiv,tlas_time_s,trace_time_s,frame_count" >> ${file}
     for exp in {4..9}; do
         size=$((10**${exp}))
