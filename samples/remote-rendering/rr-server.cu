@@ -94,6 +94,17 @@ static void usage(const char *prog)
         "                     cell drops 3 int64 atomics/particle in the reduction, so it is much\n"
         "                     faster at huge N (the reduction is atomic-bound there) and needs 8x\n"
         "                     less accumulator VRAM, at slightly coarser positions. No-op without --lod.\n"
+        "  --sort-every N     Re-sort particles by Morton cell every N sim steps (needs --lod; 0 =\n"
+        "                     off, default). Physically reordering particles gives the LOD centroid\n"
+        "                     scatter's warp-aggregation real same-cell adjacency to collapse instead\n"
+        "                     of colliding across unrelated warps (particles are NOT stored in cluster/\n"
+        "                     spatial order otherwise -- each one picks its cluster independently at\n"
+        "                     init). Sorting every step roughly pays back what it costs; every ~8 steps\n"
+        "                     amortizes it while positions haven't drifted far enough to matter yet\n"
+        "                     (measured: ~5-8x faster scatter, ~2.5-3x higher end-to-end fps under\n"
+        "                     heavy clustering). No-op with --lod-placement cell (no atomics to help).\n"
+        "                     Costs 32 B/particle extra VRAM (radix sort scratch). Env override:\n"
+        "                     MIMIR_SIM_SORT_EVERY.\n"
         "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1]    (default: light grey)\n"
         "  --background C     Window/sky color: grey 'G' or 'R,G,B' in [0,1]  (default: 0.1,0.1,0.12)\n"
         "  --seed N           RNG seed for positions/walk                     (default: 12345)\n"
@@ -134,10 +145,16 @@ static void usage(const char *prog)
         "  --dev N            GPU device id to run on (multi-GPU hosts)         (default: 0)\n"
         "                     Pins the process to that GPU via CUDA_VISIBLE_DEVICES before any\n"
         "                     CUDA/Vulkan init, so the render, encode and interop all land there.\n"
+        "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris     (default: 1)\n"
+        "                     phong-mesh only -- path tracing uses analytic procedural AABB\n"
+        "                     spheres, not tessellated meshes, so --subdiv has no effect there.\n"
         "  Path-tracing only (--light-model path-tracing):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
-        "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris     (default: 1)\n"
+        "  --bvh-rebuild-interval N  Full BLAS rebuild every N dirty frames, cheap in-place\n"
+        "                     refits in between (1 = disable refit, rebuild every frame)\n"
+        "                     (default: 8). Larger N trades traversal quality for speed as the\n"
+        "                     scene deforms between rebuilds. Env override: MIMIR_PT_REBUILD_INTERVAL.\n"
         "  --denoise          Denoise each frame before display/encode; also makes the\n"
         "                     stream H.264-friendly at low bitrates (temporally stable)\n"
         "\n"
@@ -199,9 +216,11 @@ int main(int argc, char *argv[])
     unsigned int pt_bounces = 4;
     unsigned int pt_subdiv  = 1;
     bool subdiv_set         = false;
+    unsigned int pt_rebuild_interval = 8;
     bool pt_denoise         = false;
     unsigned int lod_cells   = 0;
     bool lod_centroid       = true;   // LOD placement: centroid (default) vs cell-center
+    int sort_every_cli      = 0;      // periodic Morton spatial sort cadence, 0 = off (--sort-every)
     bool fly                = false;
     int bitrate_kbps        = 8000;
     int fps_cap             = 0;
@@ -235,7 +254,9 @@ int main(int argc, char *argv[])
             else if (a == "--bounces")     pt_bounces = (unsigned int)std::stoul(v);
             else if (a == "--lod")         lod_cells = (unsigned int)std::stoul(v);
             else if (a == "--lod-placement") lod_centroid = (v != "cell" && v != "cell-center");
+            else if (a == "--sort-every")  sort_every_cli = std::stoi(v);
             else if (a == "--subdiv")    { pt_subdiv = (unsigned int)std::stoul(v); subdiv_set = true; }
+            else if (a == "--bvh-rebuild-interval") pt_rebuild_interval = (unsigned int)std::stoul(v);
             else if (a == "--bitrate")     bitrate_kbps = std::stoi(v);
             else if (a == "--benchmark")   bench_csv = v;
             else if (a == "--fps")         fps_cap = std::stoi(v);
@@ -287,11 +308,15 @@ int main(int argc, char *argv[])
         printf("rr-server: using GPU device %d\n", cuda_dev);
     }
 
-    // Experimental spatial sort (MIMIR_SIM_SORT_EVERY): parsed here so its VRAM is in the pre-flight.
-    // The onesweep radix uses 32 B/particle (keys 8 + vals 8 ping-pong + pos 12 + id 4 gather shadow)
-    // plus a flat decoupled-look-back status array (numTiles*256*8 B); see kmodal_sim.cu SortScratch.
+    // Periodic Morton spatial sort (--sort-every N, env override MIMIR_SIM_SORT_EVERY): parsed here so
+    // its VRAM is in the pre-flight. The onesweep radix uses 32 B/particle (keys 8 + vals 8 ping-pong +
+    // pos 12 + id 4 gather shadow) plus a flat decoupled-look-back status array (numTiles*256*8 B); see
+    // kmodal_sim.cu SortScratch. Re-sorting gives the LOD centroid scatter's warp-aggregation real
+    // same-cell adjacency to collapse (see lod_reduce.cu) -- sorting every step pays back roughly what
+    // it costs, but every ~8 steps amortizes the sort while positions haven't drifted far enough to
+    // matter yet (measured: ~5-8x faster scatter, ~2.5-3x higher end-to-end fps under heavy clustering).
     const char* sort_env = std::getenv("MIMIR_SIM_SORT_EVERY");
-    int sort_every = sort_env ? std::atoi(sort_env) : 0;
+    int sort_every = sort_env ? std::atoi(sort_env) : sort_every_cli;
     const bool sort_on = (sort_every > 0 && lod_cells > 0);
     const unsigned long long sort_status_bytes = sort_on
         ? ((point_count + 2047ull) / 2048ull) * 256ull * 8ull + 16ull * 1024ull : 0ull; // status + gHist/gOff
@@ -350,6 +375,28 @@ int main(int argc, char *argv[])
         fprintf(stderr, "rr-server: note: --lod %u gives little benefit here; occupied cells approach "
                         "the particle count (%llu)\n", lod_cells, (unsigned long long)point_count);
     }
+    // Raster light models (none/phong/phong-mesh) draw the WHOLE particle cloud as vertices/instances
+    // every frame -- there is no BVH, no culling, nothing analogous to path-tracing's per-pixel cost.
+    // Without --lod, a single vkCmdDraw at huge N can run long enough that the driver's own hang
+    // detection kills it (observed: 1e9 points, phong, no --lod -> Xid 109 CTX SWITCH TIMEOUT ->
+    // VK_ERROR_DEVICE_LOST, seconds after the client connects). path-tracing does not need this
+    // warning: RT-core BVH traversal only touches primitives actual camera rays hit, so its cost
+    // scales with screen pixels, not point_count. The threshold below is a heuristic headroom margin
+    // under the observed failure, not a hard GPU limit -- it depends on GPU, resolution and topology.
+    constexpr unsigned long long kRasterNoLodWarnThreshold = 200'000'000ull;
+    if (light_model != LightModel::PathTracing && lod_cells == 0
+        && point_count > kRasterNoLodWarnThreshold)
+    {
+        const char* lm_name =
+            light_model == LightModel::None ? "none" :
+            light_model == LightModel::Phong ? "phong" : "phong-mesh";
+        fprintf(stderr, "rr-server: warning: %llu particles with --light-model %s and no --lod draws "
+                        "the entire cloud as unculled vertices every frame; this can run long enough "
+                        "for the GPU driver to kill it (VK_ERROR_DEVICE_LOST). Add --lod N (e.g. 128) "
+                        "to reduce to one representative per occupied cell, or use --light-model "
+                        "path-tracing instead (its cost scales with screen pixels, not particle count).\n",
+                        (unsigned long long)point_count, lm_name);
+    }
 
     ViewerOptions options;
     options.window.title      = "Mimir - remote kmodal-3d";
@@ -365,6 +412,7 @@ int main(int argc, char *argv[])
     options.pt_samples_per_pixel = pt_spp;
     options.pt_max_bounces       = pt_bounces;
     options.pt_subdivisions      = pt_subdiv;
+    options.pt_rebuild_interval  = pt_rebuild_interval;
     options.pt_denoise           = pt_denoise;
     options.pt_lod_cells         = lod_cells;
     options.lod_centroid         = lod_centroid;
@@ -485,7 +533,7 @@ int main(int argc, char *argv[])
     }
     else if (sort_every > 0)
     {
-        printf("rr-server: MIMIR_SIM_SORT_EVERY ignored (needs --lod)\n");
+        printf("rr-server: --sort-every ignored (needs --lod)\n");
         sort_every = 0;
     }
     uint64_t sim_step = 0;
@@ -502,6 +550,10 @@ int main(int argc, char *argv[])
             launchSpatialSort(d_pos, (unsigned int*)clusters.ids, point_count, sort_scratch);
             cudaEventRecord(se1); cudaEventSynchronize(se1);
             float ms = 0.f; cudaEventElapsedTime(&ms, se0, se1);
+            // Surface this as its own "sort" pipeline stage in the server [stats] log and the client
+            // HUD (see mimir::reportSortTimeNs) -- otherwise it silently inflates "compute" with no
+            // visibility into why every sort_every-th step is so much more expensive than the rest.
+            mimir::reportSortTimeNs(instance, static_cast<uint64_t>(ms * 1.0e6));
             auto now = std::chrono::steady_clock::now();
             if (std::chrono::duration_cast<std::chrono::milliseconds>(now - sort_log).count() >= 1000)
             {

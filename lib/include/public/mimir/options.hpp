@@ -182,6 +182,11 @@ struct ViewerOptions
     unsigned int pt_samples_per_pixel = 1; // rays per pixel per frame (--spp)
     unsigned int pt_max_bounces       = 4; // max path depth (--bounces)
     unsigned int pt_subdivisions      = 1; // icosphere tessellation: 0=20,1=80,2=320 tris (--subdiv)
+    // BLAS refit cadence: a full rebuild happens every pt_rebuild_interval dirty frames, with cheap
+    // in-place refits in between (see RayTracingContext::rebuild_interval in raytracing.hpp). <= 1
+    // disables refit (full rebuild every frame). Larger trades traversal quality for speed as the
+    // scene deforms between rebuilds. (--bvh-refit)
+    unsigned int pt_rebuild_interval  = 8;
     // Denoise the path-traced result before display (--denoise) with a Vulkan-compute a-trous
     // edge-avoiding wavelet filter (runs on any GPU). Edge-stopping is guided by the first-hit
     // normal/depth G-buffer, so noise is smoothed while silhouettes and shading edges survive.

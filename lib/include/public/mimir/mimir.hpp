@@ -178,6 +178,14 @@ void serveRemote(InstanceHandle engine, unsigned short port,
     int fps = 0, int steps_per_frame = 0
 );
 
+// Reports that `ns` nanoseconds of the serveRemote() compute() callback's current call were spent on
+// a periodic spatial re-sort (e.g. rr-server's --sort-every), which some samples run inside compute()
+// to help an unrelated LOD reduction -- without this it would silently inflate the generic "compute"
+// stat with no visibility into why. Call it from within the compute() callback, on the same thread.
+// Surfaced as its own pipeline stage in the server [stats] log and the client HUD, subtracted from the
+// displayed "compute" time (see remote::Stats::sort_us). A no-op accumulator if never called.
+void reportSortTimeNs(InstanceHandle engine, uint64_t ns);
+
 // Starts a GPU interop critical section.
 // Code between this call and updateViews() is considered CUDA compute work,
 // so Vulkan cannot read interop-mapped data during this period.

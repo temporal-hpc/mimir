@@ -286,6 +286,11 @@ void serveRemote(InstanceHandle engine, unsigned short port,
         stats_csv ? stats_csv : "", fps, steps_per_frame);
 }
 
+void reportSortTimeNs(InstanceHandle engine, uint64_t ns)
+{
+    std::atomic_ref<uint64_t>(engine->sort_ns_total).fetch_add(ns, std::memory_order_relaxed);
+}
+
 void prepareViews(InstanceHandle engine)
 {
     engine->prepareViews();

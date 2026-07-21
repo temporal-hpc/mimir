@@ -580,6 +580,16 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         if (adv > 0)
         {
             spdlog::info("remote: simulation advanced {} steps while unwatched", adv);
+            // The BLAS refit/rebuild cadence (raytracing.hpp) assumes consecutive dirty frames only
+            // nudge particles a little, so a cheap in-place refit keeps good traversal quality between
+            // forced rebuilds. That assumption breaks across an unwatched gap: rendering (and so BLAS
+            // updates) is skipped entirely while no client is connected, so the tree topology left over
+            // from before the gap can be wildly stale relative to where the particles ended up after
+            // `adv` unwatched steps. Refitting that stale topology onto the new positions produces a
+            // pathological BVH (traversal ~100x slower) that then needs several forced full rebuilds to
+            // recover. Force a full rebuild on the first frame of the new session instead, so the client
+            // sees good performance immediately rather than ramping up over the first couple of seconds.
+            if (rt_enabled) { raytracing.frames_since_full_rebuild = raytracing.rebuild_interval; }
         }
 
         // A client connected: build a fresh session. The encoder is rebuilt per session, so a
@@ -670,6 +680,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         size_t win_frames = 0, win_bytes = 0, session_frames = 0;
         size_t win_start_iter = total_iter.load(); // sim step count at the window's start
         uint64_t win_start_compute_ns = compute_ns_total.load(std::memory_order_relaxed);
+        uint64_t win_start_sort_ns = std::atomic_ref<uint64_t>(sort_ns_total).load(std::memory_order_relaxed);
         double win_enc_us = 0.0, win_enc_us_sq = 0.0; // sum and sum-of-squares, for mean + std
         double win_render_ms = 0.0;                   // sum of per-frame GPU render time, for the mean
         // Path-tracing GPU-timestamp split, bucketed by the readback frame's actual build mode so the
@@ -846,6 +857,16 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 pt_scene_dirty = true; // the sim moved, so reset the path-trace accumulator
             }
             if (stop) { break; } // hit max_iters mid-batch
+            // Path-tracing + LOD: re-derive the reduced representative points from the LIVE particle
+            // positions whenever the sim moved this frame (pt_scene_dirty), mirroring what the windowed
+            // engine's updateViews() does every frame (engine.cpp:723). This loop never calls
+            // updateViews(), so without this the reduction only ever ran once, at bindScene -- the
+            // rendered LOD cloud would silently freeze while the simulation kept advancing underneath it
+            // (recordUpdateScene keeps rebuilding the BLAS from the same stale reduced positions every
+            // frame). Safe to call on this thread: unlike the windowed interop-sync path, renderFrame()
+            // below is never called with advance_interop=true here, so there is no pending interop
+            // semaphore wait to deadlock against (see reduceLodCompute's own comment for that hazard).
+            if (rt_enabled && raytracing.lod != nullptr && pt_scene_dirty) { raytracing.reduceLodCompute(); }
             const auto render_t0 = std::chrono::steady_clock::now();
             renderFrame();
             vkDeviceWaitIdle(device); // ensure the frame is finished before readback
@@ -1013,6 +1034,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     .denoise_us = 0,         // filled below (denoiser time, part of render)
                     .vram_used_mb = 0, .vram_total_mb = 0, // filled below (cudaMemGetInfo)
                     .power_w = 0, .power_limit_w = 0,       // filled below (NVML power sample)
+                    .sort_us = 0,            // filled below (sort sub-stage time, part of compute)
                 };
                 // Per-frame sizes: what the render produced vs. what actually went on the wire.
                 // With H.264 the ratio is the compression achieved; with raw frames it is 1.0x.
@@ -1031,6 +1053,14 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 const double   compute_ms = d_iter
                     ? static_cast<double>(cn_now - win_start_compute_ns) / static_cast<double>(d_iter) / 1e6 : 0.0;
                 st.compute_us = static_cast<uint32_t>(compute_ms * 1000.0);
+                // Mean sort sub-stage time/step over this window (sub-component of compute_us; 0 =
+                // --sort-every off, or a caller that never calls reportSortTimeNs). Same d_iter
+                // denominator as compute_ms: reportSortTimeNs is called from inside compute(), so it
+                // shares its per-STEP cadence rather than the per-FRAME one lod/denoise/render use.
+                const uint64_t sn_now = std::atomic_ref<uint64_t>(sort_ns_total).load(std::memory_order_relaxed);
+                const double   sort_ms = d_iter
+                    ? static_cast<double>(sn_now - win_start_sort_ns) / static_cast<double>(d_iter) / 1e6 : 0.0;
+                st.sort_us    = static_cast<uint32_t>(sort_ms * 1000.0);
                 st.render_us  = static_cast<uint32_t>(render_mean * 1000.0); // server GPU render/frame
                 // Mean LOD-reduction time/frame this window (sub-component of render_us; 0 = no LOD).
                 st.lod_us     = static_cast<uint32_t>(
@@ -1140,15 +1170,29 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     lod_field = lb;
                     render_pure = std::max(0.0, render_mean - lod_mean);
                 }
+                // Sort sub-stage (e.g. --sort-every): a distinct pipeline stage, but the "ms/step" below
+                // includes it (reportSortTimeNs is called from inside compute()). Surface it as its own
+                // leading "sort X ms" field and show compute as the PURE per-step cost, mirroring the
+                // lod/render split above and the client HUD. Shown only when a caller actually reported
+                // sort time this window (--sort-every off, or an older sample, report 0 and stay silent).
+                std::string sort_field;
+                double compute_pure = compute_ms;
+                if (sort_ms > 0.005)
+                {
+                    char sb[32];
+                    snprintf(sb, sizeof(sb), "sort %.1f ms | ", sort_ms);
+                    sort_field = sb;
+                    compute_pure = std::max(0.0, compute_ms - sort_ms);
+                }
                 // Live board power for the log tail (mirrors the client HUD): "<cur>/<max> W", or just
                 // "<cur> W" when the cap is unknown, or "power n/a" when NVML has no telemetry.
                 char pwr[32] = "power n/a";
                 if (st.power_limit_w > 0)   { snprintf(pwr, sizeof(pwr), "%u/%u W", st.power_w, st.power_limit_w); }
                 else if (st.power_w > 0)    { snprintf(pwr, sizeof(pwr), "%u W", st.power_w); }
-                spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}, {:.2f} ms/step) | frame {:6d} | {:5.1f} fps | "
+                spdlog::info("[stats] step {} ({} particles, {:.0f} steps/s, {}, {}{:.2f} ms/step) | frame {:6d} | {:5.1f} fps | "
                     "{:6d} kbps | {}{:5.2f} ms render{} | {:5.2f} ms {} | {:.0f} kB -> {:.0f} kB/frame ({:.1f}x smaller) | {} | {}",
                     step_str,
-                    pcount, sps, prate, compute_ms,
+                    pcount, sps, prate, sort_field, compute_pure,
                     st.frames,
                     static_cast<double>(st.fps_milli) / 1000.0,
                     st.kbps,
@@ -1184,6 +1228,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 win_refit_n = 0; win_rebuild_n = 0; win_skip_n = 0;
                 win_start_iter = iters;
                 win_start_compute_ns = cn_now;
+                win_start_sort_ns = sn_now;
             }
         }
 

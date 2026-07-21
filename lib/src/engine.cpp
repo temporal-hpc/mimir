@@ -1917,6 +1917,7 @@ void MimirInstance::initVulkan()
             physical_device.memory.memoryProperties, submit,
             options.pt_subdivisions, /*max_recursion=*/2, int64_atomics, std::move(materials)
         );
+        raytracing.rebuild_interval = options.pt_rebuild_interval;
         deletors.context.add([this]{ raytracing.destroy(); });
     }
 

@@ -284,6 +284,13 @@ struct MimirInstance
     // since they render with advance_interop=false and would otherwise never report a scene
     // change to the accumulator. Consumed (cleared) by the next renderFrame.
     bool pt_scene_dirty = false;
+    // Nanoseconds a serveRemote() compute() callback has reported spending on its optional "sort"
+    // sub-stage (see mimir::reportSortTimeNs), accumulated since process start. serveRemote reads a
+    // delta across each stats window (same pattern as its own local compute_ns_total) to report a
+    // mean sort time/step, separate from the generic compute time. Plain member (not std::atomic) so
+    // MimirInstance stays movable, like running/render_request above; accessed cross-thread via
+    // std::atomic_ref.
+    uint64_t sort_ns_total = 0;
 
     static MimirInstance make(ViewerOptions opts);
     static MimirInstance make(int width, int height);

@@ -182,6 +182,13 @@ struct Stats
     // older server, or a GPU/driver without power telemetry.
     uint32_t power_w;
     uint32_t power_limit_w;
+    // Appended (same forward-compat rule -- zero when absent). Mean time/sim-step this window spent in
+    // an optional named sub-stage of the serveRemote() compute() callback (currently just the periodic
+    // Morton spatial re-sort some samples run inside compute() -- see mimir::reportSortTimeNs), in
+    // microseconds. A sub-component of compute_us, like lod_us/denoise_us are of render_us: the client
+    // HUD shows it as its own pipeline stage and subtracts it from the displayed "compute" time. 0 =
+    // the feature is off, or an older server.
+    uint32_t sort_us;
 };
 
 // Sent by the client as the first message on the control channel, before any ControlMsg.

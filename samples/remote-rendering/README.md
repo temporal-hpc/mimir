@@ -36,7 +36,7 @@ The **render path is selectable** with `--light-model`, so the client can view t
 | `none` / `point`| Unlit pixel-sized discs (cheapest)                              |
 | `phong`         | Lit sphere impostors (default)                                  |
 | `phong-mesh`    | Lit instanced icosphere meshes (`--subdiv` tessellation)        |
-| `path-tracing`  | Vulkan ray tracing (`--spp`, `--bounces`)                       |
+| `path-tracing`  | Vulkan ray tracing (`--spp`, `--bounces`, `--bvh-rebuild-interval`) |
 
 The lighting (sun direction, `--pcolor`, `--background`) and camera framing match
 `particles-kmodal-3d/benchmark_mimir`, so a phong / phong-mesh / path-traced remote frame looks the
@@ -130,9 +130,9 @@ a 96 GB GPU (`none`/`phong`/path-tracing+`--lod`); ~2.6 B for path-tracing witho
 larger-VRAM cards.
 
 `rr-server` also takes named options after the positional args — `--light-model`, `--spp`,
-`--bounces`, `--subdiv`, `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`,
-`--max-steps`, `--dev` (GPU device id on a multi-GPU host, default 0) (run `./rr-server --help`
-for the full list).
+`--bounces`, `--bvh-rebuild-interval`, `--subdiv`, `--lod`, `--lod-placement`, `--sort-every`,
+`--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`, `--max-steps`, `--dev` (GPU
+device id on a multi-GPU host, default 0) (run `./rr-server --help` for the full list).
 
 ### Local, raw frames (simplest, no optional deps)
 

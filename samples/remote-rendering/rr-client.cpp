@@ -13,8 +13,9 @@
 // A minimal HUD overlay in the top-left corner (toggle with H) shows where the simulation runs
 // (user@host:port, transport, codec), the end-to-end latency, the stream fps, the sim progress
 // (step x of y, or unlimited), the scene size + LOD mode, and a pipeline breakdown of where a
-// frame's time goes: compute + render (local GPU cost) vs. encode + net + decode (remote transfer
-// cost). Other keys: P pauses the simulation, Q/Esc/Ctrl+W quit.
+// frame's time goes: compute + sort + render (local GPU cost) vs. encode + net + decode (remote
+// transfer cost); sort is the optional periodic spatial re-sort (--sort-every), shown only when
+// active. Other keys: P pauses the simulation, Q/Esc/Ctrl+W quit.
 //
 // Depends only on the wire-protocol header + ffmpeg + GLFW/OpenGL (no mimir, CUDA, or Vulkan):
 // it models a laptop-class thin client. QUIC (ngtcp2 + OpenSSL) is an optional compile-time
@@ -173,6 +174,7 @@ struct Hud
     // Real-time pipeline stage times, so the HUD shows where a frame's wall-clock goes: local
     // GPU cost (compute + render) vs. the remote transfer cost (encode + network + decode).
     double compute_ms = 0.0;        // server: mean sim compute() time per step
+    double sort_ms = 0.0;           // server: mean spatial-sort sub-stage time per step (part of compute_ms; --sort-every)
     double render_ms = 0.0;         // server: mean GPU render/trace time per frame
     double lod_ms = 0.0;            // server: mean LOD-reduction time per frame (part of render_ms)
     double denoise_ms = 0.0;        // server: mean denoiser time per frame (part of render_ms; PT+--denoise)
@@ -305,29 +307,39 @@ std::vector<std::string> hud_lines()
             static_cast<unsigned long long>(g_hud.step));
     }
     lines.push_back(l2);
-    // Pipeline line, in pipeline order: compute -> lod -> render -> denoise -> encode -> network -> decode.
-    // render + denoise + encode + network + decode are the components of the end-to-end latency on the
-    // line above (render/denoise = local GPU cost; encode + network + decode = remote transfer cost).
-    // `network~` is the residual latency minus the measured stages (wire transit + frame-boundary wait),
-    // floored at 0. render_ms from the server INCLUDES lod and denoise, so those are broken out as their
-    // own stages and render is shown as the pure draw/trace cost (render_ms - lod - denoise); the full
-    // render_ms stays on the latency path so network~ is unchanged. compute (sim ms/step): in DECOUPLED
+    // Pipeline line, in pipeline order: compute -> sort -> lod -> render -> denoise -> encode -> network
+    // -> decode. render + denoise + encode + network + decode are the components of the end-to-end
+    // latency on the line above (render/denoise = local GPU cost; encode + network + decode = remote
+    // transfer cost). `network~` is the residual latency minus the measured stages (wire transit +
+    // frame-boundary wait), floored at 0. render_ms from the server INCLUDES lod and denoise, so those
+    // are broken out as their own stages and render is shown as the pure draw/trace cost (render_ms -
+    // lod - denoise); the full render_ms stays on the latency path so network~ is unchanged. Likewise
+    // compute_ms INCLUDES the optional sort sub-stage (it runs inside compute(), see
+    // mimir::reportSortTimeNs), so sort is broken out the same way and compute is shown pure (compute_ms
+    // - sort_ms); the full compute_ms is what's on the latency path. compute (sim ms/step): in DECOUPLED
     // mode it is OFF the latency path (nothing subtracted); in LOCKSTEP it is on-path, so steps_per_frame
-    // * compute_ms is subtracted from network~. lod/denoise appear only when nonzero.
+    // * compute_ms is subtracted from network~. sort/lod/denoise appear only when nonzero.
     if (g_hud.have_stats)
     {
         const double lat = g_hud.latency_ms < 0 ? 0.0 : g_hud.latency_ms;
         const double compute_on_path = g_hud.compute_ms * static_cast<double>(g_hud.steps_per_frame);
+        const double compute_pure = std::max(0.0, g_hud.compute_ms - g_hud.sort_ms);
         const double render_pure = std::max(0.0, g_hud.render_ms - g_hud.lod_ms - g_hud.denoise_ms);
         const double network_ms = std::max(0.0,
             lat - g_hud.render_ms - g_hud.encode_ms - g_hud.decode_ms - compute_on_path);
-        char lodseg[32] = "", dnseg[32] = "";
-        if (g_hud.lod_ms > 0.005)     { snprintf(lodseg, sizeof(lodseg), "lod %.1f ms | ", g_hud.lod_ms); }
-        if (g_hud.denoise_ms > 0.005) { snprintf(dnseg, sizeof(dnseg), "denoise %.1f ms | ", g_hud.denoise_ms); }
-        char l4[288];
+        // Fixed-width numeric fields (matches the latency line's %5.1f/%4.1f above): every value here
+        // updates live, so an unpadded %.1f/%.2f changes the STRING LENGTH the moment a value crosses a
+        // digit boundary (e.g. network~ 9.3 -> 10.3 ms), and since the HUD panel is sized to the longest
+        // current line every frame (hud_rasterize[_ttf]'s max_w), that reflows the whole panel width --
+        // felt as a flicker. Padding keeps every field's width constant so only the digits change.
+        char sortseg[36] = "", lodseg[32] = "", dnseg[32] = "";
+        if (g_hud.sort_ms > 0.005)    { snprintf(sortseg, sizeof(sortseg), "sort %5.1f ms | ", g_hud.sort_ms); }
+        if (g_hud.lod_ms > 0.005)     { snprintf(lodseg, sizeof(lodseg), "lod %5.1f ms | ", g_hud.lod_ms); }
+        if (g_hud.denoise_ms > 0.005) { snprintf(dnseg, sizeof(dnseg), "denoise %5.1f ms | ", g_hud.denoise_ms); }
+        char l4[320];
         snprintf(l4, sizeof(l4),
-            "compute %.2f ms/step | %srender %.1f ms | %sencode %.1f ms | network~%.1f ms | decode %.1f ms",
-            g_hud.compute_ms, lodseg, render_pure, dnseg, g_hud.encode_ms, network_ms, g_hud.decode_ms);
+            "compute %6.2f ms/step | %s%srender %5.1f ms | %sencode %5.1f ms | network~%5.1f ms | decode %5.1f ms",
+            compute_pure, sortseg, lodseg, render_pure, dnseg, g_hud.encode_ms, network_ms, g_hud.decode_ms);
         lines.push_back(l4);
     }
     return lines;
@@ -822,6 +834,7 @@ void feed_video(Decoder& dec, uint32_t flags, const uint8_t *payload, size_t len
             g_hud.particle_count     = st.particle_count;
             g_hud.particles_per_sec  = st.particles_per_sec;
             g_hud.compute_ms = st.compute_us / 1000.0; // server sim step time
+            g_hud.sort_ms    = st.sort_us / 1000.0;    // server spatial-sort time (part of compute)
             g_hud.render_ms  = st.render_us / 1000.0;  // server GPU render time
             g_hud.lod_ms     = st.lod_us / 1000.0;     // server LOD reduction time (part of render)
             g_hud.denoise_ms = st.denoise_us / 1000.0; // server denoiser time (part of render)
