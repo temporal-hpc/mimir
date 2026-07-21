@@ -255,7 +255,7 @@ void formatResults(PointsInput input, BenchmarkResult result)
         {"tlas_time_s",     sf(lib.times.tlas_build)},
         {"trace_time_s",    sf(lib.times.trace)},
     });
-    printf("%s,%s,%llu,%d,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f\n",
+    printf("%s,%s,%llu,%d,%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%u,%u,%u,%f,%f,%lu\n",
         mode.c_str(), resolution.c_str(),
         (unsigned long long)input.pts.count, result.iters, input.pts.seed, input.pts.k, input.pts.epsilon,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
@@ -263,7 +263,7 @@ void formatResults(PointsInput input, BenchmarkResult result)
         gpu.average_power, gpu.total_energy, gpu.total_time,
         nvml.free, nvml.reserved, nvml.total, nvml.used,
         0.f, 0.f, 0.f,
-        input.pt_spp, input.pt_bounces, input.pt_subdiv, lib.times.tlas_build, lib.times.trace);
+        input.pt_spp, input.pt_bounces, input.pt_subdiv, lib.times.tlas_build, lib.times.trace, lib.frame_count);
 }
 
 // ---------------------------------------------------------------------------

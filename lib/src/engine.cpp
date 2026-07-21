@@ -3349,6 +3349,7 @@ PerformanceMetrics MimirInstance::getMetrics()
     auto memory = physical_device.getMemoryStats();
 
     return PerformanceMetrics{
+        .frame_count = render_timeline,
         .frame_rate = graphics_monitor.getFramerate(),
         .times = {
             .compute  = compute_monitor.total_compute_time,

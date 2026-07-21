@@ -218,14 +218,14 @@ void formatResults(CAInput input, BenchmarkResult result)
         {"d2h_time_s",      sf(0.f)},
         {"h2h_time_s",      sf(0.f)},
     });
-    printf("%s,%s,%d,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%d,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%lu\n",
         mode.c_str(), resolution.c_str(),
         input.ca.width, input.ca.height, result.iters, input.ca.seed, input.ca.density,
         lib.frame_rate, lib.times.compute, lib.times.pipeline, lib.times.graphics,
         lib.devmem.usage, lib.devmem.budget,
         gpu.average_power, gpu.total_energy, gpu.total_time,
         nvml.free, nvml.reserved, nvml.total, nvml.used,
-        result.pack_time, 0.f, 0.f);
+        result.pack_time, 0.f, 0.f, lib.frame_count);
 }
 
 // ---------------------------------------------------------------------------

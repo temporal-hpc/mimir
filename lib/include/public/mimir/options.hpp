@@ -2,6 +2,7 @@
 
 #include <cuda_runtime_api.h>
 
+#include <cstdint> // uint64_t
 #include <string> // std::string
 
 namespace mimir
@@ -10,6 +11,7 @@ namespace mimir
 // Container for performance data collected by the engine while running
 struct PerformanceMetrics
 {
+    uint64_t frame_count;
     float frame_rate;
     struct {
         // Total time used by CUDA kernel calls.

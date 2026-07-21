@@ -136,7 +136,7 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         {"d2h_time_s",       sf(0.f)},
         {"h2h_time_s",       sf(0.f)},
     });
-    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+    printf("%s,%s,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%lu\n",
         mode.c_str(),
         resolution.c_str(),
         input.body_count,
@@ -154,7 +154,8 @@ void formatResults(BenchmarkInput input, BenchmarkResult result)
         nvml.reserved,
         nvml.total,
         nvml.used,
-        0.f, 0.f, 0.f
+        0.f, 0.f, 0.f,
+        library.frame_count
     );
 }
 
