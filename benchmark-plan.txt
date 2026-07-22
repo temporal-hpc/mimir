@@ -1,0 +1,37 @@
+I) PATH TRACING
+1) MEDIUM N (100M, lod native):
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**8)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --size 1
+
+2) LARGE N (1B, lod 128):
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 128
+
+3) MAX N (lod 256)
+3.1) A100 80GB   (141B)
+3.2) H200 141GB  (141B)
+
+3.3) RTXPRO 96GB (6B)
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((6 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+
+3.4) B300 288GB (16B)
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((16 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+
+
+
+
+
+II) RASTER (BLINN-PHONG)
+1) MEDIUM N (100M, lod native):
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**8)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --size 1
+
+2) LARGE N (1B, lod 128):
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 128
+
+3) MAX N (lod 256)
+3.1) A100 80GB   (141B)
+3.2) H200 141GB  (141B)
+
+3.3) RTXPRO 96GB (6B)
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((6 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+
+3.4) B300 288GB (16B)
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((16 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 256
