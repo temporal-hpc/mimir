@@ -431,9 +431,19 @@ int main(int argc, char *argv[])
     options.pt_subdivisions      = pt_subdiv;
     options.pt_rebuild_interval  = pt_rebuild_interval;
     options.pt_denoise           = pt_denoise;
-    // LOD voxel mode: full-cell cubes only tile on the grid lattice, so force cell-center placement
-    // (centroid sits off-lattice and breaks tiling) and ignore --size (the box always fills the cell).
-    if (lod_voxel_render && lod_cells > 0)
+    // LOD voxel mode is a path-tracing-only feature (it selects the box branch of the PT intersection
+    // shader). Under the raster light models it cannot voxelize, so ignore it entirely there -- do NOT
+    // touch placement -- and warn. Under path tracing: full-cell cubes only tile on the grid lattice,
+    // so force cell-center placement (centroid is off-lattice) and ignore --size (box fills the cell).
+    if (lod_voxel_render && light_model != LightModel::PathTracing)
+    {
+        const char* lm_name =
+            light_model == LightModel::None ? "none" :
+            light_model == LightModel::Phong ? "phong" : "phong-mesh";
+        fprintf(stdout, "rr-server: --lod-voxel is path-tracing only; ignored under --light-model %s\n",
+                        lm_name);
+    }
+    else if (lod_voxel_render && lod_cells > 0)
     {
         if (lod_centroid)
         {
