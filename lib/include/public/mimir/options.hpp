@@ -231,11 +231,12 @@ struct ViewerOptions
     // placement is acceptable.
     bool lod_centroid = true;
 
-    // Render LOD representatives as solid grid-aligned cubes (voxels) instead of inscribed
-    // spheres. Opt-in visual identity for the reduced level of detail (only meaningful when
-    // pt_lod_cells > 0 under path tracing). Forces cell-center placement and full-cell fill;
-    // see rr-server --lod-voxel. Independent of the CA3D voxel_boxes pipeline.
-    bool pt_lod_voxel = false;
+    // Render LOD representatives as solid grid-aligned cubes (voxels) instead of spheres. Default:
+    // true. Applies only under pt_lod_cells > 0 and only to lit models (phong / phong-mesh /
+    // path-tracing); `none` (flat points) ignores it. Forces cell-center placement and full-cell fill.
+    // Set false (rr-server --lod-shape sphere) to render LOD as spheres and honour lod_centroid.
+    // Independent of the CA3D voxel_boxes pipeline.
+    bool lod_voxel = true;
 
     // Vertical field of view of the perspective camera, in degrees. Datoviz-comparable
     // samples set 45 to match datoviz's fixed GLM_PI_4 perspective, so both libraries

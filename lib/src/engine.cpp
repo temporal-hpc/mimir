@@ -214,6 +214,18 @@ void MimirInstance::exit()
 
 void MimirInstance::prepare()
 {
+    // Voxel LOD tiles only on the grid lattice, so cell-center placement is mandatory whenever voxels
+    // render (all lit models). Force it here -- before both the PT (bindScene) and raster LOD inits
+    // read options.lod_centroid -- so every caller (not just rr-server) is consistent. `none` and the
+    // sphere opt-out (lod_voxel=false) keep whatever placement was requested.
+    if (options.lod_voxel && options.pt_lod_cells > 0 && options.light_model != LightModel::None)
+    {
+        if (options.lod_centroid)
+        {
+            spdlog::info("LOD voxels: forcing cell-center placement (centroid is off-lattice, breaks tiling)");
+        }
+        options.lod_centroid = false;
+    }
     initUniformBuffers();
     createViewPipelines();
     updateDescriptorSets();
@@ -235,7 +247,7 @@ void MimirInstance::prepare()
                 };
                 VkDeviceAddress pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
                 raytracing.lod_cells = options.pt_lod_cells;
-                raytracing.lod_voxel = options.pt_lod_voxel;
+                raytracing.lod_voxel = options.lod_voxel;
                 // LOD is a shared pre-render reduction owned by the engine. Init it (buffers +
                 // scatter/emit pipelines) before bindScene so the path-tracer -- which reads it in its
                 // very first build inside bindScene -- has it ready. For this task only PT consumes it.

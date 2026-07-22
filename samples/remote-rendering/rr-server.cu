@@ -98,10 +98,10 @@ static void usage(const char *prog)
         "                     cell drops 3 int64 atomics/particle in the reduction, so it is much\n"
         "                     faster at huge N (the reduction is atomic-bound there) and needs 8x\n"
         "                     less accumulator VRAM, at slightly coarser positions. No-op without --lod.\n"
-        "  --lod-voxel        Render each LOD representative as a solid grid-aligned cube (voxel)\n"
-        "                     instead of a sphere -- a distinct visual identity for the reduced\n"
-        "                     level of detail. Forces cell-center placement and full-cell fill\n"
-        "                     (ignores --size for the box extent). Default: off (spheres).\n"
+        "  --lod-shape S      LOD representative shape: voxel (default) = solid grid-aligned cubes\n"
+        "                     (forces cell-center placement, ignores --size for extent); sphere =\n"
+        "                     round spheres honouring --lod-placement and --size. Lit models only;\n"
+        "                     --light-model none always draws flat points. No-op without --lod.\n"
         "  --sort-every N     Re-sort particles by Morton cell every N sim steps (needs --lod; 0 =\n"
         "                     off, default). Physically reordering particles gives the LOD centroid\n"
         "                     scatter's warp-aggregation real same-cell adjacency to collapse instead\n"
@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
     bool pt_denoise         = false;
     unsigned int lod_cells   = 0;
     bool lod_centroid       = true;   // LOD placement: centroid (default) vs cell-center
-    bool lod_voxel_render   = false;  // --lod-voxel: draw LOD reps as full-cell cubes (forces cell-center)
+    bool lod_voxel_shape    = true;   // --lod-shape voxel|sphere: LOD as cubes (default) vs spheres
     bool size_set           = false;  // whether --size was explicitly passed (for the voxel-mode ignore note)
     int sort_every_cli      = 0;      // periodic Morton spatial sort cadence, 0 = off (--sort-every)
     bool fly                = false;
@@ -250,7 +250,6 @@ int main(int argc, char *argv[])
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
         if (a == "--denoise") { pt_denoise = true; continue; } // flag, takes no value
         if (a == "--fly")     { fly = true; continue; }        // first-person camera (flag)
-        if (a == "--lod-voxel") { lod_voxel_render = true; continue; } // LOD reps as full-cell cubes (flag)
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
@@ -269,6 +268,11 @@ int main(int argc, char *argv[])
             else if (a == "--bounces")     pt_bounces = (unsigned int)std::stoul(v);
             else if (a == "--lod")         lod_cells = (unsigned int)std::stoul(v);
             else if (a == "--lod-placement") lod_centroid = (v != "cell" && v != "cell-center");
+            else if (a == "--lod-shape") {
+                if      (v == "voxel")  lod_voxel_shape = true;
+                else if (v == "sphere") lod_voxel_shape = false;
+                else { fprintf(stderr, "Unknown --lod-shape '%s' (use voxel|sphere)\n", v.c_str()); return EXIT_FAILURE; }
+            }
             else if (a == "--sort-every")  sort_every_cli = std::stoi(v);
             else if (a == "--subdiv")    { pt_subdiv = (unsigned int)std::stoul(v); subdiv_set = true; }
             else if (a == "--bvh-rebuild-interval") pt_rebuild_interval = (unsigned int)std::stoul(v);
@@ -431,34 +435,15 @@ int main(int argc, char *argv[])
     options.pt_subdivisions      = pt_subdiv;
     options.pt_rebuild_interval  = pt_rebuild_interval;
     options.pt_denoise           = pt_denoise;
-    // LOD voxel mode is a path-tracing-only feature (it selects the box branch of the PT intersection
-    // shader). Under the raster light models it cannot voxelize, so ignore it entirely there -- do NOT
-    // touch placement -- and warn. Under path tracing: full-cell cubes only tile on the grid lattice,
-    // so force cell-center placement (centroid is off-lattice) and ignore --size (box fills the cell).
-    if (lod_voxel_render && light_model != LightModel::PathTracing)
-    {
-        const char* lm_name =
-            light_model == LightModel::None ? "none" :
-            light_model == LightModel::Phong ? "phong" : "phong-mesh";
-        fprintf(stdout, "rr-server: --lod-voxel is path-tracing only; ignored under --light-model %s\n",
-                        lm_name);
-    }
-    else if (lod_voxel_render && lod_cells > 0)
-    {
-        if (lod_centroid)
-        {
-            fprintf(stdout, "rr-server: --lod-voxel forces cell-center placement "
-                            "(centroid is off-lattice and breaks tiling)\n");
-            lod_centroid = false;
-        }
-        if (size_set)
-        {
-            fprintf(stdout, "rr-server: --lod-voxel ignores --size; voxels always fill the cell\n");
-        }
-    }
     options.pt_lod_cells         = lod_cells;
     options.lod_centroid         = lod_centroid;
-    options.pt_lod_voxel         = lod_voxel_render;
+    options.lod_voxel            = lod_voxel_shape;
+    // Cell-center forcing for voxel LOD now happens in the engine (prepare), so every caller is
+    // consistent; here just note that --size is ignored for the cube extent when voxels are active.
+    if (lod_voxel_shape && lod_cells > 0 && light_model != LightModel::None && size_set)
+    {
+        fprintf(stdout, "rr-server: LOD voxels ignore --size; cubes always fill the cell\n");
+    }
     // Match datoviz/particles-kmodal-3d framing of the [-1,1]^3 domain (45 deg vertical FOV).
     options.camera_fov        = 45.f;
     // --fly: run the first-person camera. serveRemote seeds the fly pose and interprets the
