@@ -866,8 +866,13 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             // frame). Safe to call on this thread: unlike the windowed interop-sync path, renderFrame()
             // below is never called with advance_interop=true here, so there is no pending interop
             // semaphore wait to deadlock against (see reduceLodCompute's own comment for that hazard).
-            if (rt_enabled && raytracing.lod != nullptr && pt_scene_dirty) { raytracing.reduceLodCompute(); }
+            // Start the render timer BEFORE the LOD reduction: render_ms is documented to INCLUDE lod
+            // (rr-client.cpp echoes it as the "render_ms - lod - denoise" pure cost, and the [stats]
+            // print subtracts lod_mean from render_mean below). The reduction was hoisted out of
+            // renderFrame() to here, so timing from after it would exclude ~all the LOD cost and drive
+            // render_pure = max(0, render_mean - lod_mean) to 0.00 (and under-report the CSV render_ms).
             const auto render_t0 = std::chrono::steady_clock::now();
+            if (rt_enabled && raytracing.lod != nullptr && pt_scene_dirty) { raytracing.reduceLodCompute(); }
             renderFrame();
             vkDeviceWaitIdle(device); // ensure the frame is finished before readback
 
