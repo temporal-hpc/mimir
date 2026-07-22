@@ -412,6 +412,9 @@ void MimirInstance::prepare()
                            == MarkerOptions::RenderMode::SphereMesh
                     && view->use_ibo && view->vb_count >= 2;
                 lod_raster_mesh = is_mesh;
+                // Capture the template index count (cube = 36, icosphere = subdiv-dependent) for the
+                // indirect draw; view->draw_count was set to the template count in the mesh view setup.
+                if (is_mesh) { lod_raster_index_count = view->draw_count; }
 
                 VkBuffer  pos_buffer = is_mesh ? view->vbo[1] : view->vbo[0];
                 // element_count is the true particle total in both mesh and point modes.
@@ -1178,6 +1181,64 @@ void MimirInstance::ensureSphereMesh()
         options.pt_subdivisions, sphere_index_count / 3);
 }
 
+void MimirInstance::ensureCubeMesh()
+{
+    if (cube_index_count > 0) { return; } // already built
+
+    struct MeshVertex { glm::vec3 pos; glm::vec3 nrm; };
+    // Unit cube [-1,1]^3, 4 vertices per face so each face carries a flat outward normal. Vertex order
+    // per face is CCW when viewed from outside (matches the icosphere's outward winding).
+    const glm::vec3 faces[6][4] = {
+        {{ 1,-1,-1},{ 1, 1,-1},{ 1, 1, 1},{ 1,-1, 1}}, // +X
+        {{-1,-1, 1},{-1, 1, 1},{-1, 1,-1},{-1,-1,-1}}, // -X
+        {{-1, 1,-1},{-1, 1, 1},{ 1, 1, 1},{ 1, 1,-1}}, // +Y
+        {{-1,-1, 1},{-1,-1,-1},{ 1,-1,-1},{ 1,-1, 1}}, // -Y
+        {{-1,-1, 1},{ 1,-1, 1},{ 1, 1, 1},{-1, 1, 1}}, // +Z
+        {{ 1,-1,-1},{-1,-1,-1},{-1, 1,-1},{ 1, 1,-1}}, // -Z
+    };
+    const glm::vec3 normals[6] = {
+        { 1,0,0},{-1,0,0},{0, 1,0},{0,-1,0},{0,0, 1},{0,0,-1},
+    };
+    std::vector<MeshVertex> verts; verts.reserve(24);
+    std::vector<uint32_t>   indices; indices.reserve(36);
+    for (int f = 0; f < 6; ++f)
+    {
+        uint32_t base = static_cast<uint32_t>(verts.size());
+        for (int v = 0; v < 4; ++v) { verts.push_back({ faces[f][v], normals[f] }); }
+        indices.insert(indices.end(), { base+0, base+1, base+2, base+0, base+2, base+3 });
+    }
+
+    VkDeviceSize vsize = verts.size() * sizeof(MeshVertex);
+    VkDeviceSize isize = indices.size() * sizeof(uint32_t);
+    auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto available = physical_device.memory.memoryProperties;
+    VkMemoryRequirements memreq{};
+
+    cube_vbo = createBuffer(device, vsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    vkGetBufferMemoryRequirements(device, cube_vbo, &memreq);
+    auto vbo_mem = allocateMemory(device, available, memreq, flags);
+    validation::checkVulkan(vkBindBufferMemory(device, cube_vbo, vbo_mem, 0));
+
+    cube_ibo = createBuffer(device, isize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    vkGetBufferMemoryRequirements(device, cube_ibo, &memreq);
+    auto ibo_mem = allocateMemory(device, available, memreq, flags);
+    validation::checkVulkan(vkBindBufferMemory(device, cube_ibo, ibo_mem, 0));
+
+    void* p = nullptr;
+    vkMapMemory(device, vbo_mem, 0, vsize, 0, &p); std::memcpy(p, verts.data(), vsize);
+    vkUnmapMemory(device, vbo_mem);
+    vkMapMemory(device, ibo_mem, 0, isize, 0, &p); std::memcpy(p, indices.data(), isize);
+    vkUnmapMemory(device, ibo_mem);
+
+    cube_index_count = static_cast<uint32_t>(indices.size());
+    VkBuffer vbo = cube_vbo, ibo = cube_ibo;
+    deletors.views.add([=,this]{
+        vkFreeMemory(device, vbo_mem, nullptr); vkDestroyBuffer(device, vbo, nullptr);
+        vkFreeMemory(device, ibo_mem, nullptr); vkDestroyBuffer(device, ibo, nullptr);
+    });
+    spdlog::info("Voxel LOD: unit cube template built ({} tris) for instanced raster", cube_index_count / 3);
+}
+
 LinearAlloc *MimirInstance::allocLinear(void **dev_ptr, size_t size)
 {
     assert(size > 0);
@@ -1554,6 +1615,18 @@ View *MimirInstance::createView(ViewDescription *desc)
                 marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
                 break;
         }
+
+        // Voxel LOD (lit models) renders as an instanced cube mesh: route the view through the
+        // SphereMesh machinery regardless of the light model's own render mode (phong's Sphere3D
+        // impostor included). The cube-vs-icosphere template is chosen in the mesh view setup below.
+        // `none` (Flat2D) and the sphere opt-out (lod_voxel=false) are untouched. PathTracing keeps
+        // its raster fallback mode; the RT path ignores render_mode anyway.
+        if (options.lod_voxel && options.pt_lod_cells > 0
+            && options.light_model != LightModel::None
+            && options.light_model != LightModel::PathTracing)
+        {
+            marker_opts.render_mode = MarkerOptions::RenderMode::SphereMesh;
+        }
     }
 
     translateView(&view, desc->position);
@@ -1751,21 +1824,27 @@ View *MimirInstance::createView(ViewDescription *desc)
                == MarkerOptions::RenderMode::SphereMesh
         && view.vb_count >= 1)
     {
-        ensureSphereMesh();
+        // Voxel LOD lit views use the cube template; everything else uses the icosphere. Both share the
+        // interleaved {pos, normal} layout and the same instanced pipeline/shader.
+        const bool use_cube = options.lod_voxel && options.pt_lod_cells > 0
+            && options.light_model != LightModel::None;
+        VkBuffer  tmpl_vbo   = use_cube ? (ensureCubeMesh(),   cube_vbo)   : (ensureSphereMesh(), sphere_vbo);
+        VkBuffer  tmpl_ibo   = use_cube ? cube_ibo                         : sphere_ibo;
+        uint32_t  tmpl_count = use_cube ? cube_index_count                 : sphere_index_count;
         VkBuffer instance_positions = view.vbo[0]; // interop particle centers (per-instance)
         uint64_t particle_count     = view.element_count;
-        view.vbo[0]        = sphere_vbo;           // binding 0: unit icosphere vertices
+        view.vbo[0]        = tmpl_vbo;             // binding 0: template vertices ({pos, normal})
         view.offsets[0]    = 0;
         view.vbo[1]        = instance_positions;   // binding 1: particle centers
         view.offsets[1]    = 0;
         view.vb_count      = 2;
-        // binding 0 = template (per-vertex, vec3); binding 1 = per-instance centers (vec3)
+        // binding 0 = template (per-vertex, {pos, normal}); binding 1 = per-instance centers (vec3)
         view.vbo_stride[0] = 2 * sizeof(glm::vec3); view.vbo_rate[0] = VK_VERTEX_INPUT_RATE_VERTEX; // {pos, normal}
         view.vbo_stride[1] = sizeof(glm::vec3); view.vbo_rate[1] = VK_VERTEX_INPUT_RATE_INSTANCE;
-        view.ibo           = sphere_ibo;
+        view.ibo           = tmpl_ibo;
         view.index_type    = VK_INDEX_TYPE_UINT32;
         view.use_ibo       = true;
-        view.draw_count     = sphere_index_count;  // icosphere index count (uint32, small)
+        view.draw_count     = tmpl_count;          // template index count (uint32, small)
         view.instance_count = static_cast<uint32_t>(std::min<uint64_t>(particle_count, UINT32_MAX));
         // element_count already holds the true particle total; the Task 3 chunk loop reads it.
     }
@@ -2862,14 +2941,14 @@ void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
     // Build the indirect command from the occupied count. On the CUDA path recordIndirectArgs reads the
     // emit COUNTER buffer, which the CUDA emit kernel wrote (same buffer as the Vulkan path), so it
     // sees the CUDA-produced count. Layout depends on the active LOD view:
-    //   - mesh (phong-mesh, VkDrawIndexedIndirectCommand): FIXED indexCount@0 = sphere_index_count;
-    //     VARYING instanceCount@4 = occupied cells (one icosphere instance per cell).
+    //   - mesh (phong-mesh / voxel cube, VkDrawIndexedIndirectCommand): FIXED indexCount@0 =
+    //     lod_raster_index_count (icosphere or cube); VARYING instanceCount@4 = occupied cells.
     //   - point (none/phong, VkDrawIndirectCommand):        FIXED instanceCount@4 = 1;
     //     VARYING vertexCount@0 = occupied cells.
     // recordIndirectArgs ends with an INDIRECT_COMMAND_READ barrier for the draw.
     if (lod_raster_mesh)
     {
-        lod_context.recordIndirectArgs(cmd, /*fixed_byte_offset=*/0u, /*fixed_value=*/sphere_index_count,
+        lod_context.recordIndirectArgs(cmd, /*fixed_byte_offset=*/0u, /*fixed_value=*/lod_raster_index_count,
             /*varying_byte_offset=*/4u, slot);
     }
     else
@@ -3285,7 +3364,11 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
              || std::get<MarkerOptions>(view->desc.options).render_mode
                    == MarkerOptions::RenderMode::SphereMesh))
         {
-            marker_size = lod_context.sphereRadius(view->desc.default_size);
+            // Voxel LOD lit views (routed to SphereMesh) fill the cell: half-extent = 1/grid_n so the
+            // cubes tile. Sphere LOD uses the cell-fill sphere radius scaled by --size.
+            const bool voxel = options.lod_voxel && options.light_model != LightModel::None;
+            marker_size = voxel ? lod_context.voxelHalfExtent()
+                                : lod_context.sphereRadius(view->desc.default_size);
         }
         ViewUniforms vu{
             .color     = glm::vec4(color.x, color.y, color.z, color.w),

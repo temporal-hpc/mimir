@@ -253,10 +253,15 @@ struct MimirInstance
     // reduction runs async, in-cmd, with no host stall, so a CPU timer there would be measuring
     // nothing but cmd-buffer recording overhead -- left at 0.0 (see recordLodRaster).
     double          last_lod_raster_ms  = 0.0;
-    // True when the active raster-LOD view is an instanced mesh marker (phong-mesh / SphereMesh):
-    // the reduction feeds per-INSTANCE positions (binding 1) and the draw is vkCmdDrawIndexedIndirect
-    // (fixed indexCount = sphere_index_count, varying instanceCount). False for point modes (none/phong).
+    // True when the active raster-LOD view is an instanced mesh marker (phong-mesh / SphereMesh, incl.
+    // voxel-LOD lit views routed to a cube mesh): the reduction feeds per-INSTANCE positions (binding 1)
+    // and the draw is vkCmdDrawIndexedIndirect (fixed indexCount = lod_raster_index_count, varying
+    // instanceCount). False for point modes (none/phong-sphere).
     bool            lod_raster_mesh     = false;
+    // Template index count for the active raster-LOD mesh view (icosphere or cube). The indirect-args
+    // build writes this as the draw's fixed indexCount -- must NOT be hardcoded to sphere_index_count,
+    // which is 0 when the view uses the cube template (ensureCubeMesh, sphere never built).
+    uint32_t        lod_raster_index_count = 0;
     // Records the per-frame reduction + indirect-args build for raster point modes, BEFORE the render
     // pass (compute cannot run inside one). No-op when the raster LOD path is inactive.
     void recordLodRaster(VkCommandBuffer cmd, uint32_t slot);
@@ -268,10 +273,17 @@ struct MimirInstance
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is
     // created; every such view instances this one unit-sphere mesh, transformed per particle in the
     // vertex shader. index_count == 0 means it has not been built yet.
-    VkBuffer sphere_vbo = VK_NULL_HANDLE;   // unit icosphere vertex positions (= normals), float3
+    VkBuffer sphere_vbo = VK_NULL_HANDLE;   // interleaved {position, normal} unit icosphere vertices
     VkBuffer sphere_ibo = VK_NULL_HANDLE;   // triangle indices, uint32
     uint32_t sphere_index_count = 0;
     void ensureSphereMesh(); // build sphere_vbo/ibo once (uses ViewerOptions::pt_subdivisions)
+
+    // Shared template unit cube for voxel LOD (instanced like the icosphere; 24 verts w/ per-face
+    // normals, 36 indices). Built lazily the first time a voxel-LOD lit mesh view is set up.
+    VkBuffer cube_vbo = VK_NULL_HANDLE;   // interleaved {position, normal}, 24 vertices
+    VkBuffer cube_ibo = VK_NULL_HANDLE;   // 36 uint32 indices (12 triangles)
+    uint32_t cube_index_count = 0;
+    void ensureCubeMesh(); // build cube_vbo/ibo once
 
     // Temporal-accumulation state (path tracing). pt_accum_frame is the running count of frames
     // already averaged into the accumulator; it resets to 0 whenever the scene may have changed --
