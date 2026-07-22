@@ -20,17 +20,21 @@ struct VertexOutput
 
 [shader("vertex")]
 VertexOutput vertexMain(
-    [[vk::location(0)]] float3 in_local  : POSITION,   // template icosphere vertex (per-vertex)
-    [[vk::location(1)]] float3 in_center : TEXCOORD0)  // particle center       (per-instance)
+    [[vk::location(0)]] float3 in_local  : POSITION,   // template vertex, local space (per-vertex)
+    [[vk::location(1)]] float3 in_center : TEXCOORD0,  // particle/cell center     (per-instance)
+    [[vk::location(2)]] float3 in_normal : NORMAL)     // template vertex normal   (per-vertex)
 {
     float4 center_view = mul(mul(float4(in_center, 1.0), mvp.model), mvp.view);
-    float3 n = normalize(in_local);
-    float3 vpos = center_view.xyz + n * view.default_size;
+    // Offset the template vertex (already unit for the sphere; +/-1 corner for the cube) by the marker
+    // size; the normal is supplied per-vertex (sphere: == position; cube: per-face), not derived. The
+    // marker model is identity in this sample, so the view-space normal matches the previous
+    // normalize(in_local) for the sphere; the cube gets true flat per-face normals.
+    float3 vpos = center_view.xyz + in_local * view.default_size;
 
     VertexOutput output;
     output.pos     = mul(float4(vpos, 1.0), mvp.proj);
     output.vpos    = vpos;
-    output.vnormal = n;
+    output.vnormal = normalize(in_normal);
     return output;
 }
 

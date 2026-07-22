@@ -393,14 +393,16 @@ VertexDescription getVertexDescription(const ViewDescription desc)
         && std::get<MarkerOptions>(desc.options).render_mode
                == MarkerOptions::RenderMode::SphereMesh)
     {
-        constexpr uint32_t vec3_stride = static_cast<uint32_t>(sizeof(glm::vec3));
+        constexpr uint32_t vec3_stride  = static_cast<uint32_t>(sizeof(glm::vec3));
+        constexpr uint32_t vertex_stride = 2u * vec3_stride; // {position, normal}
         vert.binding = {
-            { .binding = 0, .stride = vec3_stride, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX },
-            { .binding = 1, .stride = vec3_stride, .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE },
+            { .binding = 0, .stride = vertex_stride, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX },
+            { .binding = 1, .stride = vec3_stride,   .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE },
         };
         vert.attribute = {
             { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
             { .location = 1, .binding = 1, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
+            { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = vec3_stride },
         };
         return vert;
     }

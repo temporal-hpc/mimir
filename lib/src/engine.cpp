@@ -1141,7 +1141,12 @@ void MimirInstance::ensureSphereMesh()
     std::vector<uint32_t> indices; indices.reserve(faces.size() * 3);
     for (const auto& f : faces) { indices.insert(indices.end(), {f.x, f.y, f.z}); }
 
-    VkDeviceSize vsize = verts.size() * sizeof(glm::vec3);
+    // Interleaved {position, normal}. For the unit icosphere the normal IS the position (unit sphere),
+    // matching the shared instanced-mesh layout the cube template also uses.
+    struct MeshVertex { glm::vec3 pos; glm::vec3 nrm; };
+    std::vector<MeshVertex> mesh_verts; mesh_verts.reserve(verts.size());
+    for (const auto& v : verts) { mesh_verts.push_back({ v, v }); }
+    VkDeviceSize vsize = mesh_verts.size() * sizeof(MeshVertex);
     VkDeviceSize isize = indices.size() * sizeof(uint32_t);
     auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     auto available = physical_device.memory.memoryProperties;
@@ -1158,7 +1163,7 @@ void MimirInstance::ensureSphereMesh()
     validation::checkVulkan(vkBindBufferMemory(device, sphere_ibo, ibo_mem, 0));
 
     void* p = nullptr;
-    vkMapMemory(device, vbo_mem, 0, vsize, 0, &p); std::memcpy(p, verts.data(), vsize);
+    vkMapMemory(device, vbo_mem, 0, vsize, 0, &p); std::memcpy(p, mesh_verts.data(), vsize);
     vkUnmapMemory(device, vbo_mem);
     vkMapMemory(device, ibo_mem, 0, isize, 0, &p); std::memcpy(p, indices.data(), isize);
     vkUnmapMemory(device, ibo_mem);
@@ -1755,7 +1760,7 @@ View *MimirInstance::createView(ViewDescription *desc)
         view.offsets[1]    = 0;
         view.vb_count      = 2;
         // binding 0 = template (per-vertex, vec3); binding 1 = per-instance centers (vec3)
-        view.vbo_stride[0] = sizeof(glm::vec3); view.vbo_rate[0] = VK_VERTEX_INPUT_RATE_VERTEX;
+        view.vbo_stride[0] = 2 * sizeof(glm::vec3); view.vbo_rate[0] = VK_VERTEX_INPUT_RATE_VERTEX; // {pos, normal}
         view.vbo_stride[1] = sizeof(glm::vec3); view.vbo_rate[1] = VK_VERTEX_INPUT_RATE_INSTANCE;
         view.ibo           = sphere_ibo;
         view.index_type    = VK_INDEX_TYPE_UINT32;
