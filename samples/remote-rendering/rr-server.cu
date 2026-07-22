@@ -77,6 +77,10 @@ static void usage(const char *prog)
         "                     phong-mesh = lit instanced icosphere meshes (--subdiv),\n"
         "                     path-tracing = Vulkan RT              (default: phong)\n"
         "  --size S           Marker size: pixels (none) or /100 world radius (lit) (default: 5)\n"
+        "  --specular-power P Blinn-Phong specular exponent for phong/phong-mesh; higher = tighter,\n"
+        "                     sharper highlight (default: 32)\n"
+        "  --ambient A        Ambient light strength for phong/phong-mesh (0 = pure black shadows;\n"
+        "                     default: 0.05)\n"
         "  --lod N            Level of detail: N^3 voxel grid, one representative per occupied\n"
         "                     cell, for any --light-model (0 = per-particle, default). N is\n"
         "                     capped so the N^3 accumulator fits ~half of free device VRAM;\n"
@@ -212,6 +216,8 @@ int main(int argc, char *argv[])
     std::string token        = "";
     LightModel light_model   = LightModel::Phong;
     float size_px            = 5.f;
+    float spec_power         = 32.f;  // --specular-power: Blinn-Phong exponent (phong/phong-mesh)
+    float ambient_str        = 0.05f; // --ambient: ambient light strength (phong/phong-mesh)
     float3 pcolor            = { 0.82f, 0.82f, 0.88f };
     float3 background        = { 0.1f, 0.1f, 0.12f };
     PointsParams pts{};
@@ -252,6 +258,8 @@ int main(int argc, char *argv[])
             std::string v = argv[++i];
             if      (a == "--light-model") light_model = parseLightModel(v);
             else if (a == "--size")      { size_px = std::stof(v); size_set = true; }
+            else if (a == "--specular-power") spec_power = std::stof(v);
+            else if (a == "--ambient")        ambient_str = std::stof(v);
             else if (a == "--pcolor")      pcolor = parseColor(v);
             else if (a == "--background")  background = parseColor(v);
             else if (a == "--seed")        pts.seed = (uint32_t)std::stoul(v);
@@ -415,6 +423,8 @@ int main(int argc, char *argv[])
     // 0.75-grey light color that matches the datoviz baseline's effective diffuse.
     options.light_pos         = { -0.4082f, 0.4082f, 0.8165f };
     options.light_color       = { 0.75f, 0.75f, 0.75f };
+    options.specular_power    = spec_power;
+    options.ambient_strength  = ambient_str;
     options.background_color   = { background.x, background.y, background.z, 1.f };
     options.pt_samples_per_pixel = pt_spp;
     options.pt_max_bounces       = pt_bounces;
