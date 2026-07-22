@@ -93,11 +93,12 @@ static void usage(const char *prog)
         "                     (used automatically when CUDA/Vulkan interop is unavailable); it is\n"
         "                     slower under heavy atomic contention but scales past 2^32 particles,\n"
         "                     unlike a CUB-based reduction, which is limited to a 32-bit item count.\n"
-        "  --lod-placement P  Where each cell's representative sits: centroid (default) = the mass\n"
-        "                     centroid of the cell's particles; cell = the cell's geometric center.\n"
-        "                     cell drops 3 int64 atomics/particle in the reduction, so it is much\n"
-        "                     faster at huge N (the reduction is atomic-bound there) and needs 8x\n"
-        "                     less accumulator VRAM, at slightly coarser positions. No-op without --lod.\n"
+        "  --lod-placement P  Where each cell's representative sits: cell (default) = the cell's\n"
+        "                     geometric center; centroid = the mass centroid of the cell's particles.\n"
+        "                     cell (default) drops 3 int64 atomics/particle in the reduction, so it is\n"
+        "                     much faster at huge N (the reduction is atomic-bound there) and needs 8x\n"
+        "                     less accumulator VRAM; centroid gives slightly finer positions at that\n"
+        "                     atomic cost (~11x slower reduction at 6e9). No-op without --lod.\n"
         "  --lod-shape S      LOD representative shape: voxel (default) = solid grid-aligned cubes\n"
         "                     (forces cell-center placement, ignores --size for extent); sphere =\n"
         "                     round spheres honouring --lod-placement and --size. Lit models only;\n"
@@ -229,7 +230,7 @@ int main(int argc, char *argv[])
     unsigned int pt_rebuild_interval = 8;
     bool pt_denoise         = false;
     unsigned int lod_cells   = 0;
-    bool lod_centroid       = true;   // LOD placement: centroid (default) vs cell-center
+    bool lod_centroid       = false;  // LOD placement: cell-center (default) vs centroid (opt-in)
     bool lod_voxel_shape    = true;   // --lod-shape voxel|sphere: LOD as cubes (default) vs spheres
     bool size_set           = false;  // whether --size was explicitly passed (for the voxel-mode ignore note)
     int sort_every_cli      = 0;      // periodic Morton spatial sort cadence, 0 = off (--sort-every)
@@ -267,7 +268,7 @@ int main(int argc, char *argv[])
             else if (a == "--spp")         pt_spp = (unsigned int)std::stoul(v);
             else if (a == "--bounces")     pt_bounces = (unsigned int)std::stoul(v);
             else if (a == "--lod")         lod_cells = (unsigned int)std::stoul(v);
-            else if (a == "--lod-placement") lod_centroid = (v != "cell" && v != "cell-center");
+            else if (a == "--lod-placement") lod_centroid = (v == "centroid"); // default cell-center; centroid is opt-in
             else if (a == "--lod-shape") {
                 if      (v == "voxel")  lod_voxel_shape = true;
                 else if (v == "sphere") lod_voxel_shape = false;

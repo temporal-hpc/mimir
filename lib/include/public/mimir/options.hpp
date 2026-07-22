@@ -217,19 +217,17 @@ struct ViewerOptions
     unsigned int pt_lod_cells = 0;
 
     // LOD representative placement (only meaningful when pt_lod_cells > 0):
-    //   true  (default) = each cell's representative sits at the mass CENTROID of the particles in
-    //                     it. Needs int64 atomics (auto-falls back to cell-center without them);
-    //                     the reduction scatter does 3 extra int64 position-sum atomics per particle.
-    //   false           = the cell's geometric CENTER. Skips those 3 int64 atomics per particle, so
-    //                     the reduction is markedly faster at huge particle counts (the atomics are
-    //                     the bottleneck there), at the cost of slightly coarser representative
-    //                     positions -- negligible at fine grids where cells are small.
-    // This choice applies to both reduction backends (see pt_lod_cells): measured on an RTX PRO 6000
-    // Blackwell at 300M particles/lod 256^3, centroid's extra atomics cost ~3x the reduction time of
-    // cell-center on the default CUDA path (~20 ms vs ~6 ms) and are similarly costlier on the
-    // MIMIR_LOD_NO_CUDA Vulkan fallback (~125 ms vs ~32 ms) -- prefer cell at huge N if the coarser
-    // placement is acceptable.
-    bool lod_centroid = true;
+    //   false (default) = each cell's representative sits at the cell's geometric CENTER. Skips the
+    //                     centroid's 3 int64 position-sum atomics per particle, so the reduction is
+    //                     markedly faster -- the atomics are the reduction bottleneck at huge N.
+    //   true            = the mass CENTROID of the particles in the cell. Needs int64 atomics (auto-
+    //                     falls back to cell-center without them); slightly more accurate positions.
+    // Default is cell-center because the atomic cost dominates at scale: measured on an RTX PRO 6000
+    // Blackwell at 300M particles/lod 256^3, centroid costs ~3x the reduction time of cell-center
+    // (~20 ms vs ~6 ms), and the gap widens super-linearly with N (~11x at 6e9 due to distributed-L2
+    // atomic contention). Opt into centroid (rr-server --lod-placement centroid) only when the finer
+    // representative position matters more than reduction throughput.
+    bool lod_centroid = false;
 
     // Render LOD representatives as solid grid-aligned cubes (voxels) instead of spheres. Default:
     // true. Applies only under pt_lod_cells > 0 and only to lit models (phong / phong-mesh /
