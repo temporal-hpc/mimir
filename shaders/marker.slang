@@ -102,34 +102,26 @@ float sphIntersect2(float3 ro, float3 rd, float4 sph)
     return min(pos_t, neg_t);
 }
 
+// Blinn-Phong. Robust (no acos, so no NaN speckle at highlights near dot==1) and honours the
+// scene's specular_power / ambient_strength (previously hardcoded 0.3/0.2 and ignored). `ld` is the
+// unit light direction in view space (toward the light); `li` is the light colour; pos/normal are
+// view space. Kept identical to shaders/marker_mesh.slang's computeLighting.
 float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li) {
-    float4 ambient_intensity = { 0.2, 0.2, 0.2, 1.0 };
-    float light_attenuation = 1.0 / (25.0 * 25.0);
+    float3 N = normalize(normal);
+    float3 V = normalize(-pos);        // camera sits at the origin in view space
+    float3 H = normalize(ld + V);      // Blinn-Phong half vector
 
-    float4 diffuse_color = view.default_color;
-    float4 specular_color = float4(scene.specular_color, 1);
-    float specular_shininess = 0.3;
+    float n_dot_l = saturate(dot(N, ld));
+    float n_dot_h = saturate(dot(N, H));
+    // No specular where the surface faces away from the light.
+    float spec = (n_dot_l > 0.0) ? pow(n_dot_h, scene.specular_power) : 0.0;
 
-    float cos_ang_incidence = dot(normal, ld);
-    cos_ang_incidence = cos_ang_incidence < 0.0001 ? 0.0 : cos_ang_incidence;
+    float4 diffuse_color  = view.default_color;
+    float4 specular_color = float4(scene.specular_color, 1.0);
 
-    float3 view_dir = normalize(-pos);
-    float3 half_angle = normalize(ld + view_dir);
-    float angle_normal_half = acos(dot(half_angle, normal));
-    float exponent = angle_normal_half / specular_shininess;
-    exponent = -(exponent * exponent);
-    float gaussian_term = cos_ang_incidence != 0.0 ? exp(exponent) : 0.0;
-
-    float4 lighting = diffuse_color * ambient_intensity;
-    lighting += diffuse_color * li * cos_ang_incidence;
-    lighting += specular_color * li * gaussian_term;
-    return lighting;
-}
-
-float4 computeLighting2(float3 pos, float3 normal, float3 ld, float4 li)
-{
-    float ndotl = saturate(dot(normal, ld));
-    float4 lighting = float4(scene.light_color * ndotl, 1.0);
+    float4 lighting = diffuse_color * scene.ambient_strength; // ambient
+    lighting += diffuse_color * li * n_dot_l;                 // diffuse
+    lighting += specular_color * li * spec;                   // specular
     return lighting;
 }
 
@@ -146,7 +138,10 @@ FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
     float3 pos = ray_dir * ray_hit;
     float3 normal = normalize(pos - sphere_pos);
 
-    float3 light_dir = mul(mul(float4(scene.light_pos, 0), mvp.model), mvp.view).xyz;
+    // World-space directional light -> view space (view only, NOT model: the impostor sphere normals
+    // are isotropic view-space geometry, so a per-view model rotation must never rotate the light).
+    // Normalized so diffuse magnitude stays correct even if the view matrix ever carries scale.
+    float3 light_dir = normalize(mul(float4(scene.light_pos, 0), mvp.view).xyz);
     float4 light_intensity = float4(scene.light_color, 1);
     float4 lighting = computeLighting(pos, normal, light_dir, light_intensity);
 
