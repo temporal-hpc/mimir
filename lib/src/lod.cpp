@@ -469,6 +469,13 @@ float LodContext::sphereRadius(float default_size) const
     return cell_fill * (default_size / LOD_REFERENCE_SIZE);
 }
 
+float LodContext::voxelHalfExtent() const
+{
+    // Full-cell cube: half-extent = half the cell edge. Domain is [-1,1]^3 (edge = 2/grid_n), so
+    // half-extent = 1/grid_n. grid_n > 0 whenever active() (guarded by the caller: lod != nullptr).
+    return 1.0f / float(grid_n);
+}
+
 void LodContext::destroy()
 {
     if (scatter_pipeline   != VK_NULL_HANDLE) { vkDestroyPipeline(device, scatter_pipeline, nullptr); }

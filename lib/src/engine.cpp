@@ -2535,7 +2535,11 @@ void MimirInstance::renderFrame(bool advance_interop)
         // sun_dir.w selects the procedural-AABB primitive in the intersection shader: 0 = sphere
         // (particles), >= 0.5 = box (voxels), where the box lane also carries 1 + opacity so the
         // integrator can spawn transmission rays for translucent voxels (--opacity < 1).
-        float shape_w = raytracing.voxel_boxes ? (1.f + raytracing.voxel_opacity) : 0.f;
+        // voxel_boxes = the CA3D voxel pipeline; lod_voxel = LOD reps drawn as opaque cubes. Either
+        // one selects the box branch of the intersection shader; opacity is voxel_opacity for CA3D
+        // and 1.0 (opaque) for LOD voxels. The two flags are mutually exclusive in practice.
+        const float box_opacity = raytracing.voxel_boxes ? raytracing.voxel_opacity : 1.f;
+        float shape_w = (raytracing.voxel_boxes || raytracing.lod_voxel) ? (1.f + box_opacity) : 0.f;
         pc.sun_dir     = glm::vec4(lp.x, lp.y, lp.z, shape_w);
         // Path-traced sky/environment = the instance background color (w = intensity), so a
         // simulation controls the backdrop (incl. black) with the same knob as the raster modes.

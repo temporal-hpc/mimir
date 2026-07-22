@@ -143,6 +143,11 @@ public:
     // = cellFill * (default_size / LOD_REFERENCE_SIZE), cellFill = LOD_COVERAGE * (2/N) * 0.5.
     float sphereRadius(float default_size) const;
 
+    // Half the LOD cell edge over the fixed [-1,1]^3 domain: e/2 = (2/grid_n)/2 = 1/grid_n. Used as
+    // the AABB half-extent for --lod-voxel so cell-center-placed cubes tile face-to-face (no --size
+    // scaling, no LOD_COVERAGE overflow -- exact cell fill).
+    float voxelHalfExtent() const;
+
     bool     active()   const { return grid_n > 0; }
     uint32_t cells()    const { return grid_n; }
     // min(N^3, particle_count): the sizing bound for the reduced set (and the consumer's AABB/BLAS).

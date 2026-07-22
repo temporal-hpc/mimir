@@ -1618,7 +1618,9 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     AabbWriterPush push{
         .aabbs = aabb_buffer.address,
         .positions = lod->reducedPositionsAddress(/*slot=*/0u),
-        .count = (uint64_t)occupied, .radius = lod->sphereRadius(particle_radius), .stride = groups * 64u,
+        .count = (uint64_t)occupied,
+        .radius = lod_voxel ? lod->voxelHalfExtent() : lod->sphereRadius(particle_radius),
+        .stride = groups * 64u,
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
     vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
@@ -1670,10 +1672,20 @@ void RayTracingContext::recordLodUpdate(VkCommandBuffer cmd, uint32_t frame_idx)
     // slot index 0..FRAMES-1, not a build counter, so gating on it would reprint every FRAMES frames).
     if (first_build)
     {
-        spdlog::info("Path tracing: LOD emitted {} occupied cells (reduction {:.0f}:1 vs {} particles); "
-            "sphere radius {:.5f} (--size {:.5f}, cell-fill at {:.5f})",
-            occupied, occupied ? double(particle_count) / double(occupied) : 0.0, particle_count,
-            lod->sphereRadius(particle_radius), particle_radius, LodContext::LOD_REFERENCE_SIZE);
+        if (lod_voxel)
+        {
+            spdlog::info("Path tracing: LOD emitted {} occupied cells (reduction {:.0f}:1 vs {} particles); "
+                "voxel half-extent {:.5f} (full-cell cubes, cell edge {:.5f})",
+                occupied, occupied ? double(particle_count) / double(occupied) : 0.0, particle_count,
+                lod->voxelHalfExtent(), 2.0f * lod->voxelHalfExtent());
+        }
+        else
+        {
+            spdlog::info("Path tracing: LOD emitted {} occupied cells (reduction {:.0f}:1 vs {} particles); "
+                "sphere radius {:.5f} (--size {:.5f}, cell-fill at {:.5f})",
+                occupied, occupied ? double(particle_count) / double(occupied) : 0.0, particle_count,
+                lod->sphereRadius(particle_radius), particle_radius, LodContext::LOD_REFERENCE_SIZE);
+        }
     }
 }
 
