@@ -2634,8 +2634,12 @@ void MimirInstance::renderFrame(bool advance_interop)
         // voxel_boxes = the CA3D voxel pipeline; lod_voxel = LOD reps drawn as opaque cubes. Either
         // one selects the box branch of the intersection shader; opacity is voxel_opacity for CA3D
         // and 1.0 (opaque) for LOD voxels. The two flags are mutually exclusive in practice.
+        // lod_voxel only applies when an LOD reduction is ACTIVE (raytracing.lod != nullptr): without
+        // --lod each particle is its own AABB and must render as a sphere (voxel is an LOD-only look),
+        // so a true lod_voxel default must NOT box-ify the non-LOD scene.
+        const bool lod_voxel_active = raytracing.lod_voxel && raytracing.lod != nullptr;
         const float box_opacity = raytracing.voxel_boxes ? raytracing.voxel_opacity : 1.f;
-        float shape_w = (raytracing.voxel_boxes || raytracing.lod_voxel) ? (1.f + box_opacity) : 0.f;
+        float shape_w = (raytracing.voxel_boxes || lod_voxel_active) ? (1.f + box_opacity) : 0.f;
         pc.sun_dir     = glm::vec4(lp.x, lp.y, lp.z, shape_w);
         // Path-traced sky/environment = the instance background color (w = intensity), so a
         // simulation controls the backdrop (incl. black) with the same knob as the raster modes.
