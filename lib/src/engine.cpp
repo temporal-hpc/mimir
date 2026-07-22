@@ -235,6 +235,7 @@ void MimirInstance::prepare()
                 };
                 VkDeviceAddress pos_addr = vkGetBufferDeviceAddress(device, &addr_info);
                 raytracing.lod_cells = options.pt_lod_cells;
+                raytracing.lod_voxel = options.pt_lod_voxel;
                 // LOD is a shared pre-render reduction owned by the engine. Init it (buffers +
                 // scatter/emit pipelines) before bindScene so the path-tracer -- which reads it in its
                 // very first build inside bindScene -- has it ready. For this task only PT consumes it.

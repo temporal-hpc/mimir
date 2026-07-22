@@ -153,6 +153,10 @@ struct RayTracingContext
     // ViewerOptions::pt_lod_cells before bindScene. See
     // docs/superpowers/specs/2026-07-14-lod-grid-aggregation-design.md.
     uint32_t lod_cells = 0;
+    // When true, the LOD AABB writer sizes each representative to a full cell cube (voxelHalfExtent)
+    // and the engine selects the box branch of the intersection shader (sun_dir.w >= 0.5, opaque).
+    // Affects ONLY the shape + radius, never the LOD reduction pipeline. Set from ViewerOptions::pt_lod_voxel.
+    bool lod_voxel = false;
     // Device supports shaderBufferInt64Atomics + shaderInt64 (set from supportsInt64Atomics at
     // device creation, threaded through make). Gates the LOD-centroid int64 BDA position-sum
     // accumulator; when false, --lod falls back to cell-center placement. See the LOD centroid spec.

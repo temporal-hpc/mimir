@@ -94,6 +94,10 @@ static void usage(const char *prog)
         "                     cell drops 3 int64 atomics/particle in the reduction, so it is much\n"
         "                     faster at huge N (the reduction is atomic-bound there) and needs 8x\n"
         "                     less accumulator VRAM, at slightly coarser positions. No-op without --lod.\n"
+        "  --lod-voxel        Render each LOD representative as a solid grid-aligned cube (voxel)\n"
+        "                     instead of a sphere -- a distinct visual identity for the reduced\n"
+        "                     level of detail. Forces cell-center placement and full-cell fill\n"
+        "                     (ignores --size for the box extent). Default: off (spheres).\n"
         "  --sort-every N     Re-sort particles by Morton cell every N sim steps (needs --lod; 0 =\n"
         "                     off, default). Physically reordering particles gives the LOD centroid\n"
         "                     scatter's warp-aggregation real same-cell adjacency to collapse instead\n"
@@ -220,6 +224,8 @@ int main(int argc, char *argv[])
     bool pt_denoise         = false;
     unsigned int lod_cells   = 0;
     bool lod_centroid       = true;   // LOD placement: centroid (default) vs cell-center
+    bool lod_voxel_render   = false;  // --lod-voxel: draw LOD reps as full-cell cubes (forces cell-center)
+    bool size_set           = false;  // whether --size was explicitly passed (for the voxel-mode ignore note)
     int sort_every_cli      = 0;      // periodic Morton spatial sort cadence, 0 = off (--sort-every)
     bool fly                = false;
     int bitrate_kbps        = 8000;
@@ -238,13 +244,14 @@ int main(int argc, char *argv[])
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
         if (a == "--denoise") { pt_denoise = true; continue; } // flag, takes no value
         if (a == "--fly")     { fly = true; continue; }        // first-person camera (flag)
+        if (a == "--lod-voxel") { lod_voxel_render = true; continue; } // LOD reps as full-cell cubes (flag)
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
             { fprintf(stderr, "Missing value for %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
             std::string v = argv[++i];
             if      (a == "--light-model") light_model = parseLightModel(v);
-            else if (a == "--size")        size_px = std::stof(v);
+            else if (a == "--size")      { size_px = std::stof(v); size_set = true; }
             else if (a == "--pcolor")      pcolor = parseColor(v);
             else if (a == "--background")  background = parseColor(v);
             else if (a == "--seed")        pts.seed = (uint32_t)std::stoul(v);
@@ -414,8 +421,24 @@ int main(int argc, char *argv[])
     options.pt_subdivisions      = pt_subdiv;
     options.pt_rebuild_interval  = pt_rebuild_interval;
     options.pt_denoise           = pt_denoise;
+    // LOD voxel mode: full-cell cubes only tile on the grid lattice, so force cell-center placement
+    // (centroid sits off-lattice and breaks tiling) and ignore --size (the box always fills the cell).
+    if (lod_voxel_render && lod_cells > 0)
+    {
+        if (lod_centroid)
+        {
+            fprintf(stdout, "rr-server: --lod-voxel forces cell-center placement "
+                            "(centroid is off-lattice and breaks tiling)\n");
+            lod_centroid = false;
+        }
+        if (size_set)
+        {
+            fprintf(stdout, "rr-server: --lod-voxel ignores --size; voxels always fill the cell\n");
+        }
+    }
     options.pt_lod_cells         = lod_cells;
     options.lod_centroid         = lod_centroid;
+    options.pt_lod_voxel         = lod_voxel_render;
     // Match datoviz/particles-kmodal-3d framing of the [-1,1]^3 domain (45 deg vertical FOV).
     options.camera_fov        = 45.f;
     // --fly: run the first-person camera. serveRemote seeds the fly pose and interprets the
