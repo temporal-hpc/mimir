@@ -146,6 +146,10 @@ static void usage(const char *prog)
         "                     Distinct from point_count: this is how many steps to run, not how\n"
         "                     many points. The remaining progress shows in the client's HUD\n"
         "                     (step x of y); with 0 the HUD reads 'iteration x of unlimited'.\n"
+        "  --pause-at N       Freeze the simulation when it reaches step N and hold (default: 0 =\n"
+        "                     disabled). Unlike --max-steps (which exits), the server keeps serving\n"
+        "                     the frozen frame so a client can connect and capture. Use to grab\n"
+        "                     identical screenshots of the same step across LOD configs.\n"
         "  --fly              First-person camera instead of the default trackball: the client\n"
         "                     looks with mouse-drag and flies with WASD (forward follows the gaze),\n"
         "                     good for touring inside a large scene. Default (no --fly) is the\n"
@@ -240,6 +244,7 @@ int main(int argc, char *argv[])
     int steps_per_frame     = 0;
     int cuda_dev            = 0;
     size_t max_steps        = 0;
+    size_t pause_at         = 0;
     std::string bench_csv   = "";
 
     // Split argv into positional (port width height ...) and named (--opt value) tokens. The
@@ -283,6 +288,7 @@ int main(int argc, char *argv[])
             else if (a == "--steps-per-frame") steps_per_frame = std::stoi(v);
             else if (a == "--dev")         cuda_dev = std::stoi(v);
             else if (a == "--max-steps")   max_steps = (size_t)std::stoull(v);
+            else if (a == "--pause-at")    pause_at = (size_t)std::stoull(v);
             else { fprintf(stderr, "Unknown option %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
         }
         else { posv.push_back(a); }
@@ -593,7 +599,7 @@ int main(int argc, char *argv[])
         }
         checkCuda(cudaDeviceSynchronize());
     }, max_steps, use_h264, transport, token.c_str(), bitrate_kbps,
-        bench_csv.empty() ? nullptr : bench_csv.c_str(), fps_cap, steps_per_frame);
+        bench_csv.empty() ? nullptr : bench_csv.c_str(), fps_cap, steps_per_frame, pause_at);
 
     if (sort_scratch.sortN) destroySortScratch(sort_scratch);
     destroyClusters(clusters);
