@@ -10,7 +10,7 @@ data directory, groups them, and composes -- for each of the three rendering mod
             +----------------+----------------+----------------------+
   Throughput|  GPUs overlaid |  GPUs overlaid |  GPUs overlaid       |
             +----------------+----------------+----------------------+
-  Timings   |  GPUs overlaid |  GPUs overlaid |  GPUs overlaid       |
+  Latency   |  GPUs overlaid |  GPUs overlaid |  GPUs overlaid       |
             +----------------+----------------+----------------------+
 
 Columns are particle-count regimes; each cell overlays every GPU that has a run for that
@@ -56,26 +56,54 @@ MODES = {
     "raster": "Unshaded (light-model none)",
 }
 
-# --- GPUs: a fixed order + display name + stable color, so a GPU reads the same in every
-# cell of every grid. `key` is matched as a substring of the raw GPU field from the filename
-# (e.g. "A100-SXM4-80GB" -> A100), so minor host-string differences don't matter.
+# Short form for the subtitle's "Rendered with ..." line -- MODES' names are the column-title
+# style (lowercase, parenthetical detail); this is the title-case short form for prose.
+RENDER_LABEL = {
+    "pt":     "Path Tracing",
+    "phong":  "Phong",
+    "raster": "Unshaded",
+}
+
+# --- GPUs: a fixed order + short name (table/console) + legend fields + stable color, so a
+# GPU reads the same in every cell of every grid. `key` is matched as a substring of the raw
+# GPU field from the filename (e.g. "A100-SXM4-80GB" -> A100), so minor host-string
+# differences don't matter. The legend's parenthetical carries client<->server location
+# (client is always CL; see research/data/server-countries for the server side) -- the caption
+# spells out what the country codes mean.
+# (key, short name, legend device name, memory, server country, color)
 GPUS = [
-    ("A100",       "A100",         "#1f77b4"),
-    ("H200",       "H200",         "#ff7f0e"),
-    ("RTXPRO6000", "RTX PRO 6000", "#2ca02c"),
-    ("B300",       "B300",         "#d62728"),
+    ("A100",       "A100",         "A100 SXM4",        "80GB",  "RO", "#1f77b4"),
+    ("H200",       "H200",         "H200 SXM5",         "141GB", "FR", "#ff7f0e"),
+    ("RTXPRO6000", "RTX PRO 6000", "RTX PRO 6000 BSE", "96GB",  "CL", "#2ca02c"),
+    ("B300",       "B300",         "B300 SXM6",         "288GB", "NL", "#d62728"),
 ]
 GPU_ORDER = {g[0]: i for i, g in enumerate(GPUS)}
 GPU_NAME  = {g[0]: g[1] for g in GPUS}
-GPU_COLOR = {g[0]: g[2] for g in GPUS}
+GPU_COLOR = {g[0]: g[5] for g in GPUS}
+
+# Legend text is set in a monospace font (see cell_runs/draw_* legend calls) specifically so
+# this padding lines up into columns: device name, then memory and CL<->country right-aligned
+# in their own fields, so every GPU's "GB" and country code sit under each other.
+_NAME_W = max(len(g[2]) for g in GPUS)
+_MEM_W = max(len(g[3]) for g in GPUS)
+GPU_LEGEND = {g[0]: f"{g[2]:<{_NAME_W}} ({g[3]:>{_MEM_W}}, CL <-> {g[4]})" for g in GPUS}
 
 # --- Columns: (key, {size tokens it accepts}, column title). Size tokens are the CSV's
 # n<size> field with the leading 'n' stripped. The MAX column collects each GPU's largest run.
 COLUMNS = [
-    ("100M", {"100M"},                "100 M particles"),
-    ("1G",   {"1G"},                  "1 B particles (LOD 128)"),
-    ("MAX",  {"5G", "6G", "9G", "16G"}, "Max N per GPU (LOD 256)"),
+    ("100M", {"100M"},                "n=100M"),
+    ("1G",   {"1G"},                  "n=1B (LOD 128)"),
+    ("MAX",  {"5G", "6G", "9G", "16G"}, "n=Max (LOD 256)"),
 ]
+
+
+def format_n(token):
+    """CSV size token (e.g. '100M', '1G', '16G') -> paper-style label ('100 M', '1 B', '16 B')."""
+    if token.endswith("G"):
+        return f"{token[:-1]} B"
+    if token.endswith("M"):
+        return f"{token[:-1]} M"
+    return token
 
 
 def parse_meta(path):
@@ -109,8 +137,9 @@ def collect(data_dir):
 
 def cell_runs(items, mode, size_set, col_key):
     """The runs for one grid cell: every CSV matching this mode whose size is in size_set,
-    ordered by GPU. Returns (runs, run_color) ready for pb.draw_*; labels are set per run
-    (GPU name, plus 'x N' in the MAX column where each GPU used a different N)."""
+    ordered by GPU. Returns (runs, run_color) ready for pb.draw_*; labels are the full GPU
+    legend name, plus the particle count in the MAX column where each GPU used a different N
+    (the other columns share one N, already named in the column title)."""
     chosen = sorted(
         [(m, p) for (m, p) in items if m["mode"] == mode and m["size"] in size_set],
         key=lambda mp: GPU_ORDER[mp[0]["gpu"]],
@@ -118,8 +147,12 @@ def cell_runs(items, mode, size_set, col_key):
     runs, run_color = [], {}
     for meta, path in chosen:
         df = pb.load(path)
-        name = GPU_NAME[meta["gpu"]]
-        label = f"{name} · {meta['size']}" if col_key == "MAX" else name
+        name = GPU_LEGEND[meta["gpu"]]
+        # Billion-particle count (5B/6B/9B/16B), compact (no space) so it doesn't read as
+        # another "GB"-style byte unit next to the memory size earlier on the same line.
+        # Right-justified so "n= 5B"/"n=16B" line up too.
+        billions = f"{meta['size'][:-1]}B"
+        label = f"{name} · n={billions:>3}" if col_key == "MAX" else name
         df.attrs["label"] = label
         run_color[label] = GPU_COLOR[meta["gpu"]]
         runs.append(df)
@@ -131,29 +164,35 @@ def build_grid(items, mode, logy):
     this mode has no data at all."""
     if not any(m["mode"] == mode for m, _ in items):
         return None
-    fig, axes = plt.subplots(2, len(COLUMNS), figsize=(7 * len(COLUMNS), 11))
+    fig, axes = plt.subplots(2, len(COLUMNS), figsize=(9.2 * len(COLUMNS), 12.5))
     for col_i, (col_key, size_set, col_title) in enumerate(COLUMNS):
         ax_tp, ax_lat = axes[0][col_i], axes[1][col_i]
         runs, run_color = cell_runs(items, mode, size_set, col_key)
         if not runs:
             for ax in (ax_tp, ax_lat):
                 ax.set_axis_off()
-            ax_tp.set_title(f"{col_title}\n(no runs)", fontsize=12)
+            ax_tp.set_title(f"{col_title}\n(no runs)", fontsize=27, pad=18)
             continue
         pb.draw_throughput(ax_tp, runs, run_color, single=False, yrange_a=None)
         pb.draw_timings(ax_lat, runs, run_color, single=False, yrange_b=None, logy=logy)
         # The draw_* helpers set their own per-panel titles; replace them with the column
         # regime on the top row and drop the redundant one on the bottom row (the ms y-axis
         # already identifies it). The metric identity of each row is carried by its y-axis.
-        ax_tp.set_title(col_title, fontsize=12)
+        ax_tp.set_title(col_title, fontsize=27, pad=18)
         ax_lat.set_title("")
-    # Row labels down the left margin, so the two rows read as Throughput / Timings.
-    fig.text(0.005, 0.75, "Throughput", rotation=90, va="center", ha="left",
-             fontsize=12, weight="bold")
-    fig.text(0.005, 0.28, "Timings", rotation=90, va="center", ha="left",
-             fontsize=12, weight="bold")
-    fig.suptitle(f"Remote-rendering benchmark -- {MODES[mode]}", fontsize=15, y=0.995)
-    fig.tight_layout(rect=(0.02, 0, 1, 0.98))
+        # The row already carries its unit via the leftmost column's y-axis label (Throughput /
+        # Latency), and every column shares the same time axis named once under the bottom row
+        # -- repeating "FPS"/"Latency (ms)"/"time (s)" in every cell just eats width for nothing.
+        if col_i > 0:
+            ax_tp.set_ylabel("")
+            ax_lat.set_ylabel("")
+        ax_tp.set_xlabel("")
+    fig.suptitle("Mìmir Remote Rendering Benchmark", fontsize=31, y=0.995)
+    subtitle = (f"Random moving Particles in 3D kmodal distribution, k=64, stdev=0.07 "
+                f"-- Rendered with {RENDER_LABEL[mode]}")
+    fig.text(0.5, 0.965, subtitle, ha="center", va="top", fontsize=23,
+             style="italic", color="#444444")
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     return fig
 
 
@@ -200,7 +239,7 @@ def main():
                           key=lambda n: [GPU_NAME[k] for k in GPU_ORDER].index(n))
             print(f"  {mode:<7} {col_key:<4}: {', '.join(gpus) if gpus else '(none)'}")
         out = out_dir / f"benchmark-grid-{mode}.{args.format}"
-        fig.savefig(out, dpi=130)
+        fig.savefig(out, dpi=130, bbox_inches="tight")
         print(f"  -> wrote {out}")
         wrote += 1
     if args.show and wrote:

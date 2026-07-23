@@ -2,3 +2,5 @@
 __pycache__/
 # Generated benchmark figures -- regenerate from data/ with scripts/plot_grid.py.
 plots/
+# Generated averages table -- regenerate from data/ with scripts/table_averages.py.
+tables/

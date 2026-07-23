@@ -7,17 +7,16 @@ Consumes the CSV written by ``rr-client --benchmark F`` (see rr-client.cpp). Col
     lat_mean_ms, lat_std_ms, lat_p50_ms, lat_p95_ms, lat_max_ms, lost, ctrl_events, phase
 
 Only the metrics worth watching *over time* get a curve; the rest live in a table of
-per-phase (and overall) averages. Two time-series panels, both grouping curves that share a
-Y-axis magnitude (or split onto twin axes when they do not):
+per-phase (and overall) averages. Two time-series panels:
 
-    1. Throughput   fps (left axis)  +  bitrate kbps (right axis)              -- twin Y
-    2. Timings (ms) mean end-to-end latency + server encode/readback + client
-                    decode, each with a +/-1 std-dev band                      -- shared ms
+    1. Throughput   fps
+    2. Latency (ms) mean end-to-end latency, with a +/-1 std-dev band
 
 The *_std columns are per-window std-devs (feeding the error bands). Everything else
-(latency p50/p95/max, frame loss, control events) is reported in the table only. `server_ms`
-is the server's per-frame production cost: NVENC *encode* time for an H.264 stream, or
-framebuffer *readback* time for a raw stream.
+(bitrate, server encode/readback, client decode, latency p50/p95/max, frame loss, control
+events) is reported in the table only, not plotted. `server_ms` is the server's per-frame
+production cost: NVENC *encode* time for an H.264 stream, or framebuffer *readback* time for
+a raw stream.
 
 Usage:
     plot_benchmark.py run.csv                       # one run: panels are phase-shaded
@@ -25,7 +24,7 @@ Usage:
     plot_benchmark.py run.csv -o run.png            # save instead of (also) showing
     plot_benchmark.py run.csv -t "My title"         # override the figure title
     plot_benchmark.py run.csv --logy                # log-scale the timings (ms) panel
-    plot_benchmark.py run.csv --yrange-a 0 65 0 9000 --yrange-b 0 80   # fix axis ranges
+    plot_benchmark.py run.csv --yrange-a 0 65 --yrange-b 0 80        # fix axis ranges
     plot_benchmark.py run.csv --no-show             # table only, no window
     # One PDF per panel with a use-case subtitle (for a use-cases x metric-rows grid):
     plot_benchmark.py cloud.csv --split -o cloud.pdf -s "Cloud service"
@@ -40,6 +39,20 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+# Global font sizing: these figures print at full page width (esp. the plot_grid.py 2x3
+# grids), so the default matplotlib sizes read as too small on paper. Bumped up globally
+# rather than per-call so plot_grid.py's imported draw_* calls pick it up too. The legend gets
+# a little transparency (framealpha) so it doesn't fully block curves/shading underneath it.
+plt.rcParams.update({
+    "font.size": 23,
+    "axes.titlesize": 27,
+    "axes.labelsize": 25,
+    "xtick.labelsize": 20,
+    "ytick.labelsize": 20,
+    "legend.fontsize": 20,
+    "legend.framealpha": 0.55,
+})
 
 # Metrics that get a time-series curve are defined by the panels below; everything else in
 # the CSV is summarised in the table only. Phase spans are shaded with these colors and named
@@ -59,9 +72,9 @@ PHASE_COLORS = {
 }
 PHASE_LABELS = {
     "far":         "Far view (Static)",
-    "orbit":       "Orbit view (Mid Dynamic)",
-    "zoom_in":     "Zoom in (Low Dynamic)",
-    "look_around": "Look Around (High Dynamic)",
+    "orbit":       "Orbit view (Mid Dynamics)",
+    "zoom_in":     "Zoom in (Low Dynamics)",
+    "look_around": "Look Around (High Dynamics)",
     "inside":      "Inside view (Static)",
     # Legacy tokens from earlier CSVs.
     "outside":     "Far view (Static)",
@@ -115,19 +128,17 @@ def label_phases(ax, df):
                 xmid = 0.5 * (df["t"].iloc[start] + df["t"].iloc[i - 1])
                 text = PHASE_LABELS.get(str(phase), str(phase)).replace(" (", "\n(", 1)
                 ax.text(xmid, 0.97, text, transform=trans, ha="center", va="top",
-                        fontsize=7.5, style="italic", color="#666666", alpha=0.7,
+                        fontsize=11, style="italic", color="#666666", alpha=0.7,
                         linespacing=1.4, zorder=1)
             start, phase = i, cur
 
 
-# Timings panel (all ms, shared axis): mean end-to-end latency plus the two per-frame pipeline
-# costs, each with a +/-1 std-dev error band shaded in its own color. Latency percentiles (p50/p95)
-# and max stay in the averages table rather than crowding the plot.
-# (value column, legend name, linewidth, linestyle, single-run color, std-dev column).
+# Timings panel: mean end-to-end latency with a +/-1 std-dev error band. Encode/decode are
+# stable enough to skip on the plot -- they, plus latency percentiles (p50/p95) and max, stay
+# in the averages table instead.
+# (value column, linewidth, linestyle, std-dev column).
 TIMING_SERIES = [
-    ("lat_mean_ms", "latency mean", 1.8, "-",               "#3182bd", "lat_std_ms"),
-    ("server_ms",   "encode",       1.5, (0, (3, 1, 1, 1)), "#e6550d", "server_ms_std"),
-    ("decode_ms",   "decode",       1.5, (0, (1, 1)),       "#31a354", "decode_ms_std"),
+    ("lat_mean_ms", 1.8, "-", "lat_std_ms"),
 ]
 
 
@@ -148,79 +159,82 @@ def _top(runs, cols, std_map=None, frac=0.16):
 
 
 # Timing value column -> its std column, so the headroom calc clears the error bands too.
-TIMING_STD = {col: stdcol for col, _, _, _, _, stdcol in TIMING_SERIES}
+TIMING_STD = {col: stdcol for col, _, _, stdcol in TIMING_SERIES}
 
 
 def draw_throughput(ax, runs, run_color, single, yrange_a):
-    """Draw the throughput panel (fps on `ax`, bitrate on a twin axis) into a caller-owned axes."""
-    ax_kbps = ax.twinx()
+    """Draw the throughput panel (fps) into a caller-owned axes."""
+    # Each run contributes exactly one curve here, so the legend is just the run's label --
+    # no metric suffix needed, it's already named by the panel title / y-axis.
     for df in runs:
-        c = run_color[df.attrs["label"]]
         lbl = df.attrs["label"]
-        ax.plot(df["t"], df["fps"], color=c, lw=1.6,
-                label=f"{lbl} FPS" if not single else "frames per second (FPS)")
-        ax_kbps.plot(df["t"], df["kbps"], color=c, lw=1.1, ls="--",
-                     label=f"{lbl} bitrate" if not single else "bitrate (kbps)")
+        c = run_color[lbl]
+        ax.plot(df["t"], df["fps"], color=c, lw=1.6, label=lbl)
     ax.set_ylabel("FPS")
-    ax_kbps.set_ylabel("kbps")
-    ax.set_title("Throughput: FPS + bitrate (dashed)")
+    ax.set_title("Throughput: FPS", pad=18)
     ax.set_xlabel("time (s)")
     if yrange_a:
         ax.set_ylim(yrange_a[0], yrange_a[1])
-        ax_kbps.set_ylim(yrange_a[2], yrange_a[3])
     else:
         ax.set_ylim(0, _top(runs, ["fps"]))
-        ax_kbps.set_ylim(0, _top(runs, ["kbps"]))
-    if single:
-        shade_phases(ax, runs[0])
-        label_phases(ax, runs[0])
+    # Phase boundaries are time-driven, not frame-driven, so they land within well under a
+    # second of each other across runs -- shading against runs[0] reads fine even overlaid.
+    shade_phases(ax, runs[0])
+    label_phases(ax, runs[0])
     ax.grid(True, alpha=0.3)
-    # fps and bitrate live on separate axes, so merge both axes' handles or bitrate is left out.
-    tp_h, tp_l = ax.get_legend_handles_labels()
-    kb_h, kb_l = ax_kbps.get_legend_handles_labels()
-    ax.legend(tp_h + kb_h, tp_l + kb_l, loc="lower left" if single else "upper left",
-              fontsize=8, ncol=1)
+    # borderaxespad gives the box a visible gap from the axes spines, so its corner doesn't
+    # read as clipped by the frame. Monospace so plot_grid.py's space-padded GPU labels (GB
+    # and country code columns) actually line up -- harmless for plain filename labels too.
+    # Font size pinned below rcParams' legend.fontsize -- this legend carries a lot of aligned
+    # text (GPU name + memory + location), so it doesn't need to scale with the rest of the
+    # figure's much bigger fonts or it swallows the plot area / collides with the axes.
+    ax.legend(loc="lower left", ncol=1, borderaxespad=1.0,
+              prop={"family": "monospace", "size": 16})
 
 
 def draw_timings(ax, runs, run_color, single, yrange_b, logy):
-    """Draw the timings panel (latency + encode + decode, each with a std band) into `ax`."""
-    # Single run: a fixed color per metric reads clearest. Multiple runs: the run color groups a
-    # file's curves and the linestyle distinguishes the metric.
+    """Draw the timings panel (mean latency, with a std band) into `ax`."""
+    # One curve per run (latency only), same legend convention as draw_throughput: just the
+    # run's label, no metric suffix.
     for df in runs:
-        c = run_color[df.attrs["label"]]
-        for col, name, lw, ls, fixed, stdcol in TIMING_SERIES:
+        lbl = df.attrs["label"]
+        c = run_color[lbl]
+        for col, lw, ls, stdcol in TIMING_SERIES:
             if col not in df.columns:
                 continue
-            color = fixed if single else c
-            lbl = name if single else f"{df.attrs['label']} {name}"
-            ax.plot(df["t"], df[col], color=color, lw=lw, ls=ls, label=lbl)
+            ax.plot(df["t"], df[col], color=c, lw=lw, ls=ls, label=lbl)
             # +/-1 std-dev error band, shaded in the same color (skipped for CSVs without the
             # *_std columns). zorder keeps it above phase shading but below the curves.
             if stdcol and stdcol in df.columns:
                 lo = (df[col] - df[stdcol]).clip(lower=0)
                 hi = df[col] + df[stdcol]
-                ax.fill_between(df["t"], lo, hi, color=color, alpha=0.15, lw=0, zorder=0.5)
-    ax.set_ylabel("time (ms)")
+                ax.fill_between(df["t"], lo, hi, color=c, alpha=0.15, lw=0, zorder=0.5)
+    ax.set_ylabel("Latency (ms)")
     ax.set_xlabel("time (s)")
-    ax.set_title("Timings: latency (mean) + encode + decode")
+    ax.set_title("Latency", pad=18)
     if logy:
         ax.set_yscale("log")
     if yrange_b:
         ax.set_ylim(yrange_b[0], yrange_b[1])
     elif not logy:  # log autoscales to positive data; a 0 floor would be invalid
         ax.set_ylim(0, _top(runs, list(TIMING_STD), std_map=TIMING_STD))
+    # Shading only here (no text): when stacked under the throughput panel the phase names
+    # already sit up top, and repeating them would just clutter this row.
+    shade_phases(ax, runs[0])
     if single:
-        shade_phases(ax, runs[0])
         label_phases(ax, runs[0])
     ax.grid(True, alpha=0.3)
-    ax.legend(loc="lower left" if single else "upper left", fontsize=8 if single else 7, ncol=1)
+    # Upper right is free to use only when this panel has no phase-name text up top (i.e. not
+    # single -- see label_phases above); single-run mode keeps it low to stay clear of that text.
+    ax.legend(loc="lower right" if single else "upper right", ncol=1, borderaxespad=1.0,
+              prop={"family": "monospace", "size": 16})
 
 
 def _figtitles(fig, title, subtitle):
     """Figure title, with an optional smaller italic subtitle beneath it (e.g. the use case)."""
-    fig.suptitle(title, fontsize=13, y=0.98)
+    fig.suptitle(title, fontsize=27, y=0.98)
     if subtitle:
-        fig.text(0.5, 0.925, subtitle, ha="center", va="top", fontsize=10.5,
+        fig.text(0.5, 0.925, subtitle, ha="center", va="top", fontsize=20,
                  style="italic", color="#444444")
 
 
@@ -231,8 +245,9 @@ def plot(runs, out, show, title=None, subtitle=None, yrange_a=None, yrange_b=Non
     run_color = {r.attrs["label"]: c for r, c in
                  zip(runs, plt.rcParams["axes.prop_cycle"].by_key()["color"])}
     if title is None:
-        what = runs[0].attrs["label"] if single else f"{len(runs)} runs compared"
-        title = f"Remote-rendering benchmark -- {what}"
+        title = "Mìmir Remote Rendering Benchmark"
+        if subtitle is None:
+            subtitle = runs[0].attrs["label"] if single else f"{len(runs)} runs compared"
     top = 0.90 if subtitle else 0.96
 
     if split:
@@ -248,7 +263,7 @@ def plot(runs, out, show, title=None, subtitle=None, yrange_a=None, yrange_b=Non
             if out:
                 base = Path(out)
                 path = base.with_name(f"{base.stem}-{suffix}{base.suffix or '.pdf'}")
-                fig.savefig(path, dpi=130)
+                fig.savefig(path, dpi=130, bbox_inches="tight")
                 print(f"wrote {path}")
         if show:
             plt.show()
@@ -260,7 +275,7 @@ def plot(runs, out, show, title=None, subtitle=None, yrange_a=None, yrange_b=Non
     _figtitles(fig, title, subtitle)
     fig.tight_layout(rect=(0, 0, 1, top))
     if out:
-        fig.savefig(out, dpi=130)
+        fig.savefig(out, dpi=130, bbox_inches="tight")
         print(f"wrote {out}")
     if show:
         plt.show()
@@ -338,10 +353,8 @@ def main():
     p.add_argument("--split", action="store_true",
                    help="save each panel as its own file (for assembling an external grid); "
                         "use with -o to pick the base name/format (defaults to PDF)")
-    p.add_argument("--yrange-a", nargs=4, type=float,
-                   metavar=("LOW_FPS", "HIGH_FPS", "LOW_KBPS", "HIGH_KBPS"),
-                   help="fix the throughput panel axes: fps (left) low high, then bitrate (right) "
-                        "low high")
+    p.add_argument("--yrange-a", nargs=2, type=float, metavar=("LOW_FPS", "HIGH_FPS"),
+                   help="fix the throughput (fps) panel y-axis: low high")
     p.add_argument("--yrange-b", nargs=2, type=float, metavar=("LOW", "HIGH"),
                    help="fix the timings (ms) panel y-axis: low high")
     p.add_argument("--logy", action="store_true",
