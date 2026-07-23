@@ -6,11 +6,11 @@ samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**8)) 1 tcp "" 
 samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 128
 
 3) MAX N (lod 256)
-# A100 80GB   (141B) ******************
-samples/remote-rendering/build/rr-server 9000 1920 1080 $((X * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+# A100 80GB   (5B)
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((5 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 256
 
 # H200 141GB  (141B) ******************
-samples/remote-rendering/build/rr-server 9000 1920 1080 $((X * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((9 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 256
 
 # RTXPRO 96GB (6B)
 samples/remote-rendering/build/rr-server 9000 1920 1080 $((6 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model path-tracing --spp 1 --steps-per-frame 1 --fps 60 --lod 256
@@ -28,11 +28,11 @@ samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**8)) 1 tcp "" 
 samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 128
 
 3) MAX N (lod 256)
-# A100 80GB   (141B) ******************
-samples/remote-rendering/build/rr-server 9000 1920 1080 $((X * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+# A100 80GB   (5B)
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((5 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 256
 
 # H200 141GB  (141B) ******************
-samples/remote-rendering/build/rr-server 9000 1920 1080 $((X * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((9 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 256
 
 # RTXPRO 96GB (6B)
 samples/remote-rendering/build/rr-server 9000 1920 1080 $((6 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model phong --spp 1 --steps-per-frame 1 --fps 60 --lod 256
@@ -50,11 +50,11 @@ samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**8)) 1 tcp "" 
 samples/remote-rendering/build/rr-server 9000 1920 1080 $((1 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model none --spp 1 --steps-per-frame 1 --fps 60 --lod 128
 
 3) MAX N (lod 256)
-# A100 80GB   (141B) ******************
-samples/remote-rendering/build/rr-server 9000 1920 1080 $((X * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model none --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+# A100 80GB   (5B)
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((5 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model none --spp 1 --steps-per-frame 1 --fps 60 --lod 256
 
 # H200 141GB  (141B) ******************
-samples/remote-rendering/build/rr-server 9000 1920 1080 $((X * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model none --spp 1 --steps-per-frame 1 --fps 60 --lod 256
+samples/remote-rendering/build/rr-server 9000 1920 1080 $((9 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model none --spp 1 --steps-per-frame 1 --fps 60 --lod 256
 
 # RTXPRO 96GB (6B)
 samples/remote-rendering/build/rr-server 9000 1920 1080 $((6 * 10**9)) 1 tcp "" --seed 41121311 --pcolor 1.0,0.05,0.05 --background 0.2 --k 64 --epsilon 0.07 --light-model none --spp 1 --steps-per-frame 1 --fps 60 --lod 256
