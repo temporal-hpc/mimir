@@ -1,0 +1,4 @@
+# Python bytecode cache from the plotting scripts.
+__pycache__/
+# Generated benchmark figures -- regenerate from data/ with scripts/plot_grid.py.
+plots/
