@@ -363,7 +363,7 @@ std::string formatPower()
 
 void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute,
     size_t max_iters, bool use_h264, remote::TransportKind kind, std::string token,
-    int bitrate_kbps, std::string stats_csv, int target_fps, int steps_per_frame)
+    int bitrate_kbps, std::string stats_csv, int target_fps, int steps_per_frame, size_t pause_at)
 {
     prepare();
 
@@ -492,6 +492,20 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
 
     std::atomic<bool> sim_stop{false};
     std::atomic<bool> sim_paused{false};
+    // --pause-at: freeze the sim exactly when it reaches step `pause_at` (0 = disabled), holding the
+    // frozen state so a client can connect and capture an identical frame across LOD configs. Called
+    // after each sim advance at the three stepping sites below; sets sim_paused and logs once.
+    std::atomic<bool> pause_at_hit{false};
+    auto apply_pause_at = [&]()
+    {
+        if (pause_at == 0 || pause_at_hit.load(std::memory_order_relaxed)) { return; }
+        if (total_iter.load(std::memory_order_acquire) >= pause_at)
+        {
+            sim_paused.store(true, std::memory_order_release);
+            pause_at_hit.store(true, std::memory_order_relaxed);
+            spdlog::info("remote: paused at step {} (frozen; connect a client to capture)", pause_at);
+        }
+    };
     std::thread sim_thread;
     if (decoupled)
     {
@@ -507,6 +521,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                 }
                 timed_compute();
                 total_iter.fetch_add(1, std::memory_order_release);
+                apply_pause_at();
             }
         });
     }
@@ -538,6 +553,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             {
                 timed_compute();
                 total_iter.fetch_add(1, std::memory_order_release);
+                apply_pause_at();
             }
             const size_t iters = total_iter.load(std::memory_order_acquire);
             const auto sim_now = std::chrono::steady_clock::now();
@@ -659,7 +675,9 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         // can measure end-to-end latency on its own clock.
         uint32_t latest_stamp = 0;
 
-        bool paused = false;
+        // Start the session's pause state from the shared flag so an auto-pause (--pause-at) already
+        // in effect is reflected here, and the client's first pause-toggle resumes instead of no-op'ing.
+        bool paused = sim_paused.load(std::memory_order_acquire);
         bool client_gone = false;
         // Latest sim step reflected in a rendered frame. SIZE_MAX forces the first frame of the
         // session to reset the path-trace accumulator; thereafter the accumulator resets only
@@ -854,6 +872,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     timed_compute();
                     total_iter.fetch_add(1, std::memory_order_relaxed);
                 }
+                apply_pause_at();
                 pt_scene_dirty = true; // the sim moved, so reset the path-trace accumulator
             }
             if (stop) { break; } // hit max_iters mid-batch

@@ -171,11 +171,14 @@ void saveFrame(InstanceHandle engine, const char *path);
 //   N >= 1      = lockstep: advance exactly N sim steps, then render one frame, sequentially
 //                 (tear-free, deterministic; good for recording/reproducing). N=1 is the
 //                 classic 1-step-per-frame behavior. Here 'fps' paces both frames AND steps.
+// 'pause_at' > 0 freezes the simulation once it reaches that step and holds (the server keeps
+// streaming the frozen frame and accepting clients), for capturing the same step across configs;
+// 0 disables. Unlike max_iters, which returns/exits, pause_at holds the run alive.
 void serveRemote(InstanceHandle engine, unsigned short port,
     std::function<void(void)> func, size_t max_iters, bool use_h264 = false,
     remote::TransportKind kind = remote::TransportKind::Tcp,
     const char *token = "", int bitrate_kbps = 8000, const char *stats_csv = nullptr,
-    int fps = 0, int steps_per_frame = 0
+    int fps = 0, int steps_per_frame = 0, size_t pause_at = 0
 );
 
 // Reports that `ns` nanoseconds of the serveRemote() compute() callback's current call were spent on

@@ -360,7 +360,7 @@ struct MimirInstance
         bool use_h264 = false,
         remote::TransportKind kind = remote::TransportKind::Tcp,
         std::string token = {}, int bitrate_kbps = 8000, std::string stats_csv = {},
-        int target_fps = 0, int steps_per_frame = 0);
+        int target_fps = 0, int steps_per_frame = 0, size_t pause_at = 0);
 
     void setGuiCallback(std::function<void(void)> callback) { gui_callback = callback; };
     void setScrollCallback(std::function<void(double, double)> cb) { scroll_callback = cb; };
