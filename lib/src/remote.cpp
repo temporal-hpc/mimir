@@ -549,7 +549,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         std::unique_ptr<remote::Transport> transport = listener->poll();
         if (!transport)
         {
-            if (!decoupled && !(max_iters != 0 && total_iter.load() >= max_iters))
+            if (!decoupled && !(max_iters != 0 && total_iter.load() >= max_iters)
+                && !sim_paused.load(std::memory_order_acquire))
             {
                 timed_compute();
                 total_iter.fetch_add(1, std::memory_order_release);
@@ -873,6 +874,7 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                     total_iter.fetch_add(1, std::memory_order_relaxed);
                 }
                 apply_pause_at();
+                if (sim_paused.load(std::memory_order_acquire)) { paused = true; }
                 pt_scene_dirty = true; // the sim moved, so reset the path-trace accumulator
             }
             if (stop) { break; } // hit max_iters mid-batch
