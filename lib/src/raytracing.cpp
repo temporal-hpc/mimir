@@ -169,6 +169,7 @@ void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, 
     uint32_t num_chunks = (uint32_t)((count + ctx.blas_chunk_prims - 1) / ctx.blas_chunk_prims);
     ctx.scene_blas.assign(num_chunks, AccelStruct{});
     VkDeviceSize max_scratch = 0;
+    VkDeviceSize total_as_size = 0;  // summed BLAS storage across chunks, for the setup log below
 
     for (uint32_t c = 0; c < num_chunks; ++c)
     {
@@ -204,11 +205,20 @@ void createDynamicBlasChunks(RayTracingContext& ctx, VkDeviceAddress aabb_addr, 
         // practice updateScratchSize <= buildScratchSize, but take the max so a refit can never
         // overrun the scratch on any driver.
         max_scratch = std::max({ max_scratch, sizes.buildScratchSize, sizes.updateScratchSize });
+        total_as_size += sizes.accelerationStructureSize;
     }
 
     auto scratch_align = ctx.accel_props.minAccelerationStructureScratchOffsetAlignment;
     ctx.blas_scratch = makeBuffer(ctx, max_scratch + scratch_align,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, DEVICE_LOCAL, true);
+
+    // Real, driver-queried BVH cost (the pre-flight in rr-server only estimates this). BLAS storage
+    // is persistent; the build scratch is shared across chunks (one chunk builds at a time), so the
+    // live peak is storage + one scratch. For native (no-LOD) path tracing this is the memory term
+    // the position/AABB pre-flight omits, and at high N it dominates -- hence logging it explicitly.
+    spdlog::info("Path tracing: BVH acceleration structure {:.2f} GB (BLAS storage {:.2f} GB + build "
+        "scratch {:.2f} GB, {} chunk(s))", (double)(total_as_size + max_scratch) / 1e9,
+        (double)total_as_size / 1e9, (double)max_scratch / 1e9, num_chunks);
 }
 
 // Records the (re)build of every chunk BLAS from its AABB slice. The chunks share one scratch buffer,

@@ -353,9 +353,22 @@ int main(int argc, char *argv[])
     // see kmodal_sim.cu createClusters); + 32 B/particle for the spatial-sort radix when enabled.
     // The N^3 LOD accumulator and render targets are checked below.
     const bool pt_no_lod = (light_model == LightModel::PathTracing) && (lod_cells == 0);
-    const unsigned long long bytes_per_particle =
+    unsigned long long bytes_per_particle =
         mimir::interopBytesPerParticle(light_model, lod_cells > 0) + 4ull  // +4: kmodal cluster id
         + (sort_on ? 32ull : 0ull);                                        // +32: radix sort scratch
+    // Native (no-LOD) path tracing also builds a BVH acceleration structure -- BLAS storage plus build
+    // scratch -- that the interop/position buffers counted above do NOT include, and it is large. A
+    // measured 100M native-PT scene (single BLAS chunk) built 10.55 GB of BVH (3.35 storage + 7.20
+    // scratch) => ~104 B/particle, and its total post-setup VRAM was 14.2 GB, matching the (40+104)
+    // B/particle used here. Fold this in so an over-large native-PT scene is rejected up front with a
+    // clear message instead of aborting mid-build on a Vulkan OOM. The estimate deliberately does NOT
+    // amortise the shared build scratch across chunks (scratch is sized for the largest single chunk,
+    // so per-particle BVH cost is actually a bit lower once N exceeds one chunk ~5.4e8) -- erring high
+    // is the safe direction for a memory guard. The exact, driver-queried BVH size is logged at setup
+    // (raytracing.cpp createDynamicBlasChunks). LOD path tracing rasterises the reduced cells into a
+    // tiny AS, so this only applies to the no-LOD case.
+    const unsigned long long as_bytes_per_particle = pt_no_lod ? 104ull : 0ull;  // BVH (BLAS+scratch) est.
+    bytes_per_particle += as_bytes_per_particle;
     auto budget = mimir::memoryBudget(point_count, bytes_per_particle, 0);
     const size_t vram_free0 = budget.free_bytes; // reused by the LOD-accumulator check below
     {
@@ -364,7 +377,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "rr-server: %llu particles need %.1f GB (%s, %llu B/particle%s) but only %.1f GB "
                     "is free on the GPU right now -- max feasible here is ~%llu particles\n",
                     (unsigned long long)point_count, (double)need/1e9,
-                    pt_no_lod ? "positions+ids+AABBs" : "positions+ids", bytes_per_particle,
+                    pt_no_lod ? "positions+ids+AABBs+BVH est." : "positions+ids", bytes_per_particle,
                     sort_on ? "+sort" : "", (double)vram_free0/1e9,
                     (unsigned long long)((vram_free0 > sort_status_bytes ? vram_free0 - sort_status_bytes : 0) / bytes_per_particle));
             return EXIT_FAILURE;
