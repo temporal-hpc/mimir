@@ -5,7 +5,7 @@
 &nbsp; &nbsp;
   <img alt="Points2D" src="./img/points2d.png" width="30%">
 &nbsp; &nbsp;
-  <img alt="Particles k-modal 3D" src="./img/particles-kmodal-3d.png" width="30%">
+  <img alt="Particles k-modal 3D" src="./img/particles-kmodal-remote.png" width="30%">
 </p>
 <p align="center">
   <img alt="Colloids mesh" src="./img/colloids_mesh.png" width="30%">
