@@ -1,7 +1,7 @@
 # Mìmir
 
 <p align="center">
-  <img alt="Points2D purple" src="./img/points2d_color.png" width="30%">
+  <img alt="Points2D purple" src="./img/points_color.png" width="30%">
 &nbsp; &nbsp;
   <img alt="Points2D" src="./img/points2d.png" width="30%">
 &nbsp; &nbsp;
