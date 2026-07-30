@@ -203,10 +203,26 @@ void setCameraLookAt(InstanceHandle handle, float3 eye, float3 center, float3 up
     {
         // World-to-view for the trackball raster path (and the orbit PT eye decode = -R^T*pos).
         cam.matrices.view = glm::lookAt(e, c, u);
-        // Keep the euler position roughly consistent so a later trackball drag (which rebuilds
-        // matrices.view from position/rotation) starts from an equivalent view. Exact when framing
-        // the world origin down an axis -- the trackball's natural pivot -- e.g. CA3D-voxels.
         cam.position = glm::vec3(cam.matrices.view[3]);
+        // Capture this bind's actual orientation as base_rotation and reset the accumulated drag
+        // delta to zero: rotate()/updateViewMatrix() rebuild the view as delta(rotation)*
+        // base_rotation, so without this they would use base_rotation's default (identity) and
+        // rotation's leftover value, silently discarding the lookAt orientation we just set above
+        // the INSTANT a drag starts (a visible snap to a different view, not a smooth continuation).
+        cam.base_rotation = glm::mat4(glm::mat3(cam.matrices.view));
+        cam.rotation = glm::vec3(0.f);
+        // Orbit pivot: rotate() keeps this point fixed on screen through a drag (see its comment).
+        // Without this it defaults to the origin, which is only correct when `center` IS the
+        // origin -- any other scene (e.g. ORCS's domain centered away from (0,0,0)) would orbit
+        // around a point nowhere near what's on screen.
+        cam.pivot = c;
+        // Zoom/pan step scale (remote.cpp's CameraZoom/CameraPan): their 0.005/0.01 world-units-
+        // per-pixel constants assume a unit-scale ([-1,1]) scene. Rescale by this bind's actual
+        // eye-to-center distance so a 1000-unit domain zooms/pans at a proportionally usable speed
+        // instead of needing thousands of drag-pixels to move any perceptible distance. Guard
+        // against a degenerate eye==center call (would make zoom/pan a no-op, not a crash).
+        const float scene_scale = glm::length(c - e);
+        cam.movement_speed = scene_scale > 0.f ? scene_scale : 1.f;
     }
 }
 

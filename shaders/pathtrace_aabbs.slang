@@ -19,10 +19,13 @@ struct PushConstants
     // position range -- at large N. With BDA the only ceiling is maxPrimitiveCount / VRAM. Pointers
     // first (8-byte aligned).
     Aabb* aabbs;      // output: one AABB per particle
-    float* positions; // input: interop positions, tightly packed x,y,z (stride 12 B, shared w/ CUDA)
+    float* positions; // input: interop positions, tightly packed x,y,z, shared w/ CUDA. Stride is
+                       // 12 B (float3) unless double_positions is set, then 24 B (double3) --
+                       // either way read here and cast down to float for the AABB.
     uint64_t count;   // 64-bit particle count
     float radius;     // sphere world radius (AABB half-extent)
     uint stride;      // total dispatched threads (grid-stride step); <= 2^31
+    uint double_positions; // 0 = float3 positions (12 B/particle), 1 = double3 (24 B/particle)
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -44,10 +47,24 @@ void writeAabbsMain(uint3 tid : SV_DispatchThreadID)
     // driver 610.43.02 (2026-07).
     for (uint64_t i = tid.x; i < pc.count; i += uint64_t(pc.stride))
     {
-        uint64_t pos_addr = uint64_t(pc.positions) + i * 12ull;
-        float px = *(float*)(pos_addr + 0);
-        float py = *(float*)(pos_addr + 4);
-        float pz = *(float*)(pos_addr + 8);
+        float px, py, pz;
+        if (pc.double_positions != 0)
+        {
+            // double3 positions: 24 B/particle, cast down to float only here at the AABB write --
+            // VkAabbPositionsKHR is spec'd as float, so this narrowing is unavoidable regardless of
+            // the simulation's own precision; the BVH/traversal cost is float-only either way.
+            uint64_t pos_addr = uint64_t(pc.positions) + i * 24ull;
+            px = float(*(double*)(pos_addr + 0));
+            py = float(*(double*)(pos_addr + 8));
+            pz = float(*(double*)(pos_addr + 16));
+        }
+        else
+        {
+            uint64_t pos_addr = uint64_t(pc.positions) + i * 12ull;
+            px = *(float*)(pos_addr + 0);
+            py = *(float*)(pos_addr + 4);
+            pz = *(float*)(pos_addr + 8);
+        }
         float r  = pc.radius;
 
         Aabb a;

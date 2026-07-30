@@ -693,9 +693,14 @@ struct AabbWriterPush
     uint64_t count;            // 64-bit particle count
     float radius;
     uint32_t stride;           // total dispatched threads (grid-stride step) = groups * 64
+    // 0 = positions are tightly-packed float3 (12 B/particle, the LOD-reduced and voxel-compacted
+    // buffers always are); 1 = tightly-packed double3 (24 B/particle), read and cast down to float
+    // in the shader. Only the direct (non-LOD, non-voxel) writer ever sets this to 1.
+    uint32_t double_positions = 0;
 };
-// Must match PushConstants in pathtrace_aabbs.slang: 2*8 (BDA) + 8 (count) + 4 (radius) + 4 (stride).
-static_assert(sizeof(AabbWriterPush) == 32, "AabbWriterPush layout must match the shader push block");
+// Must match PushConstants in pathtrace_aabbs.slang: 2*8 (BDA) + 8 (count) + 4 (radius) + 4 (stride)
+// + 4 (double_positions), padded to 40 by the struct's 8-byte alignment (leading VkDeviceAddress).
+static_assert(sizeof(AabbWriterPush) == 40, "AabbWriterPush layout must match the shader push block");
 
 void createAabbWriter(RayTracingContext& ctx)
 {
@@ -1210,12 +1215,14 @@ void RayTracingContext::updateMaterial(uint32_t index)
     vkUnmapMemory(device, sbt_buffer.memory);
 }
 
-void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, float radius, glm::vec4 color)
+void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, float radius, glm::vec4 color,
+    bool position_is_double)
 {
     position_address = positions;
     particle_count  = count;
     particle_radius = radius;
     particle_color  = color;
+    this->position_is_double = position_is_double;
 
     // Material 0 is the particle surface: adopt the view color as its albedo and push it into the
     // SBT hit record. Other registered materials keep their configured data.
@@ -1461,6 +1468,7 @@ void RayTracingContext::recordUpdateScene(VkCommandBuffer cmd, uint32_t frame_id
         .aabbs = aabb_buffer.address,
         .positions = position_address,
         .count = (uint64_t)particle_count, .radius = particle_radius, .stride = groups * 64u,
+        .double_positions = position_is_double ? 1u : 0u,
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, iw_pipeline);
     vkCmdPushConstants(cmd, iw_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,

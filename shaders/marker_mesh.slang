@@ -59,6 +59,9 @@ float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li)
     float4 lighting = diffuse_color * scene.ambient_strength; // ambient
     lighting += diffuse_color * li * n_dot_l;                 // diffuse
     lighting += specular_color * li * spec;                   // specular
+    // Opacity is the marker's own alpha, not a lighting term -- see marker.slang's computeLighting
+    // for why (this copy is inert today since SphereMesh disables blending, but keep both in sync).
+    lighting.a = diffuse_color.a;
     return lighting;
 }
 

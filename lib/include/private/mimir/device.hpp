@@ -36,8 +36,12 @@ struct PhysicalDevice
 };
 
 // Selects a CUDA-Vulkan interop device. Pass VK_NULL_HANDLE as surface for headless
-// selection (no presentation/swapchain requirement).
-PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface);
+// selection (no presentation/swapchain requirement). preferred_cuda_device, if >= 0, forces
+// selection of that exact CUDA device ordinal (from the CUDA-visible set) instead of
+// auto-picking the first suitable one -- lets a multi-GPU host keep CUDA compute and the
+// Vulkan interop buffer on the same physical GPU the caller asked for (e.g. via --dev).
+PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface,
+    int preferred_cuda_device = -1);
 VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_families,
     bool headless = false
 );

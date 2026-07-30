@@ -130,6 +130,12 @@ struct RayTracingContext
     // case this enables. The TLAS holds ONE instance pointing at the BLAS (identity transform).
     bool scene_bound = false;
     VkDeviceAddress position_address = 0; // interop positions, read by BDA (owned by the view, not us)
+    // Element format of position_address: false (default) = tightly-packed float3 (12 B/particle),
+    // true = tightly-packed double3 (24 B/particle). Set from the view's Position attribute format
+    // in bindScene; only the direct (non-LOD, non-voxel) AABB writer honors it -- the LOD-reduced
+    // and voxel-compacted position buffers are always float3, written by mimir's own reduction/
+    // compaction kernels regardless of the source scene's precision.
+    bool position_is_double = false;
     uint64_t particle_count = 0;
     float particle_radius = 0.f;
     glm::vec4 particle_color{0.82f, 0.82f, 0.88f, 1.f}; // surface albedo (from the view's color)
@@ -339,11 +345,12 @@ struct RayTracingContext
     void destroyFrameResources();
 
     // Bind the dynamic scene: the interop position buffer's device address (particle_count points of
-    // tightly-packed float3) drives a per-frame BLAS of AABB spheres of the given world radius.
-    // Allocates the AABB buffer / BLAS / one-instance TLAS / scratch and builds them once. The AABB
-    // writer reads positions by buffer-device-address (no storage-range cap). Call once after view
-    // creation.
-    void bindScene(VkDeviceAddress positions, uint64_t particle_count, float radius, glm::vec4 color);
+    // tightly-packed float3, or double3 when position_is_double) drives a per-frame BLAS of AABB
+    // spheres of the given world radius. Allocates the AABB buffer / BLAS / one-instance TLAS /
+    // scratch and builds them once. The AABB writer reads positions by buffer-device-address (no
+    // storage-range cap). Call once after view creation.
+    void bindScene(VkDeviceAddress positions, uint64_t particle_count, float radius, glm::vec4 color,
+        bool position_is_double = false);
 
     // Record the per-frame scene update for this frame: dispatch the instance-writer compute
     // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a

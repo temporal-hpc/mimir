@@ -122,6 +122,12 @@ float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li) {
     float4 lighting = diffuse_color * scene.ambient_strength; // ambient
     lighting += diffuse_color * li * n_dot_l;                 // diffuse
     lighting += specular_color * li * spec;                   // specular
+    // Opacity is the marker's own alpha, not a lighting term: the sum above (ambient + diffuse*n_dot_l
+    // + specular) collapses toward ~ambient_strength on the unlit hemisphere (n_dot_l clamped to 0),
+    // and Sphere3D markers blend with SRC_ALPHA/ONE_MINUS_SRC_ALPHA for antialiased impostor edges --
+    // so forwarding that near-zero alpha made the dark side of every sphere blend ~95% into the
+    // background, looking transparent instead of merely unlit.
+    lighting.a = diffuse_color.a;
     return lighting;
 }
 

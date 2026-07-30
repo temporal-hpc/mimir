@@ -274,8 +274,14 @@ void MimirInstance::prepare()
                         raytracing.setLodInterop(interop.cuda_stream, pos_cuda);
                     }
                 }
+                // Positions ride the AABB writer's BDA pointer as whatever the caller allocated --
+                // most producers use float3, but double-precision simulations may hand mimir a
+                // double3 Position attribute directly (no conversion). The direct writer branches
+                // on this; LOD/voxel paths always emit float3 themselves and ignore it.
+                const auto& pos_format = view->desc.attributes[AttributeType::Position].format;
+                bool position_is_double = pos_format.kind == FormatKind::Float && pos_format.size == 8;
                 raytracing.bindScene(pos_addr, view->element_count,
-                    view->desc.default_size, glm::vec4(c.x, c.y, c.z, c.w));
+                    view->desc.default_size, glm::vec4(c.x, c.y, c.z, c.w), position_is_double);
                 break;
             }
         }
@@ -1879,7 +1885,7 @@ void MimirInstance::initVulkan()
             vkDestroySurfaceKHR(instance, surface, nullptr);
         });
     }
-    physical_device = pickPhysicalDevice(instance, surface);
+    physical_device = pickPhysicalDevice(instance, surface, options.cuda_device);
 
     if (isHeadless())
     {

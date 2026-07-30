@@ -7,12 +7,26 @@
 namespace mimir
 {
 
+// The euler rotation matrix (Rx*Ry*Rz, applied to world axes) for a given (rotation.x/y/z) in
+// degrees. Shared by updateViewMatrix() and rotate() so both agree on exactly the same matrix for
+// a given `rotation` value -- rotate()'s pivot compensation depends on that agreement.
+static glm::mat4 buildEulerRotation(glm::vec3 rot)
+{
+    glm::mat4 r(1.f);
+    r = glm::rotate(r, glm::radians(rot.x), glm::vec3(1.f, 0.f, 0.f));
+    r = glm::rotate(r, glm::radians(rot.y), glm::vec3(0.f, 1.f, 0.f));
+    r = glm::rotate(r, glm::radians(rot.z), glm::vec3(0.f, 0.f, 1.f));
+    return r;
+}
+
 Camera Camera::make()
 {
     return Camera{
         .type           = CameraType::LookAt,
         .position       = glm::vec3(),
         .rotation       = glm::vec3(),
+        .pivot          = glm::vec3(),
+        .base_rotation  = glm::mat4(1.f),
         .rotation_speed = 1.f,
         .movement_speed = 1.f,
         .fov            = 0.f,
@@ -24,10 +38,13 @@ Camera Camera::make()
 
 void Camera::updateViewMatrix()
 {
-    glm::mat4 rotmat(1.f);
-    rotmat = glm::rotate(rotmat, glm::radians(rotation.x), glm::vec3(1.f, 0.f, 0.f));
-    rotmat = glm::rotate(rotmat, glm::radians(rotation.y), glm::vec3(0.f, 1.f, 0.f));
-    rotmat = glm::rotate(rotmat, glm::radians(rotation.z), glm::vec3(0.f, 0.f, 1.f));
+    // LookAt/trackball total rotation = the drag delta accumulated since the last setCameraLookAt
+    // bind, applied on top of that bind's actual orientation (base_rotation) -- NOT `rotation`
+    // alone, which would silently discard base_rotation and snap to whatever `rotation` alone
+    // represents (identity, for any caller that has not dragged yet). base_rotation defaults to
+    // identity, so this is exactly the old formula for every caller that never binds via
+    // setCameraLookAt (setPosition/setRotation/FirstPerson are unaffected).
+    glm::mat4 rotmat = buildEulerRotation(rotation) * base_rotation;
 
     glm::vec3 translation = position;
     glm::mat4 transmat = glm::translate(glm::mat4(1.f), translation);
@@ -76,7 +93,23 @@ void Camera::setRotation(glm::vec3 rotation)
 
 void Camera::rotate(glm::vec3 delta)
 {
+    // Orbit around `pivot` (world-space) instead of the world origin -- the world origin was the
+    // ONLY fixed point of the old transmat(position)*rotmat(rotation) formula (p_view = R*p_world +
+    // position; at p_world=0, p_view=position regardless of R), so dragging always spun the scene
+    // around (0,0,0) no matter what setCameraLookAt's `center` was. Here, compute how far pivot's
+    // view-space position shifts under this incremental rotation and cancel it by adjusting
+    // `position`, so pivot stays fixed on screen through the drag. This ADDS to the existing
+    // position rather than recomputing it from scratch, so any pan/zoom already baked into it
+    // (Camera::translate, unrelated to rotation) survives untouched. pivot defaults to the origin,
+    // so callers that never set it (setCameraPosition, most samples) keep today's exact behavior.
+    // Must use the SAME total rotation as updateViewMatrix (delta * base_rotation, not delta
+    // alone), or this compensation is computed against a baseline the render never actually used.
+    glm::mat4 R_old = buildEulerRotation(rotation) * base_rotation;
+    glm::vec3 pivot_before = glm::vec3(R_old * glm::vec4(pivot, 1.f));
     this->rotation += delta;
+    glm::mat4 R_new = buildEulerRotation(rotation) * base_rotation;
+    glm::vec3 pivot_after = glm::vec3(R_new * glm::vec4(pivot, 1.f));
+    position += (pivot_before - pivot_after);
     updateViewMatrix();
 }
 

@@ -139,6 +139,14 @@ struct ViewerOptions
     // (e.g. flat vs lit markers). Phong preserves the historical default look.
     LightModel light_model  = LightModel::Phong;
 
+    // Forces mimir's CUDA-Vulkan interop device to this CUDA device ordinal (from the
+    // CUDA-visible set), instead of auto-picking the first suitable GPU. Set this to match
+    // whatever device your own CUDA/compute code runs on (e.g. a --dev CLI argument) on a
+    // multi-GPU host -- CUDA device pointers aren't valid across GPUs without explicit
+    // peer-to-peer access, so interop buffers must live on the same physical GPU as your
+    // compute. -1 (default) = auto-pick.
+    int cuda_device = -1;
+
     // Options for the window associated to the engine instance.
     WindowOptions window    = WindowOptions::makeDefault();
 

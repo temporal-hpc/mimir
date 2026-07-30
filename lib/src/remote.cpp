@@ -774,10 +774,15 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         if (fly) { flyMove(ev.a, ev.b); }
                         break;
                     case remote::ControlKind::CameraZoom:
-                        if (!fly) { camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f)); }
+                        // 0.005/0.01 world units per pixel (below) assume a unit-scale ([-1,1])
+                        // scene; camera.movement_speed rescales that to the actual scene (set from
+                        // the eye-to-center distance in setCameraLookAt, default 1.0 for callers
+                        // that only use setCameraPosition, so this is a no-op there).
+                        if (!fly) { camera.translate(glm::vec3(0.f, 0.f, ev.a * 0.005f * camera.movement_speed)); }
                         break;
                     case remote::ControlKind::CameraPan:
-                        if (!fly) { camera.translate(glm::vec3(-ev.a * 0.01f, -ev.b * 0.01f, 0.f)); }
+                        if (!fly) { camera.translate(glm::vec3(
+                            -ev.a * 0.01f * camera.movement_speed, -ev.b * 0.01f * camera.movement_speed, 0.f)); }
                         break;
                     case remote::ControlKind::TogglePause:
                         // Pause the sovereign sim thread; the consumer keeps streaming the

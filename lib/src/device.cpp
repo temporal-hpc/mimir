@@ -311,13 +311,20 @@ bool isDeviceSuitable(VkPhysicalDevice dev, VkSurfaceKHR surface)
         && supported_features.samplerAnisotropy;
 }
 
-PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
+PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface,
+    int preferred_cuda_device)
 {
     int cuda_dev_count = 0;
     validation::checkCuda(cudaGetDeviceCount(&cuda_dev_count));
     if (cuda_dev_count == 0)
     {
         spdlog::error("could not find devices supporting CUDA");
+    }
+    if (preferred_cuda_device >= cuda_dev_count)
+    {
+        spdlog::error("requested CUDA device {} does not exist ({} device(s) visible); "
+            "falling back to auto-selection", preferred_cuda_device, cuda_dev_count);
+        preferred_cuda_device = -1;
     }
     auto all_devices = getDevices(instance);
 
@@ -340,8 +347,11 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
 #endif
 
     PhysicalDevice chosen_device{};
-    int curr_device = 0, prohibited_count = 0;
-    while (curr_device < cuda_dev_count)
+    int start_device = (preferred_cuda_device >= 0) ? preferred_cuda_device : 0;
+    int end_device    = (preferred_cuda_device >= 0) ? preferred_cuda_device + 1 : cuda_dev_count;
+    int curr_device = start_device, prohibited_count = 0;
+    bool found = false;
+    while (curr_device < end_device)
     {
         cudaDeviceProp dev_prop;
         cudaGetDeviceProperties(&dev_prop, curr_device);
@@ -366,13 +376,20 @@ PhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
                 auto device_name = device.general.properties.deviceName;
                 spdlog::info("Selected interop device {}: {}", curr_device, device_name);
                 chosen_device = device;
+                found = true;
                 break;
             }
         }
+        if (found) { break; }
         curr_device++;
     }
 
-    if (prohibited_count == cuda_dev_count)
+    if (preferred_cuda_device >= 0 && !found)
+    {
+        spdlog::error("Requested CUDA device {} is not a usable CUDA-Vulkan interop device",
+            preferred_cuda_device);
+    }
+    if (prohibited_count == (end_device - start_device))
     {
         spdlog::error("No CUDA-Vulkan interop device was found");
     }

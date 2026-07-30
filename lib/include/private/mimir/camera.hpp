@@ -12,6 +12,19 @@ struct Camera
     CameraType type;
     glm::vec3 position;
     glm::vec3 rotation;
+    // World-space point the trackball orbits around (rotate() keeps this fixed on screen through a
+    // drag). Defaults to the origin, matching the historical behavior for every caller that never
+    // sets it via setCameraLookAt. See rotate()'s comment for how this composes with pan/zoom.
+    glm::vec3 pivot;
+    // Reference world-to-view ROTATION (translation-free) captured at the last setCameraLookAt
+    // trackball bind. `rotation` (the euler angles below) is the incremental delta accumulated by
+    // drags SINCE that bind (reset to 0 on each new bind), applied on top of this base -- NOT the
+    // camera's total orientation by itself. Without it, updateViewMatrix()/rotate() would rebuild
+    // the view from rotation=(0,0,0) alone (identity), discarding whatever non-identity orientation
+    // setCameraLookAt actually framed and snapping to a different view the instant a drag starts.
+    // Defaults to identity, matching historical behavior for every caller that never binds via
+    // setCameraLookAt (setPosition/setRotation keep working exactly as before).
+    glm::mat4 base_rotation;
     float rotation_speed, movement_speed;
     float fov, near_clip, far_clip;
     struct
