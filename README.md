@@ -148,6 +148,35 @@ Under this mode, CUDA calls manipulating interop-mapped memory must be enclosed 
 the `prepareViews` and `updateViews` function calls respectively. This ensures proper
 synchronization and load balancing between rendering and compute work.
 
+### Render paths
+
+`ViewerOptions::render_path` selects, instance-wide, how markers are turned into pixels — geometry
+representation and rendering technique together:
+
+| `RenderPath` | What it draws |
+|---|---|
+| `Flat` | Unlit 2D point-sprite discs — the cheapest path |
+| `Impostor` | Lit ray-sphere impostors, Blinn-Phong (the default) |
+| `Mesh` | Lit instanced triangle icospheres, Blinn-Phong (tessellation from `pt_subdivisions`) |
+| `PathTraced` | Vulkan ray-traced path tracing, with shadows and global illumination (`pt_samples_per_pixel`, `pt_max_bounces`); needs an RT-capable GPU, and falls back to `Impostor` with a warning otherwise |
+
+```cpp
+ViewerOptions opts;
+opts.render_path = RenderPath::PathTraced;
+```
+
+Every path honours a per-primitive `AttributeType::Color` attribute (one color per marker, written
+straight from CUDA into interop memory); without one, the view's `default_color` shades the whole
+set. The exception is level-of-detail rendering, which draws one representative per occupied grid
+cell rather than per particle — `PathTraced` then ignores the color source (and says so), while the
+raster paths keep drawing it with a warning that the colors no longer identify the particles they
+were written for. Samples expose the choice as `--render-path flat|impostor|mesh|path-traced`.
+
+> This was called `LightModel` (`None`/`Phong`/`PhongMesh`/`PathTracing`) before August 2026 — an
+> inaccurate name, since only `PathTraced` differs from `Impostor` in its lighting, while `Impostor`
+> and `Mesh` share the same shading and differ in geometry. The samples still accept
+> `--light-model` and the old value spellings as aliases.
+
 ### Controls
 
 The following key bindings are available for a Mìmir window:
@@ -246,6 +275,9 @@ integrated GPU is enough.
     - 2D/3D Stencil like simulations such as celullar automata, FDM, Potts model, etc.
     - 2D/3D surface meshes
 * Synchronous and asynchronous (on separate thread) rendering
+* Selectable [render path](#render-paths): flat sprites, lit impostors, instanced meshes, or
+  Vulkan ray-traced path tracing
+* Per-primitive colors from an interop buffer, honoured by every render path
 * Camera manipulation
 * Model transformations (translation, rotation, scale) per view
 * Headless rendering and [remote rendering](#remote-rendering) (H.264 over QUIC/TCP to a thin client)

@@ -1676,7 +1676,7 @@ View *MimirInstance::createView(ViewDescription *desc)
                 if (!rt_enabled)
                 {
                     spdlog::warn("RenderPath::PathTraced requested but device is not "
-                                 "RT-capable; rendering with Phong raster instead");
+                                 "RT-capable; rendering with the Impostor raster path instead");
                 }
                 marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
                 break;
