@@ -67,6 +67,44 @@ __global__ void integrate3dKernel(float* coords, size_t point_count,
     rng[tidx] = state;
 }
 
+// Distinct color per cluster: hue = c/k around the circle at full saturation/value, so adjacent
+// cluster ids stay far apart visually. HSV->RGB for s = v = 1 reduces to the piecewise ramp below.
+__device__ __forceinline__ float3 clusterPalette(unsigned int c, unsigned int k)
+{
+    float h = (k > 0 ? (float)c / (float)k : 0.f) * 6.f; // hue sector in [0,6)
+    float x = 1.f - fabsf(fmodf(h, 2.f) - 1.f);
+    if (h < 1.f) { return { 1.f, x,   0.f }; }
+    if (h < 2.f) { return { x,   1.f, 0.f }; }
+    if (h < 3.f) { return { 0.f, 1.f, x   }; }
+    if (h < 4.f) { return { 0.f, x,   1.f }; }
+    if (h < 5.f) { return { x,   0.f, 1.f }; }
+    return         { 1.f, 0.f, x   };
+}
+
+__global__ void fillClusterColorsKernel(float* colors4, size_t point_count,
+                                        const unsigned int* ids, unsigned int k)
+{
+    auto colors = reinterpret_cast<float4*>(colors4);
+    auto tidx   = blockDim.x * blockIdx.x + threadIdx.x;
+    auto stride = gridDim.x * blockDim.x;
+    for (size_t i = tidx; i < point_count; i += stride)
+    {
+        float3 c = clusterPalette(ids[i], k);
+        colors[i] = { c.x, c.y, c.z, 1.f };
+    }
+}
+
+void launchFillClusterColors(float* colors4, size_t point_count, const ClusterData& clusters,
+                             cudaStream_t s)
+{
+    if (colors4 == nullptr || clusters.ids == nullptr || point_count == 0) { return; }
+    constexpr int block = 256;
+    size_t blocks = (point_count + block - 1) / block;
+    if (blocks > 65535) { blocks = 65535; } // grid-stride loop covers the rest
+    fillClusterColorsKernel<<<(unsigned int)blocks, block, 0, s>>>(
+        colors4, point_count, (const unsigned int*)clusters.ids, clusters.k);
+}
+
 // ---------------------------------------------------------------------------
 // Experimental spatial sort (see kmodal_sim.cuh)
 // ---------------------------------------------------------------------------

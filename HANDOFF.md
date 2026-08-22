@@ -25,9 +25,10 @@ Done and tested on the workstation (RTX 3090 Ti):
 
 Just written, **compiles NOT yet verified** (the rebuild was interrupted to push):
 
-- `lib/include/public/mimir/options.hpp`: new `enum class LightModel { None, Phong,
-  PathTracing }` + `ViewerOptions::light_model` (default Phong = historical look).
-- `lib/src/engine.cpp` `createView` (~line 800): maps instance light_model onto
+- `lib/include/public/mimir/options.hpp`: `enum class RenderPath { Flat, Impostor, Mesh,
+  PathTraced }` + `ViewerOptions::render_path` (default Impostor = historical look). Named
+  `LightModel { None, Phong, PhongMesh, PathTracing }` until the 2026-08 rename.
+- `lib/src/engine.cpp` `createView` (~line 800): maps instance render_path onto
   `MarkerOptions::render_mode` (None→Flat2D, Phong→Sphere3D, PathTracing→warn +
   Sphere3D fallback). `MarkerOptions::render_mode` is now engine-managed (comment in
   view.hpp says so).
@@ -45,8 +46,9 @@ Just written, **compiles NOT yet verified** (the rebuild was interrupted to push
    converted both the `supportsRayTracing` query block and the `createLogicalDevice`
    enable block in device.cpp to the `Struct x{}; x.field = …;` style used elsewhere in
    the file. Library builds clean.
-2. ~~**Update both benchmarks to `--light-model none|phong|path-tracing`**~~ ✅ DONE and
-   verified. benchmark_mimir sets `opts.light_model`, no longer touches
+2. ~~**Update both benchmarks to `--render-path flat|impostor|mesh|path-traced`**~~ ✅ DONE and
+   verified (originally `--light-model none|phong|path-tracing`, still accepted as an alias).
+   benchmark_mimir sets `opts.render_path`, no longer touches
    marker_opts.render_mode (engine-managed), size none→px / phong,pt→/100. Both
    benchmarks parse `none|phong|path-tracing`; datoviz path-tracing prints the raster
    baseline message and exits 1. Verified windowed: mimir none≈2050 fps (flat discs),

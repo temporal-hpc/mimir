@@ -123,6 +123,10 @@ struct MimirInstance
     interop::Barrier interop;
 
     uint64_t render_timeline;
+    // Set by displayAsync() before the render thread starts: rendering runs on its own thread while
+    // the caller drives the sim through prepareViews/updateViews. display() and renderHeadless leave
+    // it false (single-threaded). Read by lodRasterOnComputeThread; never mutated after startup.
+    bool threaded_display = false;
     // render_timeline value when the graphics (and its metrics query pool) were last (re)built.
     // Metrics results are only read once enough frames have accumulated since then, so a freshly
     // rebuilt (empty) query pool isn't read with WAIT and blocked on after a resize.
@@ -169,7 +173,7 @@ struct MimirInstance
     metrics::GraphicsMonitor graphics_monitor;
     metrics::ComputeMonitor compute_monitor;
 
-    // Path tracing (LightModel::PathTracing). rt_enabled is true only when the instance
+    // Path tracing (RenderPath::PathTraced). rt_enabled is true only when the instance
     // requested path tracing AND the device is RT-capable; otherwise the engine renders
     // the raster fallback (createView warns). The context is built once in initVulkan; its
     // extent-dependent frame resources are (re)built in initGraphics.
@@ -264,12 +268,29 @@ struct MimirInstance
     uint32_t        lod_raster_index_count = 0;
     // Records the per-frame reduction + indirect-args build for raster point modes, BEFORE the render
     // pass (compute cannot run inside one). No-op when the raster LOD path is inactive.
-    void recordLodRaster(VkCommandBuffer cmd, uint32_t slot);
+    void recordLodRaster(VkCommandBuffer cmd, uint32_t frame_idx);
+    // True when the raster LOD's CUDA reduction must be issued from the COMPUTE thread (updateViews)
+    // instead of inline while the render thread records the frame. Required whenever the interop
+    // handshake is live on the threaded display path: the reduction runs on the interop stream, which
+    // by then holds the NEXT step's cudaWaitExternalSemaphoresAsync, so a render-thread
+    // cudaStreamSynchronize there waits for a Vulkan signal that only the frame being recorded can
+    // produce -- a deadlock. Same rule the path tracer follows (see updateViews / reduceLodCompute).
+    // False on the decoupled path (its reduction has a dedicated stream) and for the single-threaded
+    // display() loop (which submits its frame before the handshake's wait is enqueued).
+    bool lodRasterOnComputeThread() const;
+    // Slot the raster LOD reduction writes and the draw reads. The compute-thread reduction uses a
+    // single slot: the interop handshake lets exactly one step's CUDA work be in flight, so the next
+    // reduction cannot start until the frame that reads this slot has completed. The inline path
+    // keeps per-frame slots (nothing serializes the frames there).
+    uint32_t lodRasterSlot(uint32_t frame_idx) const;
+    // Runs the raster LOD CUDA reduction on the compute thread (called from updateViews, after the
+    // sim kernel and before signalKernelFinish). No-op unless lodRasterOnComputeThread().
+    void reduceLodRasterCompute();
     // Refresh copy-path interop Image views from their shared buffers (vkCmdCopyBufferToImage) before
     // the render pass. No-op for zero-copy aliased image views. See the ViewType::Image creation path.
     void recordImageCopies(VkCommandBuffer cmd);
 
-    // Shared template icosphere for the instanced mesh marker mode (LightModel::PhongMesh /
+    // Shared template icosphere for the instanced mesh marker mode (RenderPath::Mesh /
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is
     // created; every such view instances this one unit-sphere mesh, transformed per particle in the
     // vertex shader. index_count == 0 means it has not been built yet.

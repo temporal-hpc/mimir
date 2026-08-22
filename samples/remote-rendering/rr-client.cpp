@@ -599,7 +599,7 @@ void bench_csv_open(const Hello& hello)
     char gpu[GPU_MAX + 1] = {}; std::memcpy(gpu, hello.gpu, GPU_MAX);
     const std::string path = benchmarkCsvPath(g_bench_prefix, "client", client,
         server[0] ? server : g_dial_host, gpu,
-        hello.particle_count, hello.lod_cells, hello.light_model);
+        hello.particle_count, hello.lod_cells, hello.render_path);
     g_csv = fopen(path.c_str(), "w");
     if (!g_csv) { fprintf(stderr, "cannot open csv log '%s'\n", path.c_str()); return; }
     fprintf(g_csv, "time_s,fps,kbps,server_ms,server_ms_std,compute_ms,render_ms,decode_ms,decode_ms_std,"

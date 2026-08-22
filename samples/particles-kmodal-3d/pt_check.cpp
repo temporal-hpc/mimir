@@ -1,12 +1,18 @@
-// Headless verification for LightModel::PathTracing. Fills the interop position buffer with a
+// Headless verification for RenderPath::PathTraced. Fills the interop position buffer with a
 // deterministic grid, renders the scene (per-frame TLAS built from those positions) to a PPM.
 // Not part of the benchmark; a throwaway acceptance check for Phase 2's dynamic scene path.
+//
+// PT_COLORS=1 additionally binds a per-primitive Color attribute (one float4 per particle, a
+// 6-color saturated palette cycled by particle index) so the same scene checks that one color per
+// primitive reaches EVERY render path -- pick the raster ones with PT_PATH=impostor or
+// PT_PATH=mesh. Without it the whole cloud keeps default_color.
 #include <mimir/mimir.hpp>
 
 #include <cuda_runtime_api.h>
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring> // strcmp (PT_LIGHT)
 #include <vector>
 
 using namespace mimir;
@@ -15,7 +21,17 @@ int main(int argc, char** argv)
 {
     ViewerOptions opts;
     opts.render_mode      = RenderMode::Headless;
-    opts.light_model      = LightModel::PathTracing;
+    // PT_LIGHT selects the shading path over the identical scene: path-traced (default) or the
+    // Sphere3D raster impostor, so a per-primitive color source can be compared across both.
+    const char* rp = getenv("PT_PATH");
+    if (rp == nullptr) { rp = getenv("PT_LIGHT"); } // pre-rename spelling, still accepted
+    const bool impostor = (rp != nullptr
+        && (strcmp(rp, "impostor") == 0 || strcmp(rp, "phong") == 0));
+    const bool mesh = (rp != nullptr
+        && (strcmp(rp, "mesh") == 0 || strcmp(rp, "phong-mesh") == 0));
+    opts.render_path      = impostor ? RenderPath::Impostor
+                          : mesh ? RenderPath::Mesh
+                          : RenderPath::PathTraced;
     opts.window.size      = { 512, 512 };
     opts.background_color  = { 0.10f, 0.10f, 0.13f, 1.f }; // dark grey: exercises env fill light
     opts.light_pos         = { -0.4082f, 0.4082f, 0.8165f }; // match benchmark world sun (from behind the camera)
@@ -77,6 +93,32 @@ int main(int argc, char** argv)
     cudaMemcpy(d_pos, host.data(), sizeof(float) * 3 * n, cudaMemcpyHostToDevice);
     cudaDeviceSynchronize();
 
+    // PT_COLORS: one color per primitive, cycling a saturated 6-color palette by particle index.
+    // Saturated primaries make the check trivial to score from the PPM -- each rendered sphere must
+    // land in its own hue family, which a single default_color scene can never produce.
+    const bool per_primitive_colors = getenv("PT_COLORS") != nullptr;
+    float* d_col = nullptr;
+    AllocHandle col_alloc{};
+    if (per_primitive_colors)
+    {
+        allocLinear(engine, (void**)&d_col, sizeof(float) * 4 * n, &col_alloc);
+        static const float palette[6][3] = {
+            {1.f, 0.f, 0.f}, {0.f, 1.f, 0.f}, {0.f, 0.f, 1.f},
+            {1.f, 1.f, 0.f}, {1.f, 0.f, 1.f}, {0.f, 1.f, 1.f},
+        };
+        std::vector<float> hcol(4 * n);
+        for (unsigned int i = 0; i < n; ++i)
+        {
+            const float* c = palette[i % 6];
+            hcol[4 * i + 0] = c[0];
+            hcol[4 * i + 1] = c[1];
+            hcol[4 * i + 2] = c[2];
+            hcol[4 * i + 3] = 1.f;
+        }
+        cudaMemcpy(d_col, hcol.data(), sizeof(float) * 4 * n, cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+    }
+
     ViewDescription desc{
         .type       = ViewType::Markers,
         .domain     = DomainType::Domain3D,
@@ -95,6 +137,14 @@ int main(int argc, char** argv)
         .default_size  = (getenv("PT_SIZE_FRAC") ? (float)atof(getenv("PT_SIZE_FRAC")) : 0.3f)
                        * (2.f / float(N)),
     };
+    if (per_primitive_colors)
+    {
+        desc.attributes[AttributeType::Color] = AttributeDescription{
+            .source = col_alloc,
+            .size   = n,
+            .format = FormatDescription::make<float4>(),
+        };
+    }
     ViewHandle view = nullptr;
     createView(engine, &desc, &view);
 

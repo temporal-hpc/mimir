@@ -3,7 +3,8 @@
 
 This is the "mother" driver over ``plot_benchmark.py``: it discovers the per-run CSVs in a
 data directory, groups them, and composes -- for each of the three rendering modes
-(``pt`` = path tracing, ``phong``, ``raster`` = unshaded / --light-model none) -- a single
+(``pt`` = path tracing, ``phong`` = the impostor path, ``raster`` = unshaded /
+--render-path flat) -- a single
 2x3 grid figure:
 
                 100 M            1 B (LOD 128)        Max N per GPU
@@ -53,7 +54,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 MODES = {
     "pt":     "Path tracing",
     "phong":  "Phong",
-    "raster": "Unshaded (light-model none)",
+    "raster": "Unshaded (render-path flat)",
 }
 
 # Short form for the subtitle's "Rendered with ..." line -- MODES' names are the column-title

@@ -62,6 +62,14 @@ size_t clusterBytes(const ClusterData& clusters, size_t point_count);
 void launchInitPositions(float* pos3, const PointsParams& params,
                          ClusterData& clusters, RngStates& rng);
 
+// Per-particle colors: writes colors[i] = palette(cluster id of particle i), one float4 (RGBA,
+// alpha 1) per particle, with the palette sweeping the hue circle so each of the k gaussian modes
+// gets a visually distinct color. Deterministic and one-shot: the cluster assignment never changes
+// during the walk, so this runs once after launchInitPositions. Used to exercise mimir's
+// per-primitive Color attribute (see benchmark_mimir --cluster-colors).
+void launchFillClusterColors(float* colors4, size_t point_count, const ClusterData& clusters,
+                             cudaStream_t s = 0);
+
 // One walk step: per-axis gaussian displacement plus OU pull toward the point's
 // cluster center, clamped to the cube.
 void launchIntegrate3D(float* pos3, size_t point_count, const ClusterData& clusters,

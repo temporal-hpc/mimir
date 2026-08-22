@@ -168,6 +168,28 @@ MimirInstance MimirInstance::make(ViewerOptions opts)
     return engine;
 }
 
+// Element layout tag for a Color attribute used as the path tracer's per-primitive albedo source
+// (see RtSurfaceSource / primitiveAlbedo in pathtrace.slang). Only tightly-packed layouts the
+// closest-hit shader can read directly are supported; anything else returns kColorFormatNone and
+// the tracer keeps the view's single default_color. Alpha is ignored (path-traced spheres are
+// opaque), so float4 and float3 differ only in stride.
+static uint32_t colorSourceFormat(const FormatDescription& fmt)
+{
+    if (fmt.kind == FormatKind::Float && fmt.size == 4)
+    {
+        if (fmt.components == 4) { return kColorFormatFloat4; }
+        if (fmt.components == 3) { return kColorFormatFloat3; }
+    }
+    // uchar4 RGBA: both the normalized and the plain unsigned spelling of 4 x 1 B, since CUDA
+    // producers commonly declare a uchar4 color buffer without a normalized format kind.
+    if ((fmt.kind == FormatKind::UnsignedNormalized || fmt.kind == FormatKind::Unsigned)
+        && fmt.size == 1 && fmt.components == 4)
+    {
+        return kColorFormatUchar4;
+    }
+    return kColorFormatNone;
+}
+
 MimirInstance MimirInstance::make(int width, int height)
 {
     ViewerOptions opts;
@@ -218,7 +240,7 @@ void MimirInstance::prepare()
     // render (all lit models). Force it here -- before both the PT (bindScene) and raster LOD inits
     // read options.lod_centroid -- so every caller (not just rr-server) is consistent. `none` and the
     // sphere opt-out (lod_voxel=false) keep whatever placement was requested.
-    if (options.lod_voxel && options.pt_lod_cells > 0 && options.light_model != LightModel::None)
+    if (options.lod_voxel && options.pt_lod_cells > 0 && options.render_path != RenderPath::Flat)
     {
         if (options.lod_centroid)
         {
@@ -280,8 +302,39 @@ void MimirInstance::prepare()
                 // on this; LOD/voxel paths always emit float3 themselves and ignore it.
                 const auto& pos_format = view->desc.attributes[AttributeType::Position].format;
                 bool position_is_double = pos_format.kind == FormatKind::Float && pos_format.size == 8;
+
+                // Per-primitive albedo: when the view binds a Color attribute (one color per
+                // particle, the same buffer the raster marker shaders read as a vertex attribute),
+                // hand the path tracer its device address so the closest-hit shader can look up
+                // colors[particle] instead of the view's single default_color. Directly-mapped
+                // attributes only: an INDEXED color source is a palette + per-element index, which
+                // the closest-hit shader does not resolve, so it keeps the flat color.
+                VkDeviceAddress color_addr = 0;
+                uint32_t color_format = kColorFormatNone;
+                auto color_it = view->desc.attributes.find(AttributeType::Color);
+                int color_slot = view->attr_vbo[static_cast<int>(AttributeType::Color)];
+                if (color_it != view->desc.attributes.end() && color_slot >= 0)
+                {
+                    color_format = colorSourceFormat(color_it->second.format);
+                    if (color_format == kColorFormatNone)
+                    {
+                        spdlog::warn("Path tracing: Color attribute format (kind {}, {} x {} B) is "
+                            "not supported as a per-primitive albedo source; using the view color",
+                            static_cast<int>(color_it->second.format.kind),
+                            color_it->second.format.components, color_it->second.format.size);
+                    }
+                    else
+                    {
+                        VkBufferDeviceAddressInfo color_info{
+                            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                            .pNext = nullptr, .buffer = view->vbo[color_slot],
+                        };
+                        color_addr = vkGetBufferDeviceAddress(device, &color_info);
+                    }
+                }
                 raytracing.bindScene(pos_addr, view->element_count,
-                    view->desc.default_size, glm::vec4(c.x, c.y, c.z, c.w), position_is_double);
+                    view->desc.default_size, glm::vec4(c.x, c.y, c.z, c.w), position_is_double,
+                    color_addr, color_format);
                 break;
             }
         }
@@ -392,8 +445,8 @@ void MimirInstance::prepare()
     // (binding 0) and draw indirect; mesh (phong-mesh) binds them as the per-instance vbo (binding 1)
     // and draws INDEXED indirect (one icosphere per occupied cell).
     const bool raster_point_lod = !rt_enabled && options.pt_lod_cells > 0
-        && (options.light_model == LightModel::None || options.light_model == LightModel::Phong
-            || options.light_model == LightModel::PhongMesh)
+        && (options.render_path == RenderPath::Flat || options.render_path == RenderPath::Impostor
+            || options.render_path == RenderPath::Mesh)
         && supportsRayTracing(physical_device.handle); // BDA (scatter) needs bufferDeviceAddress
     if (options.pt_lod_cells > 0 && !rt_enabled && !supportsRayTracing(physical_device.handle))
     {
@@ -474,10 +527,10 @@ void MimirInstance::prepare()
                     });
                     occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
                 }
-                const char* mode_name = options.light_model == LightModel::None ? "none"
-                    : (options.light_model == LightModel::Phong ? "phong" : "phong-mesh");
+                const char* mode_name = options.render_path == RenderPath::Flat ? "none"
+                    : (options.render_path == RenderPath::Impostor ? "phong" : "phong-mesh");
                 // none = flat 2D points (plain --size); phong/phong-mesh = world spheres (cell-fill radius).
-                float log_size = options.light_model == LightModel::None
+                float log_size = options.render_path == RenderPath::Flat
                     ? view->desc.default_size : lod_context.sphereRadius(view->desc.default_size);
                 spdlog::info("Raster LOD ({}): emitted {} occupied cells (reduction {:.0f}:1 vs {} "
                     "particles); marker size {:.5f}",
@@ -609,6 +662,10 @@ void MimirInstance::prepare()
 void MimirInstance::displayAsync()
 {
     prepare();
+    // Rendering gets its own thread from here on; the caller drives the sim through
+    // prepareViews/updateViews. Set BEFORE the thread starts (and before `running`), so both threads
+    // read the same value when deciding where the raster LOD reduction runs.
+    threaded_display = true;
     std::atomic_ref<bool>(running).store(true, std::memory_order_release);
     rendering_thread = std::thread([&,this]()
     {
@@ -743,6 +800,9 @@ void MimirInstance::updateViews()
         // ready before the render's AS build (gated by the interop signal below).
         if (raytracing.voxel_boxes)                        { updateVoxelPtScene(); }
         else if (rt_enabled && raytracing.lod != nullptr)  { raytracing.reduceLodCompute(); }
+        // Raster LOD (none/phong/phong-mesh) obeys the same rule: its CUDA reduction shares the
+        // interop stream, so it must be issued here and not from the render thread.
+        else                                               { reduceLodRasterCompute(); }
         signalKernelFinish();
     }
 }
@@ -1593,33 +1653,47 @@ View *MimirInstance::createView(ViewDescription *desc)
     }
 
     // The instance-wide light model decides how markers are shaded; the per-view
-    // MarkerOptions::render_mode is derived from it here (see ViewerOptions::light_model).
+    // MarkerOptions::render_mode is derived from it here (see ViewerOptions::render_path).
     if (view.desc.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(view.desc.options))
     {
         auto& marker_opts = std::get<MarkerOptions>(view.desc.options);
-        switch (options.light_model)
+        switch (options.render_path)
         {
-            case LightModel::None:
+            case RenderPath::Flat:
                 marker_opts.render_mode = MarkerOptions::RenderMode::Flat2D;
                 break;
-            case LightModel::Phong:
+            case RenderPath::Impostor:
                 marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
                 break;
-            case LightModel::PhongMesh:
+            case RenderPath::Mesh:
                 marker_opts.render_mode = MarkerOptions::RenderMode::SphereMesh;
                 break;
-            case LightModel::PathTracing:
+            case RenderPath::PathTraced:
                 // Markers are path-traced via the RT pipeline; the Sphere3D raster mode is
                 // kept as the pipeline built for this view so RT-incapable devices still
                 // render (drawElements is skipped for the RT path, see renderFrame).
                 if (!rt_enabled)
                 {
-                    spdlog::warn("LightModel::PathTracing requested but device is not "
+                    spdlog::warn("RenderPath::PathTraced requested but device is not "
                                  "RT-capable; rendering with Phong raster instead");
                 }
                 marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
                 break;
+        }
+
+        // LOD draws one representative per occupied cell, but a Color attribute is indexed by
+        // PARTICLE: whichever path consumes it (per-instance vertex binding here, per-primitive
+        // albedo in the path tracer) would pair representative k with particle k's color. The path
+        // tracer drops the source outright (see bindScene); the raster paths keep drawing it, so
+        // warn that the colors no longer identify the particles they came from.
+        if (options.pt_lod_cells > 0
+            && view.desc.attributes.count(AttributeType::Color) > 0
+            && !hasIndexing(view.desc.attributes[AttributeType::Color]))
+        {
+            spdlog::warn("Marker view has a per-primitive Color attribute and LOD is active "
+                "(pt_lod_cells = {}): the reduction emits one representative per cell, so the "
+                "colors do not follow the particles they were written for", options.pt_lod_cells);
         }
 
         // Voxel LOD (lit models) renders as an instanced cube mesh: route the view through the
@@ -1628,8 +1702,8 @@ View *MimirInstance::createView(ViewDescription *desc)
         // `none` (Flat2D) and the sphere opt-out (lod_voxel=false) are untouched. PathTracing keeps
         // its raster fallback mode; the RT path ignores render_mode anyway.
         if (options.lod_voxel && options.pt_lod_cells > 0
-            && options.light_model != LightModel::None
-            && options.light_model != LightModel::PathTracing)
+            && options.render_path != RenderPath::Flat
+            && options.render_path != RenderPath::PathTraced)
         {
             marker_opts.render_mode = MarkerOptions::RenderMode::SphereMesh;
         }
@@ -1773,6 +1847,9 @@ View *MimirInstance::createView(ViewDescription *desc)
             view.vbo_stride[view.vb_count] = static_cast<VkDeviceSize>(attr.format.getSize());
             view.vbo_rate[view.vb_count]   = VK_VERTEX_INPUT_RATE_VERTEX;
             view.vbo[view.vb_count] = createAttributeBuffer(vb_size, vb_usage, vb_mem);
+            // Remember which binding this attribute landed in, so consumers outside the raster
+            // draw (the path tracer's per-primitive color source) can find its buffer.
+            view.attr_vbo[static_cast<int>(type)] = static_cast<int>(view.vb_count);
             view.vb_count++;
         }
         // If a non-position attribute uses indirect mapping, its source is mapped to a storage buffer
@@ -1822,7 +1899,7 @@ View *MimirInstance::createView(ViewDescription *desc)
     // Instanced mesh markers: rebind so the shared template icosphere is the per-vertex geometry
     // (binding 0) and the interop particle positions -- currently vbo[0] -- become per-instance data
     // (binding 1). The draw becomes one indexed instance of the icosphere per particle. This is the
-    // sample's mesh-sphere path (LightModel::PhongMesh); the positions stay the same zero-copy
+    // sample's mesh-sphere path (RenderPath::Mesh); the positions stay the same zero-copy
     // interop buffer, so nothing extra is streamed per frame.
     if (view.desc.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(view.desc.options)
@@ -1833,17 +1910,37 @@ View *MimirInstance::createView(ViewDescription *desc)
         // Voxel LOD lit views use the cube template; everything else uses the icosphere. Both share the
         // interleaved {pos, normal} layout and the same instanced pipeline/shader.
         const bool use_cube = options.lod_voxel && options.pt_lod_cells > 0
-            && options.light_model != LightModel::None;
+            && options.render_path != RenderPath::Flat;
         VkBuffer  tmpl_vbo   = use_cube ? (ensureCubeMesh(),   cube_vbo)   : (ensureSphereMesh(), sphere_vbo);
         VkBuffer  tmpl_ibo   = use_cube ? cube_ibo                         : sphere_ibo;
         uint32_t  tmpl_count = use_cube ? cube_index_count                 : sphere_index_count;
         VkBuffer instance_positions = view.vbo[0]; // interop particle centers (per-instance)
         uint64_t particle_count     = view.element_count;
+        // One color per marker (optional): keep the buffer the attribute loop created and rebind it
+        // as binding 2, per-instance, matching getVertexDescription's third binding and the
+        // vertexColorMain entry point. Captured BEFORE the slots below are overwritten.
+        const int color_slot = view.attr_vbo[static_cast<int>(AttributeType::Color)];
+        VkBuffer instance_colors = color_slot >= 0 ? view.vbo[color_slot] : VK_NULL_HANDLE;
+        VkDeviceSize color_stride = color_slot >= 0 ? view.vbo_stride[color_slot] : 0;
         view.vbo[0]        = tmpl_vbo;             // binding 0: template vertices ({pos, normal})
         view.offsets[0]    = 0;
         view.vbo[1]        = instance_positions;   // binding 1: particle centers
         view.offsets[1]    = 0;
         view.vb_count      = 2;
+        // The mesh path rebinds every slot, so the attribute->slot map above no longer holds:
+        // positions moved to binding 1, colors (if any) to binding 2, and any other attribute is
+        // not bound at all here.
+        for (auto& slot : view.attr_vbo) { slot = -1; }
+        view.attr_vbo[static_cast<int>(AttributeType::Position)] = 1;
+        if (instance_colors != VK_NULL_HANDLE)
+        {
+            view.vbo[2]        = instance_colors;  // binding 2: per-instance marker colors
+            view.offsets[2]    = 0;
+            view.vbo_stride[2] = color_stride;
+            view.vbo_rate[2]   = VK_VERTEX_INPUT_RATE_INSTANCE;
+            view.vb_count      = 3;
+            view.attr_vbo[static_cast<int>(AttributeType::Color)] = 2;
+        }
         // binding 0 = template (per-vertex, {pos, normal}); binding 1 = per-instance centers (vec3)
         view.vbo_stride[0] = 2 * sizeof(glm::vec3); view.vbo_rate[0] = VK_VERTEX_INPUT_RATE_VERTEX; // {pos, normal}
         view.vbo_stride[1] = sizeof(glm::vec3); view.vbo_rate[1] = VK_VERTEX_INPUT_RATE_INSTANCE;
@@ -1993,11 +2090,11 @@ void MimirInstance::initVulkan()
         vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
     });
 
-    // Path tracing (LightModel::PathTracing): build the resolution-independent RT context
+    // Path tracing (RenderPath::PathTraced): build the resolution-independent RT context
     // (BLAS/TLAS/pipeline/SBT) once, before initGraphics() so the per-frame storage images
     // and composite pipeline are created there. Requires an RT-capable device; otherwise the
     // instance silently renders the raster fallback (createView emits the warning).
-    rt_enabled = (options.light_model == LightModel::PathTracing)
+    rt_enabled = (options.render_path == RenderPath::PathTraced)
               && supportsRayTracing(physical_device.handle);
     if (rt_enabled)
     {
@@ -2899,15 +2996,52 @@ void MimirInstance::recordImageCopies(VkCommandBuffer cmd)
     }
 }
 
-void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t slot)
+bool MimirInstance::lodRasterOnComputeThread() const
+{
+    return !rt_enabled && threaded_display && options.present.enable_interop_sync
+        && lod_context.active() && lod_context.usesCuda()
+        && !lod_context.decoupledReduction();
+}
+
+uint32_t MimirInstance::lodRasterSlot(uint32_t frame_idx) const
+{
+    return lodRasterOnComputeThread() ? 0u : frame_idx;
+}
+
+void MimirInstance::reduceLodRasterCompute()
+{
+    if (!lodRasterOnComputeThread()) { return; }
+
+    // Same reduction the inline path runs, issued from the compute thread between the sim kernel and
+    // signalKernelFinish: it lands on the interop stream after the sim's writes (tear-free) and
+    // before the signal the render's submit waits on (so the reduced positions + emit counter are
+    // ready for the indirect draw). syncReduce() here is safe -- the only interop wait outstanding on
+    // this stream is the one this step already passed -- and it keeps the wall-clock split honest.
+    const auto lod_t0 = std::chrono::steady_clock::now();
+    lod_context.reduceCuda(interop.cuda_stream, lod_raster_pos_cuda, lod_raster_count,
+        lodRasterSlot(0u));
+    lod_context.syncReduce();
+    last_lod_raster_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - lod_t0).count();
+}
+
+void MimirInstance::recordLodRaster(VkCommandBuffer cmd, uint32_t frame_idx)
 {
     if (rt_enabled || !lod_context.active()) { return; }
+    const uint32_t slot = lodRasterSlot(frame_idx);
 
     // Reduce the live interop positions into the shared reduced-position buffer (clear -> scatter ->
-    // emit). Outputs go to this frame-in-flight `slot`; drawElements(slot) reads the SAME slot this
-    // frame wrote, so an overlapping frame T+1's reduction (a different slot) can't clobber frame T's
-    // draw inputs.
-    if (lod_context.usesCuda())
+    // emit). Outputs go to `slot`, which drawElements resolves the same way (lodRasterSlot): a
+    // per-frame slot on the inline path, so an overlapping frame T+1's reduction cannot clobber frame
+    // T's draw inputs, and a single slot when the compute thread reduces (the interop handshake
+    // already keeps exactly one step's reduction in flight).
+    if (lodRasterOnComputeThread())
+    {
+        // The reduction already ran on the compute thread (reduceLodRasterCompute), ordered before
+        // the interop signal this frame's submit waits on. Nothing to launch here -- only the
+        // barrier + indirect-args build below, which are plain command recording.
+    }
+    else if (lod_context.usesCuda())
     {
         // CUDA reduction path. reduceCuda + syncReduce block the render thread until the reduced
         // positions + emit counter are ready for the graphics submit's indirect draw. In COUPLED
@@ -3065,7 +3199,7 @@ void MimirInstance::drawElements(uint32_t image_idx)
             VkBuffer     vbos[max_attr_count];
             VkDeviceSize offs[max_attr_count];
             for (uint32_t s = 0; s < view->vb_count; ++s) { vbos[s] = view->vbo[s]; offs[s] = view->offsets[s]; }
-            vbos[0] = lod_context.reducedPositionsBuffer(image_idx);
+            vbos[0] = lod_context.reducedPositionsBuffer(lodRasterSlot(image_idx));
             offs[0] = 0;
             vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
         }
@@ -3076,7 +3210,7 @@ void MimirInstance::drawElements(uint32_t image_idx)
             VkBuffer     vbos[max_attr_count];
             VkDeviceSize offs[max_attr_count];
             for (uint32_t s = 0; s < view->vb_count; ++s) { vbos[s] = view->vbo[s]; offs[s] = view->offsets[s]; }
-            vbos[1] = lod_context.reducedPositionsBuffer(image_idx);
+            vbos[1] = lod_context.reducedPositionsBuffer(lodRasterSlot(image_idx));
             offs[1] = 0;
             vkCmdBindVertexBuffers(cmd, 0, view->vb_count, vbos, offs);
         }
@@ -3087,7 +3221,7 @@ void MimirInstance::drawElements(uint32_t image_idx)
             vkCmdBindIndexBuffer(cmd, view->ibo, 0, view->index_type);
             if (lod_mesh_draw) // Reduced icospheres: instanceCount from the GPU indirect-args buffer.
             {
-                vkCmdDrawIndexedIndirect(cmd, lod_context.indirectBuffer(image_idx), 0, 1, 0);
+                vkCmdDrawIndexedIndirect(cmd, lod_context.indirectBuffer(lodRasterSlot(image_idx)), 0, 1, 0);
             }
             else if (marker_mesh_mode) // instanced mesh (phong-mesh), no LOD: chunk the INSTANCE dim.
             {
@@ -3110,7 +3244,7 @@ void MimirInstance::drawElements(uint32_t image_idx)
         }
         else if (lod_point_draw) // Reduced cloud: vertexCount comes from the GPU indirect-args buffer.
         {
-            vkCmdDrawIndirect(cmd, lod_context.indirectBuffer(image_idx), 0, 1, 0);
+            vkCmdDrawIndirect(cmd, lod_context.indirectBuffer(lodRasterSlot(image_idx)), 0, 1, 0);
         }
         else // point cloud, no LOD: chunk the VERTEX dimension (full particle count)
         {
@@ -3376,7 +3510,7 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
         {
             // Voxel LOD lit views (routed to SphereMesh) fill the cell: half-extent = 1/grid_n so the
             // cubes tile. Sphere LOD uses the cell-fill sphere radius scaled by --size.
-            const bool voxel = options.lod_voxel && options.light_model != LightModel::None;
+            const bool voxel = options.lod_voxel && options.render_path != RenderPath::Flat;
             marker_size = voxel ? lod_context.voxelHalfExtent()
                                 : lod_context.sphereRadius(view->desc.default_size);
         }
@@ -3385,9 +3519,9 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
             .size      = marker_size,
             .linewidth = view->desc.linewidth,
             .antialias = view->desc.antialias,
-            // Voxels read this to shade cube faces under --light-mode phong (LightModel::Phong). Other
+            // Voxels read this to shade cube faces under --light-mode phong (RenderPath::Impostor). Other
             // view shaders ignore it, so a global instance-wide flag is fine.
-            .shading   = (options.light_model == LightModel::Phong) ? 1.f : 0.f,
+            .shading   = (options.render_path == RenderPath::Impostor) ? 1.f : 0.f,
         };
 
         auto bg = options.background_color;

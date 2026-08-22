@@ -88,7 +88,26 @@ struct MaterialData
     float emission = 0.f;                  // 0 = lambertian; >0 emits albedo*emission
 };
 
-// Path-tracing render context (LightModel::PathTracing). Owns the icosphere BLAS, the
+// Per-primitive color source, handed to the path tracer as a tiny uniform buffer (RT descriptor set
+// 0, binding 4). Must match SurfaceSource in pathtrace.slang. The array itself is reached by
+// buffer-device-address -- NOT bound as a storage descriptor -- so it is not capped by
+// maxStorageBufferRange at large N, exactly like the position and AABB buffers.
+struct RtSurfaceSource
+{
+    VkDeviceAddress colors = 0; // device address of the per-primitive color array; 0 = none
+    uint32_t format = 0;        // kColorFormat* below; 0 = none (the SBT material albedo is used)
+    uint32_t pad = 0;
+};
+
+// Element layouts the path tracer can read a per-primitive color array in. Derived from the view's
+// Color AttributeDescription format by the engine (see colorSourceFormat in engine.cpp); anything
+// else falls back to the view's single default_color.
+static constexpr uint32_t kColorFormatNone    = 0;
+static constexpr uint32_t kColorFormatFloat3  = 1; // 12 B/primitive
+static constexpr uint32_t kColorFormatFloat4  = 2; // 16 B/primitive
+static constexpr uint32_t kColorFormatUchar4  = 3; // 4 B/primitive, RGBA8 unorm
+
+// Path-tracing render context (RenderPath::PathTraced). Owns the icosphere BLAS, the
 // scene TLAS, the ray-tracing pipeline + SBT, and the per-frame storage images plus the
 // fullscreen composite pipeline that samples them into the raster render pass (so the
 // existing ImGui HUD/present machinery is untouched). RT pipeline/SBT/BLAS/TLAS are
@@ -210,6 +229,12 @@ struct RayTracingContext
     // Descriptor pool + per-frame RT sets (binding 0 = TLAS, binding 1 = storage image)
     VkDescriptorPool rt_pool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> rt_sets;
+
+    // Per-primitive color source (RT binding 4). The buffer is host-visible, created with the
+    // pipeline and pointed at by every frame's set once at allocation, so bindScene only has to
+    // refresh its 16 bytes of contents (setup-time, no frames in flight).
+    RtBuffer surface_buffer;
+    RtSurfaceSource surface_source{};
 
     // Fullscreen composite (samples storage image into the raster color attachment)
     VkSampler composite_sampler = VK_NULL_HANDLE;
@@ -349,8 +374,15 @@ struct RayTracingContext
     // spheres of the given world radius. Allocates the AABB buffer / BLAS / one-instance TLAS /
     // scratch and builds them once. The AABB writer reads positions by buffer-device-address (no
     // storage-range cap). Call once after view creation.
+    // `colors` / `color_format` are the optional per-primitive color array (the view's Color
+    // attribute, reached by device address; kColorFormat* tags the element layout). When
+    // color_format is kColorFormatNone the whole cloud shades with `color`, as before. Per-primitive
+    // colors index the SOURCE particle array, so they are only honored on the direct sphere path:
+    // the LOD and voxel paths trace mimir-generated representatives whose primitive index is a cell,
+    // not a particle, and bindScene drops the source there (with a warning).
     void bindScene(VkDeviceAddress positions, uint64_t particle_count, float radius, glm::vec4 color,
-        bool position_is_double = false);
+        bool position_is_double = false, VkDeviceAddress colors = 0,
+        uint32_t color_format = kColorFormatNone);
 
     // Record the per-frame scene update for this frame: dispatch the instance-writer compute
     // over the live positions, then rebuild this frame's TLAS. Must be recorded OUTSIDE a

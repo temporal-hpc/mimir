@@ -106,9 +106,9 @@ struct Hello
     uint32_t steps_per_frame;
     // Appended (forward-compat: older peers read min(payload, sizeof) and leave these zero). Static
     // scene identity the client uses to name benchmark CSVs and label its HUD: total particle count,
-    // and the light model (LightModel ordinal: 0 None/raster, 1 Phong, 2 PhongMesh, 3 PathTracing).
+    // and the render path (RenderPath ordinal: 0 Flat, 1 Impostor, 2 Mesh, 3 PathTraced).
     uint64_t particle_count;
-    uint32_t light_model;
+    uint32_t render_path;
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
@@ -293,15 +293,17 @@ inline std::string countTag(uint64_t n)
     return b;
 }
 
-// Short light-model tag (LightModel ordinal): 0 None -> raster, 1 Phong, 2 PhongMesh, 3 PathTracing.
-inline const char* lightTag(uint32_t light_model)
+// Short render-path tag for CSV file names (RenderPath ordinal): 0 Flat, 1 Impostor, 2 Mesh,
+// 3 PathTraced. The tag STRINGS are deliberately unchanged by the LightModel -> RenderPath rename:
+// they name benchmark CSVs already on disk, which research/scripts/plot_grid.py keys off.
+inline const char* pathTag(uint32_t render_path)
 {
-    switch (light_model) {
-        case 1:  return "phong";
-        case 2:  return "mesh";
-        case 3:  return "pt";
-        case 0:  return "raster";
-        default: return "lm";
+    switch (render_path) {
+        case 1:  return "phong";  // Impostor
+        case 2:  return "mesh";   // Mesh
+        case 3:  return "pt";     // PathTraced
+        case 0:  return "raster"; // Flat
+        default: return "rp";
     }
 }
 
@@ -310,7 +312,7 @@ inline const char* lightTag(uint32_t light_model)
 //   <prefix>-<date>-rr-<role>-n6G-lod256-pt-c<client>-s<server>-<gpu>.csv
 inline std::string benchmarkCsvPath(const std::string& prefix, const char *role,
     const std::string& client, const std::string& server, const std::string& gpu,
-    uint64_t particles, uint32_t lod_cells, uint32_t light_model)
+    uint64_t particles, uint32_t lod_cells, uint32_t render_path)
 {
     std::string p = prefix;
     if (!p.empty() && p.back() != '/' && p.back() != '-') { p += '-'; }
@@ -318,7 +320,7 @@ inline std::string benchmarkCsvPath(const std::string& prefix, const char *role,
     p += "-rr-"; p += role;
     p += "-n"   + countTag(particles);
     p += "-lod" + (lod_cells ? std::to_string(lod_cells) : std::string("off"));
-    p += "-"    + std::string(lightTag(light_model));
+    p += "-"    + std::string(pathTag(render_path));
     p += "-c" + hostTag(client);
     p += "-s" + hostTag(server);
     p += "-"  + gpuTag(gpu);

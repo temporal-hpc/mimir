@@ -29,14 +29,17 @@ cuRAND — the clusters keep their blobby "cheese" shape indefinitely while the 
 continuously moving, which keeps the encoder honest, and the particle buffer lives on the GPU via
 mimir's CUDA interop (no per-frame host round-trip).
 
-The **render path is selectable** with `--light-model`, so the client can view the simulation as:
+The **render path is selectable** with `--render-path`, so the client can view the simulation as:
 
-| `--light-model` | What the client sees                                            |
+| `--render-path` | What the client sees                                            |
 |-----------------|-----------------------------------------------------------------|
-| `none` / `point`| Unlit pixel-sized discs (cheapest)                              |
-| `phong`         | Lit sphere impostors (default)                                  |
-| `phong-mesh`    | Lit instanced icosphere meshes (`--subdiv` tessellation)        |
-| `path-tracing`  | Vulkan ray tracing (`--spp`, `--bounces`, `--bvh-rebuild-interval`) |
+| `flat`          | Unlit pixel-sized discs (cheapest)                              |
+| `impostor`      | Lit ray-sphere impostors (default)                              |
+| `mesh`          | Lit instanced icosphere meshes (`--subdiv` tessellation)        |
+| `path-traced`   | Vulkan ray tracing (`--spp`, `--bounces`, `--bvh-rebuild-interval`) |
+
+`--light-model` is still accepted as an alias, with its old value spellings
+(`none`/`point`, `phong`, `phong-mesh`, `path-tracing`).
 
 The lighting (sun direction, `--pcolor`, `--background`) and camera framing match
 `particles-kmodal-3d/benchmark_mimir`, so a phong / phong-mesh / path-traced remote frame looks the
@@ -123,13 +126,13 @@ rr-client [host] [port] [token] [auto|quic|tcp] [frames]
 
 `point_count` has **no fixed maximum — it is bounded only by GPU memory**. Positions cost 12
 B/particle; path-tracing *without* `--lod` adds 24 B/particle for AABBs (36 B/particle total);
-`--lod` and the raster light models (`none`/`phong`/`phong-mesh`) stay at ~12 B/particle. A count
+`--lod` and the raster render paths (`flat`/`impostor`/`mesh`) stay at ~12 B/particle. A count
 that would not fit the GPU's free memory right now is rejected up front, before any Vulkan
 allocation — there's no OOM crash, just a clear error. Rough per-card ceiling: ~7.5 B particles on
 a 96 GB GPU (`none`/`phong`/path-tracing+`--lod`); ~2.6 B for path-tracing without `--lod`; more on
 larger-VRAM cards.
 
-`rr-server` also takes named options after the positional args — `--light-model`, `--spp`,
+`rr-server` also takes named options after the positional args — `--render-path`, `--spp`,
 `--bounces`, `--bvh-rebuild-interval`, `--subdiv`, `--lod`, `--lod-placement`, `--sort-every`,
 `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`, `--max-steps`, `--dev` (GPU
 device id on a multi-GPU host, default 0) (run `./rr-server --help` for the full list).
@@ -144,8 +147,8 @@ device id on a multi-GPU host, default 0) (run `./rr-server --help` for the full
 ### Pick a render path
 
 ```sh
-./rr-server 9000 1280 720 50000 1 --light-model phong-mesh       # instanced meshes
-./rr-server 9000 1280 720 50000 1 --light-model path-tracing --spp 2   # Vulkan RT
+./rr-server 9000 1280 720 50000 1 --render-path mesh             # instanced meshes
+./rr-server 9000 1280 720 50000 1 --render-path path-traced --spp 2    # Vulkan RT
 ```
 
 ### Local, H.264 over TCP
@@ -195,12 +198,12 @@ X:
 
 ### Level of detail
 
-#### `--lod N` (level of detail — all light models)
+#### `--lod N` (level of detail — all render paths)
 
-`--lod` is **transversal**: it applies to every `--light-model` (`none`, `phong`, `phong-mesh`,
-`path-tracing`), not just path-tracing. It's data reduction, orthogonal to shading — `--light-model`
-and `--lod` are picked independently, and the reduced particle set feeds whichever renderer is
-active.
+`--lod` is **transversal**: it applies to every `--render-path` (`flat`, `impostor`, `mesh`,
+`path-traced`), not just path tracing. It's data reduction, orthogonal to how the scene is drawn —
+`--render-path` and `--lod` are picked independently, and the reduced particle set feeds whichever
+renderer is active.
 
 Aggregates particles into an `N x N x N` voxel grid over the `[-1,1]³` domain and draws
 one representative per **occupied** cell instead of one per particle: in the lit modes (`phong`,
@@ -221,8 +224,8 @@ is preserved via fixed-point integer atomics.
   the largest feasible N reported.
 - Deterministic: the same `N` yields the same occupied-cell count and image every run, so it is a
   reproducible benchmark knob.
-- The occupied-cell count at a given `N` is **identical across all four light models** — they share
-  the same reduction, so switching `--light-model` at a fixed `--lod N` shows a consistent scene.
+- The occupied-cell count at a given `N` is **identical across all four render paths** — they share
+  the same reduction, so switching `--render-path` at a fixed `--lod N` shows a consistent scene.
 - Memory: the grid accumulator is `N³ * 32 bytes` (with centroid; e.g. 256³ = 512 MB).
 
 **`--size` under `--lod`:**
@@ -242,10 +245,10 @@ Examples:
 
 ```sh
 # Path-tracing, 128^3 LOD grid
-./rr-server 9000 1920 1080 $((2**29)) 1 --light-model path-tracing --lod 128
+./rr-server 9000 1920 1080 $((2**29)) 1 --render-path path-traced --lod 128
 
 # Same LOD grid under phong instead -- identical occupied-cell count, raster shading
-./rr-server 9000 1920 1080 $((2**29)) 1 --light-model phong --lod 128
+./rr-server 9000 1920 1080 $((2**29)) 1 --render-path impostor --lod 128
 ```
 
 ## Controls (interactive window)

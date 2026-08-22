@@ -431,11 +431,11 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
     ViewerOptions options{};
     options.window.title = "Mimir - nbody";
     options.window.size = {input.width, input.height}; // Starting window size
-    // Cheapest possible particles: LightModel::None draws markers as UNLIT native point
+    // Cheapest possible particles: RenderPath::Flat draws markers as UNLIT native point
     // sprites (Flat2D: no geometry shader, no lighting, no custom depth) -- the same cost
     // class as datoviz's flat disc markers in samples/nbody-datoviz. The library default
     // (Phong) would render ray-traced sphere impostors instead.
-    options.light_model = LightModel::None;
+    options.render_path = RenderPath::Flat;
     options.background_color = {0.f, 0.f, 0.f, 1.f};
     options.present.mode = input.present;
     options.present.enable_interop_sync = input.enable_interop_sync;
@@ -475,7 +475,7 @@ BenchmarkResult runExperiment(BenchmarkInput input, NBodyParams params)
             .layout        = Layout::make(input.body_count),
             .visible       = true,
             .default_color = {1.f, 1.f, 1.f, 1.f},
-            // Under LightModel::None markers are native point sprites sized in PIXELS
+            // Under RenderPath::Flat markers are native point sprites sized in PIXELS
             // (params.point_size is a world-space unit for the lit sphere modes and does
             // not apply). 3 px matches nbody-datoviz's MARKER_SIZE_PX for a fair visual
             // and cost comparison.

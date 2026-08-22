@@ -72,18 +72,22 @@ struct WindowOptions
 // Remote   = headless rendering streamed to a connected client (not yet implemented).
 enum class RenderMode { Local, Headless, Remote };
 
-// Selects how the scene is shaded, instance-wide.
-// None        = unlit raster; markers draw as flat 2D point-sprite discs.
-// Phong       = lit raster; markers draw as ray-sphere impostors with Blinn-Phong (the
-//               datoviz-comparable lit-sphere technique).
-// PhongMesh   = lit raster; markers draw as instanced triangle icospheres (same geometry as
-//               PathTracing, tessellation from pt_subdivisions). Cheaper than impostors at high
-//               resolution (early-Z, no per-fragment ray-sphere) and geometry-matched to path
-//               tracing. mimir-only: datoviz has no per-instance mesh path (keep it on Phong).
-// PathTracing = Vulkan ray-traced path tracing (requires an RT-capable GPU; markers
-//               become instanced triangle icospheres). In development — currently
-//               falls back to Phong raster with a warning. See DESIGN_pathtracing.md.
-enum class LightModel { None, Phong, PhongMesh, PathTracing };
+// Selects the instance-wide RENDER PATH: how markers are turned into pixels. This is not a lighting
+// model -- each value picks a geometry representation AND a rendering technique together, and two of
+// them share the same Blinn-Phong shading. (Formerly RenderPath; --light-model is still accepted on
+// the samples' CLI as an alias.)
+// Flat       = unlit raster; markers draw as flat 2D point-sprite discs (marker_flat.slang).
+// Impostor   = lit raster; markers draw as ray-sphere impostors shaded with Blinn-Phong, one
+//              screen-aligned quad each (marker.slang). The datoviz-comparable lit-sphere technique.
+// Mesh       = lit raster; markers draw as instanced triangle icospheres (marker_mesh.slang), same
+//              Blinn-Phong shading as Impostor, tessellation from pt_subdivisions. Cheaper than
+//              impostors at high resolution (early-Z, no per-fragment ray-sphere) and
+//              geometry-matched to path tracing. mimir-only: datoviz has no per-instance mesh path.
+// PathTraced = Vulkan ray-traced path tracing (pathtrace.slang; requires an RT-capable GPU). Markers
+//              become procedural AABB spheres in a per-frame acceleration structure. Falls back to
+//              the Impostor raster path with a warning on a non-RT device. See DESIGN_pathtracing.md.
+// The ordinals (Flat = 0 ... PathTraced = 3) are part of the remote protocol -- do not reorder.
+enum class RenderPath { Flat, Impostor, Mesh, PathTraced };
 
 enum class PresentMode { Immediate, TripleBuffering, VSync };
 
@@ -135,9 +139,10 @@ struct ViewerOptions
     // Selects on-screen (Local) vs offscreen/headless rendering for this instance.
     RenderMode render_mode  = RenderMode::Local;
 
-    // Instance-wide shading model; drives how each view's pipeline is built
-    // (e.g. flat vs lit markers). Phong preserves the historical default look.
-    LightModel light_model  = LightModel::Phong;
+    // Instance-wide render path; drives how each view's pipeline is built (flat sprites, lit
+    // impostors, instanced meshes, or the ray-tracing pipeline). Impostor preserves the historical
+    // default look.
+    RenderPath render_path  = RenderPath::Impostor;
 
     // Forces mimir's CUDA-Vulkan interop device to this CUDA device ordinal (from the
     // CUDA-visible set), instead of auto-picking the first suitable GPU. Set this to match
@@ -185,7 +190,7 @@ struct ViewerOptions
     float specular_power = 32.f;
     float ambient_strength = .05f;
 
-    // Path-tracing workload knobs (only used when light_model == LightModel::PathTracing;
+    // Path-tracing workload knobs (only used when render_path == RenderPath::PathTraced;
     // ignored by the raster light models). See DESIGN_pathtracing.md §6.
     unsigned int pt_samples_per_pixel = 1; // rays per pixel per frame (--spp)
     unsigned int pt_max_bounces       = 4; // max path depth (--bounces)

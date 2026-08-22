@@ -31,7 +31,7 @@ void voxelPoolMax(const int* fine, uint32_t N, int* coarse, uint32_t M, cudaStre
 static void print_usage(const char* prog)
 {
     printf("Usage: %s n nt B seed steps prob modo [--lod M] [--fly]\n", prog);
-    printf("           [--light-model MODE] [--opacity A]\n\n");
+    printf("           [--render-path MODE] [--opacity A]\n\n");
     printf("3D cellular automaton rendered as a voxel volume with mimir.\n\n");
     printf("Positional arguments:\n");
     printf("  n      grid size (N^3 cells)\n");
@@ -44,13 +44,14 @@ static void print_usage(const char* prog)
     printf("Options:\n");
     printf("  --lod M            coarsen the N^3 grid to M^3 in the vertex shader (M < N, GPU render)\n");
     printf("  --fly              FPS fly camera (WASD/QE + mouse-look, TAB releases cursor); default orbit\n");
-    printf("  --light-model MODE  how living voxels are shaded (default flat):\n");
+    printf("  --render-path MODE  how living voxels are drawn (default flat):\n");
     printf("                       flat          opaque, unlit cubes\n");
-    printf("                       phong         cubes lit by the scene light (better 3D shape)\n");
-    printf("                       path-tracing  ray-traced boxes (needs an RT-capable GPU)\n");
+    printf("                       impostor      cubes lit by the scene light (better 3D shape)\n");
+    printf("                       path-traced   ray-traced boxes (needs an RT-capable GPU)\n");
+    printf("                      (alias: --light-model, values none/phong/path-tracing)\n");
     printf("  --opacity A        living-cell alpha in [0,1] (default 1). A < 1 makes the volume\n");
     printf("                     see-through (dead cells hidden, depth-write off) so interior\n");
-    printf("                     living cells are visible. Applies to the chosen light mode.\n");
+    printf("                     living cells are visible. Applies to the chosen render path.\n");
     printf("  --background-color C  window background: grey 'G' or 'R,G,B' in [0,1]\n");
     printf("  --cell-color C        living-cell color: grey 'G' or 'R,G,B' in [0,1]\n");
     printf("  --steps-per-frame K   advance K CA steps per rendered frame (default 1; faster evolution)\n");
@@ -61,8 +62,8 @@ static void print_usage(const char* prog)
     printf("  CA_LOD_CHECK=1     one-shot: assert the GPU max-pool matches a CPU reference (needs --lod)\n");
 }
 
-// Living-voxel shading selected by --light-model. Opacity is a separate --opacity knob.
-enum class VoxLight { Flat, Phong, PathTracing };
+// Living-voxel render path selected by --render-path. Opacity is a separate --opacity knob.
+enum class VoxPath { Flat, Impostor, PathTraced };
 
 // Print basic host/device info (GPU, CPU, RAM) at startup.
 static void print_system_info()
@@ -128,7 +129,7 @@ int main(int argc, char **argv){
     // Optional flags after the 7 positional args (see print_usage).
     unsigned int lod_cells = 0;
     bool     fly     = false;
-    VoxLight light   = VoxLight::Flat;
+    VoxPath  path    = VoxPath::Flat;
     float    opacity = 1.0f;
     float3   bg_color   = { 0.10f, 0.10f, 0.12f }; // window background (dark makes the volume pop)
     float3   cell_color = { 0.15f, 0.45f, 1.00f }; // living-cell color
@@ -142,13 +143,14 @@ int main(int argc, char **argv){
         else if (a == "--opacity" && i + 1 < argc) opacity = std::stof(argv[++i]);
         else if (a == "--steps-per-frame" && i + 1 < argc) steps_per_frame = std::max(1, atoi(argv[++i]));
         else if (a == "--fps" && i + 1 < argc) fps_cap = atoi(argv[++i]);
-        else if (a == "--light-model" && i + 1 < argc)
+        // --light-model is the pre-rename spelling, kept as an alias (with its old values).
+        else if ((a == "--render-path" || a == "--light-model") && i + 1 < argc)
         {
             std::string m = argv[++i];
-            if      (m == "flat" || m == "none") light = VoxLight::Flat;
-            else if (m == "phong")               light = VoxLight::Phong;
-            else if (m == "path-tracing" || m == "pt") light = VoxLight::PathTracing;
-            else { fprintf(stderr, "Unknown --light-model '%s' (flat|phong|path-tracing)\n", m.c_str());
+            if      (m == "flat" || m == "none")            path = VoxPath::Flat;
+            else if (m == "impostor" || m == "phong")       path = VoxPath::Impostor;
+            else if (m == "path-traced" || m == "path-tracing" || m == "pt") path = VoxPath::PathTraced;
+            else { fprintf(stderr, "Unknown render path '%s' (flat|impostor|path-traced)\n", m.c_str());
                    return EXIT_FAILURE; }
         }
         else if (a == "--background-color" && i + 1 < argc)
@@ -207,9 +209,9 @@ int main(int argc, char **argv){
     opts.camera_control = fly ? CameraControl::Fly : CameraControl::Orbit;
     if (fly) { opts.camera_move_speed = 1.5f * n; } // scale WASD speed to the grid (was too slow)
     // Living-voxel shading. flat = unlit, phong = lit cubes, path-tracing = ray-traced boxes (RT GPU).
-    opts.light_model = (light == VoxLight::Phong)       ? LightModel::Phong
-                     : (light == VoxLight::PathTracing) ? LightModel::PathTracing
-                                                        : LightModel::None;
+    opts.render_path = (path == VoxPath::Impostor)   ? RenderPath::Impostor
+                     : (path == VoxPath::PathTraced) ? RenderPath::PathTraced
+                                                        : RenderPath::Flat;
     opts.background_color = { bg_color.x, bg_color.y, bg_color.z, 1.f };
     // Diagonal key light from behind-upper-left of the camera (both cameras view the +z faces, see
     // below), so those faces are front-lit -- clear directional shading in phong and path tracing.
@@ -219,7 +221,7 @@ int main(int argc, char **argv){
     else             { opts.present.enable_fps_limit = false; }
     // Built-in FPS/frame-time overlay (F2 toggles it). No ImGui code in this sample.
     opts.show_hud = true;
-    if (light == VoxLight::PathTracing)
+    if (path == VoxPath::PathTraced)
     {
         // A few samples/bounces per frame keep the live path-traced volume readable (it also keeps
         // accumulating across static frames). Transmission (--opacity < 1) is noisier, so lean higher.
@@ -305,9 +307,9 @@ int main(int argc, char **argv){
     // itself (opts.show_hud, F2 toggles it) -- this sample links no ImGui and writes no GUI code.
     {
         unsigned long long fine = (unsigned long long)n * n * n;
-        const char* light_name = (light == VoxLight::Phong) ? "phong"
-            : (light == VoxLight::PathTracing) ? "path-tracing" : "flat";
-        printf("Scene : grid %ld^3 (%llu voxels), light=%s, opacity=%.2f", n, fine, light_name, opacity);
+        const char* path_name = (path == VoxPath::Impostor) ? "impostor"
+            : (path == VoxPath::PathTraced) ? "path-traced" : "flat";
+        printf("Scene : grid %ld^3 (%llu voxels), path=%s, opacity=%.2f", n, fine, path_name, opacity);
         if (lod_cells) { printf(", LOD %u^3 (%.1fx fewer cubes)", lod_cells,
             (double)fine / ((double)lod_cells * lod_cells * lod_cells)); }
         printf("\nControls: %s | Space=pause  .=step  F2=HUD  Ctrl+W=quit\n",

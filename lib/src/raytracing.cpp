@@ -371,7 +371,7 @@ void createRtPipeline(RayTracingContext& ctx)
 {
     // Descriptor set layout: TLAS + display image + accumulator + denoiser G-buffer (all written
     // by the raygen except the TLAS, which the closest-hit also reads).
-    VkDescriptorSetLayoutBinding bindings[4] = {
+    VkDescriptorSetLayoutBinding bindings[5] = {
         { .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
           .descriptorCount = 1,
           .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR,
@@ -385,10 +385,15 @@ void createRtPipeline(RayTracingContext& ctx)
         { .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
           .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
           .pImmutableSamplers = nullptr },
+        // Per-primitive color source (RtSurfaceSource): read only by the closest-hit shader, which
+        // swaps the SBT material's albedo for colors[primitive] when one is bound.
+        { .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+          .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR,
+          .pImmutableSamplers = nullptr },
     };
     VkDescriptorSetLayoutCreateInfo set_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = nullptr, .flags = 0, .bindingCount = 4, .pBindings = bindings,
+        .pNext = nullptr, .flags = 0, .bindingCount = 5, .pBindings = bindings,
     };
     validation::checkVulkan(vkCreateDescriptorSetLayout(
         ctx.device, &set_info, nullptr, &ctx.rt_set_layout));
@@ -538,15 +543,17 @@ void createRtPipeline(RayTracingContext& ctx)
     ctx.callable_region = {};
 
     // Descriptor pool sized for a few frames in flight (TLAS + three storage images per set:
-    // display image, shared accumulator, and the denoiser G-buffer).
-    VkDescriptorPoolSize rt_pool_sizes[2] = {
+    // display image, shared accumulator, and the denoiser G-buffer -- plus the per-primitive
+    // color-source uniform buffer).
+    VkDescriptorPoolSize rt_pool_sizes[3] = {
         { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 8 },
         { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 24 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8 },
     };
     VkDescriptorPoolCreateInfo rt_pool_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .pNext = nullptr, .flags = 0, .maxSets = 8,
-        .poolSizeCount = 2, .pPoolSizes = rt_pool_sizes,
+        .poolSizeCount = 3, .pPoolSizes = rt_pool_sizes,
     };
     validation::checkVulkan(vkCreateDescriptorPool(
         ctx.device, &rt_pool_info, nullptr, &ctx.rt_pool));
@@ -844,6 +851,28 @@ void allocateDescriptorSets(RayTracingContext& ctx)
     alloc(ctx.rt_pool, ctx.rt_set_layout, ctx.rt_sets.data());
     alloc(ctx.composite_pool, ctx.composite_set_layout, ctx.composite_sets.data());
     // The AABB writer has no descriptor set (positions + AABBs are BDA push-constant pointers).
+
+    // Per-primitive color source (RT binding 4). Host-visible and written at most once, in
+    // bindScene; the descriptor itself is pointed at the buffer here and never rewritten, so a
+    // resize (which rebuilds the image bindings) leaves it intact. Seeded with the "none" state so
+    // the closest-hit shader falls back to the SBT material albedo when no Color attribute exists.
+    ctx.surface_buffer = makeBuffer(ctx, sizeof(RtSurfaceSource),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, HOST_VISIBLE, false);
+    RtSurfaceSource empty{};
+    uploadBuffer(ctx.device, ctx.surface_buffer, &empty, sizeof(empty));
+    for (uint32_t i = 0; i < RayTracingContext::FRAMES; ++i)
+    {
+        VkDescriptorBufferInfo surface_info{
+            .buffer = ctx.surface_buffer.buffer, .offset = 0, .range = sizeof(RtSurfaceSource),
+        };
+        VkWriteDescriptorSet write{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr,
+            .dstSet = ctx.rt_sets[i], .dstBinding = 4, .dstArrayElement = 0,
+            .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pImageInfo = nullptr, .pBufferInfo = &surface_info, .pTexelBufferView = nullptr,
+        };
+        vkUpdateDescriptorSets(ctx.device, 1, &write, 0, nullptr);
+    }
 
     // À-trous denoiser: ATROUS_PASSES sets per frame (bindings written in createFrameResources).
     uint32_t atrous_count = RayTracingContext::ATROUS_PASSES * RayTracingContext::FRAMES;
@@ -1216,7 +1245,7 @@ void RayTracingContext::updateMaterial(uint32_t index)
 }
 
 void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, float radius, glm::vec4 color,
-    bool position_is_double)
+    bool position_is_double, VkDeviceAddress colors, uint32_t color_format)
 {
     position_address = positions;
     particle_count  = count;
@@ -1225,12 +1254,37 @@ void RayTracingContext::bindScene(VkDeviceAddress positions, uint64_t count, flo
     this->position_is_double = position_is_double;
 
     // Material 0 is the particle surface: adopt the view color as its albedo and push it into the
-    // SBT hit record. Other registered materials keep their configured data.
+    // SBT hit record. Other registered materials keep their configured data. With a per-primitive
+    // color source bound this stays the fallback albedo (used for any primitive the source cannot
+    // supply, e.g. an unrecognized format).
     if (!materials.empty())
     {
         materials[0].albedo = glm::vec3(color);
         updateMaterial(0);
     }
+
+    // Per-primitive colors index the SOURCE particle array, so the closest-hit shader's global
+    // primitive index only means "particle i" on the direct sphere path. Under LOD the primitives
+    // are reduced cell representatives and under voxel boxes they are compacted living cells --
+    // in both cases primitive index != particle index, so the source is dropped rather than
+    // silently mapping colors onto the wrong geometry.
+    surface_source = RtSurfaceSource{};
+    if (colors != 0 && color_format != kColorFormatNone)
+    {
+        if (lod_cells > 0 || voxel_boxes)
+        {
+            spdlog::warn("Path tracing: per-primitive colors ignored ({} traces aggregated "
+                "representatives, whose primitive index is a cell, not a particle)",
+                voxel_boxes ? "voxel-box mode" : "LOD mode");
+        }
+        else
+        {
+            surface_source.colors = colors;
+            surface_source.format = color_format;
+            spdlog::info("Path tracing: per-primitive colors bound (format tag {})", color_format);
+        }
+    }
+    uploadBuffer(device, surface_buffer, &surface_source, sizeof(surface_source));
 
     // Per-particle AABB buffer (written by the compute writer, read by the BLAS build). Reached by
     // device address (want_address below), NOT a STORAGE descriptor, so its size is not capped by
@@ -2058,6 +2112,7 @@ void RayTracingContext::destroy()
     if (rt_set_layout)      { vkDestroyDescriptorSetLayout(device, rt_set_layout, nullptr); }
     if (rt_pool)            { vkDestroyDescriptorPool(device, rt_pool, nullptr); }
     destroyBuffer(device, sbt_buffer);
+    destroyBuffer(device, surface_buffer);
 
     // AABB-writer compute (push-constant-only: no descriptor set/pool)
     if (iw_pipeline)        { vkDestroyPipeline(device, iw_pipeline, nullptr); }

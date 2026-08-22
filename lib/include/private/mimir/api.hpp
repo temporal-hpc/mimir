@@ -12,6 +12,8 @@ namespace mimir
 
 // Limit for number of attributes defined for a view
 constexpr uint32_t max_attr_count = 10;
+// Number of AttributeType enumerators (Position, Color, Size, Rotation, Texcoord); indexes attr_vbo.
+constexpr uint32_t attr_type_count = 5;
 
 struct LinearAlloc
 {
@@ -83,6 +85,11 @@ struct View
     VkBuffer vbo[max_attr_count];
     // Start region for each buffer object in the view.
     VkDeviceSize offsets[max_attr_count];
+    // Vertex-buffer slot (index into vbo[]) each attribute type landed in, or -1 when the attribute
+    // is absent or was not mapped as a vertex buffer (indexed attributes go to `storage` instead).
+    // Lets a non-raster consumer find an attribute's buffer without assuming a binding order --
+    // the path tracer uses it to reach the Color attribute for per-primitive albedo.
+    int attr_vbo[attr_type_count] = {-1, -1, -1, -1, -1};
     // Per-binding element stride (bytes) and input rate, so the chunked draw can advance each binding
     // by chunk_start * stride for the bindings whose rate matches the chunked dimension.
     VkDeviceSize      vbo_stride[max_attr_count] = {0};

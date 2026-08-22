@@ -33,9 +33,9 @@ struct PointsInput {
     bool         enable_interop_sync = true;
     bool         display     = true;
     float        size_px     = 5.f;         // marker size (pixels in unlit/None mode)
-    LightModel   light_model = LightModel::None;  // None=Flat2D discs, Phong=lit sphere impostors,
-                                                  // PhongMesh=lit icosphere meshes, PathTracing=RT
-    // Path-tracing knobs (only used with --light-model path-tracing).
+    RenderPath   render_path = RenderPath::Flat;  // Flat=2D discs, Impostor=lit sphere impostors,
+                                                  // Mesh=lit icosphere meshes, PathTraced=RT
+    // Path-tracing knobs (only used with --render-path path-traced).
     unsigned int pt_spp      = 1;            // samples per pixel per frame (--spp)
     unsigned int pt_bounces  = 4;            // max path depth (--bounces; effective in Phase 2)
     unsigned int pt_subdiv   = 1;            // icosphere tessellation 0/1/2 (--subdiv)
@@ -43,6 +43,9 @@ struct PointsInput {
     unsigned int pt_lod      = 0;            // N cells/axis of an N^3 voxel grid (--lod); 0 = no LOD
     float3       background  = { 0.f, 0.f, 0.f }; // window/environment color (--background)
     float3       pcolor      = { 0.82f, 0.82f, 0.88f }; // particle color (--pcolor)
+    // --cluster-colors: bind a per-particle Color attribute (float4/particle, +16 B/particle)
+    // colored by the particle's gaussian mode, instead of the single --pcolor for the whole cloud.
+    bool         cluster_colors = false;
     // Camera: interactive fly (WASD + captured mouse-look) vs the default orbit drag controls,
     // and a scripted auto-orbit for reproducible input-free runs.
     bool         fly         = false;        // --fly: FPS fly camera
@@ -62,19 +65,20 @@ static float3 parseColor(const std::string& v)
     return { grey, grey, grey };
 }
 
-// Parse --light-model point|none|phong|phong-mesh|path-tracing into the instance-wide LightModel.
-static LightModel parseLightModel(const std::string& v)
+// Parse the --render-path value into the instance-wide RenderPath. The legacy --light-model
+// spellings stay accepted as aliases (flat = none/point, impostor = phong, mesh = phong-mesh,
+// path-traced = path-tracing) so existing scripts and command lines keep working. 'point' is also
+// accepted for flat: mimir's Flat2D disc SDF is byte-for-byte the disc datoviz's dvz_point draws,
+// so the token gives menu parity with benchmark_datoviz --light-model point.
+static RenderPath parseRenderPath(const std::string& v)
 {
-    // 'point' is an alias for 'none': mimir's Flat2D disc SDF (length(P*(size+1)) - size/2, AA=1)
-    // is byte-for-byte the same disc datoviz's dvz_point draws, so mimir needs no separate point
-    // primitive. Accepting the token gives menu parity with benchmark_datoviz --light-model point
-    // and a 1:1 point-vs-point comparison.
-    if (v == "point")        return LightModel::None;
-    if (v == "none")         return LightModel::None;
-    if (v == "phong")        return LightModel::Phong;
-    if (v == "phong-mesh")   return LightModel::PhongMesh;
-    if (v == "path-tracing") return LightModel::PathTracing;
-    fprintf(stderr, "Unknown --light-model '%s' (use point|none|phong|phong-mesh|path-tracing)\n", v.c_str());
+    if (v == "flat"  || v == "none" || v == "point") return RenderPath::Flat;
+    if (v == "impostor" || v == "phong")             return RenderPath::Impostor;
+    if (v == "mesh"  || v == "phong-mesh")           return RenderPath::Mesh;
+    if (v == "path-traced" || v == "path-tracing")   return RenderPath::PathTraced;
+    fprintf(stderr, "Unknown render path '%s' "
+        "(use flat|impostor|mesh|path-traced; none/point/phong/phong-mesh/path-tracing also work)\n",
+        v.c_str());
     exit(EXIT_FAILURE);
 }
 
@@ -191,6 +195,8 @@ static void printSystemInfo(PointsInput input, size_t rng_bytes, size_t cluster_
     nvmlDeviceGetMemoryInfo_v2(getNvmlDevice(), &mi);
     constexpr double gb = 1024.0 * 1024.0 * 1024.0;
     size_t pos_bytes = sizeof(float) * 3 * input.pts.count;
+    // --cluster-colors adds a second interop buffer: one float4 RGBA per particle.
+    size_t col_bytes = input.cluster_colors ? sizeof(float) * 4 * input.pts.count : 0;
     fprintf(stderr, "GPU: %s\n", gpu_name);
     fprintf(stderr, "CUDA device: %d (%s, CC %d.%d)\n",
         device_id, prop.name, prop.major, prop.minor);
@@ -199,10 +205,14 @@ static void printSystemInfo(PointsInput input, size_t rng_bytes, size_t cluster_
     fprintf(stderr, "Init distribution: %u modes, epsilon %.4f\n", input.pts.k, input.pts.epsilon);
     fprintf(stderr, "Buffers:\n");
     fprintf(stderr, "  positions  (interop):  %s\n", smb(pos_bytes).c_str());
+    if (col_bytes > 0)
+    {
+        fprintf(stderr, "  colors     (interop):  %s\n", smb(col_bytes).c_str());
+    }
     fprintf(stderr, "  rng states (CUDA):     %s\n", smb(rng_bytes).c_str());
     fprintf(stderr, "  clusters   (CUDA):     %s\n", smb(cluster_bytes).c_str());
     fprintf(stderr, "  Total:                 %s\n",
-        smb(pos_bytes + rng_bytes + cluster_bytes).c_str());
+        smb(pos_bytes + col_bytes + rng_bytes + cluster_bytes).c_str());
 }
 
 void formatResults(PointsInput input, BenchmarkResult result)
@@ -306,7 +316,7 @@ BenchmarkResult runExperiment(PointsInput input)
     ViewerOptions opts{};
     opts.window.title        = "Mimir - particles-kmodal-3d";
     opts.window.size         = { input.win_width, input.win_height };
-    opts.light_model         = input.light_model;
+    opts.render_path         = input.render_path;
     // Sun coming from a diagonal behind-and-above the camera (screen-left), so the home view
     // is lit like the datoviz baseline: normalize({-1,1,2}) in world space. Both light models
     // take the same world-space direction TO the light: the raster (Phong) path rotates it
@@ -324,7 +334,7 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.pt_samples_per_pixel = input.pt_spp;
     opts.pt_max_bounces       = input.pt_bounces;
     opts.pt_subdivisions      = input.pt_subdiv;
-    // LOD is transversal (any --light-model). Reject an --lod whose N^3 accumulator would not fit the
+    // LOD is transversal (any --render-path). Reject an --lod whose N^3 accumulator would not fit the
     // GPU memory that is ACTUALLY free at this moment -- queried live via cudaMemGetInfo, with no fixed
     // budget fraction. The accumulator (the dominant LOD allocation) is N^3 * bytes_per_cell, where
     // bytes_per_cell is its real per-cell size (uint32 count + 3x uint64 centroid sum). The CUDA context
@@ -378,8 +388,9 @@ BenchmarkResult runExperiment(PointsInput input)
     {
         size_t vram_free = 0, vram_total = 0;
         checkCuda(cudaMemGetInfo(&vram_free, &vram_total));
-        const bool pt_no_lod = (input.light_model == LightModel::PathTracing) && (input.pt_lod == 0);
-        const unsigned long long bytes_per_particle = 12ull + (pt_no_lod ? 24ull : 0ull);
+        const bool pt_no_lod = (input.render_path == RenderPath::PathTraced) && (input.pt_lod == 0);
+        const unsigned long long bytes_per_particle = 12ull + (pt_no_lod ? 24ull : 0ull)
+            + (input.cluster_colors ? 16ull : 0ull); // --cluster-colors: one float4 per particle
         const unsigned long long need = (unsigned long long)n * bytes_per_particle;
         if (need > (unsigned long long)vram_free) {
             fprintf(stderr, "benchmark_mimir: %zu particles need %.1f GB but only %.1f GB free\n",
@@ -392,13 +403,24 @@ BenchmarkResult runExperiment(PointsInput input)
     createInstance(opts, &instance);
 
     float* d_pos = nullptr;
+    float* d_col = nullptr; // --cluster-colors: interop float4 RGBA per particle (null otherwise)
     if (input.display)
     {
         AllocHandle pos_alloc{};
         allocLinear(instance, (void**)&d_pos, pos_bytes, &pos_alloc);
 
+        // Per-particle color source. Same kind of interop allocation as the positions, so CUDA
+        // writes it in place and the renderer reads it directly: the raster Sphere3D/Flat2D shaders
+        // take it as the marker's COLOR vertex attribute, and the path tracer reads it per primitive
+        // for the hit albedo. Filled once from the cluster ids after launchInitPositions below.
+        AllocHandle col_alloc{};
+        if (input.cluster_colors)
+        {
+            allocLinear(instance, (void**)&d_col, (size_t)n * 4 * sizeof(float), &col_alloc);
+        }
+
         // marker_opts.render_mode is engine-managed now: createView derives it from
-        // the instance's light_model (None -> Flat2D discs, Phong/PathTracing ->
+        // the instance's render_path (Flat -> Flat2D discs, Impostor/PathTraced ->
         // Sphere3D). We must NOT set render_mode here.
         //
         // In None mode the markers are native point sprites sized in pixels — the
@@ -406,7 +428,7 @@ BenchmarkResult runExperiment(PointsInput input)
         // benchmarks. Lit modes draw world-space spheres, where default_size is a
         // world-unit radius instead.
         MarkerOptions marker_opts = MarkerOptions::defaults();
-        float size = (input.light_model == LightModel::None) ? input.size_px
+        float size = (input.render_path == RenderPath::Flat) ? input.size_px
                                                              : input.size_px / 100.f;
 
         ViewDescription desc{
@@ -420,12 +442,26 @@ BenchmarkResult runExperiment(PointsInput input)
                     .format = FormatDescription::make<float3>(),
                 }}
             },
+            // A Color attribute is added below when --cluster-colors is set (a designated
+            // initializer cannot hold a conditional entry).
             .layout        = Layout::make((unsigned int)n),
             .default_color = { input.pcolor.x, input.pcolor.y, input.pcolor.z, 1.f },
             .default_size  = size,
             .linewidth     = 0.f,
             .scale         = { 1.f, 1.f, 1.f },
         };
+        // One color per primitive: the same array drives every light model (Flat2D disc color,
+        // Sphere3D / mesh Phong diffuse, path-traced albedo). Without it the view falls back to the
+        // single default_color above.
+        if (input.cluster_colors)
+        {
+            desc.attributes[AttributeType::Color] = AttributeDescription{
+                .source = col_alloc,
+                .size   = (unsigned int)n,
+                .format = FormatDescription::make<float4>(),
+            };
+        }
+
         ViewHandle view = nullptr;
         createView(instance, &desc, &view);
 
@@ -527,6 +563,14 @@ BenchmarkResult runExperiment(PointsInput input)
     auto rng      = createRngStates(input.pts.seed);
     auto clusters = createClusters(input.pts);
     launchInitPositions(d_pos, input.pts, clusters, rng);
+    // Cluster ids are assigned by launchInitPositions and never change afterwards, so the color
+    // buffer is written exactly once here -- it costs nothing per frame and stays valid for the
+    // whole run (this benchmark never permutes the particles).
+    if (d_col != nullptr)
+    {
+        launchFillClusterColors(d_col, n, clusters);
+        checkCuda(cudaDeviceSynchronize());
+    }
 
     // HUD data collected each frame and pushed to the built-in overlay via setHudText.
     HudData hud{};
@@ -534,7 +578,7 @@ BenchmarkResult runExperiment(PointsInput input)
     hud.seed    = input.pts.seed;
     hud.k       = input.pts.k;
     hud.epsilon = input.pts.epsilon;
-    hud.path_tracing = (input.light_model == LightModel::PathTracing);
+    hud.path_tracing = (input.render_path == RenderPath::PathTraced);
     hud.fly          = input.fly;
 
     if (input.display)
@@ -543,7 +587,8 @@ BenchmarkResult runExperiment(PointsInput input)
         // ready now: external + cuda_ctx are measured (checkpoints), buf + render are computed.
         hud.vram_external_mb = (float)vram_external;
         hud.cuda_ctx_mb      = (float)cuda_ctx_mb;
-        hud.buf_mb = (float)((pos_bytes + rngStatesBytes(rng) + clusterBytes(clusters, n))
+        const size_t col_bytes = input.cluster_colors ? (size_t)n * 4 * sizeof(float) : 0;
+        hud.buf_mb = (float)((pos_bytes + col_bytes + rngStatesBytes(rng) + clusterBytes(clusters, n))
             / (1024.0 * 1024.0));
         // Render-geometry VRAM. The mesh light models draw ONE shared icosphere template
         // (positions double as normals: vec3/vertex + uint32/index) instanced across all N
@@ -551,8 +596,8 @@ BenchmarkResult runExperiment(PointsInput input)
         // vs datoviz, which needs N copies. Point-sprite modes (None/Phong) have no mesh template.
         // V = 10*4^s + 2 verts, I = 60*4^s indices (same midpoint-subdivided icosphere as the lib).
         double render_bytes = 0.0;
-        if (input.light_model == LightModel::PhongMesh ||
-            input.light_model == LightModel::PathTracing)
+        if (input.render_path == RenderPath::Mesh ||
+            input.render_path == RenderPath::PathTraced)
         {
             const double f = (double)(1u << (2 * input.pt_subdiv)); // 4^subdiv
             const double V = 10.0 * f + 2.0;
@@ -766,17 +811,19 @@ static void usage(const char* prog)
         "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
         "                     NOT vsync; gates compute/render on the shared buffer.\n"
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
-        "  --size S           Marker size in pixels (none) or /100 world radius\n"
-        "                     (phong/path-tracing)                  (default: 5)\n"
-        "                     In 'none' mode, same meaning as benchmark_datoviz --size.\n"
-        "  --light-model M    point        = alias for none (mimir's Flat2D disc already\n"
-        "                                    matches datoviz's dvz_point exactly),\n"
-        "                     none         = unlit Flat2D discs (datoviz-comparable),\n"
-        "                     phong        = lit Sphere3D impostors (datoviz-comparable),\n"
-        "                     phong-mesh   = lit instanced icosphere meshes (--subdiv, mimir-only;\n"
-        "                                    cheaper than impostors, matches path-tracing geometry),\n"
-        "                     path-tracing = Vulkan RT (falls back to phong for now)\n"
-        "                                                            (default: none)\n"
+        "  --size S           Marker size in pixels (flat) or /100 world radius\n"
+        "                     (impostor/mesh/path-traced)           (default: 5)\n"
+        "                     In 'flat' mode, same meaning as benchmark_datoviz --size.\n"
+        "  --render-path P    flat         = unlit 2D point-sprite discs (datoviz-comparable;\n"
+        "                                    'point'/'none' are accepted aliases -- mimir's disc\n"
+        "                                    already matches datoviz's dvz_point exactly),\n"
+        "                     impostor     = lit ray-sphere impostors (datoviz-comparable),\n"
+        "                     mesh         = lit instanced icosphere meshes (--subdiv, mimir-only;\n"
+        "                                    cheaper than impostors, matches path-traced geometry),\n"
+        "                     path-traced  = Vulkan ray-traced path tracing (needs an RT GPU)\n"
+        "                                                            (default: flat)\n"
+        "                     Alias: --light-model, with the old value spellings\n"
+        "                     (none/phong/phong-mesh/path-tracing).\n"
         "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
         "  --epsilon E        Per-axis stddev of each mode          (default: 0.05)\n"
         "                     The walk is mean-reverting, so clusters keep this\n"
@@ -786,8 +833,11 @@ static void usage(const char* prog)
         "                     (default: 0 = black). Under path-tracing this is also the\n"
         "                     sky/miss and ambient fill; black = sun-only lighting.\n"
         "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1] (default: light grey)\n"
+        "  --cluster-colors   One color per particle (its --k gaussian mode's hue) via mimir's\n"
+        "                     Color attribute, instead of the single --pcolor. Costs 16 B/particle.\n"
+        "                     Honored by every --render-path; with path-traced it needs --lod 0.\n"
         "  --lod N            Level of detail: N^3 voxel grid, one representative per occupied cell,\n"
-        "                     for ANY --light-model (0 = per-particle, default). N is capped so the\n"
+        "                     for ANY --render-path (0 = per-particle, default). N is capped so the\n"
         "                     N^3 accumulator fits ~half of free VRAM (and N<=1625). Under lit modes\n"
         "                     --size scales the representative sphere's cell-fill radius.\n"
         "  --axes             Draw the world +XYZ orientation triad at the origin\n"
@@ -803,7 +853,7 @@ static void usage(const char* prog)
         "                     finalizes and writes its CSV row          (default: 0 = no timeout)\n"
         "  --orbit-speed D/S  Scripted auto-orbit around the scene at D deg/s for input-free\n"
         "                     reproducible runs; overrides manual control (default: 0 = off)\n"
-        "  Path-tracing only (--light-model path-tracing):\n"
+        "  Path-tracing only (--render-path path-traced):\n"
         "  --spp N            Samples per pixel per frame (antialiasing) (default: 1)\n"
         "  --bounces N        Max path depth                          (default: 4)\n"
         "                     (indirect bounces take effect in Phase 2)\n"
@@ -834,6 +884,7 @@ int main(int argc, char* argv[])
         if (a == "--help" || a == "-h") { usage(argv[0]); return EXIT_SUCCESS; }
         if (a == "--fly")  { input.fly  = true; continue; } // valueless flags
         if (a == "--axes") { input.axes = true; continue; }
+        if (a == "--cluster-colors") { input.cluster_colors = true; continue; }
         if (a.rfind("--", 0) == 0)
         {
             if (i + 1 >= argc)
@@ -843,7 +894,9 @@ int main(int argc, char* argv[])
             else if (a == "--interop-sync") input.enable_interop_sync = (bool)std::stoi(v);
             else if (a == "--display")      input.display = (bool)std::stoi(v);
             else if (a == "--size")         input.size_px = std::stof(v);
-            else if (a == "--light-model")  input.light_model = parseLightModel(v);
+            // --light-model is the pre-rename spelling, kept as an alias.
+            else if (a == "--render-path" || a == "--light-model")
+                                            input.render_path = parseRenderPath(v);
             else if (a == "--k")            input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")      input.pts.epsilon = std::stof(v);
             else if (a == "--spp")          input.pt_spp = (unsigned int)std::stoul(v);
@@ -871,7 +924,7 @@ int main(int argc, char* argv[])
 
     // Mesh spheres default to a smoother tessellation than path tracing's default; --subdiv still
     // overrides (pt_subdiv==1 is the struct default, i.e. not explicitly set on the CLI).
-    if (input.light_model == LightModel::PhongMesh && input.pt_subdiv == 1) { input.pt_subdiv = 2; }
+    if (input.render_path == RenderPath::Mesh && input.pt_subdiv == 1) { input.pt_subdiv = 2; }
 
     auto result = runExperiment(input);
     formatResults(input, result);

@@ -175,6 +175,16 @@ std::string getSpecializationName(AttributeType type, AttributeDescription attr)
     return spec;
 }
 
+// True when the view supplies one color per primitive as a plain (non-indexed) buffer. The instanced
+// mesh marker path binds it as a third, per-instance vertex binding and compiles the matching shader
+// entry point; both decisions must agree, hence one predicate. An INDEXED color source is a palette
+// plus per-element indices, which marker_mesh.slang does not resolve.
+static bool hasDirectColorAttribute(const ViewDescription& desc)
+{
+    auto it = desc.attributes.find(AttributeType::Color);
+    return it != desc.attributes.end() && !hasIndexing(it->second);
+}
+
 ShaderCompileParams getShaderCompileParams(ViewDescription desc)
 {
     ShaderCompileParams compile;
@@ -213,10 +223,15 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             {
                 // Instanced triangle icosphere: vertex + fragment only (no geometry stage, no
                 // per-fragment ray-sphere, no shader depth write). Fixed vertex inputs (template
-                // vertex + per-instance center), so no attribute specializations.
+                // vertex + per-instance center), so no attribute specializations -- the one
+                // variation is the per-instance color binding, which is a second vertex entry
+                // point rather than a specialization (see marker_mesh.slang).
                 compile.specializations.clear();
                 compile.module_path = "shaders/marker_mesh.slang";
-                compile.entrypoints = {"vertexMain", "fragmentMain"};
+                compile.entrypoints = {
+                    hasDirectColorAttribute(desc) ? "vertexColorMain" : "vertexMain",
+                    "fragmentMain",
+                };
             }
             else
             {
@@ -404,6 +419,25 @@ VertexDescription getVertexDescription(const ViewDescription desc)
             { .location = 1, .binding = 1, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
             { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = vec3_stride },
         };
+        // One color per marker: a third PER-INSTANCE binding, in the source buffer's own format
+        // (the vertex-input stage converts it to the shader's float4). Pairs with the
+        // vertexColorMain entry point selected in getShaderCompileParams; the engine puts the
+        // color buffer in vbo slot 2 for this render mode (see createView).
+        if (hasDirectColorAttribute(desc))
+        {
+            const auto& color_attr = desc.attributes.at(AttributeType::Color);
+            vert.binding.push_back(VkVertexInputBindingDescription{
+                .binding   = 2,
+                .stride    = color_attr.format.getSize(),
+                .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE,
+            });
+            vert.attribute.push_back(VkVertexInputAttributeDescription{
+                .location = 3,
+                .binding  = 2,
+                .format   = getVulkanFormat(color_attr.format),
+                .offset   = 0,
+            });
+        }
         return vert;
     }
 

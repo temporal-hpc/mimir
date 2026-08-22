@@ -121,6 +121,11 @@ public:
     // reduction runs on the caller-provided sim stream so it is naturally ordered AFTER the sim's
     // writes (tear-free). Default false (coupled) is the safe choice for every non-decoupled path.
     void setDecoupledReduction(bool decoupled) { lod_decoupled = decoupled; }
+    // Whether the reduction runs on the dedicated (decoupled) stream rather than the caller's sim
+    // stream. Callers use it to decide where the reduction may safely be issued from: a reduction on
+    // the interop/sim stream must not be launched-and-waited from the render thread (see
+    // MimirInstance::lodRasterOnComputeThread).
+    bool decoupledReduction() const { return lod_decoupled; }
 
     // Run the CUDA reduction for `slot`: reads `count` positions from `positions_dev` (device ptr,
     // packed float3), writes this slot's reduced-position + occupied-count CUDA aliases. Runs on the

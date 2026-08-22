@@ -105,8 +105,11 @@ float sphIntersect2(float3 ro, float3 rd, float4 sph)
 // Blinn-Phong. Robust (no acos, so no NaN speckle at highlights near dot==1) and honours the
 // scene's specular_power / ambient_strength (previously hardcoded 0.3/0.2 and ignored). `ld` is the
 // unit light direction in view space (toward the light); `li` is the light colour; pos/normal are
-// view space. Kept identical to shaders/marker_mesh.slang's computeLighting.
-float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li) {
+// view space. `base` is the surface's own diffuse color: it comes from the marker's COLOR attribute
+// when the view binds one (one color per primitive) and falls back to view.default_color otherwise
+// -- ColorDefault::getColor() returns exactly that, so an unbound Color attribute is unchanged.
+// Kept in sync with shaders/marker_mesh.slang's computeLighting.
+float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li, float4 base) {
     float3 N = normalize(normal);
     float3 V = normalize(-pos);        // camera sits at the origin in view space
     float3 H = normalize(ld + V);      // Blinn-Phong half vector
@@ -116,7 +119,7 @@ float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li) {
     // No specular where the surface faces away from the light.
     float spec = (n_dot_l > 0.0) ? pow(n_dot_h, scene.specular_power) : 0.0;
 
-    float4 diffuse_color  = view.default_color;
+    float4 diffuse_color  = base;
     float4 specular_color = float4(scene.specular_color, 1.0);
 
     float4 lighting = diffuse_color * scene.ambient_strength; // ambient
@@ -149,7 +152,9 @@ FragmentOutput fragmentMain<S: IStyle, M: MarkerShape>(GeometryOutput input)
     // Normalized so diffuse magnitude stays correct even if the view matrix ever carries scale.
     float3 light_dir = normalize(mul(float4(scene.light_pos, 0), mvp.view).xyz);
     float4 light_intensity = float4(scene.light_color, 1);
-    float4 lighting = computeLighting(pos, normal, light_dir, light_intensity);
+    // Per-primitive diffuse color: input.color is the vertex COLOR attribute carried through the
+    // geometry stage (view.default_color when the view binds no Color attribute).
+    float4 lighting = computeLighting(pos, normal, light_dir, light_intensity, input.color);
 
     float4 clip_pos = mul(float4(pos, 1.0), mvp.proj);
 

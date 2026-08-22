@@ -57,6 +57,55 @@ struct MaterialData
 };
 [[vk::shader_record]] ConstantBuffer<MaterialData> material;
 
+// Per-primitive surface source (descriptor set 0, binding 4). The path tracer's default albedo is
+// the SBT material record, which is per-INSTANCE (one material for the whole particle cloud). When
+// the view binds a Color attribute, one color per primitive, its interop buffer is handed here as a
+// buffer-device-address pointer plus a format tag, and the closest-hit shader reads
+// colors[global primitive index] instead. A pointer inside a tiny UBO (not a storage-buffer
+// descriptor) so the color array is not capped by maxStorageBufferRange at large N, mirroring how
+// the AABB and position buffers are reached. Must match mimir::RtSurfaceSource (raytracing.hpp).
+struct SurfaceSource
+{
+    uint64_t colors; // BDA of the per-primitive color array; 0 = none (use the SBT material)
+    uint format;     // see kColorFormat* in raytracing.hpp: 1 = float3, 2 = float4, 3 = uchar4 RGBA8
+    uint pad;
+};
+[[vk::binding(4, 0)]] ConstantBuffer<SurfaceSource> surface;
+
+// Element layouts for the per-primitive color array, read through BDA casts (the same explicit
+// 64-bit address arithmetic the AABB reads use -- see primitiveIntersect for why pointer indexing
+// is not safe here).
+struct ColorRgb32  { float r, g, b; };
+struct ColorRgba32 { float r, g, b, a; };
+struct ColorRgba8  { uint packed; };
+
+// Per-primitive albedo for global primitive index `gid`, or `fallback` when the view binds no
+// Color attribute. Alpha is ignored: path-traced spheres are opaque surfaces.
+float3 primitiveAlbedo(uint64_t gid, float3 fallback)
+{
+    if (surface.colors == 0) { return fallback; }
+    switch (surface.format)
+    {
+        case 1u: // float3, 12 B/primitive
+        {
+            ColorRgb32 c = *(ColorRgb32*)(surface.colors + gid * 12ull);
+            return float3(c.r, c.g, c.b);
+        }
+        case 2u: // float4, 16 B/primitive
+        {
+            ColorRgba32 c = *(ColorRgba32*)(surface.colors + gid * 16ull);
+            return float3(c.r, c.g, c.b);
+        }
+        case 3u: // uchar4 RGBA8, 4 B/primitive
+        {
+            ColorRgba8 c = *(ColorRgba8*)(surface.colors + gid * 4ull);
+            return float3(float(c.packed & 0xFFu), float((c.packed >> 8) & 0xFFu),
+                float((c.packed >> 16) & 0xFFu)) / 255.0;
+        }
+        default: return fallback;
+    }
+}
+
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure tlas;
 [[vk::binding(1, 0)]] RWTexture2D<float4> image; // display output (tonemapped), composited to screen
 // Persistent HDR running-mean accumulator (shared across frames in flight, RGBA32F). Holds the
@@ -366,8 +415,14 @@ void closestHitMain(inout Payload payload, in SphereHit attr)
     // TLAS instance is identity, so no normal-matrix transform is needed).
     payload.normal   = attr.normal;
     payload.position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-    // Surface parameters come from this hit's material (its SBT hit record).
-    payload.albedo   = material.albedo;
-    payload.emission = material.albedo * material.emission;
+    // Surface parameters come from this hit's material (its SBT hit record), except the albedo when
+    // the view binds a per-primitive Color attribute: then it is looked up per primitive. The global
+    // primitive index is recovered exactly as in primitiveIntersect (PrimitiveIndex() is local to
+    // this instance's BLAS chunk; chunk size rides in cam_pos.w), in 64-bit to survive >2^32 indices.
+    uint chunk = asuint(pc.cam_pos.w);
+    uint64_t gid = uint64_t(InstanceID()) * uint64_t(chunk) + uint64_t(PrimitiveIndex());
+    float3 albedo = primitiveAlbedo(gid, material.albedo);
+    payload.albedo   = albedo;
+    payload.emission = albedo * material.emission;
     payload.hit_t    = RayTCurrent();
 }

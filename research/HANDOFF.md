@@ -7,7 +7,8 @@ copied here. Branch: `feature/remote-rendering`.
 ## Goal
 GPU performance-benchmark paper for mimir's remote-rendering pipeline across
 **A100 (80GB), H200, RTX PRO 6000 Blackwell (96GB), B300 (268GB)**, in three rendering modes:
-**path tracing (`pt`)**, **`phong`**, and **unshaded / `--light-model none` (`raster`)**.
+**path tracing (`pt`)**, **`phong`** (the impostor path), and **unshaded / `--render-path flat`
+(`raster`)**.
 
 ## What was done this session (all committed on feature/remote-rendering)
 

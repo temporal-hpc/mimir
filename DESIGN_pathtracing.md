@@ -111,7 +111,7 @@ CSV layout; PT rows come only from benchmark_mimir. The comparison story becomes
    everywhere.
 5. **PT workload CLI**: `--spp N` and `--bounces N` as separate, order-independent
    flags (matches the existing `--k` / `--epsilon` style and §6), not positional args
-   after `--light-model path-tracing`. Ignored unless the light model is path-tracing.
+   after `--render-path path-traced`. Ignored unless the render path is path-traced.
 6. **Instance writer: Vulkan compute shader, not CUDA** (refines §4), confirmed
    2026-07-03. The per-frame `VkAccelerationStructureInstanceKHR` array is written by an
    engine-owned Vulkan compute shader that reads the interop position buffer in place,
@@ -124,25 +124,33 @@ CSV layout; PT rows come only from benchmark_mimir. The comparison story becomes
    interop timeline wait moves to the COMPUTE stage for PT (the instance writer, not the
    vertex shader, is the first GPU consumer of positions).
 
-### 8.1 Public API: `LightModel`
+### 8.1 Public API: `RenderPath`
 
-The shading choice is exposed to the programmer as an instance-wide light model
+The choice is exposed to the programmer as an instance-wide render path — how markers are
+turned into pixels, geometry representation and rendering technique together
 (`lib/include/public/mimir/options.hpp`):
 
 ```cpp
-enum class LightModel { None, Phong, PathTracing };
-struct ViewerOptions { ...; LightModel light_model = LightModel::Phong; ... };
+enum class RenderPath { Flat, Impostor, Mesh, PathTraced };
+struct ViewerOptions { ...; RenderPath render_path = RenderPath::Impostor; ... };
 ```
 
-- `None`        → unlit raster; markers draw as flat 2D point-sprite discs.
-- `Phong`       → lit raster; markers draw as ray-sphere impostors (historical default).
-- `PathTracing` → the path-traced path of this document.
+- `Flat`       → unlit raster; markers draw as flat 2D point-sprite discs.
+- `Impostor`   → lit raster; markers draw as ray-sphere impostors (historical default).
+- `Mesh`       → lit raster; markers draw as instanced triangle icospheres.
+- `PathTraced` → the path-traced path of this document.
 
-`MarkerOptions::render_mode` is now engine-managed: `createView` derives it from the
-instance's light model (None → Flat2D, Phong → Sphere3D); programs should not set it
-directly anymore. Until phases 1–3 land, requesting `PathTracing` logs a warning and
-falls back to Phong raster. Benchmarks expose the choice as
-`--light-model none|phong|path-tracing`.
+(This enum was originally `LightModel { None, Phong, PhongMesh, PathTracing }`. The name was
+wrong: only `Impostor` vs `PathTraced` is a lighting difference — `Impostor` and `Mesh` share
+the same Blinn-Phong shading and differ in geometry. The ordinals are unchanged, so the remote
+protocol's render-path field is unaffected.)
+
+`MarkerOptions::render_mode` is engine-managed: `createView` derives it from the instance's
+render path (Flat → Flat2D, Impostor → Sphere3D, Mesh → SphereMesh); programs should not set it
+directly. On a non-RT device, requesting `PathTraced` logs a warning and falls back to the
+Impostor raster path. Benchmarks expose the choice as
+`--render-path flat|impostor|mesh|path-traced`, with `--light-model` and the old value
+spellings kept as aliases.
 
 ## 9. Phased plan
 
