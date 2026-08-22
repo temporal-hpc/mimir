@@ -33,9 +33,11 @@ struct PointsInput {
     bool         enable_interop_sync = true;
     bool         display     = true;
     float        size_px     = 5.f;         // marker size (pixels in unlit/None mode)
-    RenderPath   render_path = RenderPath::Flat;  // Flat=2D discs, Impostor=lit sphere impostors,
-                                                  // Mesh=lit icosphere meshes, PathTraced=RT
-    // Path-tracing knobs (only used with --render-path path-traced).
+    // The two draw axes (--shading / --geometry). Defaults keep this benchmark's historical
+    // datoviz-comparable look: unlit 2D discs.
+    Shading      shading     = Shading::Unlit;
+    Geometry     geometry    = Geometry::Sprite;
+    // Path-tracing knobs (only used with --shading path-traced).
     unsigned int pt_spp      = 1;            // samples per pixel per frame (--spp)
     unsigned int pt_bounces  = 4;            // max path depth (--bounces; effective in Phase 2)
     unsigned int pt_subdiv   = 1;            // icosphere tessellation 0/1/2 (--subdiv)
@@ -65,20 +67,40 @@ static float3 parseColor(const std::string& v)
     return { grey, grey, grey };
 }
 
-// Parse the --render-path value into the instance-wide RenderPath. The legacy --light-model
-// spellings stay accepted as aliases (flat = none/point, impostor = phong, mesh = phong-mesh,
-// path-traced = path-tracing) so existing scripts and command lines keep working. 'point' is also
-// accepted for flat: mimir's Flat2D disc SDF is byte-for-byte the disc datoviz's dvz_point draws,
-// so the token gives menu parity with benchmark_datoviz --light-model point.
-static RenderPath parseRenderPath(const std::string& v)
+// A render path used to be one conflated value; it is now the pair (Shading, Geometry). The old
+// spellings stay accepted on --render-path / --light-model and set BOTH axes, so existing scripts
+// and command lines keep working.
+struct RenderPair { Shading shading; Geometry geometry; };
+static RenderPair parseRenderPair(const std::string& v)
 {
-    if (v == "flat"  || v == "none" || v == "point") return RenderPath::Flat;
-    if (v == "impostor" || v == "phong")             return RenderPath::Impostor;
-    if (v == "mesh"  || v == "phong-mesh")           return RenderPath::Mesh;
-    if (v == "path-traced" || v == "path-tracing")   return RenderPath::PathTraced;
-    fprintf(stderr, "Unknown render path '%s' "
-        "(use flat|impostor|mesh|path-traced; none/point/phong/phong-mesh/path-tracing also work)\n",
-        v.c_str());
+    // 'point' is an alias for the unlit sprite: mimir's disc SDF is byte-for-byte the disc
+    // datoviz's dvz_point draws, so the token gives menu parity with benchmark_datoviz.
+    if (v == "flat" || v == "none" || v == "point") return { Shading::Unlit, Geometry::Sprite };
+    if (v == "impostor" || v == "phong")            return { Shading::Phong, Geometry::Impostor };
+    if (v == "mesh" || v == "phong-mesh")           return { Shading::Phong, Geometry::Mesh };
+    if (v == "path-traced" || v == "path-tracing")  return { Shading::PathTraced, Geometry::Impostor };
+    fprintf(stderr, "Unknown render path '%s' (use none|phong|phong-mesh|path-tracing; prefer the "
+        "separate --shading and --geometry flags)\n", v.c_str());
+    exit(EXIT_FAILURE);
+}
+
+// --shading: how surfaces are lit, independent of their shape.
+static Shading parseShading(const std::string& v)
+{
+    if (v == "unlit" || v == "none" || v == "flat")   return Shading::Unlit;
+    if (v == "phong")                                 return Shading::Phong;
+    if (v == "path-traced" || v == "path-tracing")    return Shading::PathTraced;
+    fprintf(stderr, "Unknown shading '%s' (use unlit|phong|path-traced)\n", v.c_str());
+    exit(EXIT_FAILURE);
+}
+
+// --geometry: what each marker is, independent of how it is lit.
+static Geometry parseGeometry(const std::string& v)
+{
+    if (v == "sprite" || v == "point" || v == "flat") return Geometry::Sprite;
+    if (v == "impostor" || v == "sphere")             return Geometry::Impostor;
+    if (v == "mesh")                                  return Geometry::Mesh;
+    fprintf(stderr, "Unknown geometry '%s' (use sprite|impostor|mesh)\n", v.c_str());
     exit(EXIT_FAILURE);
 }
 
@@ -316,7 +338,8 @@ BenchmarkResult runExperiment(PointsInput input)
     ViewerOptions opts{};
     opts.window.title        = "Mimir - particles-kmodal-3d";
     opts.window.size         = { input.win_width, input.win_height };
-    opts.render_path         = input.render_path;
+    opts.shading             = input.shading;
+    opts.geometry            = input.geometry;
     // Sun coming from a diagonal behind-and-above the camera (screen-left), so the home view
     // is lit like the datoviz baseline: normalize({-1,1,2}) in world space. Both light models
     // take the same world-space direction TO the light: the raster (Phong) path rotates it
@@ -333,8 +356,8 @@ BenchmarkResult runExperiment(PointsInput input)
     opts.background_color    = { input.background.x, input.background.y, input.background.z, 1.f };
     opts.pt_samples_per_pixel = input.pt_spp;
     opts.pt_max_bounces       = input.pt_bounces;
-    opts.pt_subdivisions      = input.pt_subdiv;
-    // LOD is transversal (any --render-path). Reject an --lod whose N^3 accumulator would not fit the
+    opts.mesh_subdivisions    = input.pt_subdiv;
+    // LOD is transversal (any --shading). Reject an --lod whose N^3 accumulator would not fit the
     // GPU memory that is ACTUALLY free at this moment -- queried live via cudaMemGetInfo, with no fixed
     // budget fraction. The accumulator (the dominant LOD allocation) is N^3 * bytes_per_cell, where
     // bytes_per_cell is its real per-cell size (uint32 count + 3x uint64 centroid sum). The CUDA context
@@ -388,7 +411,7 @@ BenchmarkResult runExperiment(PointsInput input)
     {
         size_t vram_free = 0, vram_total = 0;
         checkCuda(cudaMemGetInfo(&vram_free, &vram_total));
-        const bool pt_no_lod = (input.render_path == RenderPath::PathTraced) && (input.pt_lod == 0);
+        const bool pt_no_lod = (input.shading == Shading::PathTraced) && (input.pt_lod == 0);
         const unsigned long long bytes_per_particle = 12ull + (pt_no_lod ? 24ull : 0ull)
             + (input.cluster_colors ? 16ull : 0ull); // --cluster-colors: one float4 per particle
         const unsigned long long need = (unsigned long long)n * bytes_per_particle;
@@ -420,16 +443,16 @@ BenchmarkResult runExperiment(PointsInput input)
         }
 
         // marker_opts.render_mode is engine-managed now: createView derives it from
-        // the instance's render_path (Flat -> Flat2D discs, Impostor/PathTraced ->
-        // Sphere3D). We must NOT set render_mode here.
+        // the instance's geometry axis (Sprite -> point sprites, Impostor -> ray-sphere
+        // impostors, Mesh -> instanced icospheres). We must NOT set it here.
         //
         // In None mode the markers are native point sprites sized in pixels — the
         // same semantics as datoviz markers, so --size means the same thing in both
         // benchmarks. Lit modes draw world-space spheres, where default_size is a
         // world-unit radius instead.
         MarkerOptions marker_opts = MarkerOptions::defaults();
-        float size = (input.render_path == RenderPath::Flat) ? input.size_px
-                                                             : input.size_px / 100.f;
+        float size = (input.geometry == Geometry::Sprite) ? input.size_px
+                                                           : input.size_px / 100.f;
 
         ViewDescription desc{
             .type       = ViewType::Markers,
@@ -578,7 +601,7 @@ BenchmarkResult runExperiment(PointsInput input)
     hud.seed    = input.pts.seed;
     hud.k       = input.pts.k;
     hud.epsilon = input.pts.epsilon;
-    hud.path_tracing = (input.render_path == RenderPath::PathTraced);
+    hud.path_tracing = (input.shading == Shading::PathTraced);
     hud.fly          = input.fly;
 
     if (input.display)
@@ -596,8 +619,8 @@ BenchmarkResult runExperiment(PointsInput input)
         // vs datoviz, which needs N copies. Point-sprite modes (None/Phong) have no mesh template.
         // V = 10*4^s + 2 verts, I = 60*4^s indices (same midpoint-subdivided icosphere as the lib).
         double render_bytes = 0.0;
-        if (input.render_path == RenderPath::Mesh ||
-            input.render_path == RenderPath::PathTraced)
+        if (input.geometry == Geometry::Mesh ||
+            input.shading == Shading::PathTraced)
         {
             const double f = (double)(1u << (2 * input.pt_subdiv)); // 4^subdiv
             const double V = 10.0 * f + 2.0;
@@ -811,19 +834,27 @@ static void usage(const char* prog)
         "  --interop-sync N   CUDA-Vulkan interop sync: 1=on 0=off  (default: 1)\n"
         "                     NOT vsync; gates compute/render on the shared buffer.\n"
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
-        "  --size S           Marker size in pixels (flat) or /100 world radius\n"
+        "  --size S           Marker size in pixels (sprite) or /100 world radius\n"
         "                     (impostor/mesh/path-traced)           (default: 5)\n"
-        "                     In 'flat' mode, same meaning as benchmark_datoviz --size.\n"
-        "  --render-path P    flat         = unlit 2D point-sprite discs (datoviz-comparable;\n"
-        "                                    'point'/'none' are accepted aliases -- mimir's disc\n"
-        "                                    already matches datoviz's dvz_point exactly),\n"
-        "                     impostor     = lit ray-sphere impostors (datoviz-comparable),\n"
-        "                     mesh         = lit instanced icosphere meshes (--subdiv, mimir-only;\n"
-        "                                    cheaper than impostors, matches path-traced geometry),\n"
-        "                     path-traced  = Vulkan ray-traced path tracing (needs an RT GPU)\n"
-        "                                                            (default: flat)\n"
-        "                     Alias: --light-model, with the old value spellings\n"
-        "                     (none/phong/phong-mesh/path-tracing).\n"
+        "                     With sprites, same meaning as benchmark_datoviz --size.\n"
+        "  --shading S        How surfaces are lit -- says nothing about their shape:\n"
+        "                     unlit        = no lighting; markers keep their own color,\n"
+        "                     phong        = Blinn-Phong from the scene light,\n"
+        "                     path-traced  = Vulkan ray tracing: shadows + global illumination\n"
+        "                                    (needs an RT GPU; traces analytic spheres, so\n"
+        "                                    --geometry does not apply)  (default: unlit)\n"
+        "  --geometry G       What each marker IS -- says nothing about how it is lit:\n"
+        "                     sprite       = flat 2D point-sprite discs, cheapest and\n"
+        "                                    datoviz-comparable (mimir's disc matches dvz_point\n"
+        "                                    exactly); has no normals, so it draws unlit,\n"
+        "                     impostor     = ray-sphere impostors, round at any zoom\n"
+        "                                    (datoviz-comparable),\n"
+        "                     mesh         = instanced icosphere meshes (--subdiv, mimir-only;\n"
+        "                                    cheaper than impostors at high resolution)\n"
+        "                                                            (default: sprite)\n"
+        "  --render-path P    Pre-split shorthand setting BOTH axes at once (alias:\n"
+        "                     --light-model): none/point = unlit sprites, phong = phong\n"
+        "                     impostors, phong-mesh = phong meshes, path-tracing = path-traced.\n"
         "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
         "  --epsilon E        Per-axis stddev of each mode          (default: 0.05)\n"
         "                     The walk is mean-reverting, so clusters keep this\n"
@@ -835,11 +866,12 @@ static void usage(const char* prog)
         "  --pcolor C         Particle color: grey 'G' or 'R,G,B' in [0,1] (default: light grey)\n"
         "  --cluster-colors   One color per particle (its --k gaussian mode's hue) via mimir's\n"
         "                     Color attribute, instead of the single --pcolor. Costs 16 B/particle.\n"
-        "                     Honored by every --render-path; with path-traced it needs --lod 0.\n"
+        "                     Honored by every --shading/--geometry pair; under path-traced it\n"
+        "                     needs --lod 0.\n"
         "  --lod N            Level of detail: N^3 voxel grid, one representative per occupied cell,\n"
-        "                     for ANY --render-path (0 = per-particle, default). N is capped so the\n"
-        "                     N^3 accumulator fits ~half of free VRAM (and N<=1625). Under lit modes\n"
-        "                     --size scales the representative sphere's cell-fill radius.\n"
+        "                     for ANY --shading (0 = per-particle, default). N is capped so the\n"
+        "                     N^3 accumulator fits ~half of free VRAM (and N<=1625). Under a lit\n"
+        "                     --shading, --size scales the representative sphere's cell-fill radius.\n"
         "  --axes             Draw the world +XYZ orientation triad at the origin\n"
         "                     (X=red, Y=green, Z=blue; letter labels at the tips) as an\n"
         "                     unlit depth-free overlay. Same triad as benchmark_datoviz.\n"
@@ -853,11 +885,12 @@ static void usage(const char* prog)
         "                     finalizes and writes its CSV row          (default: 0 = no timeout)\n"
         "  --orbit-speed D/S  Scripted auto-orbit around the scene at D deg/s for input-free\n"
         "                     reproducible runs; overrides manual control (default: 0 = off)\n"
-        "  Path-tracing only (--render-path path-traced):\n"
+        "  --subdiv N         Icosphere tessellation for --geometry mesh:\n"
+        "                     0=20 1=80 2=320 tris             (default: 1, bumped to 2 for mesh)\n"
+        "  Path-tracing only (--shading path-traced):\n"
         "  --spp N            Samples per pixel per frame (antialiasing) (default: 1)\n"
         "  --bounces N        Max path depth                          (default: 4)\n"
         "                     (indirect bounces take effect in Phase 2)\n"
-        "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris (default: 1)\n"
         "\n"
         "Keys: F1 toggles the HUD (and every other GUI window) for clean screenshots;\n"
         "      Ctrl+G shows the engine scene-parameters panel; Ctrl+W/Ctrl+Q quit.\n"
@@ -894,9 +927,14 @@ int main(int argc, char* argv[])
             else if (a == "--interop-sync") input.enable_interop_sync = (bool)std::stoi(v);
             else if (a == "--display")      input.display = (bool)std::stoi(v);
             else if (a == "--size")         input.size_px = std::stof(v);
-            // --light-model is the pre-rename spelling, kept as an alias.
+            else if (a == "--shading")      input.shading  = parseShading(v);
+            else if (a == "--geometry")     input.geometry = parseGeometry(v);
+            // Pre-split spellings: one value that sets both axes at once.
             else if (a == "--render-path" || a == "--light-model")
-                                            input.render_path = parseRenderPath(v);
+            {
+                auto pair = parseRenderPair(v);
+                input.shading = pair.shading; input.geometry = pair.geometry;
+            }
             else if (a == "--k")            input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")      input.pts.epsilon = std::stof(v);
             else if (a == "--spp")          input.pt_spp = (unsigned int)std::stoul(v);
@@ -924,7 +962,7 @@ int main(int argc, char* argv[])
 
     // Mesh spheres default to a smoother tessellation than path tracing's default; --subdiv still
     // overrides (pt_subdiv==1 is the struct default, i.e. not explicitly set on the CLI).
-    if (input.render_path == RenderPath::Mesh && input.pt_subdiv == 1) { input.pt_subdiv = 2; }
+    if (input.geometry == Geometry::Mesh && input.pt_subdiv == 1) { input.pt_subdiv = 2; }
 
     auto result = runExperiment(input);
     formatResults(input, result);

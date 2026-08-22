@@ -5,7 +5,7 @@
 // available, else raw), and streams it to one connected rr-client at a time over TCP or QUIC,
 // applying the camera/pause control the client sends back. Serves successive clients (reconnect).
 //
-// The render path is selectable with --render-path, so the remote client sees the SAME impostor,
+// Shading and geometry are selectable independently, so the remote client sees the SAME impostor,
 // phong-mesh, or path-traced view of the simulation that particles-kmodal-3d renders locally.
 //
 // Run from build/samples/remote-rendering/:
@@ -40,18 +40,43 @@ static float3 parseColor(const std::string& v)
     return { grey, grey, grey };
 }
 
-// Parse the --render-path value into the instance-wide RenderPath. The legacy --light-model
-// spellings stay accepted as aliases (flat = none/point, impostor = phong, mesh = phong-mesh,
-// path-traced = path-tracing) so existing scripts and command lines keep working.
-static RenderPath parseRenderPath(const std::string& v)
+// A render path used to be one conflated value; it is now the pair (Shading, Geometry). The old
+// spellings stay accepted on --render-path / --light-model and set BOTH axes.
+struct RenderPair { Shading shading; Geometry geometry; };
+static RenderPair parseRenderPair(const std::string& v)
 {
-    if (v == "flat"  || v == "none" || v == "point") return RenderPath::Flat;
-    if (v == "impostor" || v == "phong")             return RenderPath::Impostor;
-    if (v == "mesh"  || v == "phong-mesh")           return RenderPath::Mesh;
-    if (v == "path-traced" || v == "path-tracing")   return RenderPath::PathTraced;
-    fprintf(stderr, "Unknown render path '%s' "
-        "(use flat|impostor|mesh|path-traced; none/point/phong/phong-mesh/path-tracing also work)\n",
-        v.c_str());
+    if (v == "flat" || v == "none" || v == "point") return { Shading::Unlit, Geometry::Sprite };
+    if (v == "impostor" || v == "phong")            return { Shading::Phong, Geometry::Impostor };
+    if (v == "mesh" || v == "phong-mesh")           return { Shading::Phong, Geometry::Mesh };
+    if (v == "path-traced" || v == "path-tracing")  return { Shading::PathTraced, Geometry::Impostor };
+    fprintf(stderr, "Unknown render path '%s' (use none|phong|phong-mesh|path-tracing; prefer the "
+        "separate --shading and --geometry flags)\n", v.c_str());
+    exit(EXIT_FAILURE);
+}
+
+// --shading: how surfaces are lit, independent of their shape.
+static Shading parseShading(const std::string& v)
+{
+    if (v == "unlit" || v == "none" || v == "flat") return Shading::Unlit;
+    if (v == "phong")                               return Shading::Phong;
+    if (v == "path-traced" || v == "path-tracing")  return Shading::PathTraced;
+    fprintf(stderr, "Unknown shading '%s' (use unlit|phong|path-traced)\n", v.c_str());
+    exit(EXIT_FAILURE);
+}
+
+// Lower-case geometry name for user-facing messages.
+static const char* getGeometryName(Geometry g)
+{
+    return g == Geometry::Sprite ? "sprite" : (g == Geometry::Impostor ? "impostor" : "mesh");
+}
+
+// --geometry: what each marker is, independent of how it is lit.
+static Geometry parseGeometry(const std::string& v)
+{
+    if (v == "sprite" || v == "point" || v == "flat") return Geometry::Sprite;
+    if (v == "impostor" || v == "sphere")             return Geometry::Impostor;
+    if (v == "mesh")                                  return Geometry::Mesh;
+    fprintf(stderr, "Unknown geometry '%s' (use sprite|impostor|mesh)\n", v.c_str());
     exit(EXIT_FAILURE);
 }
 
@@ -67,7 +92,7 @@ static void usage(const char *prog)
         "  point_count Number of 3-D points to simulate    (default: 100000)\n"
         "              No fixed maximum -- bounded by GPU memory. Positions cost 12 B/particle;\n"
         "              path-tracing WITHOUT --lod adds 24 B/particle for AABBs (36 B total);\n"
-        "              --lod and the raster render paths (flat/impostor/mesh) stay ~12 B/particle.\n"
+        "              --lod and the raster shadings (unlit/phong) stay ~12 B/particle.\n"
         "              An over-memory count is rejected up front (before any Vulkan allocation).\n"
         "              Rough per-card ceiling: ~7.5 B particles on a 96 GB GPU (none/phong/PT+LOD);\n"
         "              ~2.6 B for path-tracing without LOD; more on larger-VRAM cards.\n"
@@ -76,18 +101,21 @@ static void usage(const char *prog)
         "  token       Shared secret the client must send  (default: empty = accept anyone)\n"
         "\n"
         "Options (named, order-independent):\n"
-        "  --render-path P    flat = unlit 2D discs, impostor = lit ray-sphere impostors,\n"
-        "                     mesh = lit instanced icosphere meshes (--subdiv),\n"
-        "                     path-traced = Vulkan ray-traced path tracing (default: impostor)\n"
-        "                     Alias: --light-model, with the old value spellings\n"
-        "                     (none/point/phong/phong-mesh/path-tracing).\n"
-        "  --size S           Marker size: pixels (flat) or /100 world radius (lit) (default: 5)\n"
-        "  --specular-power P Blinn-Phong specular exponent for impostor/mesh; higher = tighter,\n"
+        "  --shading S        How surfaces are lit: unlit | phong | path-traced   (default: phong)\n"
+        "                     path-traced needs an RT GPU and traces analytic spheres, so\n"
+        "                     --geometry does not apply to it.\n"
+        "  --geometry G       What each marker is: sprite (flat 2D discs, unlit by nature) |\n"
+        "                     impostor (ray-sphere impostors) | mesh (instanced icospheres,\n"
+        "                     --subdiv)                                 (default: impostor)\n"
+        "  --render-path P    Pre-split shorthand setting BOTH axes (alias: --light-model):\n"
+        "                     none/point, phong, phong-mesh, path-tracing.\n"
+        "  --size S           Marker size: pixels (sprite) or /100 world radius (lit) (default: 5)\n"
+        "  --specular-power P Blinn-Phong specular exponent under --shading phong; higher = tighter,\n"
         "                     sharper highlight (default: 32)\n"
-        "  --ambient A        Ambient light strength for impostor/mesh (0 = pure black shadows;\n"
+        "  --ambient A        Ambient light strength under --shading phong (0 = pure black shadows;\n"
         "                     default: 0.05)\n"
         "  --lod N            Level of detail: N^3 voxel grid, one representative per occupied\n"
-        "                     cell, for any --render-path (0 = per-particle, default). N is\n"
+        "                     cell, for any --shading (0 = per-particle, default). N is\n"
         "                     capped so the N^3 accumulator fits ~half of free device VRAM;\n"
         "                     larger N needs more memory. Trades detail for speed. Under lit\n"
         "                     modes, --size scales the representative sphere's cell-fill radius;\n"
@@ -107,7 +135,7 @@ static void usage(const char *prog)
         "  --lod-shape S      LOD representative shape: voxel (default) = solid grid-aligned cubes\n"
         "                     (forces cell-center placement, ignores --size for extent); sphere =\n"
         "                     round spheres honouring --lod-placement and --size. Lit models only;\n"
-        "                     --render-path flat always draws flat points. No-op without --lod.\n"
+        "                     --shading unlit always draws flat points. No-op without --lod.\n"
         "  --sort-every N     Re-sort particles by Morton cell every N sim steps (needs --lod; 0 =\n"
         "                     off, default). Physically reordering particles gives the LOD centroid\n"
         "                     scatter's warp-aggregation real same-cell adjacency to collapse instead\n"
@@ -164,9 +192,9 @@ static void usage(const char *prog)
         "                     Pins the process to that GPU via CUDA_VISIBLE_DEVICES before any\n"
         "                     CUDA/Vulkan init, so the render, encode and interop all land there.\n"
         "  --subdiv N         Icosphere tessellation 0=20 1=80 2=320 tris     (default: 1)\n"
-        "                     mesh only -- path tracing uses analytic procedural AABB\n"
+        "                     --geometry mesh only -- path tracing uses analytic procedural AABB\n"
         "                     spheres, not tessellated meshes, so --subdiv has no effect there.\n"
-        "  Path-tracing only (--render-path path-traced):\n"
+        "  Path-tracing only (--shading path-traced):\n"
         "  --spp N            Samples per pixel per frame (antialiasing)      (default: 1)\n"
         "  --bounces N        Max path depth                                  (default: 4)\n"
         "  --bvh-rebuild-interval N  Full BLAS rebuild every N dirty frames, cheap in-place\n"
@@ -177,14 +205,14 @@ static void usage(const char *prog)
         "                     stream H.264-friendly at low bitrates (temporally stable)\n"
         "\n"
         "Examples:\n"
-        "  # Minimal -- raw, TCP, impostor:\n"
+        "  # Minimal -- raw, TCP, phong impostors:\n"
         "  %s\n"
         "\n"
-        "  # H.264, 1920x1080, 200k points, mesh:\n"
-        "  %s 9000 1920 1080 200000 1 --render-path mesh\n"
+        "  # H.264, 1920x1080, 200k points, phong meshes:\n"
+        "  %s 9000 1920 1080 200000 1 --geometry mesh\n"
         "\n"
         "  # Path-traced over QUIC:\n"
-        "  %s 9000 1920 1080 50000 1 quic --render-path path-traced --spp 2\n"
+        "  %s 9000 1920 1080 50000 1 quic --shading path-traced --spp 2\n"
         "\n"
         "  # Paired benchmark for a research run: server and client each write a CSV that share\n"
         "  # the SAME <prefix> and line up for the identical 60 s scripted camera. On this host:\n"
@@ -224,7 +252,8 @@ int main(int argc, char *argv[])
     bool use_h264            = false;
     remote::TransportKind transport = remote::TransportKind::Tcp;
     std::string token        = "";
-    RenderPath render_path   = RenderPath::Impostor;
+    Shading  shading         = Shading::Phong;
+    Geometry geometry        = Geometry::Impostor;
     float size_px            = 5.f;
     float spec_power         = 32.f;  // --specular-power: Blinn-Phong exponent (phong/phong-mesh)
     float ambient_str        = 0.05f; // --ambient: ambient light strength (impostor/mesh)
@@ -266,9 +295,11 @@ int main(int argc, char *argv[])
             if (i + 1 >= argc)
             { fprintf(stderr, "Missing value for %s\n\n", a.c_str()); usage(argv[0]); return EXIT_FAILURE; }
             std::string v = argv[++i];
-            // --light-model is the pre-rename spelling, kept as an alias.
-            if      (a == "--render-path"
-                  || a == "--light-model") render_path = parseRenderPath(v);
+            if      (a == "--shading")   shading  = parseShading(v);
+            else if (a == "--geometry")  geometry = parseGeometry(v);
+            // Pre-split spellings: one value that sets both axes at once.
+            else if (a == "--render-path" || a == "--light-model")
+            { auto p = parseRenderPair(v); shading = p.shading; geometry = p.geometry; }
             else if (a == "--size")      { size_px = std::stof(v); size_set = true; }
             else if (a == "--specular-power") spec_power = std::stof(v);
             else if (a == "--ambient")        ambient_str = std::stof(v);
@@ -318,7 +349,7 @@ int main(int argc, char *argv[])
 
     // Mesh spheres default to a smoother tessellation than path tracing's default; --subdiv still
     // overrides (matches particles-kmodal-3d/benchmark_mimir).
-    if (render_path == RenderPath::Mesh && !subdiv_set) { pt_subdiv = 2; }
+    if (geometry == Geometry::Mesh && !subdiv_set) { pt_subdiv = 2; }
 
     // Pin the process to the requested GPU before the first CUDA/Vulkan call: with only that
     // device visible, the engine's UUID-matched interop selection lands on it (and it becomes
@@ -359,9 +390,9 @@ int main(int argc, char *argv[])
     // under path-tracing WITHOUT LOD) plus the kmodal sim's per-particle cluster id (4 B, always --
     // see kmodal_sim.cu createClusters); + 32 B/particle for the spatial-sort radix when enabled.
     // The N^3 LOD accumulator and render targets are checked below.
-    const bool pt_no_lod = (render_path == RenderPath::PathTraced) && (lod_cells == 0);
+    const bool pt_no_lod = (shading == Shading::PathTraced) && (lod_cells == 0);
     unsigned long long bytes_per_particle =
-        mimir::interopBytesPerParticle(render_path, lod_cells > 0) + 4ull  // +4: kmodal cluster id
+        mimir::interopBytesPerParticle(shading, lod_cells > 0) + 4ull  // +4: kmodal cluster id
         + (sort_on ? 32ull : 0ull);                                        // +32: radix sort scratch
     // Native (no-LOD) path tracing also builds a BVH acceleration structure -- BLAS storage plus build
     // scratch -- that the interop/position buffers counted above do NOT include, and it is large. A
@@ -430,16 +461,14 @@ int main(int argc, char *argv[])
     // scales with screen pixels, not point_count. The threshold below is a heuristic headroom margin
     // under the observed failure, not a hard GPU limit -- it depends on GPU, resolution and topology.
     constexpr unsigned long long kRasterNoLodWarnThreshold = 200'000'000ull;
-    if (render_path != RenderPath::PathTraced && lod_cells == 0
+    if (shading != Shading::PathTraced && lod_cells == 0
         && point_count > kRasterNoLodWarnThreshold)
     {
-        const char* path_name =
-            render_path == RenderPath::Flat ? "flat" :
-            render_path == RenderPath::Impostor ? "impostor" : "mesh";
-        fprintf(stderr, "rr-server: warning: %llu particles with --render-path %s and no --lod draws "
+        const char* path_name = getGeometryName(geometry);
+        fprintf(stderr, "rr-server: warning: %llu particles with --geometry %s and no --lod draws "
                         "the entire cloud as unculled vertices every frame; this can run long enough "
                         "for the GPU driver to kill it (VK_ERROR_DEVICE_LOST). Add --lod N (e.g. 128) "
-                        "to reduce to one representative per occupied cell, or use --render-path "
+                        "to reduce to one representative per occupied cell, or use --shading "
                         "path-traced instead (its cost scales with screen pixels, not particle count).\n",
                         (unsigned long long)point_count, path_name);
     }
@@ -448,7 +477,8 @@ int main(int argc, char *argv[])
     options.window.title      = "Mimir - remote kmodal-3d";
     options.render_mode       = RenderMode::Headless;
     options.window.size       = { width, height };
-    options.render_path       = render_path;
+    options.shading           = shading;
+    options.geometry          = geometry;
     // Same sun/material setup as particles-kmodal-3d/benchmark_mimir so the remote stream is lit
     // identically to the local benchmark: unit-length world-space direction TO the light, and a
     // 0.75-grey light color that matches the datoviz baseline's effective diffuse.
@@ -459,7 +489,7 @@ int main(int argc, char *argv[])
     options.background_color   = { background.x, background.y, background.z, 1.f };
     options.pt_samples_per_pixel = pt_spp;
     options.pt_max_bounces       = pt_bounces;
-    options.pt_subdivisions      = pt_subdiv;
+    options.mesh_subdivisions    = pt_subdiv;
     options.pt_rebuild_interval  = pt_rebuild_interval;
     options.pt_denoise           = pt_denoise;
     options.pt_lod_cells         = lod_cells;
@@ -467,7 +497,7 @@ int main(int argc, char *argv[])
     options.lod_voxel            = lod_voxel_shape;
     // Cell-center forcing for voxel LOD now happens in the engine (prepare), so every caller is
     // consistent; here just note that --size is ignored for the cube extent when voxels are active.
-    if (lod_voxel_shape && lod_cells > 0 && render_path != RenderPath::Flat && size_set)
+    if (lod_voxel_shape && lod_cells > 0 && shading != Shading::Unlit && size_set)
     {
         fprintf(stdout, "rr-server: LOD voxels ignore --size; cubes always fill the cell\n");
     }
@@ -495,7 +525,7 @@ int main(int argc, char *argv[])
 
     // In None mode markers are pixel-sized point sprites; lit modes draw world-space spheres whose
     // default_size is a world-unit radius (/100), same convention as benchmark_mimir.
-    float size = (render_path == RenderPath::Flat) ? size_px : size_px / 100.f;
+    float size = (geometry == Geometry::Sprite) ? size_px : size_px / 100.f;
 
     ViewDescription desc{
         .type       = ViewType::Markers,
@@ -566,13 +596,11 @@ int main(int argc, char *argv[])
            vram_particles / 1000000ull);
 
     const bool quic = (transport == remote::TransportKind::Quic);
-    const char *lm =
-        render_path == RenderPath::Flat       ? "none" :
-        render_path == RenderPath::Impostor      ? "phong" :
-        render_path == RenderPath::Mesh  ? "phong-mesh" : "path-tracing";
-    printf("rr-server: %s port %u (%dx%d, %llu points, %s, %s). Connect with rr-client.\n",
+    const char *shading_name = shading == Shading::Unlit ? "unlit"
+                             : shading == Shading::Phong ? "phong" : "path-traced";
+    printf("rr-server: %s port %u (%dx%d, %llu points, %s, %s %s). Connect with rr-client.\n",
         quic ? "UDP/QUIC" : "TCP", port, width, height, (unsigned long long)point_count,
-        use_h264 ? "H.264" : "raw", lm);
+        use_h264 ? "H.264" : "raw", shading_name, getGeometryName(geometry));
 
     // Experimental: periodically re-sort particles by Morton cell key so the render-side LOD reduction
     // gets spatial locality (warp-agg centroid scatter collapses ~3.3x faster). Parsed + budgeted above

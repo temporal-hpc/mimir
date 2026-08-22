@@ -22,7 +22,7 @@ struct ViewUniforms
     alignas(4)  float size;
     alignas(4)  float linewidth;
     alignas(4)  float antialias;
-    alignas(4)  float shading; // 0 = flat/unlit, 1 = lit (voxel --light-mode phong); see ViewParams
+    alignas(4)  float shading; // 0 = Shading::Unlit, 1 = Shading::Phong; see ViewerOptions::shading
 };
 
 struct SceneUniforms

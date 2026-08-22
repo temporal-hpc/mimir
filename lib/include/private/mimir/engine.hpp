@@ -123,6 +123,10 @@ struct MimirInstance
     interop::Barrier interop;
 
     uint64_t render_timeline;
+    // One-shot latches for the createView geometry/shading resolution warnings, so a program with
+    // many marker views logs each mismatch once instead of once per view.
+    bool warned_pt_geometry = false;
+    bool warned_sprite_shading = false;
     // Set by displayAsync() before the render thread starts: rendering runs on its own thread while
     // the caller drives the sim through prepareViews/updateViews. display() and renderHeadless leave
     // it false (single-threaded). Read by lodRasterOnComputeThread; never mutated after startup.
@@ -173,7 +177,7 @@ struct MimirInstance
     metrics::GraphicsMonitor graphics_monitor;
     metrics::ComputeMonitor compute_monitor;
 
-    // Path tracing (RenderPath::PathTraced). rt_enabled is true only when the instance
+    // Path tracing (Shading::PathTraced). rt_enabled is true only when the instance
     // requested path tracing AND the device is RT-capable; otherwise the engine renders
     // the raster fallback (createView warns). The context is built once in initVulkan; its
     // extent-dependent frame resources are (re)built in initGraphics.
@@ -290,14 +294,14 @@ struct MimirInstance
     // the render pass. No-op for zero-copy aliased image views. See the ViewType::Image creation path.
     void recordImageCopies(VkCommandBuffer cmd);
 
-    // Shared template icosphere for the instanced mesh marker mode (RenderPath::Mesh /
+    // Shared template icosphere for the instanced mesh marker mode (Geometry::Mesh /
     // MarkerOptions::RenderMode::SphereMesh). Built lazily the first time a mesh marker view is
     // created; every such view instances this one unit-sphere mesh, transformed per particle in the
     // vertex shader. index_count == 0 means it has not been built yet.
     VkBuffer sphere_vbo = VK_NULL_HANDLE;   // interleaved {position, normal} unit icosphere vertices
     VkBuffer sphere_ibo = VK_NULL_HANDLE;   // triangle indices, uint32
     uint32_t sphere_index_count = 0;
-    void ensureSphereMesh(); // build sphere_vbo/ibo once (uses ViewerOptions::pt_subdivisions)
+    void ensureSphereMesh(); // build sphere_vbo/ibo once (uses ViewerOptions::mesh_subdivisions)
 
     // Shared template unit cube for voxel LOD (instanced like the icosphere; 24 verts w/ per-face
     // normals, 36 indices). Built lazily the first time a voxel-LOD lit mesh view is set up.

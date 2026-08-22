@@ -66,10 +66,14 @@ VertexOutput vertexColorMain(
 // Blinn-Phong. Robust (no acos, so no NaN speckle at highlights near dot==1) and honours the
 // scene's specular_power / ambient_strength (previously hardcoded 0.3/0.2 and ignored). `ld` is the
 // unit light direction in view space (toward the light); `li` is the light colour; pos/normal are
-// view space. `base` is the marker's own diffuse color (its Color attribute, or view.default_color).
+// view space. `base` is the marker's own diffuse color (its Color attribute, or view.default_color);
+// it is returned unchanged under Shading::Unlit (view.shading == 0).
 // Kept in sync with shaders/marker.slang's computeLighting.
 float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li, float4 base)
 {
+    // Shading::Unlit: draw the marker's own color flat (see marker.slang's copy of this guard).
+    if (view.shading < 0.5) { return base; }
+
     float3 N = normalize(normal);
     float3 V = normalize(-pos);        // camera sits at the origin in view space
     float3 H = normalize(ld + V);      // Blinn-Phong half vector

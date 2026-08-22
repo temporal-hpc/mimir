@@ -106,7 +106,7 @@ GpuPower gpuPower(int device = 0);
 // per-particle AABB (24 B) only under path tracing WITHOUT LOD (LOD builds the BVH over occupied cells,
 // not particles). Callers add any per-particle data of their own (a sim's attribute arrays) on top,
 // then pass the sum to memoryBudget().
-uint64_t interopBytesPerParticle(RenderPath render_path, bool lod_active);
+uint64_t interopBytesPerParticle(Shading shading, bool lod_active);
 
 // GPU memory budget for `particle_count` at `bytes_per_particle`, from the CURRENTLY-FREE VRAM on the
 // device -- a pre-flight so a too-large count is rejected cleanly before Vulkan OOMs mid-setup.

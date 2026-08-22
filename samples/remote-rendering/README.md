@@ -29,21 +29,26 @@ cuRAND — the clusters keep their blobby "cheese" shape indefinitely while the 
 continuously moving, which keeps the encoder honest, and the particle buffer lives on the GPU via
 mimir's CUDA interop (no per-frame host round-trip).
 
-The **render path is selectable** with `--render-path`, so the client can view the simulation as:
+**Shading and geometry are selectable independently**, so the client can view the simulation as:
 
-| `--render-path` | What the client sees                                            |
-|-----------------|-----------------------------------------------------------------|
-| `flat`          | Unlit pixel-sized discs (cheapest)                              |
-| `impostor`      | Lit ray-sphere impostors (default)                              |
-| `mesh`          | Lit instanced icosphere meshes (`--subdiv` tessellation)        |
-| `path-traced`   | Vulkan ray tracing (`--spp`, `--bounces`, `--bvh-rebuild-interval`) |
+| `--shading` | What the client sees |
+|-------------|----------------------|
+| `unlit`     | No lighting; particles keep their own color (cheapest) |
+| `phong`     | Blinn-Phong from the scene light (default) |
+| `path-traced` | Vulkan ray tracing (`--spp`, `--bounces`, `--bvh-rebuild-interval`) |
 
-`--light-model` is still accepted as an alias, with its old value spellings
-(`none`/`point`, `phong`, `phong-mesh`, `path-tracing`).
+| `--geometry` | What each particle is |
+|--------------|-----------------------|
+| `sprite`     | Flat pixel-sized discs (unlit by nature) |
+| `impostor`   | Ray-sphere impostors (default) |
+| `mesh`       | Instanced icosphere meshes (`--subdiv` tessellation) |
+
+`--render-path` and `--light-model` are still accepted as aliases that set both axes at once, with
+their old value spellings (`none`/`point`, `phong`, `phong-mesh`, `path-tracing`).
 
 The lighting (sun direction, `--pcolor`, `--background`) and camera framing match
-`particles-kmodal-3d/benchmark_mimir`, so a phong / phong-mesh / path-traced remote frame looks the
-same as its local counterpart.
+`particles-kmodal-3d/benchmark_mimir`, so a remote frame looks the same as its local counterpart at
+the same `--shading` / `--geometry`.
 
 ## Building
 
@@ -126,13 +131,13 @@ rr-client [host] [port] [token] [auto|quic|tcp] [frames]
 
 `point_count` has **no fixed maximum — it is bounded only by GPU memory**. Positions cost 12
 B/particle; path-tracing *without* `--lod` adds 24 B/particle for AABBs (36 B/particle total);
-`--lod` and the raster render paths (`flat`/`impostor`/`mesh`) stay at ~12 B/particle. A count
+`--lod` and the raster shadings (`unlit`/`phong`) stay at ~12 B/particle. A count
 that would not fit the GPU's free memory right now is rejected up front, before any Vulkan
 allocation — there's no OOM crash, just a clear error. Rough per-card ceiling: ~7.5 B particles on
-a 96 GB GPU (`none`/`phong`/path-tracing+`--lod`); ~2.6 B for path-tracing without `--lod`; more on
+a 96 GB GPU (`unlit`/`phong`/`path-traced`+`--lod`); ~2.6 B for `path-traced` without `--lod`; more on
 larger-VRAM cards.
 
-`rr-server` also takes named options after the positional args — `--render-path`, `--spp`,
+`rr-server` also takes named options after the positional args — `--shading`, `--geometry`, `--spp`,
 `--bounces`, `--bvh-rebuild-interval`, `--subdiv`, `--lod`, `--lod-placement`, `--sort-every`,
 `--size`, `--pcolor`, `--background`, `--seed`, `--k`, `--epsilon`, `--max-steps`, `--dev` (GPU
 device id on a multi-GPU host, default 0) (run `./rr-server --help` for the full list).
@@ -147,8 +152,8 @@ device id on a multi-GPU host, default 0) (run `./rr-server --help` for the full
 ### Pick a render path
 
 ```sh
-./rr-server 9000 1280 720 50000 1 --render-path mesh             # instanced meshes
-./rr-server 9000 1280 720 50000 1 --render-path path-traced --spp 2    # Vulkan RT
+./rr-server 9000 1280 720 50000 1 --geometry mesh                # instanced meshes
+./rr-server 9000 1280 720 50000 1 --shading path-traced --spp 2  # Vulkan RT
 ```
 
 ### Local, H.264 over TCP
@@ -198,16 +203,15 @@ X:
 
 ### Level of detail
 
-#### `--lod N` (level of detail — all render paths)
+#### `--lod N` (level of detail — every shading and geometry)
 
-`--lod` is **transversal**: it applies to every `--render-path` (`flat`, `impostor`, `mesh`,
-`path-traced`), not just path tracing. It's data reduction, orthogonal to how the scene is drawn —
-`--render-path` and `--lod` are picked independently, and the reduced particle set feeds whichever
-renderer is active.
+`--lod` is **transversal**: it applies to every `--shading` and `--geometry`, not just path tracing.
+It's data reduction, orthogonal to how the scene is drawn — `--lod` is picked independently of both
+axes, and the reduced particle set feeds whichever renderer is active.
 
 Aggregates particles into an `N x N x N` voxel grid over the `[-1,1]³` domain and draws
-one representative per **occupied** cell instead of one per particle: in the lit modes (`phong`,
-`phong-mesh`, `path-tracing`) that representative is a sphere sized to the cell; in `none` it's a
+one representative per **occupied** cell instead of one per particle: with a lit `--shading`
+(`phong`, `path-traced`) that representative is a sphere sized to the cell; under `unlit` it's a
 point. Fewer primitives means less BVH build/trace time for path-tracing and fewer verts/instances
 for raster, and — because the lit cell spheres are opaque and overlapping — it removes the
 transparency noise that tiny per-particle spheres produce at high counts.
@@ -224,13 +228,13 @@ is preserved via fixed-point integer atomics.
   the largest feasible N reported.
 - Deterministic: the same `N` yields the same occupied-cell count and image every run, so it is a
   reproducible benchmark knob.
-- The occupied-cell count at a given `N` is **identical across all four render paths** — they share
-  the same reduction, so switching `--render-path` at a fixed `--lod N` shows a consistent scene.
+- The occupied-cell count at a given `N` is **identical across every shading and geometry** — they
+  share the same reduction, so switching axes at a fixed `--lod N` shows a consistent scene.
 - Memory: the grid accumulator is `N³ * 32 bytes` (with centroid; e.g. 256³ = 512 MB).
 
 **`--size` under `--lod`:**
 
-- **Lit modes** (`phong`, `phong-mesh`, `path-tracing`): `--size` scales the representative sphere's
+- **Lit shadings** (`phong`, `path-traced`): `--size` scales the representative sphere's
   cell-fill radius instead of setting an absolute size:
   `radius = cellFill * (default_size / LOD_REFERENCE_SIZE)`, where
   `cellFill = 1.2 * (2/N) * 0.5` and `LOD_REFERENCE_SIZE = 0.05` (the lit default `--size`, since
@@ -238,17 +242,17 @@ is preserved via fixed-point integer atomics.
   `--size 5`, the sphere exactly fills its cell — the classic opaque, overlapping-blob look. A
   larger `--size` makes blobs chunkier (more overlap); a smaller one makes them thinner/gappy.
   `--size` is never dead under `--lod`, unlike the old cell-derived-only radius.
-- **`none`:** `--size` is just the pixel point size of each drawn point, exactly as without `--lod`;
+- **`unlit`:** `--size` is just the pixel point size of each drawn point, exactly as without `--lod`;
   LOD only reduces how many points are drawn.
 
 Examples:
 
 ```sh
 # Path-tracing, 128^3 LOD grid
-./rr-server 9000 1920 1080 $((2**29)) 1 --render-path path-traced --lod 128
+./rr-server 9000 1920 1080 $((2**29)) 1 --shading path-traced --lod 128
 
 # Same LOD grid under phong instead -- identical occupied-cell count, raster shading
-./rr-server 9000 1920 1080 $((2**29)) 1 --render-path impostor --lod 128
+./rr-server 9000 1920 1080 $((2**29)) 1 --shading phong --lod 128
 ```
 
 ## Controls (interactive window)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sweep the path-tracing workload knobs and collect one CSV row per configuration.
 #
-# Each run renders the live k-modal simulation under RenderPath::PathTraced with a scripted
+# Each run renders the live k-modal simulation under Shading::PathTraced with a scripted
 # auto-orbit camera (input-free, reproducible) for ITERS steps, then the benchmark prints one CSV
 # row to stdout (the aligned human table + banner go to stderr). We append those rows, prefixed by
 # a single header, to $OUT. The tlas_time / trace_time columns come from the engine's GPU
@@ -42,7 +42,7 @@ for N in $NS; do for SPP in $SPPS; do for B in $BOUNCES; do for SD in $SUBDIVS; 
     total=$((total + 1))
     echo ">> [$total] N=$N spp=$SPP bounces=$B subdiv=$SD" >&2
     row="$(SPDLOG_LEVEL=err "$BIN" "$W" "$H" "$N" "$SEED" "$ITERS" \
-        --render-path path-traced --spp "$SPP" --bounces "$B" --subdiv "$SD" \
+        --shading path-traced --spp "$SPP" --bounces "$B" --subdiv "$SD" \
         --orbit-speed "$ORBIT" 2>/dev/null | tail -1)"
     if [[ -n "$row" ]]; then
         echo "$row" >> "$OUT"

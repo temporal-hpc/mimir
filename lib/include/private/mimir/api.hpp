@@ -129,6 +129,33 @@ constexpr char* getViewType(ViewType type)
     }
 }
 
+// Names for the two draw axes (ViewerOptions::shading / ::geometry), for log messages.
+constexpr char* getShading(Shading s)
+{
+    switch (s)
+    {
+#define STR(r) case Shading::r: return (char*)#r
+        STR(Unlit);
+        STR(Phong);
+        STR(PathTraced);
+#undef STR
+        default: return (char*)"unknown";
+    }
+}
+
+constexpr char* getGeometry(Geometry g)
+{
+    switch (g)
+    {
+#define STR(r) case Geometry::r: return (char*)#r
+        STR(Sprite);
+        STR(Impostor);
+        STR(Mesh);
+#undef STR
+        default: return (char*)"unknown";
+    }
+}
+
 constexpr char* getDomainType(DomainType d)
 {
     switch (d)

@@ -106,9 +106,13 @@ struct Hello
     uint32_t steps_per_frame;
     // Appended (forward-compat: older peers read min(payload, sizeof) and leave these zero). Static
     // scene identity the client uses to name benchmark CSVs and label its HUD: total particle count,
-    // and the render path (RenderPath ordinal: 0 Flat, 1 Impostor, 2 Mesh, 3 PathTraced).
+    // and the two draw axes -- Shading ordinal (0 Unlit, 1 Phong, 2 PathTraced) and Geometry ordinal
+    // (0 Sprite, 1 Impostor, 2 Mesh). A viewer built before the 2026-08 shading/geometry split reads
+    // `shading` with the old combined RenderPath ordinals and so may pick a wrong scene tag for its
+    // CSV file name; nothing else consumes these fields, and frames/interaction are unaffected.
     uint64_t particle_count;
-    uint32_t render_path;
+    uint32_t shading;
+    uint32_t geometry;
 };
 
 // Precedes each payload on the video channel. When flags has FRAME_STATS the payload is a Stats
@@ -293,26 +297,27 @@ inline std::string countTag(uint64_t n)
     return b;
 }
 
-// Short render-path tag for CSV file names (RenderPath ordinal): 0 Flat, 1 Impostor, 2 Mesh,
-// 3 PathTraced. The tag STRINGS are deliberately unchanged by the LightModel -> RenderPath rename:
-// they name benchmark CSVs already on disk, which research/scripts/plot_grid.py keys off.
-inline const char* pathTag(uint32_t render_path)
+// Short scene tag for CSV file names, from the Shading + Geometry ordinals. The four combinations
+// that existed before the axes were split keep their historical strings exactly -- they name
+// benchmark CSVs already on disk, which research/scripts/plot_grid.py keys off. Combinations only
+// reachable since the split (e.g. unlit meshes) get a compound tag.
+inline const char* sceneTag(uint32_t shading, uint32_t geometry)
 {
-    switch (render_path) {
-        case 1:  return "phong";  // Impostor
-        case 2:  return "mesh";   // Mesh
-        case 3:  return "pt";     // PathTraced
-        case 0:  return "raster"; // Flat
-        default: return "rp";
-    }
+    if (shading == 2) { return "pt"; }                          // PathTraced (geometry N/A)
+    if (shading == 0 && geometry == 0) { return "raster"; }     // Unlit  + Sprite
+    if (shading == 1 && geometry == 1) { return "phong"; }      // Phong  + Impostor
+    if (shading == 1 && geometry == 2) { return "mesh"; }       // Phong  + Mesh
+    if (shading == 0 && geometry == 1) { return "unlit-imp"; }  // Unlit  + Impostor
+    if (shading == 0 && geometry == 2) { return "unlit-mesh"; } // Unlit  + Mesh
+    return "scene";
 }
 
 // Assembles the full CSV path from a caller-supplied path+prefix and the run's identities + scene. The
-// scene tag (-n<count>-lod<N>-<light>) stays compact so the name is informative without ballooning:
+// scene tag (-n<count>-lod<N>-<scene>) stays compact so the name is informative without ballooning:
 //   <prefix>-<date>-rr-<role>-n6G-lod256-pt-c<client>-s<server>-<gpu>.csv
 inline std::string benchmarkCsvPath(const std::string& prefix, const char *role,
     const std::string& client, const std::string& server, const std::string& gpu,
-    uint64_t particles, uint32_t lod_cells, uint32_t render_path)
+    uint64_t particles, uint32_t lod_cells, uint32_t shading, uint32_t geometry)
 {
     std::string p = prefix;
     if (!p.empty() && p.back() != '/' && p.back() != '-') { p += '-'; }
@@ -320,7 +325,7 @@ inline std::string benchmarkCsvPath(const std::string& prefix, const char *role,
     p += "-rr-"; p += role;
     p += "-n"   + countTag(particles);
     p += "-lod" + (lod_cells ? std::to_string(lod_cells) : std::string("off"));
-    p += "-"    + std::string(pathTag(render_path));
+    p += "-"    + std::string(sceneTag(shading, geometry));
     p += "-c" + hostTag(client);
     p += "-s" + hostTag(server);
     p += "-"  + gpuTag(gpu);

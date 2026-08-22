@@ -2,6 +2,8 @@
 
 #include <cuda_runtime_api.h>
 
+#include <mimir/options.hpp> // Geometry (MarkerOptions::geometry)
+
 #include <map> // std::map
 #include <variant> // std::variant
 #include <vector> // std::vector
@@ -120,25 +122,16 @@ struct MarkerOptions
         Ellipse,
     };
 
-    // Sphere3D:   geometry shader expands each point into a quad; fragment shader does
-    //             ray-sphere intersection + Blinn-Phong lighting + custom depth write.
-    //             Full 3D appearance, ~4-6× more GPU work than Flat2D.
-    // Flat2D:     Native point sprites (gl_PointSize/gl_PointCoord); fragment shader
-    //             clips to a disc using point-coord distance only. No geometry shader,
-    //             no lighting, no custom depth — comparable cost to datoviz.
-    // SphereMesh: instanced triangle icosphere per point, Blinn-Phong in the fragment shader.
-    //             No geometry shader, no per-fragment ray-sphere, no shader depth write, so
-    //             early-Z culls overdraw — much cheaper than Sphere3D at high resolution.
-    enum class RenderMode { Sphere3D, Flat2D, SphereMesh };
-
-    Shape      shape;
-    // Engine-managed: derived from ViewerOptions::render_path at createView time
-    // (Flat -> Flat2D, Impostor -> Sphere3D, Mesh -> SphereMesh; PathTraced keeps Sphere3D as its
-    // non-RT fallback). Do not set directly; choose the instance-wide RenderPath instead.
-    RenderMode render_mode = RenderMode::Sphere3D;
+    Shape shape;
+    // Engine-managed: the view's resolved primitive shape, derived at createView time from
+    // ViewerOptions::geometry (plus the internal overrides: PathTraced keeps Impostor as its non-RT
+    // raster fallback, and voxel LOD forces Mesh so the cube template is used). Do not set it
+    // directly -- choose the instance-wide ViewerOptions::geometry instead. It lives here because
+    // pipeline building only ever sees a ViewDescription, never the ViewerOptions.
+    Geometry geometry = Geometry::Impostor;
 
     static MarkerOptions defaults() {
-        return { .shape = Shape::Disc, .render_mode = RenderMode::Sphere3D };
+        return { .shape = Shape::Disc, .geometry = Geometry::Impostor };
     }
 };
 

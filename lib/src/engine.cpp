@@ -240,7 +240,7 @@ void MimirInstance::prepare()
     // render (all lit models). Force it here -- before both the PT (bindScene) and raster LOD inits
     // read options.lod_centroid -- so every caller (not just rr-server) is consistent. `none` and the
     // sphere opt-out (lod_voxel=false) keep whatever placement was requested.
-    if (options.lod_voxel && options.pt_lod_cells > 0 && options.render_path != RenderPath::Flat)
+    if (options.lod_voxel && options.pt_lod_cells > 0 && options.shading != Shading::Unlit)
     {
         if (options.lod_centroid)
         {
@@ -445,8 +445,7 @@ void MimirInstance::prepare()
     // (binding 0) and draw indirect; mesh (phong-mesh) binds them as the per-instance vbo (binding 1)
     // and draws INDEXED indirect (one icosphere per occupied cell).
     const bool raster_point_lod = !rt_enabled && options.pt_lod_cells > 0
-        && (options.render_path == RenderPath::Flat || options.render_path == RenderPath::Impostor
-            || options.render_path == RenderPath::Mesh)
+        && options.shading != Shading::PathTraced
         && supportsRayTracing(physical_device.handle); // BDA (scatter) needs bufferDeviceAddress
     if (options.pt_lod_cells > 0 && !rt_enabled && !supportsRayTracing(physical_device.handle))
     {
@@ -467,8 +466,8 @@ void MimirInstance::prepare()
                 // instance_count (draw_count is the icosphere index count for mesh). Point markers
                 // keep positions in vbo[0] with draw_count = particle count.
                 const bool is_mesh = std::holds_alternative<MarkerOptions>(view->desc.options)
-                    && std::get<MarkerOptions>(view->desc.options).render_mode
-                           == MarkerOptions::RenderMode::SphereMesh
+                    && std::get<MarkerOptions>(view->desc.options).geometry
+                           == Geometry::Mesh
                     && view->use_ibo && view->vb_count >= 2;
                 lod_raster_mesh = is_mesh;
                 // Capture the template index count (cube = 36, icosphere = subdiv-dependent) for the
@@ -527,10 +526,10 @@ void MimirInstance::prepare()
                     });
                     occupied = std::min(lod_context.readCount(/*slot=*/0u), lod_context.maxCells());
                 }
-                const char* mode_name = options.render_path == RenderPath::Flat ? "none"
-                    : (options.render_path == RenderPath::Impostor ? "phong" : "phong-mesh");
-                // none = flat 2D points (plain --size); phong/phong-mesh = world spheres (cell-fill radius).
-                float log_size = options.render_path == RenderPath::Flat
+                const char* mode_name = getGeometry(options.geometry);
+                // Sprites are flat 2D points (plain --size); impostors/meshes are world spheres
+                // (cell-fill radius).
+                float log_size = options.geometry == Geometry::Sprite
                     ? view->desc.default_size : lod_context.sphereRadius(view->desc.default_size);
                 spdlog::info("Raster LOD ({}): emitted {} occupied cells (reduction {:.0f}:1 vs {} "
                     "particles); marker size {:.5f}",
@@ -1188,7 +1187,7 @@ void MimirInstance::ensureSphereMesh()
         {0,11,5},{0,5,1},{0,1,7},{0,7,10},{0,10,11}, {1,5,9},{5,11,4},{11,10,2},{10,7,6},{7,1,8},
         {3,9,4},{3,4,2},{3,2,6},{3,6,8},{3,8,9}, {4,9,5},{2,4,11},{6,2,10},{8,6,7},{9,8,1},
     };
-    for (uint32_t s = 0; s < options.pt_subdivisions; ++s)
+    for (uint32_t s = 0; s < options.mesh_subdivisions; ++s)
     {
         std::unordered_map<uint64_t, uint32_t> cache;
         auto midpoint = [&](uint32_t a, uint32_t b) -> uint32_t {
@@ -1244,7 +1243,7 @@ void MimirInstance::ensureSphereMesh()
         vkFreeMemory(device, ibo_mem, nullptr); vkDestroyBuffer(device, ibo, nullptr);
     });
     spdlog::info("Mesh markers: icosphere subdiv {} ({} tris) built for instanced raster",
-        options.pt_subdivisions, sphere_index_count / 3);
+        options.mesh_subdivisions, sphere_index_count / 3);
 }
 
 void MimirInstance::ensureCubeMesh()
@@ -1652,34 +1651,47 @@ View *MimirInstance::createView(ViewDescription *desc)
         view.desc.options = initOptions(view.desc.type);
     }
 
-    // The instance-wide light model decides how markers are shaded; the per-view
-    // MarkerOptions::render_mode is derived from it here (see ViewerOptions::render_path).
+    // Resolve the view's primitive shape from the two instance-wide axes. ViewerOptions::geometry
+    // is the request; this is the one place it is turned into the per-view MarkerOptions::geometry
+    // everything downstream builds pipelines from. Combinations a renderer cannot honour warn once
+    // and fall back to the nearest sensible thing rather than failing to start -- the same contract
+    // as the non-RT fallback below.
     if (view.desc.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(view.desc.options))
     {
         auto& marker_opts = std::get<MarkerOptions>(view.desc.options);
-        switch (options.render_path)
+        marker_opts.geometry = options.geometry;
+
+        if (options.shading == Shading::PathTraced)
         {
-            case RenderPath::Flat:
-                marker_opts.render_mode = MarkerOptions::RenderMode::Flat2D;
-                break;
-            case RenderPath::Impostor:
-                marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
-                break;
-            case RenderPath::Mesh:
-                marker_opts.render_mode = MarkerOptions::RenderMode::SphereMesh;
-                break;
-            case RenderPath::PathTraced:
-                // Markers are path-traced via the RT pipeline; the Sphere3D raster mode is
-                // kept as the pipeline built for this view so RT-incapable devices still
-                // render (drawElements is skipped for the RT path, see renderFrame).
-                if (!rt_enabled)
-                {
-                    spdlog::warn("RenderPath::PathTraced requested but device is not "
-                                 "RT-capable; rendering with the Impostor raster path instead");
-                }
-                marker_opts.render_mode = MarkerOptions::RenderMode::Sphere3D;
-                break;
+            // The path tracer's primitives are analytic AABB spheres, so Geometry is not one of its
+            // knobs. The resolved geometry only decides the raster pipeline still built for this
+            // view as the non-RT fallback (drawElements is skipped for the RT path, see
+            // renderFrame), so it is pinned to Impostor.
+            if (options.geometry != Geometry::Impostor && !warned_pt_geometry)
+            {
+                spdlog::warn("Shading::PathTraced ignores ViewerOptions::geometry: the path tracer "
+                    "traces analytic spheres, not {} geometry",
+                    getGeometry(options.geometry));
+                warned_pt_geometry = true;
+            }
+            if (!rt_enabled)
+            {
+                spdlog::warn("Shading::PathTraced requested but device is not RT-capable; "
+                             "rendering Phong-shaded impostors instead");
+            }
+            marker_opts.geometry = Geometry::Impostor;
+        }
+        else if (options.geometry == Geometry::Sprite && options.shading != Shading::Unlit
+                 && !warned_sprite_shading)
+        {
+            // A 2D point sprite has no surface normal to light: marker_flat.slang is unlit by
+            // construction. Keep the sprite (that is the geometry the caller asked for) and say
+            // that the shading choice cannot apply to it.
+            spdlog::warn("Geometry::Sprite has no surface normals, so Shading::{} cannot apply; "
+                "drawing unlit sprites (use Geometry::Impostor or Geometry::Mesh for lit markers)",
+                getShading(options.shading));
+            warned_sprite_shading = true;
         }
 
         // LOD draws one representative per occupied cell, but a Color attribute is indexed by
@@ -1696,16 +1708,16 @@ View *MimirInstance::createView(ViewDescription *desc)
                 "colors do not follow the particles they were written for", options.pt_lod_cells);
         }
 
-        // Voxel LOD (lit models) renders as an instanced cube mesh: route the view through the
-        // SphereMesh machinery regardless of the light model's own render mode (phong's Sphere3D
-        // impostor included). The cube-vs-icosphere template is chosen in the mesh view setup below.
-        // `none` (Flat2D) and the sphere opt-out (lod_voxel=false) are untouched. PathTracing keeps
-        // its raster fallback mode; the RT path ignores render_mode anyway.
+        // Voxel LOD (lit models) renders each representative as an instanced cube: route the view
+        // through the Mesh machinery whatever geometry was requested (the impostor included). The
+        // cube-vs-icosphere template is chosen in the mesh view setup below. Unlit sprites and the
+        // sphere opt-out (lod_voxel=false) are untouched, and PathTraced keeps its raster fallback
+        // geometry -- the RT path ignores it anyway.
         if (options.lod_voxel && options.pt_lod_cells > 0
-            && options.render_path != RenderPath::Flat
-            && options.render_path != RenderPath::PathTraced)
+            && options.shading != Shading::Unlit
+            && options.shading != Shading::PathTraced)
         {
-            marker_opts.render_mode = MarkerOptions::RenderMode::SphereMesh;
+            marker_opts.geometry = Geometry::Mesh;
         }
     }
 
@@ -1899,18 +1911,18 @@ View *MimirInstance::createView(ViewDescription *desc)
     // Instanced mesh markers: rebind so the shared template icosphere is the per-vertex geometry
     // (binding 0) and the interop particle positions -- currently vbo[0] -- become per-instance data
     // (binding 1). The draw becomes one indexed instance of the icosphere per particle. This is the
-    // sample's mesh-sphere path (RenderPath::Mesh); the positions stay the same zero-copy
+    // sample's mesh-sphere path (Geometry::Mesh); the positions stay the same zero-copy
     // interop buffer, so nothing extra is streamed per frame.
     if (view.desc.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(view.desc.options)
-        && std::get<MarkerOptions>(view.desc.options).render_mode
-               == MarkerOptions::RenderMode::SphereMesh
+        && std::get<MarkerOptions>(view.desc.options).geometry
+               == Geometry::Mesh
         && view.vb_count >= 1)
     {
         // Voxel LOD lit views use the cube template; everything else uses the icosphere. Both share the
         // interleaved {pos, normal} layout and the same instanced pipeline/shader.
         const bool use_cube = options.lod_voxel && options.pt_lod_cells > 0
-            && options.render_path != RenderPath::Flat;
+            && options.shading != Shading::Unlit;
         VkBuffer  tmpl_vbo   = use_cube ? (ensureCubeMesh(),   cube_vbo)   : (ensureSphereMesh(), sphere_vbo);
         VkBuffer  tmpl_ibo   = use_cube ? cube_ibo                         : sphere_ibo;
         uint32_t  tmpl_count = use_cube ? cube_index_count                 : sphere_index_count;
@@ -2090,11 +2102,11 @@ void MimirInstance::initVulkan()
         vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
     });
 
-    // Path tracing (RenderPath::PathTraced): build the resolution-independent RT context
+    // Path tracing (Shading::PathTraced): build the resolution-independent RT context
     // (BLAS/TLAS/pipeline/SBT) once, before initGraphics() so the per-frame storage images
     // and composite pipeline are created there. Requires an RT-capable device; otherwise the
     // instance silently renders the raster fallback (createView emits the warning).
-    rt_enabled = (options.render_path == RenderPath::PathTraced)
+    rt_enabled = (options.shading == Shading::PathTraced)
               && supportsRayTracing(physical_device.handle);
     if (rt_enabled)
     {
@@ -2115,7 +2127,7 @@ void MimirInstance::initVulkan()
         bool int64_atomics = supportsInt64Atomics(physical_device.handle);
         raytracing = RayTracingContext::make(device, physical_device.handle,
             physical_device.memory.memoryProperties, submit,
-            options.pt_subdivisions, /*max_recursion=*/2, int64_atomics, std::move(materials)
+            options.mesh_subdivisions, /*max_recursion=*/2, int64_atomics, std::move(materials)
         );
         raytracing.rebuild_interval = options.pt_rebuild_interval;
         deletors.context.add([this]{ raytracing.destroy(); });
@@ -3184,10 +3196,9 @@ void MimirInstance::drawElements(uint32_t image_idx)
         if (view->desc.type == ViewType::Markers
             && std::holds_alternative<MarkerOptions>(view->desc.options))
         {
-            auto rm = std::get<MarkerOptions>(view->desc.options).render_mode;
-            marker_point_mode = (rm == MarkerOptions::RenderMode::Flat2D
-                              || rm == MarkerOptions::RenderMode::Sphere3D);
-            marker_mesh_mode  = (rm == MarkerOptions::RenderMode::SphereMesh);
+            auto geom = std::get<MarkerOptions>(view->desc.options).geometry;
+            marker_point_mode = (geom == Geometry::Sprite || geom == Geometry::Impostor);
+            marker_mesh_mode  = (geom == Geometry::Mesh);
         }
         const bool lod_point_draw = !view->use_ibo && lod_context.active() && marker_point_mode;
         // Mesh LOD (phong-mesh): the reduced positions replace the per-INSTANCE centers (binding 1),
@@ -3503,14 +3514,12 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
         float marker_size = view->desc.default_size;
         if (lod_context.active() && view->desc.type == ViewType::Markers
             && std::holds_alternative<MarkerOptions>(view->desc.options)
-            && (std::get<MarkerOptions>(view->desc.options).render_mode
-                   == MarkerOptions::RenderMode::Sphere3D
-             || std::get<MarkerOptions>(view->desc.options).render_mode
-                   == MarkerOptions::RenderMode::SphereMesh))
+            && (std::get<MarkerOptions>(view->desc.options).geometry == Geometry::Impostor
+             || std::get<MarkerOptions>(view->desc.options).geometry == Geometry::Mesh))
         {
             // Voxel LOD lit views (routed to SphereMesh) fill the cell: half-extent = 1/grid_n so the
             // cubes tile. Sphere LOD uses the cell-fill sphere radius scaled by --size.
-            const bool voxel = options.lod_voxel && options.render_path != RenderPath::Flat;
+            const bool voxel = options.lod_voxel && options.shading != Shading::Unlit;
             marker_size = voxel ? lod_context.voxelHalfExtent()
                                 : lod_context.sphereRadius(view->desc.default_size);
         }
@@ -3519,9 +3528,10 @@ void MimirInstance::updateUniformBuffers(uint32_t image_idx)
             .size      = marker_size,
             .linewidth = view->desc.linewidth,
             .antialias = view->desc.antialias,
-            // Voxels read this to shade cube faces under --light-mode phong (RenderPath::Impostor). Other
-            // view shaders ignore it, so a global instance-wide flag is fine.
-            .shading   = (options.render_path == RenderPath::Impostor) ? 1.f : 0.f,
+            // Every lit shader reads this to switch lighting on (Shading::Phong): the voxel cube
+            // faces, and the marker impostor/mesh shaders, which draw their base color unlit when
+            // it is 0. Shading is an instance-wide axis, so one global flag is enough.
+            .shading   = (options.shading == Shading::Phong) ? 1.f : 0.f,
         };
 
         auto bg = options.background_color;

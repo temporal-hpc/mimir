@@ -45,7 +45,7 @@ using Vec3 = std::array<float, 3>;
 // Input / output structs
 // ---------------------------------------------------------------------------
 
-// datoviz raster geometry selected by --render-path. Point/Disc/Sphere are single-vertex point
+// datoviz raster geometry selected by --geometry. Point/Disc/Sphere are single-vertex point
 // sprites (equal vertex cost); they differ only in the fragment shader and depth behavior:
 //   Point  = dvz_point:  antialiased filled disc, no lighting, no depth write (early-Z intact) -- cheapest
 //   Disc   = dvz_marker: SDF disc + AA,           no lighting, no depth write (early-Z intact)
@@ -152,26 +152,24 @@ static void expandMesh(const std::vector<Vec3>& tmpl, const vec3* centers, uint3
     }
 }
 
-// Map --render-path onto datoviz's raster geometry, matching mimir's RenderPath values. datoviz is
-// the raster baseline (DESIGN_pathtracing.md §7): 'point' -> dvz_point, 'flat' -> flat disc markers,
-// 'impostor' -> lit sphere impostors, 'mesh' -> lit triangle icospheres (merged mesh),
-// 'path-traced' is unavailable and exits. The old --light-model spellings stay accepted.
-static DvzMode parseRenderPathMode(const std::string& v)
+// datoviz is the raster baseline (DESIGN_pathtracing.md §7) and has one primitive per geometry, so
+// only mimir's --geometry axis selects anything here: sprite -> flat disc markers, impostor -> lit
+// sphere impostors, mesh -> lit triangle icospheres (one merged mesh). datoviz's raw dvz_point has
+// no mimir equivalent, so it keeps the extra 'point' spelling. --shading path-traced is unavailable.
+static DvzMode parseGeometryMode(const std::string& v)
 {
     if (v == "point")                     return DvzMode::Point;
-    if (v == "flat"     || v == "none")   return DvzMode::Disc;
-    if (v == "impostor" || v == "phong")  return DvzMode::Sphere;
+    if (v == "sprite" || v == "flat" || v == "none") return DvzMode::Disc;
+    if (v == "impostor" || v == "phong" || v == "sphere") return DvzMode::Sphere;
     if (v == "mesh" || v == "phong-mesh") return DvzMode::Mesh;
     if (v == "path-traced" || v == "path-tracing")
     {
         fprintf(stderr,
             "datoviz is the raster baseline and cannot path trace; "
-            "run benchmark_mimir --render-path path-traced instead.\n");
+            "run benchmark_mimir --shading path-traced instead.\n");
         exit(EXIT_FAILURE);
     }
-    fprintf(stderr, "Unknown render path '%s' "
-        "(use point|flat|impostor|mesh|path-traced; the old none/phong/phong-mesh/path-tracing "
-        "spellings also work)\n", v.c_str());
+    fprintf(stderr, "Unknown geometry '%s' (use point|sprite|impostor|mesh)\n", v.c_str());
     exit(EXIT_FAILURE);
 }
 
@@ -919,19 +917,20 @@ static void usage(const char* prog)
         "  --display N        1 = open window, 0 = headless compute (default: 1)\n"
         "  --size S           Marker size in pixels                 (default: 5)\n"
         "                     Same meaning as benchmark_mimir --size.\n"
-        "  --render-path P    point        = raw point sprites (dvz_point), cheapest,\n"
-        "                     flat         = flat disc markers (dvz_marker),\n"
+        "  --geometry G       point        = raw point sprites (dvz_point), cheapest,\n"
+        "                     sprite       = flat disc markers (dvz_marker),\n"
         "                     impostor     = lit sphere impostors (dvz_sphere),\n"
         "                     mesh         = lit triangle icospheres (dvz_mesh), mimir's\n"
         "                                    mesh geometry; one merged N-sphere mesh,\n"
         "                                    positions re-uploaded every frame (no instancing\n"
-        "                                    in datoviz) -- costly, for comparison only,\n"
-        "                     path-traced  = unavailable (datoviz is the raster\n"
-        "                                    baseline; exits)      (default: flat)\n"
-        "                     'impostor' matches benchmark_mimir --render-path impostor: the\n"
-        "                     sphere radius is size/100 in [-1,1] domain units.\n"
-        "                     Alias: --light-model, with the old value spellings\n"
-        "                     (none/phong/phong-mesh/path-tracing).\n"
+        "                                    in datoviz) -- costly, for comparison only\n"
+        "                                                            (default: sprite)\n"
+        "                     'impostor' matches benchmark_mimir --geometry impostor: the\n"
+        "                     sphere radius is size/100 in [-1,1] domain units. Each datoviz\n"
+        "                     primitive is lit or not by construction, so --shading only picks\n"
+        "                     between them here; path-traced exits (raster baseline).\n"
+        "                     Aliases: --shading, --render-path, --light-model, with the old\n"
+        "                     value spellings (none/phong/phong-mesh/path-tracing).\n"
         "  --subdiv N         Icosphere subdivisions for mesh         (default: 2)\n"
         "                     0/1/2 = 20/80/320 triangles per sphere; matches mimir --subdiv.\n"
         "  --k N              Gaussian modes (clusters) at init     (default: 8)\n"
@@ -986,9 +985,12 @@ int main(int argc, char* argv[])
             if      (a == "--vsync")       input.vsync    = (bool)std::stoi(v);
             else if (a == "--display")     input.display  = (bool)std::stoi(v);
             else if (a == "--size")        input.size_px  = std::stof(v);
-            // --light-model is the pre-rename spelling, kept as an alias.
-            else if (a == "--render-path" || a == "--light-model")
-                                           input.mode = parseRenderPathMode(v);
+            // --geometry is the axis that selects a datoviz primitive; --shading only says
+            // whether it is lit, which follows from the primitive here, so both --shading and the
+            // pre-split --render-path/--light-model spellings map through the same table.
+            else if (a == "--geometry" || a == "--shading"
+                  || a == "--render-path" || a == "--light-model")
+                                           input.mode = parseGeometryMode(v);
             else if (a == "--subdiv")      input.subdiv = (uint32_t)std::stoul(v);
             else if (a == "--k")           input.pts.k = (unsigned int)std::stoul(v);
             else if (a == "--epsilon")     input.pts.epsilon = std::stof(v);

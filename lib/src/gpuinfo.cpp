@@ -159,9 +159,9 @@ GpuPower gpuPower(int device)
     return pw;
 }
 
-uint64_t interopBytesPerParticle(RenderPath render_path, bool lod_active)
+uint64_t interopBytesPerParticle(Shading shading, bool lod_active)
 {
-    const bool pt_no_lod = (render_path == RenderPath::PathTraced) && !lod_active;
+    const bool pt_no_lod = (shading == Shading::PathTraced) && !lod_active;
     return 12ull + (pt_no_lod ? 24ull : 0ull);
 }
 

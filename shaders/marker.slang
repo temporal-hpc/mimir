@@ -108,8 +108,14 @@ float sphIntersect2(float3 ro, float3 rd, float4 sph)
 // view space. `base` is the surface's own diffuse color: it comes from the marker's COLOR attribute
 // when the view binds one (one color per primitive) and falls back to view.default_color otherwise
 // -- ColorDefault::getColor() returns exactly that, so an unbound Color attribute is unchanged.
+// Returns `base` unchanged under Shading::Unlit (view.shading == 0).
 // Kept in sync with shaders/marker_mesh.slang's computeLighting.
 float4 computeLighting(float3 pos, float3 normal, float3 ld, float4 li, float4 base) {
+    // Shading::Unlit: the marker keeps its own color, flat. The ray-sphere intersection and the
+    // depth write above still run, so an unlit impostor is a round, depth-correct sphere -- just
+    // not lit. Same guard (and the same view.shading uniform) as voxel.slang.
+    if (view.shading < 0.5) { return base; }
+
     float3 N = normalize(normal);
     float3 V = normalize(-pos);        // camera sits at the origin in view space
     float3 H = normalize(ld + V);      // Blinn-Phong half vector

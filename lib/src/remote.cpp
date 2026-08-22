@@ -616,7 +616,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
         {
             const std::string path = remote::benchmarkCsvPath(
                 stats_csv, "server", transport->peerName(), server_host, server_gpu,
-                particle_total, lod_cells, static_cast<uint32_t>(options.render_path));
+                particle_total, lod_cells, static_cast<uint32_t>(options.shading),
+                static_cast<uint32_t>(options.geometry));
             csv = fopen(path.c_str(), "w");
             if (csv) { fprintf(csv, "time_s,frame,fps,steps_s,kbps,encode_ms,compute_ms,render_ms\n"); fflush(csv);
                        spdlog::info("remote: benchmark CSV -> {}", path); }
@@ -655,7 +656,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
             .lod_cells = lod_cells,   // LOD mode for the client HUD (0 = native, N = N^3 grid)
             .steps_per_frame = static_cast<uint32_t>(steps_per_frame > 0 ? steps_per_frame : 0),
             .particle_count  = particle_total,
-            .render_path     = static_cast<uint32_t>(options.render_path),
+            .shading         = static_cast<uint32_t>(options.shading),
+            .geometry        = static_cast<uint32_t>(options.geometry),
         };
         fillServerIdentity(hello);
         if (!transport->sendVideo(&hello, sizeof(hello))) { continue; } // client vanished; re-listen
@@ -846,7 +848,8 @@ void MimirInstance::serveRemote(uint16_t port, std::function<void(void)> compute
                         .lod_cells = lod_cells,
                         .steps_per_frame = static_cast<uint32_t>(steps_per_frame > 0 ? steps_per_frame : 0),
                         .particle_count  = particle_total,
-                        .render_path     = static_cast<uint32_t>(options.render_path),
+                        .shading         = static_cast<uint32_t>(options.shading),
+            .geometry        = static_cast<uint32_t>(options.geometry),
                     };
                     fillServerIdentity(rehello);
                     remote::FrameHeader hh{ .size = static_cast<uint32_t>(sizeof(rehello)),

@@ -72,22 +72,32 @@ struct WindowOptions
 // Remote   = headless rendering streamed to a connected client (not yet implemented).
 enum class RenderMode { Local, Headless, Remote };
 
-// Selects the instance-wide RENDER PATH: how markers are turned into pixels. This is not a lighting
-// model -- each value picks a geometry representation AND a rendering technique together, and two of
-// them share the same Blinn-Phong shading. (Formerly RenderPath; --light-model is still accepted on
-// the samples' CLI as an alias.)
-// Flat       = unlit raster; markers draw as flat 2D point-sprite discs (marker_flat.slang).
-// Impostor   = lit raster; markers draw as ray-sphere impostors shaded with Blinn-Phong, one
-//              screen-aligned quad each (marker.slang). The datoviz-comparable lit-sphere technique.
-// Mesh       = lit raster; markers draw as instanced triangle icospheres (marker_mesh.slang), same
-//              Blinn-Phong shading as Impostor, tessellation from pt_subdivisions. Cheaper than
-//              impostors at high resolution (early-Z, no per-fragment ray-sphere) and
-//              geometry-matched to path tracing. mimir-only: datoviz has no per-instance mesh path.
-// PathTraced = Vulkan ray-traced path tracing (pathtrace.slang; requires an RT-capable GPU). Markers
-//              become procedural AABB spheres in a per-frame acceleration structure. Falls back to
-//              the Impostor raster path with a warning on a non-RT device. See DESIGN_pathtracing.md.
-// The ordinals (Flat = 0 ... PathTraced = 3) are part of the remote protocol -- do not reorder.
-enum class RenderPath { Flat, Impostor, Mesh, PathTraced };
+// The two orthogonal axes of how elements are drawn. They were a single conflated enum
+// (LightModel, then RenderPath) until 2026-08: Impostor and Mesh are the SAME Blinn-Phong lighting
+// on different geometry, and the old `Flat` welded a geometry choice (2D sprite) to a lighting one
+// (unlit), so neither question could be answered without answering the other.
+
+// How surfaces are lit -- increasing fidelity, and nothing about their shape.
+// Unlit      = no lighting; elements are drawn in their own color.
+// Phong      = Blinn-Phong local lighting from the scene light (the historical default look).
+// PathTraced = Vulkan ray-traced path tracing: shadows and global illumination (pathtrace.slang).
+//              Requires an RT-capable GPU; falls back to Phong raster with a warning otherwise.
+//              The tracer's primitives are analytic AABB spheres, so Geometry does not apply.
+enum class Shading { Unlit, Phong, PathTraced };
+
+// What each marker IS -- its primitive shape, and nothing about how it is lit. Applies to
+// ViewType::Markers; other view types have an inherent shape (a voxel is a cube) and ignore it.
+// Sprite   = flat 2D point-sprite disc, screen-space and sizeless in depth (marker_flat.slang).
+//            Cheapest, and the datoviz-comparable point/disc primitive. Has no surface normals,
+//            so it renders unlit whatever the Shading says.
+// Impostor = one screen-aligned quad per marker, with the sphere recovered analytically by a
+//            ray-sphere intersection in the fragment shader, including a true depth write
+//            (marker.slang). Perfectly round at any zoom.
+// Mesh     = instanced triangle icosphere per marker (marker_mesh.slang), tessellation from
+//            ViewerOptions::mesh_subdivisions. No geometry stage and no per-fragment ray-sphere,
+//            so early-Z culls overdraw -- cheaper than Impostor at high resolution.
+// The ordinals of both enums are part of the remote protocol -- do not reorder.
+enum class Geometry { Sprite, Impostor, Mesh };
 
 enum class PresentMode { Immediate, TripleBuffering, VSync };
 
@@ -139,10 +149,12 @@ struct ViewerOptions
     // Selects on-screen (Local) vs offscreen/headless rendering for this instance.
     RenderMode render_mode  = RenderMode::Local;
 
-    // Instance-wide render path; drives how each view's pipeline is built (flat sprites, lit
-    // impostors, instanced meshes, or the ray-tracing pipeline). Impostor preserves the historical
-    // default look.
-    RenderPath render_path  = RenderPath::Impostor;
+    // Instance-wide shading and geometry -- the two independent axes above. Together they decide
+    // which pipeline each Markers view is built with; Phong + Impostor preserves the historical
+    // default look. Combinations a renderer cannot honour (a lit Sprite, any Geometry under
+    // PathTraced) warn once at createView and render the nearest sensible thing.
+    Shading  shading  = Shading::Phong;
+    Geometry geometry = Geometry::Impostor;
 
     // Forces mimir's CUDA-Vulkan interop device to this CUDA device ordinal (from the
     // CUDA-visible set), instead of auto-picking the first suitable GPU. Set this to match
@@ -190,11 +202,11 @@ struct ViewerOptions
     float specular_power = 32.f;
     float ambient_strength = .05f;
 
-    // Path-tracing workload knobs (only used when render_path == RenderPath::PathTraced;
+    // Path-tracing workload knobs (only used when shading == Shading::PathTraced;
     // ignored by the raster light models). See DESIGN_pathtracing.md §6.
     unsigned int pt_samples_per_pixel = 1; // rays per pixel per frame (--spp)
     unsigned int pt_max_bounces       = 4; // max path depth (--bounces)
-    unsigned int pt_subdivisions      = 1; // icosphere tessellation: 0=20,1=80,2=320 tris (--subdiv)
+    unsigned int mesh_subdivisions    = 1; // icosphere tessellation: 0=20,1=80,2=320 tris (--subdiv)
     // BLAS refit cadence: a full rebuild happens every pt_rebuild_interval dirty frames, with cheap
     // in-place refits in between (see RayTracingContext::rebuild_interval in raytracing.hpp). <= 1
     // disables refit (full rebuild every frame). Larger trades traversal quality for speed as the

@@ -176,7 +176,7 @@ std::vector<const char*> getRequiredDeviceExtensions(bool include_swapchain)
 
 bool checkAllExtensionsSupported(VkPhysicalDevice dev, std::span<const char*> expected);
 
-// Extensions required by the path-tracing render path (RenderPath::PathTraced).
+// Extensions required by the path-tracing render path (Shading::PathTraced).
 // VK_KHR_buffer_device_address is core in Vulkan 1.2 (feature flag, no extension).
 std::vector<const char*> getRayTracingExtensions()
 {
@@ -447,7 +447,7 @@ VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_fam
 
     auto device_extensions = getRequiredDeviceExtensions(!headless);
 
-    // Ray tracing (RenderPath::PathTraced) support: enabled whenever the GPU has it,
+    // Ray tracing (Shading::PathTraced) support: enabled whenever the GPU has it,
     // so an instance can request path tracing without special device setup. The
     // feature structs live in this scope because vkCreateDevice reads the pNext chain.
     VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_features{};
@@ -483,7 +483,7 @@ VkDevice createLogicalDevice(VkPhysicalDevice gpu, std::span<uint32_t> queue_fam
     else
     {
         spdlog::info("Ray tracing not supported by this device; "
-                     "RenderPath::PathTraced will be unavailable");
+                     "Shading::PathTraced will be unavailable");
     }
 
     VkDeviceCreateInfo create_info{

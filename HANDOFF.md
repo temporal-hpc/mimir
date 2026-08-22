@@ -25,10 +25,12 @@ Done and tested on the workstation (RTX 3090 Ti):
 
 Just written, **compiles NOT yet verified** (the rebuild was interrupted to push):
 
-- `lib/include/public/mimir/options.hpp`: `enum class RenderPath { Flat, Impostor, Mesh,
-  PathTraced }` + `ViewerOptions::render_path` (default Impostor = historical look). Named
-  `LightModel { None, Phong, PhongMesh, PathTracing }` until the 2026-08 rename.
-- `lib/src/engine.cpp` `createView` (~line 800): maps instance render_path onto
+- `lib/include/public/mimir/options.hpp`: two orthogonal axes,
+  `enum class Shading { Unlit, Phong, PathTraced }` + `enum class Geometry { Sprite, Impostor,
+  Mesh }`, as `ViewerOptions::shading` / `::geometry` (defaults Phong + Impostor = historical
+  look). This was one conflated enum until 2026-08: `LightModel { None, Phong, PhongMesh,
+  PathTracing }`, briefly `RenderPath`.
+- `lib/src/engine.cpp` `createView` (~line 800): resolves the instance axes onto
   `MarkerOptions::render_mode` (None→Flat2D, Phong→Sphere3D, PathTracing→warn +
   Sphere3D fallback). `MarkerOptions::render_mode` is now engine-managed (comment in
   view.hpp says so).
@@ -46,9 +48,9 @@ Just written, **compiles NOT yet verified** (the rebuild was interrupted to push
    converted both the `supportsRayTracing` query block and the `createLogicalDevice`
    enable block in device.cpp to the `Struct x{}; x.field = …;` style used elsewhere in
    the file. Library builds clean.
-2. ~~**Update both benchmarks to `--render-path flat|impostor|mesh|path-traced`**~~ ✅ DONE and
-   verified (originally `--light-model none|phong|path-tracing`, still accepted as an alias).
-   benchmark_mimir sets `opts.render_path`, no longer touches
+2. ~~**Update both benchmarks to `--shading` + `--geometry`**~~ ✅ DONE and verified (originally
+   `--light-model none|phong|path-tracing`, still accepted as an alias along with `--render-path`).
+   benchmark_mimir sets `opts.shading`/`opts.geometry`, no longer touches
    marker_opts.render_mode (engine-managed), size none→px / phong,pt→/100. Both
    benchmarks parse `none|phong|path-tracing`; datoviz path-tracing prints the raster
    baseline message and exits 1. Verified windowed: mimir none≈2050 fps (flat discs),

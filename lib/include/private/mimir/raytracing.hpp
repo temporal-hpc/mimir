@@ -107,7 +107,7 @@ static constexpr uint32_t kColorFormatFloat3  = 1; // 12 B/primitive
 static constexpr uint32_t kColorFormatFloat4  = 2; // 16 B/primitive
 static constexpr uint32_t kColorFormatUchar4  = 3; // 4 B/primitive, RGBA8 unorm
 
-// Path-tracing render context (RenderPath::PathTraced). Owns the icosphere BLAS, the
+// Path-tracing render context (Shading::PathTraced). Owns the icosphere BLAS, the
 // scene TLAS, the ray-tracing pipeline + SBT, and the per-frame storage images plus the
 // fullscreen composite pipeline that samples them into the raster render pass (so the
 // existing ImGui HUD/present machinery is untouched). RT pipeline/SBT/BLAS/TLAS are

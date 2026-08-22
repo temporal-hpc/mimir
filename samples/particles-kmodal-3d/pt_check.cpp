@@ -1,11 +1,11 @@
-// Headless verification for RenderPath::PathTraced. Fills the interop position buffer with a
+// Headless verification for Shading::PathTraced. Fills the interop position buffer with a
 // deterministic grid, renders the scene (per-frame TLAS built from those positions) to a PPM.
 // Not part of the benchmark; a throwaway acceptance check for Phase 2's dynamic scene path.
 //
 // PT_COLORS=1 additionally binds a per-primitive Color attribute (one float4 per particle, a
 // 6-color saturated palette cycled by particle index) so the same scene checks that one color per
-// primitive reaches EVERY render path -- pick the raster ones with PT_PATH=impostor or
-// PT_PATH=mesh. Without it the whole cloud keeps default_color.
+// primitive reaches every shading x geometry combination -- select them with PT_SHADING and
+// PT_GEOMETRY. Without it the whole cloud keeps default_color.
 #include <mimir/mimir.hpp>
 
 #include <cuda_runtime_api.h>
@@ -21,22 +21,39 @@ int main(int argc, char** argv)
 {
     ViewerOptions opts;
     opts.render_mode      = RenderMode::Headless;
-    // PT_LIGHT selects the shading path over the identical scene: path-traced (default) or the
-    // Sphere3D raster impostor, so a per-primitive color source can be compared across both.
-    const char* rp = getenv("PT_PATH");
-    if (rp == nullptr) { rp = getenv("PT_LIGHT"); } // pre-rename spelling, still accepted
-    const bool impostor = (rp != nullptr
-        && (strcmp(rp, "impostor") == 0 || strcmp(rp, "phong") == 0));
-    const bool mesh = (rp != nullptr
-        && (strcmp(rp, "mesh") == 0 || strcmp(rp, "phong-mesh") == 0));
-    opts.render_path      = impostor ? RenderPath::Impostor
-                          : mesh ? RenderPath::Mesh
-                          : RenderPath::PathTraced;
+    // The two axes are selected independently, so every cell of the matrix is reachable from here:
+    // PT_SHADING=unlit|phong|path-traced (default path-traced) x PT_GEOMETRY=sprite|impostor|mesh
+    // (default impostor). PT_PATH/PT_LIGHT keep working as the pre-split shorthand.
+    Shading  shading  = Shading::PathTraced;
+    Geometry geometry = Geometry::Impostor;
+    const char* legacy = getenv("PT_PATH");
+    if (legacy == nullptr) { legacy = getenv("PT_LIGHT"); }
+    if (legacy != nullptr)
+    {
+        if (strcmp(legacy, "impostor") == 0 || strcmp(legacy, "phong") == 0)
+        { shading = Shading::Phong; geometry = Geometry::Impostor; }
+        else if (strcmp(legacy, "mesh") == 0 || strcmp(legacy, "phong-mesh") == 0)
+        { shading = Shading::Phong; geometry = Geometry::Mesh; }
+        else if (strcmp(legacy, "flat") == 0 || strcmp(legacy, "none") == 0)
+        { shading = Shading::Unlit; geometry = Geometry::Sprite; }
+    }
+    if (const char* sh = getenv("PT_SHADING"))
+    {
+        shading = (strcmp(sh, "unlit") == 0) ? Shading::Unlit
+                : (strcmp(sh, "phong") == 0) ? Shading::Phong : Shading::PathTraced;
+    }
+    if (const char* g = getenv("PT_GEOMETRY"))
+    {
+        geometry = (strcmp(g, "sprite") == 0) ? Geometry::Sprite
+                 : (strcmp(g, "mesh") == 0)   ? Geometry::Mesh : Geometry::Impostor;
+    }
+    opts.shading  = shading;
+    opts.geometry = geometry;
     opts.window.size      = { 512, 512 };
     opts.background_color  = { 0.10f, 0.10f, 0.13f, 1.f }; // dark grey: exercises env fill light
     opts.light_pos         = { -0.4082f, 0.4082f, 0.8165f }; // match benchmark world sun (from behind the camera)
     opts.pt_samples_per_pixel = 16; // more samples to expose GI/shadow noise cleanly
-    opts.pt_subdivisions      = 2;  // exercise BLAS tessellation (320 tris)
+    opts.mesh_subdivisions    = 2;  // exercise mesh tessellation (320 tris)
     opts.pt_max_bounces       = (argc > 2) ? (unsigned)atoi(argv[2]) : 4; // GI depth (argv[2])
     opts.present.enable_fps_limit = false;
     // Optional harness knobs: PT_SPP overrides samples/pixel (lower = noisier, to expose the

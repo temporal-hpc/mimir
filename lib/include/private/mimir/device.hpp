@@ -57,7 +57,7 @@ bool findGraphicsQueueFamily(VkPhysicalDevice dev, uint32_t& graphics_family);
 // The swapchain extension is only needed for on-screen presentation; omit it for headless.
 std::vector<const char*> getRequiredDeviceExtensions(bool include_swapchain = true);
 
-// Extensions required by the path-tracing render path (RenderPath::PathTraced).
+// Extensions required by the path-tracing render path (Shading::PathTraced).
 std::vector<const char*> getRayTracingExtensions();
 
 // True when the device exposes the ray tracing extensions AND features

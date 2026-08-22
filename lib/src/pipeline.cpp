@@ -38,11 +38,11 @@ namespace mimir
 
 VkPipelineDepthStencilStateCreateInfo getDepthInfo(const ViewDescription& desc)
 {
-    // Flat2D markers render as point sprites with no custom depth write; depth test/write
+    // Sprite markers render as point sprites with no custom depth write; depth test/write
     // adds bandwidth cost (clear + per-fragment read/write) with no visual benefit.
     bool flat2d = desc.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(desc.options)
-        && std::get<MarkerOptions>(desc.options).render_mode == MarkerOptions::RenderMode::Flat2D;
+        && std::get<MarkerOptions>(desc.options).geometry == Geometry::Sprite;
     bool use_depth = !flat2d && desc.depth_test;
     bool depth_test = use_depth;
     bool depth_write = use_depth;
@@ -114,8 +114,7 @@ VkPipelineInputAssemblyStateCreateInfo getInputAssemblyInfo(const ViewDescriptio
     // Mesh markers draw an indexed triangle icosphere per instance, not point sprites.
     if (desc.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(desc.options)
-        && std::get<MarkerOptions>(desc.options).render_mode
-               == MarkerOptions::RenderMode::SphereMesh)
+        && std::get<MarkerOptions>(desc.options).geometry == Geometry::Mesh)
     {
         return VkPipelineInputAssemblyStateCreateInfo{
             .sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
@@ -212,14 +211,14 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
         case ViewType::Markers:
         {
             auto options = std::get<MarkerOptions>(desc.options);
-            if (options.render_mode == MarkerOptions::RenderMode::Flat2D)
+            if (options.geometry == Geometry::Sprite)
             {
                 // Flat 2D point sprites: vertex + fragment only, no geometry stage.
                 // No domain/shape/style specializations — disc clipping is built in.
                 compile.module_path = "shaders/marker_flat.slang";
                 compile.entrypoints = {"vertexMain", "fragmentMain"};
             }
-            else if (options.render_mode == MarkerOptions::RenderMode::SphereMesh)
+            else if (options.geometry == Geometry::Mesh)
             {
                 // Instanced triangle icosphere: vertex + fragment only (no geometry stage, no
                 // per-fragment ray-sphere, no shader depth write). Fixed vertex inputs (template
@@ -235,7 +234,7 @@ ShaderCompileParams getShaderCompileParams(ViewDescription desc)
             }
             else
             {
-                // Sphere3D (default): geometry shader expands points to quads;
+                // Impostor (default): geometry shader expands points to quads;
                 // fragment does ray-sphere intersection + lighting.
                 compile.module_path = "shaders/marker.slang";
                 compile.entrypoints = {"vertexMain", "geometryMain", "fragmentMain"};
@@ -405,8 +404,7 @@ VertexDescription getVertexDescription(const ViewDescription desc)
     // The shader (marker_mesh.slang) reads these via [[vk::location(0/1)]].
     if (desc.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(desc.options)
-        && std::get<MarkerOptions>(desc.options).render_mode
-               == MarkerOptions::RenderMode::SphereMesh)
+        && std::get<MarkerOptions>(desc.options).geometry == Geometry::Mesh)
     {
         constexpr uint32_t vec3_stride  = static_cast<uint32_t>(sizeof(glm::vec3));
         constexpr uint32_t vertex_stride = 2u * vec3_stride; // {position, normal}
@@ -537,14 +535,13 @@ uint32_t PipelineBuilder::addPipeline(const ViewDescription params, VkDevice dev
     //     stages = shader_builder.loadExternalShaders(device, ext_shaders);
     // }
 
-    // SphereMesh markers are opaque triangle icospheres: alpha blending is unnecessary (there
+    // Mesh markers are opaque triangle icospheres: alpha blending is unnecessary (there
     // are no soft impostor edges to feather) and, worse, it forces every fragment to be shaded
     // and blended in draw order, defeating the early-Z rejection that makes the mesh path cheap.
     // Disable blending so the depth test can discard occluded fragments before the fragment stage.
     bool sphere_mesh = params.type == ViewType::Markers
         && std::holds_alternative<MarkerOptions>(params.options)
-        && std::get<MarkerOptions>(params.options).render_mode
-               == MarkerOptions::RenderMode::SphereMesh;
+        && std::get<MarkerOptions>(params.options).geometry == Geometry::Mesh;
 
     VkPipelineColorBlendAttachmentState color_blend{
         .blendEnable         = sphere_mesh ? VK_FALSE : VK_TRUE,

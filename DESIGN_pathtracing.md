@@ -111,7 +111,7 @@ CSV layout; PT rows come only from benchmark_mimir. The comparison story becomes
    everywhere.
 5. **PT workload CLI**: `--spp N` and `--bounces N` as separate, order-independent
    flags (matches the existing `--k` / `--epsilon` style and §6), not positional args
-   after `--render-path path-traced`. Ignored unless the render path is path-traced.
+   after `--shading path-traced`. Ignored unless the shading is path-traced.
 6. **Instance writer: Vulkan compute shader, not CUDA** (refines §4), confirmed
    2026-07-03. The per-frame `VkAccelerationStructureInstanceKHR` array is written by an
    engine-owned Vulkan compute shader that reads the interop position buffer in place,
@@ -124,33 +124,34 @@ CSV layout; PT rows come only from benchmark_mimir. The comparison story becomes
    interop timeline wait moves to the COMPUTE stage for PT (the instance writer, not the
    vertex shader, is the first GPU consumer of positions).
 
-### 8.1 Public API: `RenderPath`
+### 8.1 Public API: `Shading` + `Geometry`
 
-The choice is exposed to the programmer as an instance-wide render path — how markers are
-turned into pixels, geometry representation and rendering technique together
+The choice is exposed to the programmer as two independent instance-wide axes
 (`lib/include/public/mimir/options.hpp`):
 
 ```cpp
-enum class RenderPath { Flat, Impostor, Mesh, PathTraced };
-struct ViewerOptions { ...; RenderPath render_path = RenderPath::Impostor; ... };
+enum class Shading  { Unlit, Phong, PathTraced };  // how surfaces are lit
+enum class Geometry { Sprite, Impostor, Mesh };    // what each marker is
+struct ViewerOptions { ...; Shading shading = Shading::Phong;
+                            Geometry geometry = Geometry::Impostor; ... };
 ```
 
-- `Flat`       → unlit raster; markers draw as flat 2D point-sprite discs.
-- `Impostor`   → lit raster; markers draw as ray-sphere impostors (historical default).
-- `Mesh`       → lit raster; markers draw as instanced triangle icospheres.
-- `PathTraced` → the path-traced path of this document.
+- `Shading::PathTraced` → the path-traced path of this document. Its primitives are analytic AABB
+  spheres, so `Geometry` is not one of its knobs (it warns once and traces spheres); on a non-RT
+  device it warns and falls back to Phong-shaded impostors.
+- The other combinations are ordinary raster: `Unlit`/`Phong` × `Sprite`/`Impostor`/`Mesh`. A
+  `Sprite` has no surface normal, so it renders unlit whatever the shading says (warns once).
 
-(This enum was originally `LightModel { None, Phong, PhongMesh, PathTracing }`. The name was
-wrong: only `Impostor` vs `PathTraced` is a lighting difference — `Impostor` and `Mesh` share
-the same Blinn-Phong shading and differ in geometry. The ordinals are unchanged, so the remote
-protocol's render-path field is unaffected.)
+(These were one conflated enum until August 2026: `LightModel {None, Phong, PhongMesh,
+PathTracing}`, briefly renamed `RenderPath`. `PhongMesh` named a lighting model and a geometry at
+once — the same Blinn-Phong as `Phong` on different geometry — and `None` welded "unlit" to "2D
+sprite". Splitting the axes also made `Unlit` × `Impostor`/`Mesh` reachable for the first time.)
 
-`MarkerOptions::render_mode` is engine-managed: `createView` derives it from the instance's
-render path (Flat → Flat2D, Impostor → Sphere3D, Mesh → SphereMesh); programs should not set it
-directly. On a non-RT device, requesting `PathTraced` logs a warning and falls back to the
-Impostor raster path. Benchmarks expose the choice as
-`--render-path flat|impostor|mesh|path-traced`, with `--light-model` and the old value
-spellings kept as aliases.
+`MarkerOptions::geometry` is engine-managed: `createView` derives it from
+`ViewerOptions::geometry` plus the internal overrides above; programs should not set it directly.
+Benchmarks expose the axes as `--shading unlit|phong|path-traced` and
+`--geometry sprite|impostor|mesh`, keeping `--render-path`/`--light-model` with the old value
+spellings as aliases that set both at once.
 
 ## 9. Phased plan
 

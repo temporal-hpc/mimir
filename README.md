@@ -148,34 +148,49 @@ Under this mode, CUDA calls manipulating interop-mapped memory must be enclosed 
 the `prepareViews` and `updateViews` function calls respectively. This ensures proper
 synchronization and load balancing between rendering and compute work.
 
-### Render paths
+### Shading and geometry
 
-`ViewerOptions::render_path` selects, instance-wide, how markers are turned into pixels — geometry
-representation and rendering technique together:
+Two independent axes decide how elements are drawn. `ViewerOptions::shading` is how surfaces are
+lit; `ViewerOptions::geometry` is what each marker *is*. Neither answers the other's question:
 
-| `RenderPath` | What it draws |
+| `Shading` | How surfaces are lit |
 |---|---|
-| `Flat` | Unlit 2D point-sprite discs — the cheapest path |
-| `Impostor` | Lit ray-sphere impostors, Blinn-Phong (the default) |
-| `Mesh` | Lit instanced triangle icospheres, Blinn-Phong (tessellation from `pt_subdivisions`) |
-| `PathTraced` | Vulkan ray-traced path tracing, with shadows and global illumination (`pt_samples_per_pixel`, `pt_max_bounces`); needs an RT-capable GPU, and falls back to `Impostor` with a warning otherwise |
+| `Unlit` | No lighting; elements keep their own color |
+| `Phong` | Blinn-Phong from the scene light (default) |
+| `PathTraced` | Vulkan ray tracing: shadows and global illumination (`pt_samples_per_pixel`, `pt_max_bounces`). Needs an RT-capable GPU; falls back to Phong with a warning otherwise |
+
+| `Geometry` | What each marker is |
+|---|---|
+| `Sprite` | Flat 2D point-sprite discs — cheapest, and the datoviz-comparable primitive |
+| `Impostor` | Ray-sphere impostors: one quad each, sphere and depth recovered analytically in the fragment shader. Round at any zoom (default) |
+| `Mesh` | Instanced triangle icospheres (`mesh_subdivisions`). No geometry stage and no per-fragment ray-sphere, so early-Z culls overdraw — cheaper at high resolution |
 
 ```cpp
 ViewerOptions opts;
-opts.render_path = RenderPath::PathTraced;
+opts.shading  = Shading::Phong;    // lit ...
+opts.geometry = Geometry::Mesh;    // ... instanced icospheres
 ```
 
-Every path honours a per-primitive `AttributeType::Color` attribute (one color per marker, written
-straight from CUDA into interop memory); without one, the view's `default_color` shades the whole
-set. The exception is level-of-detail rendering, which draws one representative per occupied grid
-cell rather than per particle — `PathTraced` then ignores the color source (and says so), while the
-raster paths keep drawing it with a warning that the colors no longer identify the particles they
-were written for. Samples expose the choice as `--render-path flat|impostor|mesh|path-traced`.
+Every pairing is valid except two, which warn once and render the nearest sensible thing rather
+than failing: a `Sprite` has no surface normals, so it draws unlit whatever the shading says, and
+`PathTraced` traces analytic spheres, so `Geometry` is not one of its knobs. `Geometry` applies to
+`ViewType::Markers`; other view types have an inherent shape (a voxel is a cube) and ignore it.
 
-> This was called `LightModel` (`None`/`Phong`/`PhongMesh`/`PathTracing`) before August 2026 — an
-> inaccurate name, since only `PathTraced` differs from `Impostor` in its lighting, while `Impostor`
-> and `Mesh` share the same shading and differ in geometry. The samples still accept
-> `--light-model` and the old value spellings as aliases.
+Every combination honours a per-primitive `AttributeType::Color` attribute (one color per marker,
+written straight from CUDA into interop memory); without one, the view's `default_color` shades the
+whole set. The exception is level-of-detail rendering, which draws one representative per occupied
+grid cell rather than per particle — `PathTraced` then ignores the color source (and says so), while
+the raster paths keep drawing it with a warning that the colors no longer identify the particles
+they were written for.
+
+Samples expose both axes as `--shading unlit|phong|path-traced` and
+`--geometry sprite|impostor|mesh`.
+
+> These were a single conflated enum until August 2026 — `LightModel`, then `RenderPath`, with
+> values `none`/`phong`/`phong-mesh`/`path-tracing`. `phong-mesh` was the giveaway: it named a
+> lighting model and a geometry at once, and `none` welded "unlit" to "2D sprite" so neither could
+> be chosen alone. The samples still accept `--render-path` and `--light-model` with those old
+> spellings, each setting both axes at once.
 
 ### Controls
 
@@ -275,9 +290,9 @@ integrated GPU is enough.
     - 2D/3D Stencil like simulations such as celullar automata, FDM, Potts model, etc.
     - 2D/3D surface meshes
 * Synchronous and asynchronous (on separate thread) rendering
-* Selectable [render path](#render-paths): flat sprites, lit impostors, instanced meshes, or
-  Vulkan ray-traced path tracing
-* Per-primitive colors from an interop buffer, honoured by every render path
+* Independent [shading and geometry](#shading-and-geometry) axes: unlit / Phong / path-traced
+  lighting, over 2D sprites / ray-sphere impostors / instanced meshes
+* Per-primitive colors from an interop buffer, honoured by every combination
 * Camera manipulation
 * Model transformations (translation, rotation, scale) per view
 * Headless rendering and [remote rendering](#remote-rendering) (H.264 over QUIC/TCP to a thin client)

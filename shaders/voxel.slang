@@ -115,7 +115,7 @@ float3 lambert(float3 normal, float3 light, float3 color)
 }
 
 // Shade a cube face by its (axis-aligned) normal under the scene light. Kept simple: Lambert diffuse
-// plus a fixed ambient term so back faces stay visible. --light-mode phong sets view.shading = 1.
+// plus a fixed ambient term so back faces stay visible. Shading::Phong sets view.shading = 1.
 float4 shadeVoxel(float4 color, float3 normal)
 {
     if (view.shading < 0.5) { return color; }
